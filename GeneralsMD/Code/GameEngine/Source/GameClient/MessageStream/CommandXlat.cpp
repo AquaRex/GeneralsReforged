@@ -1455,7 +1455,8 @@ CommandTranslator::CommandTranslator() :
 	m_teamExists(false),
 	m_mouseRightDown(0),
 	m_mouseRightUp(0),
-	m_formationDragArmed(FALSE)
+	m_formationDragArmed(FALSE),
+	m_formationDragForceLine(FALSE)
 {
 	m_mouseRightDragAnchor.x = 0;
 	m_mouseRightDragAnchor.y = 0;
@@ -1499,7 +1500,7 @@ void CommandTranslator::finishFormationDrag( const ICoord2D& lift )
 	// walks it and shoots what it meets; the attack key fires on the line where it stands
 	const GameMessage::Type formationType =
 		Command_formationMessage( TheInGameUI->isInAttackMoveToMode(),
-															TheInGameUI->isForceAttackArmed(),
+															TheInGameUI->isForceAttackArmed() || m_formationDragForceLine,
 															TheInGameUI->isGuardArmed() );
 
 	// the traced curve becomes world points; who stands where along it is decided on
@@ -4101,15 +4102,18 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 
 		//-----------------------------------------------------------------------------
 		// A formation line is drawn with the left button, and only once the move, attack move or guard
-		// key is armed: a left drag without one is a selection box.  The attack key keeps its left
-		// drag for the attack circle.
+		// key is armed: a left drag without one is a selection box.  The attack key and the Force
+		// Attack hold keep their left drag for the attack circle; shift on the hold draws the attack
+		// line here instead, aimed at the enemies near it.
 		case GameMessage::MSG_RAW_MOUSE_LEFT_DOUBLE_CLICK:
 		case GameMessage::MSG_RAW_MOUSE_LEFT_BUTTON_DOWN:
 		{
-			if( TheInGameUI->isLineOrderArmed() )
+			const Bool forceLine = TheInGameUI->isForceLineHeld();
+			if( TheInGameUI->isLineOrderArmed() || forceLine )
 			{
 				m_formationDragAnchor = msg->getArgument( 0 )->pixel;
 				m_formationDragArmed = isFormationDragArmed();
+				m_formationDragForceLine = forceLine;
 			}
 			break;
 		}

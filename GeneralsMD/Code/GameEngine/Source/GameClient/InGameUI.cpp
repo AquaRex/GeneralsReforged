@@ -3179,7 +3179,7 @@ void InGameUI::updateFormationHints( void )
 		if( obj->isKindOf( KINDOF_IMMOBILE ) || obj->getAIUpdateInterface() == NULL )
 			continue;
 		// the same riders the logic leaves out of a formation move (GameLogicDispatch)
-		if( obj->isDisabledByType( DISABLED_HELD ) && !isForceAttackArmed() && !isGuardArmed() )
+		if( obj->isDisabledByType( DISABLED_HELD ) && !isForceAttackArmed() && !isForceLineHeld() && !isGuardArmed() )
 			continue;
 		movers.push_back( obj );
 	}
@@ -3194,7 +3194,7 @@ void InGameUI::updateFormationHints( void )
 	{
 		OrderHint hint;
 		hint.kind = isInAttackMoveToMode() ? ORDER_HINT_ATTACK_MOVE
-							: isForceAttackArmed() ? ORDER_HINT_ATTACK
+							: ( isForceAttackArmed() || isForceLineHeld() ) ? ORDER_HINT_ATTACK
 							: isGuardArmed() ? ORDER_HINT_GUARD
 							: ORDER_HINT_MOVE;
 		hint.owner = movers[ i ]->getID();
@@ -4086,8 +4086,8 @@ Bool InGameUI::issueAttackCircle( void )
 		previousAttacker = attacker.id;
 
 		// each unit's first shot starts that unit's list. the rest of its run is queued behind it.
-		// shift, or the waypoint key, appends the whole run onto whatever that one unit was already doing.
-		const Bool startsList = firstForThisAttacker && !isInWaypointMode() && !TheKeyboard->isShift();
+		// shift appends the whole run onto whatever that one unit was already doing.
+		const Bool startsList = firstForThisAttacker && !isInWaypointMode();
 		markNextOrderQueued( startsList ? ORDER_QUEUE_FRESH : ORDER_QUEUE_APPEND );
 		GameMessage *attack = TheMessageStream->appendMessage( GameMessage::MSG_DO_ATTACK_OBJECT );
 		attack->appendObjectIDArgument( target.id );
@@ -4134,15 +4134,16 @@ Bool InGameUI::isAttackListTarget( const Object *obj, const Player *local ) cons
 /** The line drawn with the attack key: every enemy it runs across is shared across the units that
 	* can shoot, in the order both sides stand along the stroke, nearest the start first.  The shots
 	* are dealt the same way as the circle, so the counts differ by one at most, and each unit works
-	* down its own share.  "Across" is the line passing over the object's own footprint, give or take
-	* a few feet for a hand that is not steady.  Returns how many enemies the line crossed.  With
+	* down its own share.  "Across" is the line passing over the object's own footprint or near it,
+	* within LINE_TOLERANCE of its edge.  Returns how many enemies the line crossed.  With
 	* none, the caller fires on the ground along the line instead.  Enemies that nobody selected can
 	* shoot still count, so the ground is not fired in their place. */
 //-------------------------------------------------------------------------------------------------
 Int InGameUI::issueAttackLine( const std::vector<Coord3D>& line )
 {
-	// how far off the line a unit's edge may be and still count as under it
-	const Real LINE_TOLERANCE = 10.0f;
+	// how far off the line a unit's edge may be and still count: the line is drawn near the enemies
+	// it means, not threaded through each one, so a tank's length either side of it counts
+	const Real LINE_TOLERANCE = 40.0f;
 
 	// the range query measures to centres, so it reaches this much further for a building whose
 	// centre is off the line and whose walls are under it
@@ -4280,8 +4281,8 @@ Int InGameUI::issueAttackLine( const std::vector<Coord3D>& line )
 			previousAttacker = attacker.id;
 
 			// each unit's first shot starts that unit's list. the rest of its run is queued behind it.
-			// shift, or the waypoint key, appends the whole run onto whatever that one unit was already doing.
-			const Bool startsList = firstForThisAttacker && !isInWaypointMode() && !TheKeyboard->isShift();
+			// shift appends the whole run onto whatever that one unit was already doing.
+			const Bool startsList = firstForThisAttacker && !isInWaypointMode();
 			markNextOrderQueued( startsList ? ORDER_QUEUE_FRESH : ORDER_QUEUE_APPEND );
 			GameMessage *attack = TheMessageStream->appendMessage( GameMessage::MSG_DO_ATTACK_OBJECT );
 			attack->appendObjectIDArgument( target.id );
@@ -4964,6 +4965,15 @@ void InGameUI::createCommandHint( const GameMessage *msg )
 Bool InGameUI::isForceFireOn( void ) const
 {
 	return m_forceAttackArmed || m_forceAttackMode;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Shift on top of the Force Attack hold turns its left drag from the circle into the attack line.
+	* An armed move, attack move or guard key keeps its own line. */
+//-------------------------------------------------------------------------------------------------
+Bool InGameUI::isForceLineHeld( void ) const
+{
+	return m_forceAttackMode && !isLineOrderArmed() && TheKeyboard->isShift();
 }
 
 //-------------------------------------------------------------------------------------------------

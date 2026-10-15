@@ -1141,6 +1141,7 @@ public:  // ********************************************************************
 	void toggleMoveArmed( void )							{ m_moveArmed = !m_moveArmed; m_attackMoveToMode = FALSE; m_forceAttackArmed = FALSE; m_guardArmed = FALSE; }
 	Bool isMoveArmed( void ) const						{ return m_moveArmed; }
 	Bool isLineOrderArmed( void ) const				{ return m_attackMoveToMode || m_guardArmed || m_moveArmed; }	///< a left drag draws a move, attack move or guard line; force fire's left drag is the attack circle
+	Bool isForceLineHeld( void ) const;				///< the Force Attack hold with shift: a left drag draws the attack line, not the circle
 	
 	// zeroing the repeat clock makes the first quantized step happen on the very next update, so a
 	// tap of the key is one eighth and a hold is one eighth every CAMERA_SNAP_REPEAT_MS.

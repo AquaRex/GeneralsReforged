@@ -69,6 +69,7 @@ private:
 	// the player is already dragging.  With attack move or guard armed only the left button draws
 	// one, otherwise only the right, and the anchor is wherever the drawing button went down.
 	Bool m_formationDragArmed;
+	Bool m_formationDragForceLine;		///< latched with it: the line was begun under the Force Attack hold and shift
 	ICoord2D m_formationDragAnchor;
 
 	void finishFormationDrag( const ICoord2D& lift );

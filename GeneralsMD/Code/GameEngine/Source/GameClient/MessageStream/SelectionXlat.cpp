@@ -456,7 +456,8 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 
 			// with attack move or guard armed a left drag draws the order line over in CommandXlat, so
 			// no selection box grows under it, whichever mouse is set.  A drag with no key armed is the box
-			const Bool leftDragIsOrder = TheInGameUI->isLineOrderArmed()
+			const Bool leftDragIsOrder = ( TheInGameUI->isLineOrderArmed() || TheInGameUI->isForceLineHeld()
+																		 || TheInGameUI->isFormationDragging() )
 																	&& TheInGameUI->getSelectCount() > 0;
 			if (m_leftMouseButtonIsDown && !leftDragIsOrder)
 			{
@@ -1104,9 +1105,10 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 
 			// with the attack key armed or the Force Attack hold down the left button draws a circle
 			// instead of a selection box, and everything hostile inside it becomes a target list.  An
-			// armed line key (move, attack move, guard) keeps its line under the hold.  Shift on top
-			// of the hold or the attack key still draws the circle and queues its targets.
-			if( TheInGameUI->isForceFireOn() && !TheInGameUI->isLineOrderArmed() && TheInGameUI->getSelectCount() > 0
+			// armed line key (move, attack move, guard) keeps its line under the hold, and shift on top
+			// of the hold draws the attack line over in CommandXlat instead.
+			if( TheInGameUI->isForceFireOn() && !TheInGameUI->isLineOrderArmed() && !TheInGameUI->isForceLineHeld()
+					&& TheInGameUI->getSelectCount() > 0
 					&& TheInGameUI->getGUICommand() == NULL && TheInGameUI->getPendingPlaceType() == NULL )
 				TheInGameUI->beginAttackCircle( m_selectFeedbackAnchor );
 			break;
@@ -1147,10 +1149,10 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 					break;
 			}
 
-			// a left drag that drew an attack move or guard line is turned into its order by CommandXlat,
-			// which sees this release next.  The click behind the release would select whatever sat
-			// under it and drop the group the line was drawn for
-			if( TheInGameUI->isFormationDragging() && TheInGameUI->isLineOrderArmed() )
+			// a left drag that drew an attack move, guard or attack line is turned into its order by
+			// CommandXlat, which sees this release next.  The click behind the release would select
+			// whatever sat under it and drop the group the line was drawn for
+			if( TheInGameUI->isFormationDragging() )
 			{
 				m_dragOrderJustIssued = TRUE;
 				break;
