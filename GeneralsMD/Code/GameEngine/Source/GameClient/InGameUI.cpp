@@ -4977,6 +4977,29 @@ Bool InGameUI::isForceLineHeld( void ) const
 }
 
 //-------------------------------------------------------------------------------------------------
+/** Shift with no key armed draws the move line, the one V draws, when something selected of yours
+	* can walk it.  With nothing that walks selected there is no line to draw and shift's drag stays
+	* the box that adds to the selection.  Ctrl and Alt on top keep their own meanings, and a GUI
+	* command or a structure on the cursor (shift drags a row of them) owns the drag. */
+//-------------------------------------------------------------------------------------------------
+Bool InGameUI::isMoveLineHeld( void ) const
+{
+	if( !TheKeyboard->isShift() || TheKeyboard->isCtrl() || TheKeyboard->isAlt() )
+		return FALSE;
+	if( !TheGlobalData->m_formationDrag || isOrderKeyArmed() || m_forceAttackMode
+			|| getGUICommand() != NULL || m_pendingPlaceType != NULL )
+		return FALSE;
+
+	for( DrawableList::const_iterator it = m_selectedDrawables.begin(); it != m_selectedDrawables.end(); ++it )
+	{
+		const Object *obj = (*it)->getObject();
+		if( obj && obj->isLocallyControlled() && !obj->isKindOf( KINDOF_IMMOBILE ) && obj->getAIUpdateInterface() != NULL )
+			return TRUE;
+	}
+	return FALSE;
+}
+
+//-------------------------------------------------------------------------------------------------
 /// Get drawable ID under cursor
 //-------------------------------------------------------------------------------------------------
 DrawableID InGameUI::getMousedOverDrawableID( void ) const

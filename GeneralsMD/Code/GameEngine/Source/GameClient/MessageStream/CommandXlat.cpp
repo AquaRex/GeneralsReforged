@@ -4104,12 +4104,12 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 		// A formation line is drawn with the left button, and only once the move, attack move or guard
 		// key is armed: a left drag without one is a selection box.  The attack key and the Force
 		// Attack hold keep their left drag for the attack circle; shift on the hold draws the attack
-		// line here instead, aimed at the enemies near it.
+		// line here instead, aimed at the enemies near it.  Shift alone draws the move line.
 		case GameMessage::MSG_RAW_MOUSE_LEFT_DOUBLE_CLICK:
 		case GameMessage::MSG_RAW_MOUSE_LEFT_BUTTON_DOWN:
 		{
 			const Bool forceLine = TheInGameUI->isForceLineHeld();
-			if( TheInGameUI->isLineOrderArmed() || forceLine )
+			if( TheInGameUI->isLineOrderArmed() || forceLine || TheInGameUI->isMoveLineHeld() )
 			{
 				m_formationDragAnchor = msg->getArgument( 0 )->pixel;
 				m_formationDragArmed = isFormationDragArmed();

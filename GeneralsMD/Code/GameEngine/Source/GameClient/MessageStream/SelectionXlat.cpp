@@ -303,6 +303,7 @@ SelectionTranslator::SelectionTranslator()
 {
 	m_leftMouseButtonIsDown = FALSE;
 	m_dragSelecting = FALSE;
+	m_leftDragIsLine = FALSE;
 	m_dragOrderJustIssued = FALSE;
 	m_lastGroupSelTime = 0;
 	m_lastGroupSelGroup = -1;
@@ -456,7 +457,7 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 
 			// with attack move or guard armed a left drag draws the order line over in CommandXlat, so
 			// no selection box grows under it, whichever mouse is set.  A drag with no key armed is the box
-			const Bool leftDragIsOrder = ( TheInGameUI->isLineOrderArmed() || TheInGameUI->isForceLineHeld()
+			const Bool leftDragIsOrder = ( TheInGameUI->isLineOrderArmed() || m_leftDragIsLine
 																		 || TheInGameUI->isFormationDragging() )
 																	&& TheInGameUI->getSelectCount() > 0;
 			if (m_leftMouseButtonIsDown && !leftDragIsOrder)
@@ -1102,6 +1103,11 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 			// cannot actually start area selection yet - have to wait for cursor to move a bit
 			m_leftMouseButtonIsDown = true;
 			m_selectFeedbackAnchor = msg->getArgument( 0 )->pixel;
+
+			// the line keys are asked again on every move; the two holds are latched here, the same
+			// moment CommandXlat latches the line, so letting go of shift mid-drag cannot grow a box
+			// under a line that is already being drawn
+			m_leftDragIsLine = TheInGameUI->isForceLineHeld() || TheInGameUI->isMoveLineHeld();
 
 			// with the attack key armed or the Force Attack hold down the left button draws a circle
 			// instead of a selection box, and everything hostile inside it becomes a target list.  An
