@@ -451,13 +451,17 @@ static const char * findGameMessageNameByType(GameMessage::Type type)
 /** The command bar slot keys have to behave exactly like a click on the cell they press, and a
 	* shift-click on a build button queues a whole batch instead of one unit. Holding shift must
 	* therefore not stop the slot from matching. Every other modifier still has to match exactly,
-	* and a slot the player deliberately bound to shift is compared as-is. */
+	* and a slot the player deliberately bound to shift is compared as-is.  The Force Attack hold is
+	* the same: shift on top of it queues the circle, so pressing shift must neither end the hold nor
+	* stop it from starting. */
 //-------------------------------------------------------------------------------------------------
 static Bool metaIgnoresShift(const MetaMapRec *map)
 {
-	return map->m_meta >=GameMessage::MSG_META_COMMAND_SLOT01 &&
-				 map->m_meta <= GameMessage::MSG_META_COMMAND_SLOT18 &&
-				 (map->m_modState & SHIFT) == 0;
+	const Bool slot = map->m_meta >= GameMessage::MSG_META_COMMAND_SLOT01 &&
+										map->m_meta <= GameMessage::MSG_META_COMMAND_SLOT18;
+	const Bool forceAttackHold = map->m_meta == GameMessage::MSG_META_BEGIN_FORCEATTACK ||
+															 map->m_meta == GameMessage::MSG_META_END_FORCEATTACK;
+	return ( slot || forceAttackHold ) && (map->m_modState & SHIFT) == 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -529,6 +533,10 @@ GameMessageDisposition MetaEventTranslator::translateGameMessage(const GameMessa
 						if( map->m_modState != wantedModState )
 							continue;
 
+						// letting go of shift alone does not end what never needed shift
+						if( metaIgnoresShift( map ) && ( ( newModState | SHIFT ) & heldModState ) == heldModState )
+							continue;
+
 						TheMessageStream->appendMessage( map->m_meta );
 					}
 				}
@@ -563,13 +571,17 @@ GameMessageDisposition MetaEventTranslator::translateGameMessage(const GameMessa
 
 
 
-			// check for the special case of mods-only-changed.
+			// check for the special case of mods-only-changed.  A record that ignores shift sees the
+			// modifiers without it, so shift going down or up under Ctrl is no change at all to it.
+			const Int modMask = metaIgnoresShift(map) ? ~SHIFT : ~0;
+			const Int lastMods = m_lastModState & modMask;
+			const Int newMods = newModState & modMask;
 			if (
-						map->m_key == MK_NONE && 
-						newModState != m_lastModState &&
+						map->m_key == MK_NONE &&
+						newMods != lastMods &&
 						(
-							(map->m_transition == UP && map->m_modState == m_lastModState) ||
-							(map->m_transition == DOWN && map->m_modState == newModState)
+							(map->m_transition == UP && map->m_modState == lastMods) ||
+							(map->m_transition == DOWN && map->m_modState == newMods)
 						)
 					)
 			{

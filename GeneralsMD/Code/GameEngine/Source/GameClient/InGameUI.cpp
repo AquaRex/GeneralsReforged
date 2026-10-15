@@ -4086,8 +4086,8 @@ Bool InGameUI::issueAttackCircle( void )
 		previousAttacker = attacker.id;
 
 		// each unit's first shot starts that unit's list. the rest of its run is queued behind it.
-		// shift appends the whole run onto whatever that one unit was already doing.
-		const Bool startsList = firstForThisAttacker && !isInWaypointMode();
+		// shift, or the waypoint key, appends the whole run onto whatever that one unit was already doing.
+		const Bool startsList = firstForThisAttacker && !isInWaypointMode() && !TheKeyboard->isShift();
 		markNextOrderQueued( startsList ? ORDER_QUEUE_FRESH : ORDER_QUEUE_APPEND );
 		GameMessage *attack = TheMessageStream->appendMessage( GameMessage::MSG_DO_ATTACK_OBJECT );
 		attack->appendObjectIDArgument( target.id );
@@ -4280,8 +4280,8 @@ Int InGameUI::issueAttackLine( const std::vector<Coord3D>& line )
 			previousAttacker = attacker.id;
 
 			// each unit's first shot starts that unit's list. the rest of its run is queued behind it.
-			// shift appends the whole run onto whatever that one unit was already doing.
-			const Bool startsList = firstForThisAttacker && !isInWaypointMode();
+			// shift, or the waypoint key, appends the whole run onto whatever that one unit was already doing.
+			const Bool startsList = firstForThisAttacker && !isInWaypointMode() && !TheKeyboard->isShift();
 			markNextOrderQueued( startsList ? ORDER_QUEUE_FRESH : ORDER_QUEUE_APPEND );
 			GameMessage *attack = TheMessageStream->appendMessage( GameMessage::MSG_DO_ATTACK_OBJECT );
 			attack->appendObjectIDArgument( target.id );

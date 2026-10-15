@@ -1104,12 +1104,10 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 
 			// with the attack key armed or the Force Attack hold down the left button draws a circle
 			// instead of a selection box, and everything hostile inside it becomes a target list.  An
-			// armed line key (move, attack move, guard) keeps its line under the hold.  Hold+Shift is
-			// the box: you can pick units without dropping force-fire.  Shift with the attack key
-			// armed still queues a circle.
+			// armed line key (move, attack move, guard) keeps its line under the hold.  Shift on top
+			// of the hold or the attack key still draws the circle and queues its targets.
 			if( TheInGameUI->isForceFireOn() && !TheInGameUI->isLineOrderArmed() && TheInGameUI->getSelectCount() > 0
-					&& TheInGameUI->getGUICommand() == NULL && TheInGameUI->getPendingPlaceType() == NULL
-					&& !( TheInGameUI->isInForceAttackMode() && TheKeyboard->isShift() ) )
+					&& TheInGameUI->getGUICommand() == NULL && TheInGameUI->getPendingPlaceType() == NULL )
 				TheInGameUI->beginAttackCircle( m_selectFeedbackAnchor );
 			break;
 		}
