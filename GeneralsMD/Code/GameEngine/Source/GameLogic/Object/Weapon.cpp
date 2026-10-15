@@ -2195,8 +2195,8 @@ void Weapon::reloadWithBonus(const Object *sourceObj, const WeaponBonus& bonus, 
 			// go through other weapons in weapon set
 			// set their m_whenWeCanFireAgain to this guy's delay	
 			// set their m_status to this guy's status
-	if (sourceObj->isReloadTimeShared())
-	{	
+	if (sourceObj->isReloadTimeShared() && sourceObj->getWeaponInWeaponSlot( m_wslot ) == this)	// a weapon of the set, as in privateFireWeapon
+	{
 		for (Int wt = 0; wt<WEAPONSLOT_COUNT; wt++)
 		{
 			Weapon *weapon = sourceObj->getWeaponInWeaponSlot((WeaponSlotType)wt);
@@ -2998,9 +2998,11 @@ Bool Weapon::privateFireWeapon(
 			// go through other weapons in weapon set
 			// set their m_whenWeCanFireAgain to this guy's delay
 			// set their m_status to this guy's status
+			// Only a weapon of the set itself: a FireWeaponUpdate gun is not one, and ShockWave's EMP Patriot
+			// emitter firing every 750 ms held the battery's missiles in their wait for good.
 
-			if ( sourceObj->isReloadTimeShared() )
-			{	
+			if ( sourceObj->isReloadTimeShared() && sourceObj->getWeaponInWeaponSlot( m_wslot ) == this )
+			{
 				for (Int wt = 0; wt<WEAPONSLOT_COUNT; wt++)
 				{
 					Weapon *weapon = sourceObj->getWeaponInWeaponSlot((WeaponSlotType)wt);
