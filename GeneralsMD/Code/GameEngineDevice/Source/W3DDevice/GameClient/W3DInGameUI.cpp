@@ -1062,7 +1062,7 @@ void W3DInGameUI::drawFormationLine( void )
 	const Real width = 2.0f;
 	// the line says which order it is about to be, in the colours the order hints already use
 	const UnsignedInt color = isInAttackMoveToMode() ? 0xCCFF66CC
-											: isForceAttackArmed() ? 0xCCFF5555
+											: ( isForceAttackArmed() || isForceLineHeld() ) ? 0xCCFF5555
 											: isGuardArmed() ? 0xCC55CCFF
 											: 0xCC33FF33;  //0xAARRGGBB
 	const std::vector<ICoord2D>& curve = m_formationDragPoints;
@@ -1070,9 +1070,35 @@ void W3DInGameUI::drawFormationLine( void )
 	if( points < 2 )
 		return;
 
+	// the kept points are a dozen pixels apart or more, and joined straight they read as a jagged
+	// polyline.  A Catmull-Rom spline through them draws the same curve smooth and still passes
+	// through every point the order carries, so the picture and the order agree where it matters
+	const Int STEPS = 8;
+	Real lastX = (Real)curve[ 0 ].x;
+	Real lastY = (Real)curve[ 0 ].y;
 	for( Int i = 1; i < points; ++i )
-		TheDisplay->drawLine( curve[ i - 1 ].x, curve[ i - 1 ].y, curve[ i ].x, curve[ i ].y,
-													width, color );
+	{
+		const ICoord2D& p0 = curve[ i > 1 ? i - 2 : 0 ];
+		const ICoord2D& p1 = curve[ i - 1 ];
+		const ICoord2D& p2 = curve[ i ];
+		const ICoord2D& p3 = curve[ i + 1 < points ? i + 1 : points - 1 ];
+		for( Int s = 1; s <= STEPS; ++s )
+		{
+			const Real t = (Real)s / (Real)STEPS;
+			const Real t2 = t * t;
+			const Real t3 = t2 * t;
+			const Real x = 0.5f * ( 2.0f * p1.x + ( p2.x - p0.x ) * t
+				+ ( 2.0f * p0.x - 5.0f * p1.x + 4.0f * p2.x - p3.x ) * t2
+				+ ( 3.0f * p1.x - p0.x - 3.0f * p2.x + p3.x ) * t3 );
+			const Real y = 0.5f * ( 2.0f * p1.y + ( p2.y - p0.y ) * t
+				+ ( 2.0f * p0.y - 5.0f * p1.y + 4.0f * p2.y - p3.y ) * t2
+				+ ( 3.0f * p1.y - p0.y - 3.0f * p2.y + p3.y ) * t3 );
+			TheDisplay->drawLine( (Int)floorf( lastX + 0.5f ), (Int)floorf( lastY + 0.5f ),
+														(Int)floorf( x + 0.5f ), (Int)floorf( y + 0.5f ), width, color );
+			lastX = x;
+			lastY = y;
+		}
+	}
 
 }  // end drawFormationLine
 
