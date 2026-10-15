@@ -70,8 +70,10 @@ private:
 	// one, otherwise only the right, and the anchor is wherever the drawing button went down.
 	Bool m_formationDragArmed;
 	Bool m_formationDragForceLine;		///< latched with it: the line was begun under the Force Attack hold and shift
+	Bool m_formationDragRight;				///< latched with it: the right button draws this line, so its release finishes it
 	ICoord2D m_formationDragAnchor;
 
+	void armFormationDrag( const ICoord2D& press, Bool rightButton );
 	void finishFormationDrag( const ICoord2D& lift );
 
 	GameMessage::Type createMoveToLocationMessage( Drawable *draw, const Coord3D *dest, CommandEvaluateType commandType );

@@ -1143,6 +1143,9 @@ public:  // ********************************************************************
 	Bool isLineOrderArmed( void ) const				{ return m_attackMoveToMode || m_guardArmed || m_moveArmed; }	///< a left drag draws a move, attack move or guard line; force fire's left drag is the attack circle
 	Bool isForceLineHeld( void ) const;				///< the Force Attack hold with shift: a left drag draws the attack line, not the circle
 	Bool isMoveLineHeld( void ) const;				///< shift alone over a selection that can walk: a left drag draws the move line, not the box
+	Bool wantsDragLine( void ) const;					///< a drag of the order button now draws an order line
+	Bool wantsDragCircle( void ) const;				///< a drag of the order button now draws the attack circle
+	Bool isOrderDragButton( Bool rightButton ) const;	///< lines and circles are drawn with the button that gives the move order
 	
 	// zeroing the repeat clock makes the first quantized step happen on the very next update, so a
 	// tap of the key is one eighth and a hold is one eighth every CAMERA_SNAP_REPEAT_MS.

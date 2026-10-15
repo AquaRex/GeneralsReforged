@@ -4977,6 +4977,29 @@ Bool InGameUI::isForceLineHeld( void ) const
 }
 
 //-------------------------------------------------------------------------------------------------
+Bool InGameUI::wantsDragLine( void ) const
+{
+	return isLineOrderArmed() || isForceLineHeld() || isMoveLineHeld();
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool InGameUI::wantsDragCircle( void ) const
+{
+	return isForceFireOn() && !isLineOrderArmed() && !isForceLineHeld() && m_selectCount > 0
+		&& getGUICommand() == NULL && m_pendingPlaceType == NULL;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Every line and the circle are drawn with the button a click on the ground moves with: the left
+	* in the default Classic mouse, the right under the Alternate Mouse Setup and the Reforged mouse.
+	* The other button keeps its drag: the selection box on the left, the camera pan on the right. */
+//-------------------------------------------------------------------------------------------------
+Bool InGameUI::isOrderDragButton( Bool rightButton ) const
+{
+	return rightButton ? TheGlobalData->rightButtonOrders() : TheGlobalData->leftButtonOrders();
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Shift with no key armed draws the move line, the one V draws, when something selected of yours
 	* can walk it.  With nothing that walks selected there is no line to draw and shift's drag stays
 	* the box that adds to the selection.  Ctrl and Alt on top keep their own meanings, and a GUI

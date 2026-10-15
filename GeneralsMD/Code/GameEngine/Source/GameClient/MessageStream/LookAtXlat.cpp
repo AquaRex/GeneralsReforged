@@ -352,6 +352,15 @@ GameMessageDisposition LookAtTranslator::translateGameMessage(const GameMessage 
 			m_lastMouseMoveFrame = TheGameLogic->getFrame();
 			m_anchor = msg->getArgument( 0 )->pixel;
 
+			// where the right button gives the move order it also draws the order lines and the attack
+			// circle (CommandXlat, SelectionXlat), and a drag that draws one does not pan as well
+			if( TheInGameUI->isOrderDragButton( TRUE )
+					&& ( TheInGameUI->wantsDragLine() || TheInGameUI->wantsDragCircle() ) )
+			{
+				m_rightPanArmed = false;
+				break;
+			}
+
 			// the Classic mouse is 1.04's scroll, which starts on the press itself, so a click that
 			// wobbles nudges the camera.  Its second press of a quick pair started nothing, as there.
 			if (TheGlobalData->isClassicMouse())

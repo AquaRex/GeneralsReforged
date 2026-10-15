@@ -1456,7 +1456,8 @@ CommandTranslator::CommandTranslator() :
 	m_mouseRightDown(0),
 	m_mouseRightUp(0),
 	m_formationDragArmed(FALSE),
-	m_formationDragForceLine(FALSE)
+	m_formationDragForceLine(FALSE),
+	m_formationDragRight(FALSE)
 {
 	m_mouseRightDragAnchor.x = 0;
 	m_mouseRightDragAnchor.y = 0;
@@ -1477,6 +1478,17 @@ CommandTranslator::~CommandTranslator()
  * line becomes the order its armed mode names; one that never did was a click, and the click
  * message behind this release gives that order instead.
  */
+void CommandTranslator::armFormationDrag( const ICoord2D& press, Bool rightButton )
+{
+	if( !TheInGameUI->wantsDragLine() )
+		return;
+	m_formationDragAnchor = press;
+	m_formationDragArmed = isFormationDragArmed();
+	m_formationDragForceLine = TheInGameUI->isForceLineHeld();
+	m_formationDragRight = rightButton;
+}
+
+//-------------------------------------------------------------------------------------------------
 void CommandTranslator::finishFormationDrag( const ICoord2D& lift )
 {
 	const Bool wasDrag = TheInGameUI->isFormationDragging();
@@ -4096,32 +4108,31 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			m_mouseRightDragAnchor = msg->getArgument( 0 )->pixel;
 			m_mouseRightDown = (UnsignedInt) msg->getArgument( 2 )->integer;
 
-			// a right drag pans the camera (LookAtXlat) and never draws a formation line
+			// a plain right drag pans the camera (LookAtXlat).  Where the right button gives the move
+			// order, a drag with a line wanted draws the line instead, and LookAtXlat leaves it alone
+			if( TheInGameUI->isOrderDragButton( TRUE ) )
+				armFormationDrag( msg->getArgument( 0 )->pixel, TRUE );
 			break;
 		}
 
 		//-----------------------------------------------------------------------------
-		// A formation line is drawn with the left button, and only once the move, attack move or guard
-		// key is armed: a left drag without one is a selection box.  The attack key and the Force
-		// Attack hold keep their left drag for the attack circle; shift on the hold draws the attack
-		// line here instead, aimed at the enemies near it.  Shift alone draws the move line.
+		// A formation line is drawn with the button that gives the move order, the left one in the
+		// default mouse, and only once the move, attack move or guard key is armed: a drag without one
+		// is a selection box.  The attack key and the Force Attack hold keep their drag for the attack
+		// circle; shift on the hold draws the attack line here instead, aimed at the enemies near it.
+		// Shift alone draws the move line.
 		case GameMessage::MSG_RAW_MOUSE_LEFT_DOUBLE_CLICK:
 		case GameMessage::MSG_RAW_MOUSE_LEFT_BUTTON_DOWN:
 		{
-			const Bool forceLine = TheInGameUI->isForceLineHeld();
-			if( TheInGameUI->isLineOrderArmed() || forceLine || TheInGameUI->isMoveLineHeld() )
-			{
-				m_formationDragAnchor = msg->getArgument( 0 )->pixel;
-				m_formationDragArmed = isFormationDragArmed();
-				m_formationDragForceLine = forceLine;
-			}
+			if( TheInGameUI->isOrderDragButton( FALSE ) )
+				armFormationDrag( msg->getArgument( 0 )->pixel, FALSE );
 			break;
 		}
 
 		//-----------------------------------------------------------------------------
 		case GameMessage::MSG_RAW_MOUSE_LEFT_BUTTON_UP:
 		{
-			if( m_formationDragArmed )
+			if( m_formationDragArmed && !m_formationDragRight )
 				finishFormationDrag( msg->getArgument( 0 )->pixel );
 			break;
 		}
@@ -4156,6 +4167,11 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			// register this event for determining if the click was fast or short enough not to be a drag
 			m_mouseRightDragLift = msg->getArgument( 0 )->pixel;
 			m_mouseRightUp = (UnsignedInt) msg->getArgument( 2 )->integer;
+
+			// a line drawn with the right button.  A drag is never a click, so the right click behind
+			// this release gives no order of its own
+			if( m_formationDragArmed && m_formationDragRight )
+				finishFormationDrag( m_mouseRightDragLift );
 
 			// a structure waiting to be placed is dropped by the same release, over in
 			// SelectionXlat, unless the release ended a pan.  The Classic mouse drops it here on a click,
