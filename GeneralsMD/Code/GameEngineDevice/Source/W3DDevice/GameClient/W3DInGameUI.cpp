@@ -1072,33 +1072,63 @@ void W3DInGameUI::drawFormationLine( void )
 
 	// the kept points are a dozen pixels apart or more, and joined straight they read as a jagged
 	// polyline.  A Catmull-Rom spline through them draws the same curve smooth and still passes
-	// through every point the order carries, so the picture and the order agree where it matters
+	// through every point the order carries, so the picture and the order agree where it matters.
+	// Centripetal (knots spaced by the square root of the distance): the spacing is uneven, since the
+	// last point rides the cursor and the spacing doubles when the curve is thinned, and the uniform
+	// spline looped at the cursor and bulged out of sharp corners on that
 	const Int STEPS = 8;
+	const Real MIN_KNOT = 0.01f;		// two points on the same pixel would make a zero knot interval
+	TheDisplay->beginBatch2D();
 	Real lastX = (Real)curve[ 0 ].x;
 	Real lastY = (Real)curve[ 0 ].y;
 	for( Int i = 1; i < points; ++i )
 	{
-		const ICoord2D& p0 = curve[ i > 1 ? i - 2 : 0 ];
-		const ICoord2D& p1 = curve[ i - 1 ];
-		const ICoord2D& p2 = curve[ i ];
-		const ICoord2D& p3 = curve[ i + 1 < points ? i + 1 : points - 1 ];
+		Real px[ 4 ], py[ 4 ];
+		px[ 1 ] = (Real)curve[ i - 1 ].x;		py[ 1 ] = (Real)curve[ i - 1 ].y;
+		px[ 2 ] = (Real)curve[ i ].x;				py[ 2 ] = (Real)curve[ i ].y;
+		// the ends get a point mirrored through them, so the curve leaves and arrives straight
+		if( i > 1 )			{ px[ 0 ] = (Real)curve[ i - 2 ].x;	py[ 0 ] = (Real)curve[ i - 2 ].y; }
+		else						{ px[ 0 ] = 2.0f * px[ 1 ] - px[ 2 ];	py[ 0 ] = 2.0f * py[ 1 ] - py[ 2 ]; }
+		if( i + 1 < points ) { px[ 3 ] = (Real)curve[ i + 1 ].x;	py[ 3 ] = (Real)curve[ i + 1 ].y; }
+		else						{ px[ 3 ] = 2.0f * px[ 2 ] - px[ 1 ];	py[ 3 ] = 2.0f * py[ 2 ] - py[ 1 ]; }
+
+		Real knot[ 4 ];
+		knot[ 0 ] = 0.0f;
+		for( Int k = 1; k < 4; ++k )
+		{
+			const Real dx = px[ k ] - px[ k - 1 ];
+			const Real dy = py[ k ] - py[ k - 1 ];
+			knot[ k ] = knot[ k - 1 ] + max( MIN_KNOT, (Real)sqrt( sqrt( dx * dx + dy * dy ) ) );
+		}
+
 		for( Int s = 1; s <= STEPS; ++s )
 		{
-			const Real t = (Real)s / (Real)STEPS;
-			const Real t2 = t * t;
-			const Real t3 = t2 * t;
-			const Real x = 0.5f * ( 2.0f * p1.x + ( p2.x - p0.x ) * t
-				+ ( 2.0f * p0.x - 5.0f * p1.x + 4.0f * p2.x - p3.x ) * t2
-				+ ( 3.0f * p1.x - p0.x - 3.0f * p2.x + p3.x ) * t3 );
-			const Real y = 0.5f * ( 2.0f * p1.y + ( p2.y - p0.y ) * t
-				+ ( 2.0f * p0.y - 5.0f * p1.y + 4.0f * p2.y - p3.y ) * t2
-				+ ( 3.0f * p1.y - p0.y - 3.0f * p2.y + p3.y ) * t3 );
+			// Barry and Goldman's pyramid, which is the spline for any knot spacing
+			const Real t = knot[ 1 ] + ( knot[ 2 ] - knot[ 1 ] ) * (Real)s / (Real)STEPS;
+			Real ax[ 3 ], ay[ 3 ];
+			for( Int k = 0; k < 3; ++k )
+			{
+				const Real w = ( t - knot[ k ] ) / ( knot[ k + 1 ] - knot[ k ] );
+				ax[ k ] = px[ k ] + ( px[ k + 1 ] - px[ k ] ) * w;
+				ay[ k ] = py[ k ] + ( py[ k + 1 ] - py[ k ] ) * w;
+			}
+			Real bx[ 2 ], by[ 2 ];
+			for( Int k = 0; k < 2; ++k )
+			{
+				const Real w = ( t - knot[ k ] ) / ( knot[ k + 2 ] - knot[ k ] );
+				bx[ k ] = ax[ k ] + ( ax[ k + 1 ] - ax[ k ] ) * w;
+				by[ k ] = ay[ k ] + ( ay[ k + 1 ] - ay[ k ] ) * w;
+			}
+			const Real w = ( t - knot[ 1 ] ) / ( knot[ 2 ] - knot[ 1 ] );
+			const Real x = bx[ 0 ] + ( bx[ 1 ] - bx[ 0 ] ) * w;
+			const Real y = by[ 0 ] + ( by[ 1 ] - by[ 0 ] ) * w;
 			TheDisplay->drawLine( (Int)floorf( lastX + 0.5f ), (Int)floorf( lastY + 0.5f ),
 														(Int)floorf( x + 0.5f ), (Int)floorf( y + 0.5f ), width, color );
 			lastX = x;
 			lastY = y;
 		}
 	}
+	TheDisplay->endBatch2D();
 
 }  // end drawFormationLine
 
