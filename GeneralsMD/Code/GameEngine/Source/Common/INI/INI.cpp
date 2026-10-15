@@ -1225,7 +1225,7 @@ void INI::parseAsciiStringVectorAppend( INI* ini, void * /*instance*/, void *sto
 AsciiString INI::getNextQuotedAsciiString()
 {
 	AsciiString result;
-	char buff[INI_MAX_CHARS_PER_LINE];
+	char buff[INI_MAX_CHARS_PER_PREFIXED_LINE];	// a token of m_buffer, prefixes and all
 
 	const char *token = getNextTokenOrNull();	// if null, just leave an empty string
 	if (token != NULL)
@@ -1285,7 +1285,7 @@ AsciiString INI::getNextAsciiString()
 		}
 		else
 		{
-			static char buff[INI_MAX_CHARS_PER_LINE];
+			static char buff[INI_MAX_CHARS_PER_PREFIXED_LINE];
 			buff[0] = 0;
 			if (strlen(token) > 1)
 			{

@@ -17346,6 +17346,47 @@ TEST(modfactions_prefix_only_the_mods_own_names)
 	CHECK_EQ( key, NAMEKEY( "Upgrade_Retail" ) );
 }
 
+// Shockwave Chaos's BlackMarketTank.ini has a 1019-character BuildVariations line of 43 of its own
+// tanks. It fits the file reader, but three characters of "M2~" on each name took it past a buffer of
+// that size, and the game stopped at startup whenever Chaos ran beside another full mod.
+TEST(modfactions_prefixed_line_outgrows_the_raw_line)
+{
+	bootOnce();
+	ModNamespace names;
+	std::string line = "  BuildVariations =";
+	for (Int i = 0; i < 43; ++i)
+	{
+		char name[ 32 ];
+		snprintf( name, sizeof( name ), "ChaosVariationTank_X%02d", i );
+		names.scanLine( 1, (std::string( "Object " ) + name).c_str() );
+		line += " ";
+		line += name;
+	}
+	names.finishScan( 1 );
+	names.setActive( 1 );
+	CHECK( (Int)line.size() < INI_MAX_CHARS_PER_LINE );
+
+	char buffer[ INI_MAX_CHARS_PER_PREFIXED_LINE + 1 ];
+	strcpy( buffer, line.c_str() );
+	CHECK( !names.rewriteLine( buffer, INI_MAX_CHARS_PER_LINE + 1 ) );		// the old buffer
+	CHECK( names.rewriteLine( buffer, sizeof( buffer ) ) );
+	CHECK_EQ( (Int)strlen( buffer ), (Int)line.size() + 43 * 3 );
+	CHECK( (Int)strlen( buffer ) > INI_MAX_CHARS_PER_LINE );
+	CHECK( strstr( buffer, " M2~ChaosVariationTank_X00 " ) != NULL );
+	CHECK( strstr( buffer, " M2~ChaosVariationTank_X42" ) != NULL );
+
+	// the worst a full line can do: a one-letter name in every other character, mod 99's prefix on each
+	ModNamespace worst;
+	worst.scanLine( 98, "Object A" );
+	worst.finishScan( 98 );
+	worst.setActive( 98 );
+	std::string full = "X";
+	while ((Int)full.size() + 2 < INI_MAX_CHARS_PER_LINE)
+		full += " A";
+	strcpy( buffer, full.c_str() );
+	CHECK( worst.rewriteLine( buffer, sizeof( buffer ) ) );
+}
+
 // The Power of the West defines "FXList No", and -modfactions made every "IsGrantable = No" an
 // "M2~No" that parseBool refused: a word the parser reads for itself is never the mod's name.
 TEST(modfactions_never_prefix_a_reserved_word)

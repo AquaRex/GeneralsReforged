@@ -66,6 +66,9 @@ enum INILoadType
 enum
 {
 	INI_MAX_CHARS_PER_LINE = 1028,			///< max characters per line entry in any ini file
+	/// a line once -modfactions has put "M<n>~" before its names: at most one name every two characters,
+	/// four characters of prefix each up to mod 99, so a full line can triple
+	INI_MAX_CHARS_PER_PREFIXED_LINE = INI_MAX_CHARS_PER_LINE * 3,
 };
 
 //-------------------------------------------------------------------------------------------------
@@ -518,7 +521,7 @@ protected:
 	AsciiString m_filename;										///< filename of file currently loading
 	INILoadType m_loadType;										///< load time for current file
 	UnsignedInt m_lineNum;										///< current line number that's been read
-	char m_buffer[ INI_MAX_CHARS_PER_LINE+1 ];///< buffer to read file contents into
+	char m_buffer[ INI_MAX_CHARS_PER_PREFIXED_LINE+1 ];///< one line of the file, room for its mod prefixes
 	const char *m_seps;												///< for strtok parsing
 	const char *m_sepsPercent;								///< m_seps with percent delimiter as well
 	const char *m_sepsColon;									///< m_seps with colon delimiter as well
@@ -528,7 +531,7 @@ protected:
 	Bool m_skipUnknownFields;									///< log and skip an unknown field instead of throwing
 	Bool m_missingSpecialPower;								///< a patch named a special power that does not exist
 #if defined(_DEBUG) || defined(_INTERNAL)
-	char m_curBlockStart[ INI_MAX_CHARS_PER_LINE ];	///< first line of cur block
+	char m_curBlockStart[ INI_MAX_CHARS_PER_PREFIXED_LINE+1 ];	///< first line of cur block, a copy of m_buffer
 #endif
 };
 
