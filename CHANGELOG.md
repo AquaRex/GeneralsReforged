@@ -8,6 +8,13 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
+## A tank shell kills the man it hits
+
+- A cannon shell did 6 damage to a soldier. A Ranger has 180 health, so thirty shells that actually hit him left him standing, a full minute of fire from a Crusader, while the same shell does 60 to another tank. It now does that 60 to him as well. Three hits kill a Ranger. Two kill a Red Guard or a Rebel.
+- The gun still throws the shot wide of infantry, and the blast is small, so a shell that bursts beside a man still misses. A Gattling Tank does not throw wide, and it is still the gun that cuts a whole squad down.
+- A chemical suit still stops toxin, radiation and microwaves, and a cannon shell goes through it the same as through a bare uniform. The Infantry General's men, the Toxin Rebel, the biohazard suit and the Demolitions terrorist each had their own copy of that shrug, and a shell goes through those too. The men on a Stinger Site keep theirs: that armor belongs to the site. The Missile Defender's laser-guided missile is the same kind of round, so it does its 40 to a soldier, and he fires that one at them. An ordinary rocket still barely scratches a man.
+- A replay recorded before this change plays out differently.
+
 ## The battle runs at 60 steps a second
 
 - The game now works out the battle 60 times a second, double the 30 Zero Hour has run at since 2003. Each step is 17 milliseconds where it was 33, so an order you give waits half as long for the step that carries it out, and a unit turning, braking or firing moves in steps half the size.

@@ -11542,10 +11542,11 @@ TEST(frames_to_kill_counts_shots_delays_and_reloads)
 	crusaderGun.m_delayFrames = 60.0f;
 	CHECK_NEAR( 480.0f, aiFramesToKill( 480.0f, crusaderGun ), 0.001f );
 
-	// the same shell through HumanArmor's 10% on a 120-health Rebel: twenty shells, not two
+	// the same shell through HumanArmor on a 120-health Rebel. Armor-piercing lands in full
+	// now, so two shells. At the old 10% it was 6 a shell and twenty of them.
 	AIShotPattern crusaderOnInfantry = crusaderGun;
-	crusaderOnInfantry.m_damagePerShot = 6.0f;
-	CHECK_NEAR( 1200.0f, aiFramesToKill( 120.0f, crusaderOnInfantry ), 0.001f );
+	crusaderOnInfantry.m_damagePerShot = 60.0f;
+	CHECK_NEAR( 120.0f, aiFramesToKill( 120.0f, crusaderOnInfantry ), 0.001f );
 
 	// a clip of two with a long reload: the third shot waits for the reload, not the delay
 	AIShotPattern clip;
