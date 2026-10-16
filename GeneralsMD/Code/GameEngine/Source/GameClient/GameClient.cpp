@@ -1020,6 +1020,7 @@ void GameClient::updateFakeDrawables(void)
  */
 void GameClient::destroyDrawable( Drawable *draw )
 {
+	LOGIC_CENSUS( CENSUS_GAMECLIENT );
 
 	// remove any notion of the Drawable in the in-game user interface
 	TheInGameUI->disregardDrawable( draw );

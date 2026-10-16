@@ -32,6 +32,7 @@
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
 
 #include "Common/GameAudio.h"
+#include "Common/LogicThread.h"
 #include "Common/GameState.h"
 #include "Common/MiscAudio.h"
 #include "Common/Radar.h"
@@ -401,6 +402,7 @@ void Radar::newMap( TerrainLogic *terrain )
 //-------------------------------------------------------------------------------------------------
 void Radar::addObject( Object *obj )
 {
+	LOGIC_CENSUS( CENSUS_RADAR );
 
 	// get the radar priority for this object
 	RadarPriorityType newPriority = obj->getRadarPriority();
@@ -600,6 +602,7 @@ Bool Radar::deleteFromList( Object *obj, RadarObject **list )
 //-------------------------------------------------------------------------------------------------
 void Radar::removeObject( Object *obj )
 {
+	LOGIC_CENSUS( CENSUS_RADAR );
 
 	// sanity
 	if( obj->friend_getRadarData() == NULL )
@@ -1030,6 +1033,7 @@ static RadarColorLookup radarColorLookupTable[] =
 //-------------------------------------------------------------------------------------------------
 void Radar::createEvent( const Coord3D *world, RadarEventType type, Real secondsToLive )
 {
+	LOGIC_CENSUS( CENSUS_RADAR );
 		
 	// sanity
 	if( world == NULL )
@@ -1280,6 +1284,7 @@ void Radar::tryUnderAttackEvent( const Object *obj )
 // ------------------------------------------------------------------------------------------------
 void Radar::tryInfiltrationEvent( const Object *obj )
 {
+	LOGIC_CENSUS( CENSUS_RADAR );
 
 	//Sanity!
 	if( !obj )
@@ -1316,6 +1321,7 @@ void Radar::tryInfiltrationEvent( const Object *obj )
 // ------------------------------------------------------------------------------------------------
 Bool Radar::tryEvent( RadarEventType event, const Coord3D *pos )
 {
+	LOGIC_CENSUS( CENSUS_RADAR );
 
 	// sanity
 	if( event <= RADAR_EVENT_INVALID || event >= RADAR_EVENT_NUM_EVENTS || pos == NULL )

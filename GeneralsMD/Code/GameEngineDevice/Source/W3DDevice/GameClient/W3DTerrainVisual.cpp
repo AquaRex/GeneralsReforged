@@ -36,6 +36,7 @@
 #endif
 
 #include "Common/GameState.h"
+#include "Common/LogicThread.h"
 #include "Common/GlobalData.h"
 #include "Common/PerfTimer.h"
 #include "Common/MapReaderWriterInfo.h"
@@ -927,6 +928,7 @@ void W3DTerrainVisual::addWaterVelocity( Real worldX, Real worldY,
 // ------------------------------------------------------------------------------------------------
 void W3DTerrainVisual::updateWaterGrid( UnsignedInt logicFrame )
 {
+	LOGIC_CENSUS( CENSUS_TERRAINVISUAL );
 	// whether or not the grid is drawn: the simulation reads it either way, as update() stepped it
 	if( m_waterRenderObject )
 		m_waterRenderObject->updateMeshMotion( logicFrame );
@@ -936,6 +938,7 @@ void W3DTerrainVisual::updateWaterGrid( UnsignedInt logicFrame )
 // ------------------------------------------------------------------------------------------------
 Bool W3DTerrainVisual::getWaterGridHeight( Real worldX, Real worldY, Real *height)
 {
+	LOGIC_CENSUS( CENSUS_TERRAINVISUAL );
 	Real gridX, gridY;
 
 	if (m_isWaterGridRenderingEnabled && m_waterRenderObject &&
@@ -951,6 +954,7 @@ Bool W3DTerrainVisual::getWaterGridHeight( Real worldX, Real worldY, Real *heigh
 // ------------------------------------------------------------------------------------------------
 void W3DTerrainVisual::setRawMapHeight(const ICoord2D *gridPos, Int height)
 {
+	LOGIC_CENSUS( CENSUS_TERRAINVISUAL );
   // This method writes to the m_logicHeightMap member, 
   // since m_logicHeightMap is the true, golden standard to which m_clientHeightMap
   // interpolates during or after its Seismic simulation displaces it..
@@ -1104,6 +1108,7 @@ void W3DTerrainVisual::removeFactionBib(Object *factionBuilding)
 // ------------------------------------------------------------------------------------------------
 void W3DTerrainVisual::removeAllBibs(void)
 {
+	LOGIC_CENSUS( CENSUS_TERRAINVISUAL );
 	if (m_terrainRenderObject) {
 		m_terrainRenderObject->removeAllTerrainBibs();
 	}

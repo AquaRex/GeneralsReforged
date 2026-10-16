@@ -31,6 +31,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
+#include "Common/LogicThread.h"
 #include "zhio.h"
 
 #include "Common/ThingFactory.h"
@@ -368,6 +369,7 @@ Object *ThingFactory::newObject( const ThingTemplate *tmplate, Team *team, Objec
 //=============================================================================
 Drawable *ThingFactory::newDrawable(const ThingTemplate *tmplate, DrawableStatus statusBits)
 {
+	LOGIC_CENSUS( CENSUS_NEW_DRAWABLE );
 	if (tmplate == NULL)
 		throw ERROR_BAD_ARG;
 

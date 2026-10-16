@@ -30,6 +30,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
+#include "Common/LogicThread.h"
 #if !defined(_WIN32)
 #include <unistd.h>		// getpid, for the replay checkpoint folder
 #endif
@@ -709,6 +710,7 @@ SuperweaponInfo* InGameUI::findSWInfo(Int playerIndex, const AsciiString& powerN
 // ------------------------------------------------------------------------------------------------
 void InGameUI::addSuperweapon(Int playerIndex, const AsciiString& powerName, ObjectID id, const SpecialPowerTemplate *powerTemplate)
 {
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	if (powerTemplate == NULL)
 		return;
 
@@ -749,6 +751,7 @@ void InGameUI::addSuperweapon(Int playerIndex, const AsciiString& powerName, Obj
 // ------------------------------------------------------------------------------------------------
 Bool InGameUI::removeSuperweapon(Int playerIndex, const AsciiString& powerName, ObjectID id, const SpecialPowerTemplate *powerTemplate)
 {
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	DEBUG_LOG(("Removing superweapon UI timer\n"));
 	SuperweaponMap::iterator mapIt = m_superweapons[playerIndex].find(powerName);
 	if (mapIt != m_superweapons[playerIndex].end())
@@ -2927,6 +2930,7 @@ void InGameUI::drawClassicSuperweapon( SuperweaponInfo *info, const AsciiString 
 // srj sez: passing as const-ref screws up varargs for some reason. dunno why. just pass by value.
 void InGameUI::message( AsciiString stringManagerLabel, ... )
 {
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	UnicodeString stringManagerString;
 	UnicodeString formattedMessage;
 
@@ -2958,6 +2962,7 @@ void InGameUI::message( AsciiString stringManagerLabel, ... )
 // srj sez: passing as const-ref screws up varargs for some reason. dunno why. just pass by value.
 void InGameUI::message( UnicodeString format, ... )
 {
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	UnicodeString formattedMessage;
 
 	// construct the final text after formatting
@@ -5997,6 +6002,7 @@ Bool InGameUI::rotatePendingPlacement( Int steps )
 //-------------------------------------------------------------------------------------------------
 void InGameUI::selectDrawable( Drawable *draw )
 {
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 
 	if( draw->isSelected() == FALSE )
 	{
@@ -6027,6 +6033,7 @@ void InGameUI::selectDrawable( Drawable *draw )
 //-------------------------------------------------------------------------------------------------
 void InGameUI::deselectDrawable( Drawable *draw )
 {
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 
 	if( draw->isSelected() )
 	{
@@ -6065,6 +6072,7 @@ void InGameUI::deselectDrawable( Drawable *draw )
 //-------------------------------------------------------------------------------------------------
 void InGameUI::deselectAllDrawables( void )
 {
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	const DrawableList *selected = TheInGameUI->getAllSelectedDrawables();
 	const Bool hadSelectedDrawables = !selected->empty();
 
@@ -6108,6 +6116,7 @@ void InGameUI::deselectAllDrawables( void )
 //-------------------------------------------------------------------------------------------------
 const DrawableList *InGameUI::getAllSelectedDrawables( void ) const
 {
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	return &m_selectedDrawables;
 }
 
@@ -6167,6 +6176,7 @@ const DrawableList *InGameUI::getAllSelectedLocalDrawables( void )
 //-------------------------------------------------------------------------------------------------
 Drawable *InGameUI::getFirstSelectedDrawable( void )
 {
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 
 	// sanity
 	if( m_selectedDrawables.empty() )
@@ -7750,6 +7760,7 @@ void InGameUI::buildRegion( const ICoord2D *anchor, const ICoord2D *dest, IRegio
 //-------------------------------------------------------------------------------------------------
 FloatingTextData *InGameUI::addFloatingText(const UnicodeString& text,const Coord3D *pos, Color color)
 {
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	if( !TheGameLogic->getDrawIconUI() )
 		return NULL;
 
@@ -9881,6 +9892,7 @@ void InGameUI::addWorldAnimation( Anim2DTemplate *animTemplate,
 																	Real durationInSeconds,
 																	Real zRisePerSecond )
 {
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 
 	// sanity
 	if( animTemplate == NULL || pos == NULL || durationInSeconds <= 0.0f )
@@ -10066,6 +10078,7 @@ Object *InGameUI::findIdleWorker( Object *obj)
 
 void InGameUI::addIdleWorker( Object *obj )
 {
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	if(!obj)
 		return;
 
@@ -10078,6 +10091,7 @@ void InGameUI::addIdleWorker( Object *obj )
 
 void InGameUI::removeIdleWorker( Object *obj, Int playerNumber )
 {
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	if(!obj)
 		return;
 	if(playerNumber < 0 || playerNumber >= MAX_PLAYER_COUNT)  // we're leaving the game, so this is all screwed

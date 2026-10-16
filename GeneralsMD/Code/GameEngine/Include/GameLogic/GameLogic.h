@@ -158,6 +158,7 @@ public:
 	Real getHeight( void );													///< Returns the height of the world
 
 	Bool isInGameLogicUpdate( void ) const { return m_isInUpdate; }
+	Bool isNewGamePending( void ) const { return m_startNewGame; }	///< the next update starts a map (LogicThread keeps that tick on the main thread)
 	UnsignedInt getFrame( void );										///< Returns the current simulation frame number
 	UnsignedInt getCRC( Int mode = CRC_CACHED, AsciiString deepCRCFileName = AsciiString::TheEmptyString );		///< Returns the CRC
 

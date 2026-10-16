@@ -35,6 +35,7 @@
 #include "GameClient/FXList.h"
 
 #include "Common/DrawModule.h"
+#include "Common/LogicThread.h"
 #include "Common/GameAudio.h"
 #include "Common/INI.h"
 #include "Common/Player.h"
@@ -870,6 +871,7 @@ void FXList::clear()
 //-------------------------------------------------------------------------------------------------
 void FXList::doFXPos(const Coord3D *primary, const Matrix3D* primaryMtx, const Real primarySpeed, const Coord3D *secondary, const Real overrideRadius ) const
 {
+	LOGIC_CENSUS( CENSUS_FXLIST );
 	if (ThePartitionManager->getShroudStatusForPlayer(TheObserverCamera.getShroudPlayerIndex(), primary) != CELLSHROUD_CLEAR)
 		return;
 
@@ -882,6 +884,7 @@ void FXList::doFXPos(const Coord3D *primary, const Matrix3D* primaryMtx, const R
 //-------------------------------------------------------------------------------------------------
 void FXList::doFXObj(const Object* primary, const Object* secondary) const
 {
+	LOGIC_CENSUS( CENSUS_FXLIST );
 	if (primary && primary->getShroudedStatus(TheObserverCamera.getShroudPlayerIndex()) > OBJECTSHROUD_PARTIAL_CLEAR)
 		return;	//the primary object is fogged or shrouded so don't bother with the effect.
 

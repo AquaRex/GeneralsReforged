@@ -34,6 +34,7 @@
 #define _GAME_INTERFACE_H_
 
 #include "Common/GameType.h"
+#include "Common/LogicThread.h"
 #include "Common/MessageStream.h"		// for GameMessageTranslator
 #include "Common/Snapshot.h"
 #include "Common/STLTypedefs.h"
@@ -110,7 +111,7 @@ public:
 	virtual void update( void );																				///< Updates the GUI, display, audio, etc
 	virtual void reset( void );																					///< reset system
 
-	virtual void setFrame( UnsignedInt frame ) { m_frame = frame; }			///< Set the GameClient's internal frame number
+	virtual void setFrame( UnsignedInt frame ) { LOGIC_CENSUS( CENSUS_GAMECLIENT ); m_frame = frame; }	///< Set the GameClient's internal frame number
 	virtual void registerDrawable( Drawable *draw );										///< Given a drawable, register it with the GameClient and give it a unique ID
 
 	void addDrawableToLookupTable( Drawable *draw );			///< add drawable ID to hash lookup table
@@ -273,6 +274,7 @@ private:
  */
 inline Drawable* GameClient::findDrawableByID( const DrawableID id )
 {
+	LOGIC_CENSUS( CENSUS_GAMECLIENT );
 	if( id == INVALID_DRAWABLE_ID )
 		return NULL;
 

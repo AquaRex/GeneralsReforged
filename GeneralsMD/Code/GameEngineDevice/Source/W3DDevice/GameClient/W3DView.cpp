@@ -2243,6 +2243,7 @@ Bool W3DView::setViewFilterMode(enum FilterModes filterMode)
 //-------------------------------------------------------------------------------------------------
 Bool W3DView::setViewFilter(enum FilterTypes filter)
 {
+	LOGIC_CENSUS( CENSUS_TACTICALVIEW );
 	FilterTypes oldFilter = m_viewFilter;	//save previous filter in case setup fails.
 
 	m_viewFilter = filter;
@@ -3289,8 +3290,9 @@ Bool W3DView::screenToTerrain( const ICoord2D *screen, Coord3D *world )
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-void W3DView::lookAt( const Coord3D *o ) 
+void W3DView::lookAt( const Coord3D *o )
 {
+	LOGIC_CENSUS( CENSUS_TACTICALVIEW );
 	Coord3D pos = *o;
 
 
@@ -3399,6 +3401,7 @@ void W3DView::initHeightForMap( void )
 //-------------------------------------------------------------------------------------------------
 void W3DView::moveCameraTo(const Coord3D *o, Int milliseconds, Int shutter, Bool orient, Real easeIn, Real easeOut)
 {
+	LOGIC_CENSUS( CENSUS_TACTICALVIEW );
 	m_mcwpInfo.waypoints[0] = *getPosition();	
 	m_mcwpInfo.cameraAngle[0] = getAngle();	
 	m_mcwpInfo.waySegLength[0] = 0;	
@@ -3814,6 +3817,7 @@ void W3DView::resetCamera(const Coord3D *location, Int milliseconds, Real easeIn
 // ------------------------------------------------------------------------------------------------
 Bool W3DView::isCameraMovementFinished(void)
 {
+	LOGIC_CENSUS( CENSUS_TACTICALVIEW );
 	if (m_viewFilter == FT_VIEW_MOTION_BLUR_FILTER) {
 		// Several of the motion blur effects are similar to camera movements.
 		if (m_viewFilterMode == FM_VIEW_MB_IN_AND_OUT_ALPHA ||
@@ -4249,6 +4253,7 @@ void W3DView::moveAlongWaypointPath(Int milliseconds)
 // ------------------------------------------------------------------------------------------------
 void W3DView::shake( const Coord3D *epicenter, CameraShakeType shakeType )
 {
+	LOGIC_CENSUS( CENSUS_TACTICALVIEW );
 	Real angle = GameClientRandomValueReal( 0, 2*PI );
 
 	m_shakeAngleCos = (Real)cos( angle );

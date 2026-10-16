@@ -27,6 +27,7 @@
 // GameClient/Eva.cpp /////////////////////////////////////////////////////////////////////////////
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
+#include "Common/LogicThread.h"
 #include "GameClient/Eva.h"
 
 #include "Common/Player.h"
@@ -387,6 +388,7 @@ const EvaCheckInfo *Eva::getEvaCheckInfo(AsciiString name)
 //-------------------------------------------------------------------------------------------------
 void Eva::setShouldPlay(EvaMessage messageToPlay)
 {
+	LOGIC_CENSUS( CENSUS_EVA );
 	m_shouldPlay[messageToPlay] = TRUE;
   
   // DEBUG_LOG( ( "Eva message %s play requested\n", messageToName( messageToPlay).str() ) );

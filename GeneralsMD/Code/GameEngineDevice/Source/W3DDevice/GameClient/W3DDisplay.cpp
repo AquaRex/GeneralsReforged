@@ -52,6 +52,7 @@ static void drawFramerateBar(void);
 
 // USER INCLUDES //////////////////////////////////////////////////////////////
 #include "Common/ThingFactory.h"
+#include "Common/LogicThread.h"
 #include "Common/GameEngine.h"
 #include "Common/GlobalData.h"
 #include "Common/Monitors.h"
@@ -3805,6 +3806,7 @@ void W3DDisplay::clearShroud()
 //=============================================================================
 void W3DDisplay::setBorderShroudLevel(UnsignedByte level)
 {
+	LOGIC_CENSUS( CENSUS_DISPLAY );
 	if (TheTerrainRenderObject && TheTerrainRenderObject->getShroud())
 	{
 		TheTerrainRenderObject->getShroud()->setBorderShroudLevel((W3DShroudLevel)level);
@@ -3814,6 +3816,7 @@ void W3DDisplay::setBorderShroudLevel(UnsignedByte level)
 //=============================================================================
 void W3DDisplay::setShroudLevel( Int x, Int y, CellShroudStatus setting )
 {
+	LOGIC_CENSUS( CENSUS_DISPLAY );
 	if (TheTerrainRenderObject && TheTerrainRenderObject->getShroud())
 	{
 		#ifdef INTENSE_DEBUG

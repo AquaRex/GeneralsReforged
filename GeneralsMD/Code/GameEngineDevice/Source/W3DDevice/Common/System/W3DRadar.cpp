@@ -32,6 +32,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "Common/AudioEventRTS.h"
+#include "Common/LogicThread.h"
 #include "Common/Debug.h"
 #include "Common/GlobalData.h"
 #include "Common/Player.h"
@@ -1274,6 +1275,7 @@ void W3DRadar::clearShroud()
 //-------------------------------------------------------------------------------------------------
 void W3DRadar::setShroudLevel(Int shroudX, Int shroudY, CellShroudStatus setting)
 {
+	LOGIC_CENSUS( CENSUS_RADAR );
 #if defined(_DEBUG) || defined(_INTERNAL)
 	if (!TheGlobalData->m_shroudOn)
 		return;

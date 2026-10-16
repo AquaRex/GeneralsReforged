@@ -64,6 +64,7 @@
 #include "Common/GlobalData.h"
 #include "Common/PerfTimer.h"
 #include "Common/JobSystem.h"
+#include "Common/LogicThread.h"
 #include "GameLogic/TerrainLogic.h"		// -autocamera needs the map extent and the ground height
 #include "Common/RandomValue.h"
 #include "Common/NameKeyGenerator.h"
@@ -542,6 +543,7 @@ GameEngine::~GameEngine()
 		 there is nothing to drain here - but a worker parked on the semaphore still has to be told
 		 to leave, or the process waits on it at exit. */
 	JobSystem::shutdown();
+	LogicThread::shutdown();
 
 #ifdef PERF_TIMERS
 	PerfGather::termPerfDump();
@@ -945,6 +947,9 @@ void GameEngine::init( int argc, char *argv[] )
 		/* THREADING-ROADMAP.md 3.1.  Started before anything can fork and joined in ~GameEngine.
 			 Costs one thread per spare core sitting on a semaphore until something uses it. */
 		JobSystem::init();
+
+		// LOGIC-THREAD.md phase 1: -logicthread 1 starts the thread the ticks run on.
+		LogicThread::init();
 
 		TheSubsystemList = MSGNEW("GameEngineSubsystem") SubsystemInterfaceList;
 		
@@ -2715,6 +2720,9 @@ static void updateHeadlessRun( void )
 	DEBUG_LOG(("HEADLESS JOBS: %d worker threads, %d allocations from a job\n",
 						 JobSystem::workerCount(), JobSystem::workerAllocationCount()));
 
+	// LOGIC-THREAD.md phase 1: the handoff cost, and the client calls phase 2 has to take off the tick.
+	LogicThread::report();
+
 	// THREADING-ROADMAP.md section 0 step 3.  Only a PERF_TIMERS build has anything to say here.
 #ifdef PERF_TIMERS
 	PerfGather::dumpSummary();
@@ -2965,7 +2973,8 @@ void GameEngine::update( void )
 			const UnsignedInt frameBeforeTicks = TheGameLogic->getFrame();
 			for( ;; )
 			{
-				TheGameLogic->UPDATE();
+				// TheGameLogic->UPDATE(), on the logic thread at -logicthread 1
+				LogicThread::runTick();
 				++logicTicksThisPass;
 
 				// -maxframes' frame ends the burst, its CRC logged as it finishes (noteFrameLimit)

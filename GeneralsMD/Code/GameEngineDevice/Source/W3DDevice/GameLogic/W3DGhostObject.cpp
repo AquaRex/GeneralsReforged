@@ -33,6 +33,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #include "Common/Debug.h"
+#include "Common/LogicThread.h"
 #include "Common/Player.h"
 #include "Common/PlayerList.h"
 #include "Common/ThingTemplate.h"
@@ -913,6 +914,7 @@ void W3DGhostObjectManager::reset(void)
 // ------------------------------------------------------------------------------------------------
 void W3DGhostObjectManager::removeGhostObject(GhostObject *object)
 {
+	LOGIC_CENSUS( CENSUS_GHOST );
 	if (!object)
 		return;
 
@@ -940,6 +942,7 @@ void W3DGhostObjectManager::removeGhostObject(GhostObject *object)
 // ------------------------------------------------------------------------------------------------
 GhostObject *W3DGhostObjectManager::addGhostObject(Object *object, PartitionData *pd)
 {
+	LOGIC_CENSUS( CENSUS_GHOST );
 
 	// we disabled adding new ghost objects - used during map border resizing and loading
 	if (m_lockGhostObjects || m_saveLockGhostObjects )

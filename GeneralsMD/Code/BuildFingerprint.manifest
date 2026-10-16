@@ -447,6 +447,7 @@ GameEngine/Include/Common/LatchRestore.h
 GameEngine/Include/Common/List.h
 GameEngine/Include/Common/LocalFile.h
 GameEngine/Include/Common/LocalFileSystem.h
+GameEngine/Include/Common/LogicThread.h
 GameEngine/Include/Common/MapObject.h
 GameEngine/Include/Common/MapReaderWriterInfo.h
 GameEngine/Include/Common/MessageBoxFlags.h
@@ -1083,6 +1084,7 @@ GameEngine/Source/Common/System/KindOf.cpp
 GameEngine/Source/Common/System/List.cpp
 GameEngine/Source/Common/System/LocalFile.cpp
 GameEngine/Source/Common/System/LocalFileSystem.cpp
+GameEngine/Source/Common/System/LogicThread.cpp
 GameEngine/Source/Common/System/MemoryInit.cpp
 GameEngine/Source/Common/System/ObjectStatusTypes.cpp
 GameEngine/Source/Common/System/QuickTrig.cpp

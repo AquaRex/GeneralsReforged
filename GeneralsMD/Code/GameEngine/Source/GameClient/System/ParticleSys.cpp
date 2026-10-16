@@ -30,6 +30,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
+#include "Common/LogicThread.h"
 
 #define DEFINE_PARTICLE_SYSTEM_NAMES
 
@@ -3837,6 +3838,7 @@ void ParticleSystemManager::setOnScreenParticleCount(int count)
 // ------------------------------------------------------------------------------------------------
 ParticleSystem *ParticleSystemManager::createParticleSystem( const ParticleSystemTemplate *sysTemplate, Bool createSlaves )
 {
+	LOGIC_CENSUS( CENSUS_PARTICLES );
 	// sanity
 	if (sysTemplate == NULL)
 		return NULL;
@@ -3865,6 +3867,7 @@ ParticleSystemID ParticleSystemManager::createAttachedParticleSystemID(
 // ------------------------------------------------------------------------------------------------
 ParticleSystem *ParticleSystemManager::findParticleSystem( ParticleSystemID id )
 {
+	LOGIC_CENSUS( CENSUS_PARTICLES );
 	if (id == INVALID_PARTICLE_SYSTEM_ID)
 		return NULL;	// my, that was easy
 

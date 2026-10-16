@@ -29,6 +29,7 @@
 // Author: Michael S. Booth, January 1998
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
+#include "Common/LogicThread.h"
 
 
 #include "Lib/BaseType.h"
@@ -290,6 +291,7 @@ Real GetGameLogicRandomValueRealUnchanged( Real lo, Real hi )
 //
 Int GetGameClientRandomValue( int lo, int hi, char *file, int line )
 {
+	LOGIC_CENSUS( CENSUS_CLIENT_RANDOM );
 	UnsignedInt delta = hi - lo + 1;
 	Int rval;
 
@@ -360,6 +362,7 @@ DEBUG_LOG(( "%d: GetGameLogicRandomValueReal = %f, %s line %d\n",
 //
 Real GetGameClientRandomValueReal( Real lo, Real hi, char *file, int line )
 {
+	LOGIC_CENSUS( CENSUS_CLIENT_RANDOM );
 	Real delta = hi - lo;
 	Real rval;
 

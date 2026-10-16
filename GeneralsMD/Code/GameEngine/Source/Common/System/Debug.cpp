@@ -318,6 +318,13 @@ static void flushLogFileAtMostOnceASecond(void)
 
 static void doLogOutput(const char *buffer)
 {
+	/* DebugLog already holds this lock around its static buffer; DebugCrash and the stack dump reach
+		 the file without it, and with the logic on a thread of its own (LOGIC-THREAD.md hazard 20) two
+		 threads writing at once tear a line.  The lock is recursive, so DebugLog taking it twice is free. */
+#ifdef DEBUG_THREADSAFE
+	ScopedCriticalSection scopedCriticalSection(TheDebugLogCriticalSection);
+#endif
+
 	// log message to file
 	if (theDebugFlags & DEBUG_FLAG_LOG_TO_FILE)
 	{

@@ -33,6 +33,7 @@
 #include "Lib/Clock.h"
 
 #include "Common/AudioEventInfo.h"
+#include "Common/LogicThread.h"
 #include "Common/DynamicAudioEventInfo.h"
 #include "Common/AudioSettings.h"
 #include "Common/BitFlagsIO.h"
@@ -5063,6 +5064,7 @@ void Drawable::drawHealthBar(const IRegion2D* healthBarRegion)
 //-------------------------------------------------------------------------------------------------
 void Drawable::clearAndSetModelConditionState( ModelConditionFlagType clr, ModelConditionFlagType set )
 {
+	LOGIC_CENSUS( CENSUS_MODEL_CONDITION );
 	ModelConditionFlags c, s;
 	if (clr != MODELCONDITION_INVALID)
 		c.set(clr);
@@ -5141,6 +5143,7 @@ DrawModule const** Drawable::getDrawModules() const
 //-------------------------------------------------------------------------------------------------
 void Drawable::clearAndSetModelConditionFlags(const ModelConditionFlags& clr, const ModelConditionFlags& setf)
 {
+	LOGIC_CENSUS( CENSUS_MODEL_CONDITION );
 	ModelConditionFlags oldFlags = m_conditionState;
 
 	m_conditionState.clearAndSet(clr, setf);

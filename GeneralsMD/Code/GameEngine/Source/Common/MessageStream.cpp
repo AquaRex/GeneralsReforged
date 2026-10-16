@@ -28,6 +28,7 @@
 // Author: Michael S. Booth, February 2001
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
+#include "Common/LogicThread.h"
 
 #include "Common/MessageStream.h"
 #include "Common/Player.h"
@@ -902,6 +903,7 @@ void MessageStream::update( void )
  */
 GameMessage *MessageStream::appendMessage( GameMessage::Type type )
 {
+	LOGIC_CENSUS( CENSUS_MESSAGESTREAM );
 	GameMessage *msg = newInstance(GameMessage)( type );
 
 	// add message to list

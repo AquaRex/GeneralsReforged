@@ -45,6 +45,7 @@
 //----------------------------------------------------------------------------
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
+#include "Common/LogicThread.h"
 #include "Common/GameAudio.h"
 
 #include "Common/AudioAffect.h"
@@ -428,6 +429,7 @@ void AudioManager::getInfoForAudioEvent( const AudioEventRTS *eventToFindAndFill
 //-------------------------------------------------------------------------------------------------
 AudioHandle AudioManager::addAudioEvent(const AudioEventRTS *eventToAdd)
 {
+	LOGIC_CENSUS( CENSUS_AUDIO );
 	if (eventToAdd->getEventName().isEmpty() || eventToAdd->getEventName() == AsciiString("NoSound")) {
 		return AHSV_NoSound;
 	}
@@ -596,6 +598,7 @@ AsciiString AudioManager::prevTrackName(const AsciiString& currentTrack )
 //-------------------------------------------------------------------------------------------------
 void AudioManager::removeAudioEvent(AudioHandle audioEvent)
 {
+	LOGIC_CENSUS( CENSUS_AUDIO );
 	if (audioEvent == AHSV_StopTheMusic || audioEvent == AHSV_StopTheMusicFade) {
 		m_music->removeAudioEvent(audioEvent);
 		return;
@@ -654,6 +657,7 @@ void AudioManager::setAudioEventVolumeOverride( AsciiString eventToAffect, Real 
 //-------------------------------------------------------------------------------------------------
 void AudioManager::removeAudioEvent( AsciiString eventToRemove )
 {
+	LOGIC_CENSUS( CENSUS_AUDIO );
 	removePlayingAudio( eventToRemove );
 }
 

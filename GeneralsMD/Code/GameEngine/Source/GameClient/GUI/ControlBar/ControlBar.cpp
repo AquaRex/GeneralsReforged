@@ -32,6 +32,7 @@
 // USER INCLUDES //////////////////////////////////////////////////////////////////////////////////
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
+#include "Common/LogicThread.h"
 #include "Lib/Clock.h"
 
 #include <map>
@@ -601,7 +602,8 @@ void ControlBar::pressCommandButton( Int place )
 
 /// mark the UI as dirty so the context of everything is re-evaluated
 void ControlBar::markUIDirty( void )
-{ 
+{
+	LOGIC_CENSUS( CENSUS_CONTROLBAR );
   m_UIDirty = TRUE;
 
 #if defined( _INTERNAL ) || defined( _DEBUG )
@@ -3771,8 +3773,9 @@ CommandSet* ControlBar::findNonConstCommandSet( const AsciiString& name )
 //-------------------------------------------------------------------------------------------------
 /** find existing command button if present	*/
 //-------------------------------------------------------------------------------------------------
-const CommandButton *ControlBar::findCommandButton( const AsciiString& name ) 
-{ 
+const CommandButton *ControlBar::findCommandButton( const AsciiString& name )
+{
+	LOGIC_CENSUS( CENSUS_CONTROLBAR );
 	CommandButton *btn =  findNonConstCommandButton(name); 
 	if( btn )
 	{
@@ -3784,8 +3787,9 @@ const CommandButton *ControlBar::findCommandButton( const AsciiString& name )
 //-------------------------------------------------------------------------------------------------
 /** Find existing command set by name */
 //-------------------------------------------------------------------------------------------------
-const CommandSet *ControlBar::findCommandSet( const AsciiString& name ) 
-{ 
+const CommandSet *ControlBar::findCommandSet( const AsciiString& name )
+{
+	LOGIC_CENSUS( CENSUS_CONTROLBAR );
 	CommandSet *set = findNonConstCommandSet(name); 
 	if (set)
 		set = (CommandSet*)set->friend_getFinalOverride();

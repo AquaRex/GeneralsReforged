@@ -134,6 +134,7 @@ Drawable *W3DGameClient::friend_createDrawable( const ThingTemplate *tmplate,
 //-------------------------------------------------------------------------------------------------
 void W3DGameClient::addScorch(const Coord3D *pos, Real radius, Scorches type)
 {
+	LOGIC_CENSUS( CENSUS_GAMECLIENT );
 	if (TheTerrainRenderObject) 
 	{
 		Vector3 loc(pos->x, pos->y, pos->z);
