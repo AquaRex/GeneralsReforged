@@ -1872,6 +1872,19 @@ static FrameTimeHistogram theFrameTimes;
 static FrameTimeHistogram theLogicTimes;
 static Bool theFrameTimesStarted = FALSE;
 
+/* The pass split the way a logic thread would split it (docs/plans/LOGIC-THREAD.md, phase 0).
+	 A pass that ran a tick and one that did not are two different frames, and the mixed tail hides
+	 which of them is long.  Inside a pass, "render" is what a logic thread could run beside: the scene
+	 render and present, W3DDisplay::draw from after the particle update to after End_Render.  "Sync"
+	 is the rest of the pass minus the tick: input, the drawable walk, the view update, the particles,
+	 audio, radar, UI.  "Overlapped" is what the pass would cost with the tick beside the render,
+	 sync + max(render, tick), and for a pass without a tick the pass itself. */
+Real TheOverlapWindowMS = 0.0f;			///< W3DDisplay::draw, after the particle update to after End_Render
+static Real thePassLogicMS = 0.0f;
+static Int thePassLogicTicks = 0;
+static FrameTimeHistogram theTickPass, theTickSync, theTickRender, theTickLogic;
+static FrameTimeHistogram theRenderPass, theRenderSync, theRenderRender, theOverlapped;
+
 void GameEngine_noteFrameTime( Real ms, UnsignedInt logicFrame )
 {
 	/* The histogram deliberately ignores the opening second of a match, and the opening second of a
@@ -1906,6 +1919,24 @@ void GameEngine_noteFrameTime( Real ms, UnsignedInt logicFrame )
 	if( !theFrameTimesStarted )
 		return;
 	theFrameTimes.note( ms, logicFrame );
+
+	const Real render = TheOverlapWindowMS;
+	const Real sync = ms - thePassLogicMS - render;
+	if( thePassLogicTicks > 0 )
+	{
+		theTickPass.note( ms, logicFrame );
+		theTickSync.note( sync, logicFrame );
+		theTickRender.note( render, logicFrame );
+		theTickLogic.note( thePassLogicMS, logicFrame );
+		theOverlapped.note( sync + ( render > thePassLogicMS ? render : thePassLogicMS ), logicFrame );
+	}
+	else
+	{
+		theRenderPass.note( ms, logicFrame );
+		theRenderSync.note( sync, logicFrame );
+		theRenderRender.note( render, logicFrame );
+		theOverlapped.note( ms, logicFrame );
+	}
 }
 
 /* The world's object count once a logic tick, debris and dying objects included, so a data change
@@ -1939,6 +1970,8 @@ static void startFrameTimeStats( void )
 {
 	theFrameTimes.reset();
 	theLogicTimes.reset();
+	theTickPass.reset(); theTickSync.reset(); theTickRender.reset(); theTickLogic.reset();
+	theRenderPass.reset(); theRenderSync.reset(); theRenderRender.reset(); theOverlapped.reset();
 	theObjectPeak = 0;
 	theObjectPeakFrame = 0;
 	theObjectSum = 0.0;
@@ -1963,6 +1996,17 @@ static void reportFrameTimeStats( void )
 						 theFrameTimes.worstMS(), theFrameTimes.worstAtFrame(),
 						 theFrameTimes.countOver( 16.7f ), over16,
 						 theFrameTimes.countOver( 33.3f ), over33));
+	// the same passes split for the logic thread plan: mean/p50/p99 of each part
+	#define PASS_SPLIT(h) (h).meanMS(), (h).percentileMS( 0.50f ), (h).percentileMS( 0.99f )
+	DEBUG_LOG(("HEADLESS PASSES TICK: %d | pass %.2f/%.2f/%.2f | sync %.2f/%.2f/%.2f | render %.2f/%.2f/%.2f | logic %.2f/%.2f/%.2f ms mean/p50/p99\n",
+						 theTickPass.count(), PASS_SPLIT( theTickPass ), PASS_SPLIT( theTickSync ),
+						 PASS_SPLIT( theTickRender ), PASS_SPLIT( theTickLogic )));
+	DEBUG_LOG(("HEADLESS PASSES NOTICK: %d | pass %.2f/%.2f/%.2f | sync %.2f/%.2f/%.2f | render %.2f/%.2f/%.2f ms mean/p50/p99\n",
+						 theRenderPass.count(), PASS_SPLIT( theRenderPass ), PASS_SPLIT( theRenderSync ),
+						 PASS_SPLIT( theRenderRender )));
+	DEBUG_LOG(("HEADLESS PASSES OVERLAPPED: %d | %.2f/%.2f/%.2f p99.9 %.2f ms mean/p50/p99, every pass with the tick beside the render\n",
+						 theOverlapped.count(), PASS_SPLIT( theOverlapped ), theOverlapped.percentileMS( 0.999f )));
+	#undef PASS_SPLIT
 	if (TheGlobalData)
 	{
 		const char *lodName = "off";
@@ -2534,7 +2578,8 @@ static void updateHeadlessRun( void )
 	/* The frame times start a second in, not at frame 0.  The first counted pass carries the tail
 		 of the map load and came out at two full seconds, which then *is* the worst frame of the
 		 match and buries the 60ms hitch that somebody could actually do something about. */
-	if( !theFrameTimesStarted && frame > runStartFrame + LOGICFRAMES_PER_SECOND )
+	if( !theFrameTimesStarted && frame > runStartFrame + LOGICFRAMES_PER_SECOND
+			&& frame > TheGlobalData->m_noDraw + LOGICFRAMES_PER_SECOND )		// -jumpToFrame counts from its first drawn second
 		startFrameTimeStats();
 
 	/* The biggest army each side ever fielded, sampled once a second.  The end-of-match counts are
@@ -2733,7 +2778,8 @@ void GameEngine::update( void )
 		static Int fpsFrames = 0;
 		static Real fpsClientTotal = 0.0f, fpsClientMax = 0.0f;
 		static Real fpsLogicTotal = 0.0f, fpsLogicMax = 0.0f;
-		static Int fpsLogicTicks = 0, fpsCatchupPasses = 0;
+		static Int fpsLogicTicks = 0, fpsCatchupPasses = 0, fpsNoTickPasses = 0;
+		static Real fpsNoTickClientTotal = 0.0f;
 		static UnsignedInt fpsWindowStart = Clock_Milliseconds();
 		static Real fpsRadarTotal = 0.0f, fpsAudioTotal = 0.0f, fpsDrawTotal = 0.0f, fpsDrawMax = 0.0f;
 		static Real fpsSceneTotal = 0.0f, fpsUITotal = 0.0f, fpsPostTotal = 0.0f, fpsWinTotal = 0.0f;
@@ -2747,6 +2793,7 @@ void GameEngine::update( void )
 		Real clientMS = 0.0f, logicMS = 0.0f, radarMS = 0.0f, audioMS = 0.0f;
 		Int logicTicks = 0;
 		TheClientDrawMS = TheSceneDrawMS = TheUIDrawMS = TheUIPostDrawMS = TheWindowRepaintMS = 0.0f;
+		TheOverlapWindowMS = 0.0f;
 		TheParticleUpdateMS = TheParticleFillMS = TheTranslucentMS = 0.0f;
 		TheTranslucentDraws = TheSortingPolygonsRefused = TheParticlesPastGroupLimit = 0;
 		TheShadowMapMS = ThePostChainMS = TheIconDrawMS = 0.0f;
@@ -2819,6 +2866,10 @@ void GameEngine::update( void )
 			 branch as fast-forward, different reason: this one is not a cheat, it is the whole point
 			 of an unattended run. */
 		fastMode = fastMode || TheGlobalData->m_headless;
+
+		/* -jumpToFrame n: undrawn and as fast as the machine goes up to frame n, then paced.  EA's loop
+			 ran a tick a pass anyway; paced on the wall clock, jumping to minute 24 took 24 minutes. */
+		fastMode = fastMode || TheGlobalData->m_noDraw > TheGameLogic->getFrame();
 
 		/* -turbo: the same for a run that draws, unless a network owns the clock.  A -wav recording does
 			 not: its mix moves with the logic frames, not the wall clock (updateSoundCapture).  The five seconds before a -screenshot run at the real rate.  Taken straight out of
@@ -2984,6 +3035,13 @@ void GameEngine::update( void )
 		ControlServer_poll();
 
 #ifdef DEBUG_LOGGING
+		thePassLogicMS = logicMS;
+		thePassLogicTicks = logicTicks;
+		if( logicTicks == 0 )
+		{
+			fpsNoTickPasses++;
+			fpsNoTickClientTotal += clientMS;
+		}
 		fpsFrames++;
 		fpsClientTotal += clientMS;
 		fpsRadarTotal += radarMS;
@@ -3040,7 +3098,7 @@ void GameEngine::update( void )
 					// 'hz' is the rate the simulation actually achieved and 'catchup' how many render
 					// frames were dropped to hold it there; hz short of m_maxFPS with catchup passes
 					// present is the logic side being genuinely over budget, not the pacer.
-					DEBUG_LOG(("FPS %.0f over %dms (%d frames, %d hz, %d catchup, logic frame %d) | client avg %.1f max %.1f (render avg %.1f max %.1f [scene %.1f, ui %.1f (post %.1f, win %.1f), present %.1f], radar %.1f, audio %.1f, rest %.1f) | logic avg %.1f max %.1f | unaccounted %.1fms\n",
+					DEBUG_LOG(("FPS %.0f over %dms (%d frames, %d hz, %d catchup, logic frame %d) | client avg %.1f max %.1f (render avg %.1f max %.1f [scene %.1f, ui %.1f (post %.1f, win %.1f), present %.1f], radar %.1f, audio %.1f, rest %.1f) | logic avg %.1f max %.1f | unaccounted %.1fms | %d passes without a tick, client avg %.1f\n",
 										 fps, (Int)windowMS, fpsFrames,
 										 (Int)((Real)fpsLogicTicks * 1000.0f / (Real)windowMS + 0.5f), fpsCatchupPasses,
 										 TheGameLogic->getFrame(),
@@ -3053,7 +3111,8 @@ void GameEngine::update( void )
 										 fpsRadarTotal / fpsFrames, fpsAudioTotal / fpsFrames,
 										 ( fpsClientTotal - fpsDrawTotal - fpsRadarTotal - fpsAudioTotal ) / fpsFrames,
 										 fpsLogicTotal / fpsFrames, fpsLogicMax,
-										 (Real)windowMS - fpsClientTotal - fpsLogicTotal));
+										 (Real)windowMS - fpsClientTotal - fpsLogicTotal,
+										 fpsNoTickPasses, fpsNoTickPasses ? fpsNoTickClientTotal / fpsNoTickPasses : 0.0f));
 					DEBUG_LOG(("SCENE SPLIT frame %d: shadow %.1f ms, %d casters, %u shadow draws | fill %.1f translucent %.1f (%u draws) | sort %.1f copy %.1f draw %.1f (%u entries, %u on screen) | icons %.1f | postchain %.1f | scene draws %u\n",
 										 TheGameLogic->getFrame(),
 										 fpsShadowTotal / fpsFrames, fpsCasterTotal / fpsFrames, fpsShadowDrawTotal / fpsFrames,
@@ -3065,7 +3124,8 @@ void GameEngine::update( void )
 										 fpsSceneDrawTotal / fpsFrames));
 				}
 				fpsFrames = 0;
-				fpsLogicTicks = fpsCatchupPasses = 0;
+				fpsLogicTicks = fpsCatchupPasses = fpsNoTickPasses = 0;
+				fpsNoTickClientTotal = 0.0f;
 				fpsClientTotal = fpsLogicTotal = 0.0f;
 				fpsRadarTotal = fpsAudioTotal = fpsDrawTotal = fpsDrawMax = 0.0f;
 				fpsSceneTotal = fpsUITotal = fpsPostTotal = fpsWinTotal = 0.0f;

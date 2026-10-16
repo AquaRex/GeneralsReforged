@@ -885,14 +885,6 @@ void GameClient::update( void )
 		}
 	}
 
-#if defined(_INTERNAL) || defined(_DEBUG)
-	// need to draw the first frame, then don't draw again until TheGlobalData->m_noDraw
-	if (TheGlobalData->m_noDraw > TheGameLogic->getFrame() && TheGameLogic->getFrame() > 0) 
-	{
-		return;
-	}
-#endif
-
 	// update all particle systems
 	if( !freezeTime )
 	{
@@ -920,8 +912,10 @@ void GameClient::update( void )
 
 		/* -headless never draws.  The device and every drawable stay alive - this skips the frame,
 			 not the client - which is what makes an unattended run fast: rendering is the larger half
-			 of the loop's wall clock in a normal match. */
-		if (!TheGlobalData->m_headless)
+			 of the loop's wall clock in a normal match.  -jumpToFrame skips it the same way until its
+			 frame, past the first, which draws the load away. */
+		const Bool jumping = TheGlobalData->m_noDraw > TheGameLogic->getFrame() && TheGameLogic->getFrame() > 0;
+		if (!TheGlobalData->m_headless && !jumping)
 		{
 #ifdef DEBUG_LOGGING
 			Int64 drawStart, drawEnd;

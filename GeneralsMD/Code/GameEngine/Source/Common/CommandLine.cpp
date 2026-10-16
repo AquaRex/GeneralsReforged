@@ -2833,7 +2833,6 @@ static CommandLineParam params[] =
 	{ "-constantDebug", parseConstantDebug },
 	{ "-noagpfix", parseIncrAGPBuf },
 	{ "-dumpAssetUsage", parseDumpAssetUsage },
-	{ "-jumpToFrame", parseJumpToFrame },
 	{ "-updateImages", parseUpdateImages },
 	{ "-showTeamDot", parseShowTeamDot },
 	{ "-extraLogging", parseExtraLogging },
@@ -2861,6 +2860,7 @@ static CommandLineParam params[] =
 		 opened the audio device.  It turns every sound off as -headless does: the device is never opened. */
 	{ "-noaudio", parseNoAudio },
 	{ "-maxframes", parseMaxGameFrames },
+	{ "-jumpToFrame", parseJumpToFrame },	// the late-game window without playing up to it (LOGIC-THREAD.md)
 	{ "-screenshot", parseScreenShot },
 	{ "-video", parseVideo },
 	{ "-directorrecord", parseDirectorRecord },

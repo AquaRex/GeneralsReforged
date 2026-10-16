@@ -2175,6 +2175,7 @@ static Bool videoRecordingFrame(void);
 extern Real TheSceneDrawMS;
 extern Real TheUIDrawMS;
 extern Real TheParticleUpdateMS;
+extern Real TheOverlapWindowMS;
 extern UnsignedInt TheSceneDrawCalls;
 
 //=============================================================================
@@ -2514,7 +2515,10 @@ AGAIN:
 
 
 	do {
-		
+#ifdef DEBUG_LOGGING
+		Int64 tOverlapStart = 0;		// the part a logic thread could run beside, TheOverlapWindowMS
+#endif
+
 		{
 			if(TheGlobalData->m_loadScreenRender != TRUE)
 			{
@@ -2559,6 +2563,7 @@ AGAIN:
 #ifdef DEBUG_LOGGING
 			tParticleEnd = Clock_Ticks();
 			TheParticleUpdateMS = w3dElapsedMS( tParticleStart, tParticleEnd );
+			tOverlapStart = tParticleEnd;
 #endif
 
 			// R1: after the particles read the logic bones (Lorenzen's note above), before anything renders.
@@ -2804,7 +2809,11 @@ AGAIN:
 				}
 			}
 		}
-					
+#ifdef DEBUG_LOGGING
+		if (tOverlapStart)
+			TheOverlapWindowMS += w3dElapsedMS( tOverlapStart, Clock_Ticks() );
+#endif
+
 		if (TheScriptEngine->isTimeFrozenDebug() || TheScriptEngine->isTimeFrozenScript() || TheGameLogic->isGamePaused())
 		{
 			freezeTime = false; // We're frozen for debug or for pause, and need to continue out of the loop.
