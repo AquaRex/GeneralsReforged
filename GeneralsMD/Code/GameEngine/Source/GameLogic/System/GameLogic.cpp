@@ -3171,81 +3171,41 @@ Int GameLogic::rebalanceChildSleepyUpdate(Int i)
 
 	DEBUG_ASSERTCRASH(i >= 0 && i < m_sleepyUpdates.size(), ("bad sleepy idx"));
 
-// this function gets the brunt of the work (we frequently
-// balance down, not up), so this one is hand-unrolled for
-// max efficiency. I have left the pristine non-unrolled
-// version present for clarity. (Yes, this is worth doing.) (srj) 
-#if 1
-	SleepyEntry* pI = &m_sleepyUpdates[i];
+	/* Every sleepy module that runs sinks from the top of this heap again, so this is the busiest loop
+		 of the scheduler. The sinking entry moves down through a hole: each child that has to rise moves
+		 up one slot and takes its new index, and the sinking entry is written once, where it stops.
+		 Swapping at every level wrote both entries and both modules' indices each time, and every module
+		 is a cache line of its own. The comparisons are the ones the swapping walk made, so every entry
+		 ends in the same slot, ties included, and the modules run in the same order. Which child sorts
+		 first is a coin toss a branch keeps guessing wrong, so the pick is a sum instead. */
+	SleepyEntry *entries = m_sleepyUpdates.data();
+	const Int sz = (Int)m_sleepyUpdates.size();
+	const SleepyEntry sinking = entries[i];
+	const Int start = i;
 
-	// our children are i*2 and i*2+1
-  Int child = ((i+1)<<1)-1;
-	// data() + n, not &m_sleepyUpdates[n]: both are only addresses until the loop below has checked
-	// them against pSZ, and the same addresses in a release build, but a Debug build's checked
-	// operator[] aborts on any n past the end, which child and size() often are (W3).
-	SleepyEntry* pChild = m_sleepyUpdates.data() + child;
-	SleepyEntry* pSZ = m_sleepyUpdates.data() + m_sleepyUpdates.size();	// yes, this is off the end.
-
-  while (pChild < pSZ) 
+	// our children are i*2+1 and i*2+2
+	Int child = ((i+1)<<1)-1;
+	while (child < sz)
 	{
 		// choose the higher-priority of the two children; we must be higher-pri than that.
-		if (pChild < pSZ-1 && isLowerPriority(*pChild, *(pChild+1)))
-		{
-      ++pChild;
-			++child;
-		}
+		if (child < sz-1)
+			child += (Int)isLowerPriority(entries[child], entries[child+1]);
 
 		// if we're higher-pri than our children, we're done.
-		if (!isLowerPriority(*pI, *pChild))
-		{
+		if (!isLowerPriority(sinking, entries[child]))
 			break;
-		}
 
-		// doh. swap with the highest-pri child we have.
-		SleepyEntry a = *pChild;
-		SleepyEntry b = *pI;
-
-		*pI = a;
-		*pChild = b;
-
-		a.module->friend_setIndexInLogic(i);
-		b.module->friend_setIndexInLogic(child);
-
+		entries[i] = entries[child];
+		entries[i].module->friend_setIndexInLogic(i);
 		i = child;
-		pI = pChild;
-
 		child = ((i+1)<<1)-1;
-		pChild = m_sleepyUpdates.data() + child;
-  }
-#else
-	// our children are i*2 and i*2+1
-	Int sz = m_sleepyUpdates.size();
-  Int child = ((i+1)<<1)-1;
-  while (child < sz) 
+	}
+
+	if (i != start)
 	{
-		// choose the higher-priority of the two children; we must be higher-pri than that.
-		if (child < sz-1 && isLowerPriority(m_sleepyUpdates[child], m_sleepyUpdates[child+1]))
-      ++child;
-		
-		// if we're higher-pri than our children, we're done.
-		if (!isLowerPriority(m_sleepyUpdates[i], m_sleepyUpdates[child]))
-		{
-			break;
-		}
-
-		// doh. swap with the highest-pri child we have.
-		SleepyEntry a = m_sleepyUpdates[child];
-		SleepyEntry b = m_sleepyUpdates[i];
-
-		m_sleepyUpdates[i] = a;
-		m_sleepyUpdates[child] = b;
-
-		a.module->friend_setIndexInLogic(i);
-		b.module->friend_setIndexInLogic(child);
-		i = child;
-		child = ((i+1)<<1)-1;
-  }
-#endif
+		entries[i] = sinking;
+		sinking.module->friend_setIndexInLogic(i);
+	}
 	return i;
 }
 

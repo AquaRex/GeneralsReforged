@@ -359,13 +359,21 @@ AI::AI( void )
 void AI::init( void )
 {
 	m_nextGroupID = 0;
+	m_sweptGroupID = 0;
 }
+
+#ifdef DEBUG_LOGGING
+static Int theSweptGroups = 0;		///< temporary: groups sweepEmptyGroups destroyed this match
+#endif
 
 /**
  * Reset the AI system in preparation for a new map
  */
 void AI::reset( void )
 {
+#ifdef DEBUG_LOGGING
+	theSweptGroups = 0;
+#endif
 	m_pathfinder->reset();
 	while (m_aiData && m_aiData->m_next) {
 		TAiData *cur = m_aiData;
@@ -385,6 +393,7 @@ void AI::reset( void )
 		}
 	}
 	m_nextGroupID = 0;
+	m_sweptGroupID = 0;
 	m_nextFormationID = NO_FORMATION_ID;
 	getNextFormationID(); // increment once past NO_FORMATION_ID.  jba.
 	m_lastBuildingPlacementFrame = 0;
@@ -440,6 +449,8 @@ void AI::update( void )
 	end = Clock_Ticks();
 	s_lastPathfindMS = aiElapsedMS( start, afterPathfind );
 	s_lastPlayerUpdateMS = aiElapsedMS( afterPathfind, end );
+
+	sweepEmptyGroups();
 }
 
 /**
@@ -585,6 +596,7 @@ AIGroup *AI::createGroup( void )
 	// add it to the list
 //	DEBUG_LOG(("***AIGROUP %x is being added to m_groupList.\n", group ));
 	m_groupList.push_back( group );
+	m_groupIndex[ group ] = --m_groupList.end();
 
 	return group;
 }
@@ -594,20 +606,67 @@ AIGroup *AI::createGroup( void )
  */
 void AI::destroyGroup( AIGroup *group )
 {
-	std::list<AIGroup *>::iterator i = std::find( m_groupList.begin(), m_groupList.end(), group );
+	std::unordered_map<AIGroup *, std::list<AIGroup *>::iterator>::iterator i = m_groupIndex.find( group );
 
-	// make sure group is actually in the list
-	if (i == m_groupList.end())
+	// make sure group is actually in the list: a caller can hold one that emptied and destroyed itself,
+	// and the group's own destructor comes back here through remove()
+	if (i == m_groupIndex.end())
 		return;
 
 	DEBUG_ASSERTCRASH(group != NULL, ("A NULL group made its way into the AIGroup list.. jkmcd"));
 
 	// remove it
 //	DEBUG_LOG(("***AIGROUP %x is being removed from m_groupList.\n", group ));
-	m_groupList.erase( i );
+	m_groupList.erase( i->second );
+	m_groupIndex.erase( i );
 
 	// destroy group
 	group->deleteInstance();
+}
+
+/**
+ * Destroy every group made since the last sweep that is still empty.
+ *
+ * remove() destroys a group when its last member leaves, so a group that never had a member was
+ * never destroyed at all: a sequential script or a script action asking a team with nobody left in
+ * it whether it is idle (ScriptEngine::evaluateAndProgressAllSequentialScripts, the ScriptActions
+ * team actions) left one behind every time, and each stayed in m_groupList, walked by the CRC every
+ * frame, for the rest of the match.  Nothing keeps a group past the call that made it, so by the end
+ * of the AI update an empty one is garbage.  Groups leave the list only by being destroyed and are
+ * appended with rising IDs, so the ones made since the last sweep are its tail, and one that had a
+ * member once is destroyed by remove() the moment it empties.
+ */
+void AI::sweepEmptyGroups( void )
+{
+	std::list<AIGroup *>::iterator it = m_groupList.end();
+	while (it != m_groupList.begin())
+	{
+		std::list<AIGroup *>::iterator prev = it;
+		--prev;
+		if ((*prev)->getID() <= m_sweptGroupID)
+			break;
+		it = prev;
+	}
+	while (it != m_groupList.end())
+	{
+		AIGroup *group = *it;
+		++it;
+		if (group->isEmpty())
+		{
+			destroyGroup( group );
+#ifdef DEBUG_LOGGING
+			++theSweptGroups;
+#endif
+		}
+	}
+	m_sweptGroupID = m_nextGroupID;
+
+#ifdef DEBUG_LOGGING
+	// temporary: what the list holds once a minute, and how many groups it used to keep by now
+	if (TheGameLogic->getFrame() % (60 * LOGICFRAMES_PER_SECOND) == 0)
+		DEBUG_LOG(("AI GROUPS frame %d: %d listed, %d empty swept this match\n", TheGameLogic->getFrame(),
+			(Int)m_groupList.size(), theSweptGroups));
+#endif
 }
 
 /**
@@ -885,7 +944,12 @@ Object *AI::findClosestEnemy( const Object *me, Real range, UnsignedInt qualifie
 
 	filters[numFilters] = NULL;
 
-	if (info == NULL || info == TheScriptEngine->getDefaultAttackInfo()) 
+	// filterObvious goes first in both lists and lets only ENEMIES through, so a cell holding no
+	// enemy player's Object cannot hold an answer and the searches below pass over it: the same
+	// objects reach the filters in the same order, and no filter after the first ever sees the rest
+	const PlayerMaskType enemyPlayers = me->getTeam()->getEnemyPlayerMask();
+
+	if (info == NULL || info == TheScriptEngine->getDefaultAttackInfo())
 	{
 		if (qualifiers & PREFER_HIGH_THREAT)
 		{
@@ -896,7 +960,7 @@ Object *AI::findClosestEnemy( const Object *me, Real range, UnsignedInt qualifie
 			Real distanceModifier = TheAI->getAiData()->m_attackPriorityDistanceModifier;
 			Object *bestThreat = NULL;
 			Int bestScore = 0;
-			ObjectIterator *threatIter = ThePartitionManager->iterateObjectsInRange(me, range, FROM_BOUNDINGSPHERE_2D, gatherFilters, ITER_SORTED_NEAR_TO_FAR);
+			ObjectIterator *threatIter = ThePartitionManager->iterateObjectsInRange(me, range, FROM_BOUNDINGSPHERE_2D, gatherFilters, ITER_SORTED_NEAR_TO_FAR, enemyPlayers);
 			MemoryPoolObjectHolder threatHolder(threatIter);
 			for (Object *theEnemy = threatIter->first(); theEnemy; theEnemy = threatIter->next())
 			{
@@ -936,14 +1000,14 @@ Object *AI::findClosestEnemy( const Object *me, Real range, UnsignedInt qualifie
 		}
 
 		// No additional attack info, so just return the closest one.
-		Object* o = ThePartitionManager->getClosestObject( me, range, FROM_BOUNDINGSPHERE_2D, filters );
+		Object* o = ThePartitionManager->getClosestObject( me, range, FROM_BOUNDINGSPHERE_2D, filters, NULL, NULL, enemyPlayers );
 		return o;
 	}
 
 	Object *bestEnemy = NULL;
 	Int			effectivePriority=0;
 	Int			actualPriority=0;
-	ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange(me, range, FROM_BOUNDINGSPHERE_2D, gatherFilters, ITER_SORTED_NEAR_TO_FAR);
+	ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange(me, range, FROM_BOUNDINGSPHERE_2D, gatherFilters, ITER_SORTED_NEAR_TO_FAR, enemyPlayers);
 	MemoryPoolObjectHolder holder(iter);
 	for (Object *theEnemy = iter->first(); theEnemy; theEnemy = iter->next()) 
 	{

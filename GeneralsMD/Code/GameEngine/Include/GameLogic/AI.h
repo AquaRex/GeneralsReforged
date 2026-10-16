@@ -855,11 +855,16 @@ public:
 protected:
 	Pathfinder *m_pathfinder;							///< the pathfinding system
 	std::list<AIGroup *> m_groupList;			///< the list of AIGroups
+	/// where each live group sits in m_groupList, so destroyGroup need not walk it.  Looked up by
+	/// address and never iterated: m_groupList alone keeps the order the CRC walks
+	std::unordered_map<AIGroup *, std::list<AIGroup *>::iterator> m_groupIndex;
 	TAiData *m_aiData;
 	void newOverride(void);
 	void addSideInfo(AISideInfo *info);
-	
+	void sweepEmptyGroups( void );				///< destroy the groups made since the last sweep that nobody joined
+
 	UnsignedInt m_nextGroupID;
+	UnsignedInt m_sweptGroupID;						///< every group up to this ID has been through sweepEmptyGroups
 	FormationID m_nextFormationID;
 	UnsignedInt m_lastBuildingPlacementFrame;	///< cleared by reset: a static here outlived the match and deferred the next match's first placement on one machine only
 };
@@ -1539,6 +1544,7 @@ public:
 	void queueUpgrade( const UpgradeTemplate *upgrade );	///< queue an upgrade
 
 	void add( Object *obj );								///< add object to group
+	void addTeam( Team *team );							///< add() every team member, in team order (Team::getTeamAsAIGroup)
 	
 	// returns true if remove destroyed the group for us.
 	Bool remove( Object *obj);
