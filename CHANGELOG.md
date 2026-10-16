@@ -18,6 +18,13 @@ found and fixed â€” EA's own, not port damage.**
 - On the ground a jet taxis on its wheels. It rounds the taxiway corners, rolls straight out of the landing into the taxi and turns into its parking spot in one smooth sweep.
 - Helicopters are untouched and fly as they did.
 
+## A plane that is shot down hits the ground hard
+
+- A shot-down jet now hits the ground with a blast: 80 damage in a small radius. A B-52, a B-3, a cargo plane, the carpet bomber or a Spectre does 160 in a wider one.
+- The wreck leaves fire burning for about 6 seconds, and the fire sets infantry alight. A big plane leaves a line of fires along the length of the wreck.
+- The blast and the fire do not pick sides. A bomber brought down over your own army hurts your own army.
+- Bombers and cargo planes no longer vanish silently when they hit the ground. A jet destroyed while it sits parked is unchanged.
+
 ## A tank shell kills the man it hits
 
 - A cannon shell did 6 damage to a soldier. A Ranger has 180 health, so thirty shells that actually hit him left him standing, a full minute of fire from a Crusader, while the same shell does 60 to another tank. It now does that 60 to him as well. Three hits kill a Ranger. Two kill a Red Guard or a Rebel.
