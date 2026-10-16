@@ -385,10 +385,13 @@ protected:
 	void buyMoneyUnits(void);
 	Int moneyUnitRoom(void) const;	///< how many more money units this player's army and internet centers carry
 	Bool hasEnoughMoneyUnitsFor(TeamPrototype *proto) const;	///< this team is all hackers and there is no room for more
-	Bool placeNear(const ThingTemplate *tmpl, const Coord3D *center, Real innerRadius, Bool walkOutward);	///< a legal, safe spot on a ring round center, queued for a dozer. walkOutward keeps searching further out as the inner rings fill
+	Bool placeNear(const ThingTemplate *tmpl, const Coord3D *center, Real innerRadius, Bool walkOutward);	///< the nearest legal, safe spot by the ground from center, queued for a dozer. walkOutward keeps searching further out as the near ground fills
 	Bool queueExtraFactory(Object *dozer, KindOfType kind, Bool unlimited);	///< one more of this factory, beside a held expansion or around the base
 	const ThingTemplate *nextBaseDefense(Object *dozer);	///< the base defence off this dozer's buttons that the base has fewest of, NULL for none
-	Bool placeDefense(const ThingTemplate *defense);	///< queue it on the ring spot whose clear field of fire covers the most ground toward the enemy
+	Bool placeDefense(const ThingTemplate *defense);	///< queue it on the ring spot whose clear field of fire covers the most ground the enemy drives in over
+	const std::vector<UnsignedShort> &groundFromBase(void);	///< AIGroundFlood distance of every pathfind cell from the base center, cached until the center moves
+	const std::vector<UnsignedShort> &groundFromThreats(const Coord3D *threats, Int count);	///< the same from the nearest of these, cached until they change
+	Bool reachableFromBase(const Coord3D *pos);	///< a vehicle at the base center could drive there; TRUE before the base is placed
 	Real knownFirepowerAlongPath(Waypoint *way);	///< what this AI has seen that can shoot, along an approach
 	AsciiString secondApproachLabel(const Coord3D *from, const AsciiString &taken, Int pathSuffix);	///< the quietest other road, or empty
 	Bool loadGunships(void);	///< infantry boards the transports it can shoot out of: the wave's anything at home, a team's its own; TRUE while a firing gunship is still filling
@@ -626,6 +629,17 @@ protected:
 	const ThingTemplate *m_buildSearchPlan;		///< the building whose footprint the search is trying
 	Coord3D m_buildProbePos;
 
+	/* Ground distance fields over the whole pathfind grid (groundFromBase, groundFromThreats), not
+		 xferred for the same reason: each is a pure function of the map, the bridges standing and
+		 the point it was flooded from, recomputed the first time it is asked for after the point
+		 moves or a bridge falls or is put back. */
+	std::vector<UnsignedShort> m_groundFromBase;
+	Coord3D m_groundFromBaseAt;
+	UnsignedInt m_groundFromBaseBridges;
+	std::vector<UnsignedShort> m_groundFromThreats;
+	std::vector<Coord3D> m_groundThreatsAt;
+	UnsignedInt m_groundThreatsBridges;
+
 	GameDifficulty m_difficulty;
 
 	Int			m_skillsetSelector;
@@ -633,7 +647,7 @@ protected:
 	Coord3D m_baseCenter; // Center of the initial build list of structures.
 	Bool		m_baseCenterSet; // True if baseCenter is valid.
 	Real m_baseRadius; // Radius of the initial build list of structures.
-	Int			m_placementRing;	///< first ring placeNear tries when the search is allowed to walk outward
+	Int			m_placementRing;	///< ground distance (AIGroundFlood units) placeNear starts trying spots at when it may walk outward
 
 	// Bridge repair info.
 	enum {MAX_STRUCTURES_TO_REPAIR = 2};

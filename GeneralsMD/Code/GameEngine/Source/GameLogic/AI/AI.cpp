@@ -1414,6 +1414,88 @@ Real aiFireSampleWeight( Real baseToThreat, Real sampleToThreat, Real reach, Boo
 }
 
 //-------------------------------------------------------------------------------------------------
+AIGroundFlood::AIGroundFlood( Int width, Int height, WalkableFunc walkable, void *userData ) :
+	m_width( width ),
+	m_height( height ),
+	m_walkable( walkable ),
+	m_userData( userData ),
+	m_dist( width * height, AI_GROUND_UNREACHED ),
+	m_walk( width * height, 0 ),
+	m_at( 0 ),
+	m_cursor( 0 ),
+	m_pending( 0 ),
+	m_max( AI_GROUND_UNREACHED - 1 )
+{
+}
+
+//-------------------------------------------------------------------------------------------------
+void AIGroundFlood::addSource( Int x, Int y )
+{
+	if( x < 0 || y < 0 || x >= m_width || y >= m_height )
+		return;
+	const Int index = y * m_width + x;
+	if( m_dist[ index ] == 0 )
+		return;
+	m_dist[ index ] = 0;
+	m_bucket[ 0 ].push_back( index );
+	++m_pending;
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool AIGroundFlood::walkable( Int x, Int y, Int index )
+{
+	if( m_walk[ index ] == 0 )
+		m_walk[ index ] = m_walkable( x, y, m_userData ) ? 1 : 2;
+	return m_walk[ index ] == 1;
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool AIGroundFlood::next( Int *x, Int *y, Int *distance )
+{
+	static const Int STEPS[ 8 ][ 3 ] = {
+		{ 1, 0, AI_GROUND_STEP }, { -1, 0, AI_GROUND_STEP }, { 0, 1, AI_GROUND_STEP }, { 0, -1, AI_GROUND_STEP },
+		{ 1, 1, AI_GROUND_DIAGONAL }, { -1, 1, AI_GROUND_DIAGONAL }, { 1, -1, AI_GROUND_DIAGONAL }, { -1, -1, AI_GROUND_DIAGONAL } };
+
+	while( m_pending > 0 )
+	{
+		std::vector<Int> &bucket = m_bucket[ m_at & 3 ];
+		if( m_cursor >= (Int)bucket.size() )
+		{
+			m_pending -= (Int)bucket.size();
+			bucket.clear();
+			m_cursor = 0;
+			++m_at;
+			continue;
+		}
+		const Int index = bucket[ m_cursor++ ];
+		if( m_dist[ index ] != m_at )
+			continue;		// reached again by a shorter way, and handed out from that bucket
+
+		const Int cx = index % m_width;
+		const Int cy = index / m_width;
+		for( Int n = 0; n < 8; ++n )
+		{
+			const Int nx = cx + STEPS[ n ][ 0 ];
+			const Int ny = cy + STEPS[ n ][ 1 ];
+			if( nx < 0 || ny < 0 || nx >= m_width || ny >= m_height )
+				continue;
+			const Int d = m_at + STEPS[ n ][ 2 ];
+			const Int nIndex = ny * m_width + nx;
+			if( d > m_max || d >= m_dist[ nIndex ] || !walkable( nx, ny, nIndex ) )
+				continue;
+			m_dist[ nIndex ] = (UnsignedShort)d;
+			m_bucket[ d & 3 ].push_back( nIndex );
+			++m_pending;
+		}
+		*x = cx;
+		*y = cy;
+		*distance = m_at;
+		return TRUE;
+	}
+	return FALSE;
+}
+
+//-------------------------------------------------------------------------------------------------
 Int aiPickBaseDefense( const Int *standing, const Bool *armed, Int count )
 {
 	Int best = -1;

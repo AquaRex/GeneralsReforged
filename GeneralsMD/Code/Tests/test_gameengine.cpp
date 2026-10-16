@@ -12136,6 +12136,43 @@ TEST(ai_base_defenses_rotate_through_the_sides_types)
 	}
 }
 
+/** A 7x5 grid split by a wall in column 3 with one gap at the bottom row. */
+static Bool groundFloodTestWalkable( Int x, Int y, void * )
+{
+	return x != 3 || y == 4;
+}
+
+/** The ground flood walks round a wall instead of through it, hands cells out nearest first, and
+	 stops at its cap. */
+TEST(ground_flood_goes_round_the_wall_nearest_first)
+{
+	AIGroundFlood flood( 7, 5, groundFloodTestWalkable, NULL );
+	flood.addSource( 0, 0 );
+	Int x, y, d, last = 0, count = 0;
+	while( flood.next( &x, &y, &d ) )
+	{
+		CHECK( d >= last );
+		last = d;
+		++count;
+	}
+	CHECK_EQ( count, 7 * 5 - 4 );		// the wall's four cells are never entered
+	const std::vector<UnsignedShort> &field = flood.field();
+	CHECK_EQ( (Int)field[ 0 * 7 + 1 ], AI_GROUND_STEP );
+	CHECK_EQ( (Int)field[ 1 * 7 + 1 ], AI_GROUND_DIAGONAL );
+	CHECK_EQ( (Int)field[ 0 * 7 + 3 ], (Int)AI_GROUND_UNREACHED );
+	// (4,0) is one cell past the wall: down to the gap at (3,4) and back up, 3 diagonals and 1 step
+	// to the gap, then 1 diagonal and 3 steps
+	CHECK_EQ( (Int)field[ 0 * 7 + 4 ], 4 * AI_GROUND_DIAGONAL + 4 * AI_GROUND_STEP );
+
+	AIGroundFlood capped( 7, 5, groundFloodTestWalkable, NULL );
+	capped.addSource( 0, 0 );
+	capped.setMaxDistance( AI_GROUND_STEP );
+	count = 0;
+	while( capped.next( &x, &y, &d ) )
+		++count;
+	CHECK_EQ( count, 3 );		// the source and its two side neighbours
+}
+
 /** Another factory when the queue is backing up, and another tech building until three are standing.
 	 Easy and Normal never reach the caller: economy buildings stay off below Brutal. */
 TEST(extra_factory_follows_the_queue_and_tech_stops_at_three)

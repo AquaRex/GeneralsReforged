@@ -429,6 +429,9 @@ m_role(AIROLE_AGGRESSIVE)
 	}
 	m_repairDozerOrigin.zero();
 	m_buildProbePos.zero();
+	m_groundFromBaseAt.zero();
+	m_groundFromBaseBridges = 0;
+	m_groundThreatsBridges = 0;
 	m_baseCenter.zero();
 	m_baseCenterSet = false;
 	m_placementRing = 0;
@@ -1075,6 +1078,116 @@ static Bool isBuildSearchWalkable( Int cellX, Int cellY, const Coord3D *worldPos
 	return FALSE;
 }
 
+/** The pathfind grid's size in cells, for an AIGroundFlood over all of it. */
+static void groundGridSize( Int *width, Int *height )
+{
+	const ICoord2D *hi = TheAI->pathfinder()->getExtent();
+	*width = hi->x + 1;
+	*height = hi->y + 1;
+}
+
+/** isBuildSearchWalkable for an AIGroundFlood.  userData, when set, is a field from groundFromBase:
+	* a cell the base cannot drive to is not entered either. */
+static Bool groundFloodWalkable( Int x, Int y, void *userData )
+{
+	const std::vector<UnsignedShort> *fromBase = (const std::vector<UnsignedShort> *)userData;
+	if( fromBase )
+	{
+		Int width, height;
+		groundGridSize( &width, &height );
+		if( (*fromBase)[ y * width + x ] == AI_GROUND_UNREACHED )
+			return FALSE;
+	}
+	Coord3D at;
+	at.x = ( x + 0.5f ) * PATHFIND_CELL_SIZE_F;
+	at.y = ( y + 0.5f ) * PATHFIND_CELL_SIZE_F;
+	at.z = 0.0f;
+	return isBuildSearchWalkable( x, y, &at );
+}
+
+/** A flood over the whole grid from these points, run to the end, into field. */
+static void floodWholeGrid( const Coord3D *from, Int count, std::vector<UnsignedShort> &field )
+{
+	Int width, height;
+	groundGridSize( &width, &height );
+	AIGroundFlood flood( width, height, groundFloodWalkable, NULL );
+	for( Int i = 0; i < count; ++i )
+	{
+		ICoord2D cell;
+		TheAI->pathfinder()->worldToCell( &from[ i ], &cell );
+		flood.addSource( cell.x, cell.y );
+	}
+	Int x, y, d;
+	while( flood.next( &x, &y, &d ) )
+		;
+	field.swap( flood.field() );
+}
+
+/** Which bridges are down, one bit each in list order, folded past 32.  Part of every ground field's
+	* key: a field kept across a bridge falling would answer differently from one flooded after a
+	* savegame load, which starts with no field. */
+static UnsignedInt bridgesDownKey( void )
+{
+	UnsignedInt key = 0;
+	for( Bridge *bridge = TheTerrainLogic->getFirstBridge(); bridge; bridge = bridge->getNext() )
+		key = ( ( key << 1 ) | ( key >> 31 ) ) ^ ( bridge->peekBridgeInfo()->curDamageState == BODY_RUBBLE ? 1u : 0u );
+	return key;
+}
+
+/** The field's value at a world position, AI_GROUND_UNREACHED for ground not reached. */
+static Int groundAt( const std::vector<UnsignedShort> &field, const Coord3D *pos )
+{
+	Int width, height;
+	groundGridSize( &width, &height );
+	ICoord2D cell;
+	TheAI->pathfinder()->worldToCell( pos, &cell );
+	return field[ cell.y * width + cell.x ];
+}
+
+// ------------------------------------------------------------------------------------------------
+/** How far every cell of the map is from the base center by the ground.  The building searches and
+	* the defence scoring all ask the same question, whether a spot is joined to the base by ground a
+	* vehicle can cross, and a ring of straight-line distances cannot answer it: the far side of a
+	* valley or a ledge behind a cliff is close on the map and a long drive round, or no drive at all.
+	* One flood of the whole map, then a lookup until the base center moves.
+	* Structures count as ground (isBuildSearchWalkable), so the base's own buildings do not cut it
+	* in two.  A bridge falling or put back floods it again. */
+// ------------------------------------------------------------------------------------------------
+const std::vector<UnsignedShort> &AIPlayer::groundFromBase( void )
+{
+	const UnsignedInt bridges = bridgesDownKey();
+	if( m_groundFromBase.empty() || m_groundFromBaseAt.x != m_baseCenter.x || m_groundFromBaseAt.y != m_baseCenter.y ||
+			m_groundFromBaseBridges != bridges )
+	{
+		m_groundFromBaseAt = m_baseCenter;
+		m_groundFromBaseBridges = bridges;
+		floodWholeGrid( &m_baseCenter, 1, m_groundFromBase );
+	}
+	return m_groundFromBase;
+}
+
+// ------------------------------------------------------------------------------------------------
+const std::vector<UnsignedShort> &AIPlayer::groundFromThreats( const Coord3D *threats, Int count )
+{
+	const UnsignedInt bridges = bridgesDownKey();
+	Bool same = !m_groundFromThreats.empty() && (Int)m_groundThreatsAt.size() == count && m_groundThreatsBridges == bridges;
+	for( Int i = 0; same && i < count; ++i )
+		same = m_groundThreatsAt[ i ].x == threats[ i ].x && m_groundThreatsAt[ i ].y == threats[ i ].y;
+	if( !same )
+	{
+		m_groundThreatsAt.assign( threats, threats + count );
+		m_groundThreatsBridges = bridges;
+		floodWholeGrid( threats, count, m_groundFromThreats );
+	}
+	return m_groundFromThreats;
+}
+
+// ------------------------------------------------------------------------------------------------
+Bool AIPlayer::reachableFromBase( const Coord3D *pos )
+{
+	return !m_baseCenterSet || groundAt( groundFromBase(), pos ) != AI_GROUND_UNREACHED;
+}
+
 // ------------------------------------------------------------------------------------------------
 /** The entry's spot cannot take the building.  The base builder takes the first priority entry on
 	* the list and nothing else that pass, so an entry that fails the same way every pass stops the
@@ -1235,6 +1348,8 @@ Object *AIPlayer::buildStructureWithDozer(const ThingTemplate *bldgPlan, BuildLi
 				newPos.x = pos.x + dx*PATHFIND_CELL_SIZE_F;
 				newPos.y = pos.y + dy*PATHFIND_CELL_SIZE_F;
 				if (home && sqr(newPos.x - m_baseCenter.x) + sqr(newPos.y - m_baseCenter.y) > sqr(BASE_EDGE_REACH*m_baseRadius)) continue;
+				// a flood from a spot that is itself cut off from the base stays on that ground
+				if (isSkirmishAI() && !reachableFromBase(&newPos)) continue;
 				++probes;
 				valid = TheBuildAssistant->isLocationLegalToBuild( &newPos, bldgPlan, angle,
 																						 BuildAssistant::CLEAR_PATH |
@@ -5243,15 +5358,15 @@ static const Real DEFENSE_STANDOFF = 1.0f;
 /** Dozers a Hard AI trains on its own when every one it has is on a building. */
 static const Int MAX_ECONOMY_DOZERS = 4;
 
-/** Tries on each ring when looking for somewhere to put a purchase down.  Every try is a legality
-	* check that costs about a millisecond, so a call still only walks two rings: that is the spike,
-	* not the reach of the search.  A search allowed to walk outward remembers the ring it reached
-	* and starts the next call there, so a full opening base does not end the search. */
+/** Legality checks placeNear may spend per call, as rings of tries: PLACEMENT_RINGS times
+	* PLACEMENT_ANGLES.  Every try costs about a millisecond, so that is the spike, not the reach of
+	* the search.  A search allowed to walk outward remembers the ground distance it reached and starts
+	* the next call there, so a full opening base does not end the search. */
 static const Int PLACEMENT_ANGLES = 12;
 static const Int PLACEMENT_RINGS = 2;
 
-/** Rings a call tries for a building that stays home (staysHome).  It has no outward walk to carry
-	* on with next time, and a spot past the base's edge costs no legality check. */
+/** Rings' worth of tries a call spends on a building that stays home (staysHome).  It has no outward
+	* walk to carry on with next time, and a spot past the base's edge costs no legality check. */
 static const Int HOME_PLACEMENT_RINGS = 6;
 
 /** How far either side of a waypoint an approach counts the guns along it. */
@@ -5281,6 +5396,24 @@ static Bool groundLineClear( const Coord3D *from, const Coord3D *to )
 		at.x = from->x + dx * i / samples;
 		at.y = from->y + dy * i / samples;
 		at.z = 0.0f;
+		ICoord2D cell;
+		TheAI->pathfinder()->worldToCell( &at, &cell );
+		const PathfindCell *pathCell = TheAI->pathfinder()->getCell( LAYER_GROUND, cell.x, cell.y );
+		if( pathCell == NULL || pathCell->getType() != PathfindCell::CELL_CLEAR )
+			return FALSE;
+	}
+	return TRUE;
+}
+
+/** Clear ground under the middle, the corners and the edges of a square half wide either side of pos:
+	* a look at nine pathfind cells, against the millisecond a legality check costs. */
+static Bool footprintOnClearGround( const Coord3D *pos, Real half )
+{
+	for( Int corner = 0; corner < 9; ++corner )
+	{
+		Coord3D at = *pos;
+		at.x += half * ( corner % 3 - 1 );
+		at.y += half * ( corner / 3 - 1 );
 		ICoord2D cell;
 		TheAI->pathfinder()->worldToCell( &at, &cell );
 		const PathfindCell *pathCell = TheAI->pathfinder()->getCell( LAYER_GROUND, cell.x, cell.y );
@@ -5392,13 +5525,21 @@ static const Int DEFENSE_SPOTS_PER_RING = 24;
 static const Int DEFENSE_FIRE_SAMPLES = 16;
 /** Best-scored spots asked for legality, each about a millisecond. */
 static const Int DEFENSE_PLACE_TRIES = 12;
+/** Ground counts as the enemy's road in when the drive from him through it to the base center is no
+	* more than this much longer than his shortest one, and a sample on it counts this much more. */
+static const Real ROUTE_SLACK = 1.15f;
+static const Real ROUTE_BONUS = 1.0f;
 
 //----------------------------------------------------------------------------------------------------------
 /** A defence goes where its guns see the most of the ground an enemy comes over.  A spot on a ring
 	* round the base is scored by the open ground inside its reach: each sample point on clear,
 	* drivable ground counts for how much nearer the enemy it lies than the middle of the base does
 	* (aiFireSampleWeight), plus a little for being outside the base at all, and counts nothing when a building of ours or a cliff stands
-	* between it and the spot.  Every defence already standing or queued within three quarters of the
+	* between it and the spot.  Nearer is by the ground, off groundFromThreats: measured in a straight
+	* line, the cliff face behind a base looked like its front door, and the guns went up facing a
+	* mountain while the enemy drove in round the side.  A sample on the enemy's shortest drive in
+	* (ROUTE_SLACK of it) counts ROUTE_BONUS more, so the guns cover the road he takes, and a spot the
+	* base cannot drive to is not scored at all.  Every defence already standing or queued within three quarters of the
 	* reach divides the score, so the guns spread along the front instead of stacking.  The enemy is
 	* where enemyStartGuess says, the same knowledge every other decision here uses.  The spot that went
 	* up in front of a fixed point used to land behind the base's own buildings on a crowded map, and a
@@ -5429,6 +5570,13 @@ Bool AIPlayer::placeDefense( const ThingTemplate *defense )
 		threats[ 0 ].z = 0.0f;
 		threatCount = 1;
 	}
+
+	// an enemy who cannot drive here (an island, a cliff top) is weighed in a straight line as before
+	const std::vector<UnsignedShort> &fromBase = groundFromBase();
+	const std::vector<UnsignedShort> &fromThreat = groundFromThreats( threats, threatCount );
+	const Int routeLength = groundAt( fromThreat, &m_baseCenter );
+	const Bool byGround = routeLength != AI_GROUND_UNREACHED;
+	const Real GROUND_TO_WORLD = PATHFIND_CELL_SIZE_F / AI_GROUND_STEP;
 
 	std::vector<Coord3D> guns;
 	m_player->iterateObjects( collectDefensePositions, &guns );
@@ -5471,18 +5619,10 @@ Bool AIPlayer::placeDefense( const ThingTemplate *defense )
 		// or on top of a gun already there or queued.  Without this 11 of every 12 checks failed, most
 		// of them on restricted terrain under the footprint's edge, so the corners are looked at too
 		{
-			Bool open = TRUE;
-			for( Int corner = 0; corner < 9 && open; ++corner )
-			{
-				Coord3D at = spot[ s ];
-				at.x += footprint * ( corner % 3 - 1 );
-				at.y += footprint * ( corner / 3 - 1 );
-				ICoord2D cell;
-				TheAI->pathfinder()->worldToCell( &at, &cell );
-				const PathfindCell *pathCell = TheAI->pathfinder()->getCell( LAYER_GROUND, cell.x, cell.y );
-				open = pathCell != NULL && pathCell->getType() == PathfindCell::CELL_CLEAR;
-			}
-			if( !open )
+			if( !footprintOnClearGround( &spot[ s ], footprint ) )
+				continue;
+			// a ledge or the far side of a valley the base cannot drive to guards nothing the enemy drives over
+			if( groundAt( fromBase, &spot[ s ] ) == AI_GROUND_UNREACHED )
 				continue;
 			// the rest failed on the clearance kept round another building, ours or anybody's
 			PartitionFilterAcceptByKindOf structuresOnly( MAKE_KINDOF_MASK( KINDOF_STRUCTURE ), KINDOFMASK_NONE );
@@ -5524,20 +5664,34 @@ Bool AIPlayer::placeDefense( const ThingTemplate *defense )
 
 			// measured against the enemy nearest this ground, from the middle of the base: ground the
 			// enemy has to cross to reach us, not merely ground in front of this spot
-			Real sampleToThreat = -1.0f;
-			Int nearest = 0;
-			for( Int t = 0; t < threatCount; ++t )
+			const Bool outsideBase = sqr( at.x - m_baseCenter.x ) + sqr( at.y - m_baseCenter.y ) > sqr( m_baseRadius );
+			Real weight;
+			if( byGround )
 			{
-				const Real d = sqrt( sqr( threats[ t ].x - at.x ) + sqr( threats[ t ].y - at.y ) );
-				if( sampleToThreat < 0.0f || d < sampleToThreat )
-				{
-					sampleToThreat = d;
-					nearest = t;
-				}
+				const Int index = cell.y * ( TheAI->pathfinder()->getExtent()->x + 1 ) + cell.x;
+				const Int sampleToThreat = fromThreat[ index ];
+				if( sampleToThreat == AI_GROUND_UNREACHED )
+					continue;		// a pocket the enemy cannot drive into
+				weight = aiFireSampleWeight( routeLength * GROUND_TO_WORLD, sampleToThreat * GROUND_TO_WORLD, reach, outsideBase );
+				if( fromBase[ index ] != AI_GROUND_UNREACHED && sampleToThreat + fromBase[ index ] <= routeLength * ROUTE_SLACK )
+					weight += ROUTE_BONUS;
 			}
-			const Real baseToThreat = sqrt( sqr( threats[ nearest ].x - m_baseCenter.x ) + sqr( threats[ nearest ].y - m_baseCenter.y ) );
-			const Real weight = aiFireSampleWeight( baseToThreat, sampleToThreat, reach,
-				sqr( at.x - m_baseCenter.x ) + sqr( at.y - m_baseCenter.y ) > sqr( m_baseRadius ) );
+			else
+			{
+				Real sampleToThreat = -1.0f;
+				Int nearest = 0;
+				for( Int t = 0; t < threatCount; ++t )
+				{
+					const Real d = sqrt( sqr( threats[ t ].x - at.x ) + sqr( threats[ t ].y - at.y ) );
+					if( sampleToThreat < 0.0f || d < sampleToThreat )
+					{
+						sampleToThreat = d;
+						nearest = t;
+					}
+				}
+				const Real baseToThreat = sqrt( sqr( threats[ nearest ].x - m_baseCenter.x ) + sqr( threats[ nearest ].y - m_baseCenter.y ) );
+				weight = aiFireSampleWeight( baseToThreat, sampleToThreat, reach, outsideBase );
+			}
 			if( weight <= 0.0f )
 				continue;
 			if( !groundLineClear( &spot[ s ], &at ) )
@@ -6730,10 +6884,17 @@ Bool AIPlayer::queueExtraFactory( Object *dozer, KindOfType kind, Bool unlimited
 }
 
 //----------------------------------------------------------------------------------------------------------
-/** Walk rings round center until a spot is legal and safe, and hand it to the dozers as a priority
-	* build.  A call still tries two rings, two dozen legality checks.  walkOutward carries the first
-	* ring in m_placementRing, so the search moves out across calls instead of giving up at the opening
-	* base, and wraps back to the middle once that ring is past the pathfind extent. */
+/** Flood out from center over ground a vehicle can cross, nearest first by the ground, until a spot
+	* is legal and safe, and hand it to the dozers as a priority build.  It used to try twelve angles
+	* on rings round center, and a ring is a straight-line distance: the first legal spot on it could
+	* be across a valley or on a ledge behind a cliff, near on the map and a long drive round, and a
+	* factory went up there with the dozer teleported to it.  The flood only enters ground the base
+	* itself can drive to (groundFromBase), so the nearest spot it finds is the nearest by the road.
+	*
+	* A call still spends at most two rings' worth of legality checks, two dozen, and a footprint on
+	* anything but clear ground is turned away before one is spent.  walkOutward carries the ground
+	* distance it reached in m_placementRing, so the search moves out across calls instead of giving
+	* up at the opening base, and goes back to the middle once the flood runs out of ground. */
 //----------------------------------------------------------------------------------------------------------
 Bool AIPlayer::placeNear( const ThingTemplate *tmpl, const Coord3D *center, Real innerRadius, Bool walkOutward )
 {
@@ -6748,62 +6909,75 @@ Bool AIPlayer::placeNear( const ThingTemplate *tmpl, const Coord3D *center, Real
 	if( home )
 		walkOutward = FALSE;
 
-	Int startRing = 0;
-	if( walkOutward )
-	{
-		Region3D extent;
-		TheTerrainLogic->getMaximumPathfindExtent( &extent );
-		Real farthest = 0.0f;
-		const Real cornerX[ 2 ] = { extent.lo.x, extent.hi.x };
-		const Real cornerY[ 2 ] = { extent.lo.y, extent.hi.y };
-		for( Int cx = 0; cx < 2; ++cx )
-		{
-			for( Int cy = 0; cy < 2; ++cy )
-			{
-				const Real dx = cornerX[ cx ] - center->x;
-				const Real dy = cornerY[ cy ] - center->y;
-				const Real dist = sqrt( dx * dx + dy * dy );
-				if( dist > farthest )
-					farthest = dist;
-			}
-		}
-		const Real reach = innerRadius + structureRadius * (2 * m_placementRing + 1);
-		if( m_placementRing < 0 || reach > farthest )
-			m_placementRing = 0;
-		startRing = m_placementRing;
-	}
+	// as far as the outermost ring reached, by the ground with half again for the way round; the
+	// outward walk goes as far as the ground does
+	const Real ringReach = innerRadius + structureRadius * ( 2 * rings + 1 );
+	const Int maxDistance = walkOutward ? AI_GROUND_UNREACHED - 1 : REAL_TO_INT_CEIL( ringReach * AI_GROUND_DIAGONAL / PATHFIND_CELL_SIZE_F );
+	const Int startDistance = walkOutward && m_placementRing > 0 ? m_placementRing : 0;
+	const Real innerSqr = innerRadius > 0.0f ? sqr( innerRadius + structureRadius ) : 0.0f;
+	// spots a structure's radius apart, as the rings were; never closer than every other cell
+	Int stride = REAL_TO_INT_FLOOR( structureRadius / PATHFIND_CELL_SIZE_F );
+	if( stride < 2 )
+		stride = 2;
 
-	for( Int ring = startRing; ring < startRing + rings; ++ring )
-	{
-		const Real distance = innerRadius + structureRadius * (2 * ring + 1);
-		for( Int step = 0; step < PLACEMENT_ANGLES; ++step )
-		{
-			const Real angle = 2.0f * PI * step / PLACEMENT_ANGLES;
-			Coord3D pos = *center;
-			pos.x += distance * Cos( angle );
-			pos.y += distance * Sin( angle );
-			pos.z = 0;
-			if( home && sqr( pos.x - m_baseCenter.x ) + sqr( pos.y - m_baseCenter.y ) > homeReachSqr )
-				continue;
+	Int width, height;
+	groundGridSize( &width, &height );
+	AIGroundFlood flood( width, height, groundFloodWalkable, m_baseCenterSet ? (void *)&groundFromBase() : NULL );
+	flood.setMaxDistance( maxDistance );
+	ICoord2D origin;
+	TheAI->pathfinder()->worldToCell( center, &origin );
+	flood.addSource( origin.x, origin.y );
 
-			const Bool legal = TheBuildAssistant->isLocationLegalToBuild( &pos, tmpl, placeAngle,
-												BuildAssistant::CLEAR_PATH | BuildAssistant::TERRAIN_RESTRICTIONS | BuildAssistant::NO_OBJECT_OVERLAP,
-												NULL, m_player ) == LBC_OK;
-			TheTerrainVisual->removeAllBibs();	// isLocationLegalToBuild adds bib feedback
-			if( legal && isLocationSafe( &pos, tmpl ) )
-			{
-				if( walkOutward )
-					m_placementRing = ring;
-				DEBUG_LOG(("AI ECONOMY frame %d player %d builds '%s' at (%.0f,%.0f), %d in the bank, %.0f from a base of radius %.0f\n", TheGameLogic->getFrame(),
-					m_player->getPlayerIndex(), tmpl->getName().str(), pos.x, pos.y, m_player->getMoney()->countMoney(),
-					sqrt( sqr( pos.x - m_baseCenter.x ) + sqr( pos.y - m_baseCenter.y ) ), m_baseRadius));
-				m_player->addToPriorityBuildList( tmpl->getName(), &pos, placeAngle );
-				return TRUE;
-			}
+	Int tries = rings * PLACEMENT_ANGLES;
+	Int x, y, distance;
+	while( flood.next( &x, &y, &distance ) )
+	{
+		const Int dx = x - origin.x;
+		const Int dy = y - origin.y;
+		if( distance < startDistance || dx % stride != 0 || dy % stride != 0 )
+			continue;
+		if( TheAI->pathfinder()->getCell( LAYER_GROUND, x, y )->getType() != PathfindCell::CELL_CLEAR )
+			continue;
+		Coord3D pos = *center;
+		pos.x += dx * PATHFIND_CELL_SIZE_F;
+		pos.y += dy * PATHFIND_CELL_SIZE_F;
+		pos.z = 0;
+		if( sqr( pos.x - center->x ) + sqr( pos.y - center->y ) < innerSqr )
+			continue;
+		if( home && sqr( pos.x - m_baseCenter.x ) + sqr( pos.y - m_baseCenter.y ) > homeReachSqr )
+			continue;
+		// the square inside the footprint's circle; the corners of the circle's own square stick out
+		// past a building's corners and turned away spots that fit
+		if( !footprintOnClearGround( &pos, structureRadius * 0.7f ) )
+			continue;
+		if( tries == 0 )
+		{
+			// out of checks: the next call starts here, or one cell further when this call never
+			// got past the distance it started at, so a crowded ring cannot hold the walk forever
+			if( walkOutward )
+				m_placementRing = distance > startDistance ? distance : distance + 1;
+			return FALSE;
+		}
+		--tries;
+
+		const Bool legal = TheBuildAssistant->isLocationLegalToBuild( &pos, tmpl, placeAngle,
+											BuildAssistant::CLEAR_PATH | BuildAssistant::TERRAIN_RESTRICTIONS | BuildAssistant::NO_OBJECT_OVERLAP,
+											NULL, m_player ) == LBC_OK;
+		TheTerrainVisual->removeAllBibs();	// isLocationLegalToBuild adds bib feedback
+		if( legal && isLocationSafe( &pos, tmpl ) )
+		{
+			if( walkOutward )
+				m_placementRing = distance;
+			DEBUG_LOG(("AI ECONOMY frame %d player %d builds '%s' at (%.0f,%.0f), %d in the bank, %.0f from a base of radius %.0f, %.0f by the ground from where it looked\n", TheGameLogic->getFrame(),
+				m_player->getPlayerIndex(), tmpl->getName().str(), pos.x, pos.y, m_player->getMoney()->countMoney(),
+				sqrt( sqr( pos.x - m_baseCenter.x ) + sqr( pos.y - m_baseCenter.y ) ), m_baseRadius,
+				distance * PATHFIND_CELL_SIZE_F / AI_GROUND_STEP));
+			m_player->addToPriorityBuildList( tmpl->getName(), &pos, placeAngle );
+			return TRUE;
 		}
 	}
 	if( walkOutward )
-		m_placementRing = startRing + PLACEMENT_RINGS;
+		m_placementRing = 0;		// every spot the ground holds was looked at: back to the middle
 	if( home )
 		DEBUG_LOG(("AI ECONOMY frame %d player %d has no room for '%s' within %.0f of its base, %d in the bank\n", TheGameLogic->getFrame(),
 			m_player->getPlayerIndex(), tmpl->getName().str(), BASE_EDGE_REACH * m_baseRadius, m_player->getMoney()->countMoney()));

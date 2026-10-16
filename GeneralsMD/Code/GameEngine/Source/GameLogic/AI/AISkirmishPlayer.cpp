@@ -833,7 +833,8 @@ void AISkirmishPlayer::buildAIBaseDefenseStructure(const AsciiString &thingName,
 		/* See if we can build there. */
 		Bool canBuild;
 		Real placeAngle = tTemplate->getPlacementViewAngle();
-		canBuild = LBC_OK == TheBuildAssistant->isLocationLegalToBuild(&buildPos, tTemplate, placeAngle, 
+		// a spot the base cannot drive to guards nothing: a ledge, or across a valley the path runs beside
+		canBuild = reachableFromBase(&buildPos) && LBC_OK == TheBuildAssistant->isLocationLegalToBuild(&buildPos, tTemplate, placeAngle,
 			BuildAssistant::TERRAIN_RESTRICTIONS|BuildAssistant::NO_OBJECT_OVERLAP, NULL, m_player);
 		TheTerrainVisual->removeAllBibs();	// isLocationLegalToBuild adds bib feedback, turn it off.  jba.
 		if (flank) {

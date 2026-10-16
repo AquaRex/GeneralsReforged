@@ -389,6 +389,42 @@ Int aiDefenseAllowance( Int army, UnsignedInt frame );
 	* so a spot at the back scores a fraction of one at the front, and none inside the base. */
 Real aiFireSampleWeight( Real baseToThreat, Real sampleToThreat, Real reach, Bool outsideBase );
 
+/** Ground distance over the pathfind grid, handed out nearest first.  A step to a side neighbour
+	* costs AI_GROUND_STEP and a diagonal one AI_GROUND_DIAGONAL, a 1.5 standing in for 1.41 so every
+	* distance is a small integer: the cells wait in four buckets that wrap (Dial's algorithm), with
+	* no heap and no tie broken by anything but the order the cells were reached, which is the same
+	* on every machine.  Whether a cell may be entered is asked once, of the callback; a source is
+	* handed out even when it may not be entered itself, so a flood seeded on a cliff edge still
+	* reaches the ground beside it. */
+static const Int AI_GROUND_STEP = 2;
+static const Int AI_GROUND_DIAGONAL = 3;
+static const UnsignedShort AI_GROUND_UNREACHED = 0xFFFF;
+
+class AIGroundFlood
+{
+public:
+	typedef Bool (*WalkableFunc)( Int x, Int y, void *userData );
+	AIGroundFlood( Int width, Int height, WalkableFunc walkable, void *userData );
+	void addSource( Int x, Int y );						///< distance 0; every source goes in before the first next()
+	void setMaxDistance( Int maxDistance ) { m_max = maxDistance; }	///< nothing further is entered
+	Bool next( Int *x, Int *y, Int *distance );	///< the nearest cell not yet handed out, FALSE when none is left
+	std::vector<UnsignedShort> &field( void ) { return m_dist; }	///< y * width + x; final once next() has said FALSE
+
+private:
+	Bool walkable( Int x, Int y, Int index );
+	Int m_width;
+	Int m_height;
+	WalkableFunc m_walkable;
+	void *m_userData;
+	std::vector<UnsignedShort> m_dist;
+	std::vector<UnsignedByte> m_walk;			///< 0 not asked yet, 1 may be entered, 2 may not
+	std::vector<Int> m_bucket[ 4 ];
+	Int m_at;
+	Int m_cursor;
+	Int m_pending;
+	Int m_max;
+};
+
 static const Int AI_SUPPORT_DEFENSE_WEIGHT = 3;
 Int aiPickBaseDefense( const Int *standing, const Bool *armed, Int count );
 
