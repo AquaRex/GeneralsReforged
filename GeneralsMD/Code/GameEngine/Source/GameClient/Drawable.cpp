@@ -3281,7 +3281,10 @@ static Bool computeHealthRegion( const Drawable *draw, IRegion2D& region )
 
 	// do this so health bar doesn't get too skinny or fat after scaling
 	//healthBoxHeight = max(3.0f, healthBoxHeight);
-	healthBoxHeight = 3.0f * uiScale;
+	// two thirds of the thickness it had: at full height a screen of bars drew the eye away from the
+	// units under them.  drawHealthBar still floors it at three pixels, a one pixel fill inside its
+	// outline, and gives the lost health a dark slot so a thin bar still reads.
+	healthBoxHeight = 2.0f * uiScale;
 
 	// figure out the final region for the health box
 	region.lo.x = screenCenter.x - healthBoxWidth * 0.45f;
@@ -4906,9 +4909,16 @@ void Drawable::drawHealthBar(const IRegion2D* healthBarRegion)
 																healthBoxOutlineSize, GameMakeColor( 255, 255, 255, 255 ) );
 
 		// draw a filled bar for the health
+		const Int healthFillWidth = (Int)((healthBoxWidth - 2) * healthRatio);
 		TheDisplay->drawFillRect( healthBarRegion->lo.x + 1, healthBarRegion->lo.y + 1,
-															(healthBoxWidth - 2) * healthRatio, healthBoxHeight - 2,
+															healthFillWidth, healthBoxHeight - 2,
 															color );
+
+		// the health already lost is a near black slot rather than bare ground, so the length of the
+		// fill reads at a glance on a thin bar, and in owner colour on a map of the same colour
+		TheDisplay->drawFillRect( healthBarRegion->lo.x + 1 + healthFillWidth, healthBarRegion->lo.y + 1,
+															(healthBoxWidth - 2) - healthFillWidth, healthBoxHeight - 2,
+															GameMakeColor( 10, 10, 10, 190 ) );
 
 		// bars stack upwards from just above the health bar, each clearing the seconds written over
 		// the one below it

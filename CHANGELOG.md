@@ -8,6 +8,11 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
+## Health bars you can read at a glance
+
+- The bars over units are a third thinner, so a big fight no longer looks like a sheet of red and green stripes over the units underneath.
+- Health a unit has lost now shows as a dark stretch at the end of its bar. It used to be bare ground, so a red bar over red ground, or any team colour over the wrong terrain, looked full when it was half gone.
+
 ## Jets fly like jets
 
 - The Raptor, King Raptor, MiG, Aurora and Stealth Fighter turn the way a plane turns. The faster a jet flies, the slower it comes round, so at cruise it sweeps a wide arc and only a slow jet turns tight. It no longer slides sideways through a turn. A Raptor's half circle at cruise takes about 3.2 seconds, where it took about 1.7.
