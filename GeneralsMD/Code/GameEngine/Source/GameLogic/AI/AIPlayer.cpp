@@ -5342,6 +5342,12 @@ Bool AIPlayer::buildExpansionDefense( void )
 	* is nothing to save and every machine lands on the same frame. */
 static const Int ECONOMY_CHECK_RATE = 10 * LOGICFRAMES_PER_SECOND;
 
+/** doEconomy, doSpending and answerArmy all run on the ten-second rate, and in the player's own slot
+	* they fell on one frame together, with the team pass beside them: 8 to 10 ms of one player late in a
+	* match, a dropped picture every ten seconds.  Each takes its own third of the slot instead, in the
+	* order they ran in: spending one step after the economy, the answer two. */
+static const Int ECONOMY_SLOT_STEP = ECONOMY_CHECK_RATE / ( 3 * MAX_PLAYER_COUNT );
+
 /** How often the power is looked at, and the margin that counts as thin.  Five seconds because a
 	* plant takes about that long to matter and an outage costs the whole base; the reserve is about
 	* what one more building will draw, so the plant is ordered before the building that needs it. */
@@ -7632,7 +7638,7 @@ static void creditWhereNeeded( const ThingTemplate *tmpl, const Player *owner, c
 void AIPlayer::answerArmy( void )
 {
 	if( !isSkirmishAI() || !m_baseCenterSet || !getSkillProfile()->m_answerArmy ||
-			(TheGameLogic->getFrame() + computeUpdatePhase( m_player->getPlayerIndex(), ANSWER_RATE )) % ANSWER_RATE != 0 )
+			(TheGameLogic->getFrame() + computeUpdatePhase( m_player->getPlayerIndex(), ANSWER_RATE ) + ANSWER_RATE - 2 * ECONOMY_SLOT_STEP) % ANSWER_RATE != 0 )
 		return;
 	if( isBaseUnderAttack() )
 		return;		// defendHome's
@@ -7750,7 +7756,7 @@ void AIPlayer::doSpending( void )
 	if( !purchaseQueueOn() )
 		return;
 	const UnsignedInt now = TheGameLogic->getFrame();
-	if( (now + computeUpdatePhase( m_player->getPlayerIndex(), ECONOMY_CHECK_RATE )) % ECONOMY_CHECK_RATE != 0 )
+	if( (now + computeUpdatePhase( m_player->getPlayerIndex(), ECONOMY_CHECK_RATE ) + ECONOMY_CHECK_RATE - ECONOMY_SLOT_STEP) % ECONOMY_CHECK_RATE != 0 )
 		return;
 
 	// since when every finished factory of each kind has had a unit waiting behind the one it builds,
