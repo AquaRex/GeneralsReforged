@@ -81,7 +81,8 @@ static const Char *ZERO_NAME_ONLY      = "00000000";
 static const Int MAX_SAVE_FILE_NUMBER  =  99999999;
 
 // The GameState block's version.  4 adds nothing to the block: it marks the build where logic went
-// to 60 ticks a second, and a file written before that cannot load in this one.  The original
+// to 60 ticks a second, and a file written before that cannot load in this one (a mission save
+// aside: SaveGameInfo::isLoadable).  The original
 // game's files are 2, as were this fork's until 3 added the game speed.
 static const XferVersion GAME_STATE_VERSION = 4;
 
@@ -122,7 +123,13 @@ Bool SaveGameInfo::isLoadable( void ) const
 {
 
 	// a newer one never gets this far: xferVersion refuses it while the header is read
-	return version >= GAME_STATE_VERSION;
+	if( version >= GAME_STATE_VERSION )
+		return TRUE;
+
+	// A mission save holds only this block and the campaign's, neither of which counts frames, so
+	// the one an older build or the original game wrote at a mission's start still loads.  Version
+	// 2 is the first that records the file type.
+	return version >= 2 && saveFileType == SAVE_FILE_TYPE_MISSION;
 
 }  // end isLoadable
 

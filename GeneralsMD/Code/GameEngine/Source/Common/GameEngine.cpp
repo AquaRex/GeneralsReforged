@@ -616,7 +616,11 @@ static void startPendingSaveGame( void )
 		return;
 	}
 
-	TheGameLogic->prepareNewGame( GAME_SINGLE_PLAYER, DIFFICULTY_NORMAL, 0 );
+	// A mission save starts its map afresh with a new game message of its own.  Prepared here as
+	// well, loadGame clears that prepared game first, and clearing a game in a run started from the
+	// command line quits it.
+	if (gameInfo.saveGameInfo.saveFileType != SAVE_FILE_TYPE_MISSION)
+		TheGameLogic->prepareNewGame( GAME_SINGLE_PLAYER, DIFFICULTY_NORMAL, 0 );
 
 	if (TheGameState->loadGame( gameInfo ) != SC_OK)
 	{

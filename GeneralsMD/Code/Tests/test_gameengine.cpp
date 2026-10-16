@@ -17805,6 +17805,25 @@ TEST(modfactions_prefix_the_last_part_of_a_file_path)
 	TheWritableGlobalData = saved;
 }
 
+#include "Common/GameState.h"
+
+// A save from before 60 Hz logic is refused, except a mission save (the GameState and campaign
+// blocks only, no frame counts), which carries a campaign over from any earlier build or retail.
+TEST(save_older_than_60hz_loads_only_as_mission_save)
+{
+	SaveGameInfo info;
+	info.version = 4;
+	CHECK( info.isLoadable() );
+	info.version = 3;
+	CHECK( !info.isLoadable() );
+	info.saveFileType = SAVE_FILE_TYPE_MISSION;
+	CHECK( info.isLoadable() );
+	info.version = 2;
+	CHECK( info.isLoadable() );
+	info.version = 1;		// no file type recorded, so no way to tell it is a mission save
+	CHECK( !info.isLoadable() );
+}
+
 #include "test_minimap_input.inc"
 #include "test_selection_priority.inc"
 #include "test_widechar_width.inc"
