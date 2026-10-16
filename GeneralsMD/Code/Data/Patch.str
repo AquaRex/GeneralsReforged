@@ -1179,7 +1179,7 @@ GUI:SaveFromOlderGame
 END
 
 GUI:CampaignMission
-"Mission %d"
+"MISSION %d"
 END
 
 GUI:MapCorrupt

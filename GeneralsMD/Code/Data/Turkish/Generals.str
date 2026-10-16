@@ -15594,7 +15594,7 @@ GUI:SaveFromOlderGame
 END
 
 GUI:CampaignMission
-"Görev %d"
+"GÖREV %d"
 END
 
 GUI:MapCorrupt
