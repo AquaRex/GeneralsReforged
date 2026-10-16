@@ -553,6 +553,8 @@ Drawable::Drawable( const ThingTemplate *thingTemplate, DrawableStatus statusBit
 
 	// assign status bits before anything else can be done
 	m_status = statusBits;
+	m_clientWorkQueued = FALSE;
+	m_transformPending = FALSE;
 	
 	// Added By Sadullah Nader
 	// Initialization missing and needed
@@ -915,7 +917,7 @@ Bool Drawable::getProjectileLaunchOffset(WeaponSlotType wslot, Int specificBarre
 //-------------------------------------------------------------------------------------------------
 void Drawable::setAnimationLoopDuration(UnsignedInt numFrames)
 {
-	for (DrawModule** dm = getDrawModules(); *dm; ++dm)
+	for (DrawModule** dm = getDrawModulesFlushed(); *dm; ++dm)
 	{
 		ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
 		if (di)
@@ -926,7 +928,7 @@ void Drawable::setAnimationLoopDuration(UnsignedInt numFrames)
 //-------------------------------------------------------------------------------------------------
 void Drawable::setAnimationCompletionTime(UnsignedInt numFrames)
 {
-	for (DrawModule** dm = getDrawModules(); *dm; ++dm)
+	for (DrawModule** dm = getDrawModulesFlushed(); *dm; ++dm)
 	{
 		ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
 		if (di)
@@ -938,7 +940,7 @@ void Drawable::setAnimationCompletionTime(UnsignedInt numFrames)
 //-------------------------------------------------------------------------------------------------
 void Drawable::setAnimationFrame( int frame )
 {
-	for (DrawModule** dm = getDrawModules(); *dm; ++dm)
+	for (DrawModule** dm = getDrawModulesFlushed(); *dm; ++dm)
 	{
 		ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
 		if (di)
@@ -1053,7 +1055,8 @@ Int Drawable::getCurrentClientBonePositions(const char* boneNamePrefix, Int star
 //-------------------------------------------------------------------------------------------------
 Bool Drawable::getCurrentWorldspaceClientBonePositions(const char* boneName, Matrix3D& transform) const
 {
-	for (const DrawModule** dm = getDrawModules(); *dm; ++dm)
+	// LaserUpdate asks from the tick; the bones have to be where the tick left the drawable
+	for (DrawModule** dm = const_cast<Drawable*>(this)->getDrawModulesFlushed(); *dm; ++dm)
 	{
 		const ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
 		if (di && di->getCurrentWorldspaceClientBonePositions(boneName, transform))
@@ -5064,7 +5067,6 @@ void Drawable::drawHealthBar(const IRegion2D* healthBarRegion)
 //-------------------------------------------------------------------------------------------------
 void Drawable::clearAndSetModelConditionState( ModelConditionFlagType clr, ModelConditionFlagType set )
 {
-	LOGIC_CENSUS( CENSUS_MODEL_CONDITION );
 	ModelConditionFlags c, s;
 	if (clr != MODELCONDITION_INVALID)
 		c.set(clr);
@@ -5087,23 +5089,10 @@ DrawModule** Drawable::getDrawModules()
 #ifdef DIRTY_CONDITION_FLAGS
 	if (m_isModelDirty)
 	{
-		if (s_modelLockCount > 0)
-		{
-			DEBUG_CRASH(("Should not need to update dirty stuff while locked-for-iteration. Ignoring."));
-			// this shouldn't happen, but if it does, just return the current (dirty) scenario.
-			// we must NOT update the condition state, as someone is relying on the current
-			// list of W3D render objects not being munged. (srj)
-		}
+		if (TheGameLogic->isInGameLogicUpdate())
+			queueClientWork();
 		else
-		{
-			for (DrawModule** dm2 = dm; *dm2; ++dm2)
-			{
-				ObjectDrawInterface* di = (*dm2)->getObjectDrawInterface();
-				if (di)
-					di->replaceModelConditionState( m_conditionState );
-			}
-			m_isModelDirty = false;
-		}
+			flushModelCondition( FALSE );
 	}
 #endif
 	return dm;
@@ -5116,43 +5105,122 @@ DrawModule const** Drawable::getDrawModules() const
 #ifdef DIRTY_CONDITION_FLAGS
 	if (m_isModelDirty)
 	{
-		if (s_modelLockCount > 0)
-		{
-			DEBUG_CRASH(("Should not need to update dirty stuff while locked-for-iteration. Ignoring."));
-			// this shouldn't happen, but if it does, just return the current (dirty) scenario.
-			// we must NOT update the condition state, as someone is relying on the current
-			// list of W3D render objects not being munged. (srj)
-		}
+		if (TheGameLogic->isInGameLogicUpdate())
+			queueClientWork();
 		else
-		{
-			// yeah, yeah, yeah... I know (srj)
-			for (DrawModule** dm2 = (DrawModule**)dm; *dm2; ++dm2)
-			{
-				ObjectDrawInterface* di = (*dm2)->getObjectDrawInterface();
-				if (di)
-					di->replaceModelConditionState( m_conditionState );
-			}
-			m_isModelDirty = false;
-		}
+			flushModelCondition( FALSE );
 	}
 #endif
 	return dm;
 }
 
 //-------------------------------------------------------------------------------------------------
+/* LOGIC-THREAD.md phase 2, M1.  Inside a logic tick a drawable takes its new transform and model
+	condition bits at once, so everything logic reads stays as it was, but the work they cause on the
+	draw modules (render object transforms, tread edges, model and render object swaps) waits for
+	LogicThread::runTick, which calls flushPendingClientWork right after the tick on the main thread.
+	It keys on isInGameLogicUpdate rather than on the thread, so -logicthread 0 and 1 run one path. */
+static std::vector<DrawableID> s_clientWorkQueue;
+
+//-------------------------------------------------------------------------------------------------
+void Drawable::queueClientWork() const
+{
+	if (m_clientWorkQueued)
+		return;
+	m_clientWorkQueued = TRUE;
+	s_clientWorkQueue.push_back( getID() );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The model condition flush.  The census counts it from the logic thread: on its own channel when a
+	caller asked for it on demand, under modelcondition when anything else made it run there. */
+void Drawable::flushModelCondition( Bool onDemand ) const
+{
+	LogicThread::census( onDemand ? LogicThread::CENSUS_ON_DEMAND_FLUSH : LogicThread::CENSUS_MODEL_CONDITION );
+	if (s_modelLockCount > 0)
+	{
+		DEBUG_CRASH(("Should not need to update dirty stuff while locked-for-iteration. Ignoring."));
+		// this shouldn't happen, but if it does, just return the current (dirty) scenario.
+		// we must NOT update the condition state, as someone is relying on the current
+		// list of W3D render objects not being munged. (srj)
+		return;
+	}
+	// yeah, yeah, yeah... I know (srj)
+	for (DrawModule** dm = (DrawModule**)getModuleList(MODULETYPE_DRAW); *dm; ++dm)
+	{
+		ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
+		if (di)
+			di->replaceModelConditionState( m_conditionState );
+	}
+	m_isModelDirty = false;
+}
+
+//-------------------------------------------------------------------------------------------------
+void Drawable::doPendingClientWork( Bool onDemand )
+{
+	if (m_isModelDirty)
+		flushModelCondition( onDemand );
+	flushPendingTransform( onDemand );
+}
+
+//-------------------------------------------------------------------------------------------------
+void Drawable::flushPendingTransform( Bool onDemand )
+{
+	if (m_transformPending)
+	{
+		m_transformPending = FALSE;
+		LogicThread::census( onDemand ? LogicThread::CENSUS_ON_DEMAND_FLUSH : LogicThread::CENSUS_DRAWABLE );
+		// no draw module reads the old transform, so the one the tick ended on stands in for it
+		for (DrawModule** dm = getDrawModulesNonDirty(); *dm; ++dm)
+			(*dm)->reactToTransformChange( getTransformMatrix(), getPosition(), getOrientation() );
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The draw modules with whatever the tick has deferred applied now.  For the callers inside a tick
+	that act on the render object as it stands (animation timing, weapon fire FX, live bones, ghost
+	snapshots): the census counts these on their own channel, the list phase 3 has to resolve. */
+DrawModule** Drawable::getDrawModulesFlushed()
+{
+	doPendingClientWork( TRUE );
+	return getDrawModulesNonDirty();
+}
+
+//-------------------------------------------------------------------------------------------------
+void Drawable::flushPendingClientWork()
+{
+	for (size_t i = 0; i < s_clientWorkQueue.size(); ++i)
+	{
+		Drawable* draw = TheGameClient->findDrawableByID( s_clientWorkQueue[i] );
+		if (draw == NULL)
+			continue;		// destroyed in the tick
+		draw->m_clientWorkQueued = FALSE;
+		draw->doPendingClientWork( FALSE );
+	}
+	s_clientWorkQueue.clear();
+}
+
+//-------------------------------------------------------------------------------------------------
+void Drawable::markModelDirty()
+{
+	m_isModelDirty = true;
+	if (TheGameLogic->isInGameLogicUpdate())
+		queueClientWork();
+}
+
+//-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 void Drawable::clearAndSetModelConditionFlags(const ModelConditionFlags& clr, const ModelConditionFlags& setf)
 {
-	LOGIC_CENSUS( CENSUS_MODEL_CONDITION );
 	ModelConditionFlags oldFlags = m_conditionState;
 
 	m_conditionState.clearAndSet(clr, setf);
-	
+
 	if (m_conditionState == oldFlags)
 		return;
 
 #ifdef DIRTY_CONDITION_FLAGS
-	m_isModelDirty = true;
+	markModelDirty();
 #else
 	for (DrawModule** dm = getDrawModules(); *dm; ++dm)
 	{
@@ -5189,8 +5257,8 @@ void Drawable::replaceModelConditionFlags( const ModelConditionFlags &flags, Boo
 		}
 		m_isModelDirty = false;
 	}
-	else 
-		m_isModelDirty = true;
+	else
+		markModelDirty();
 #else
 	for (DrawModule** dm = getDrawModules(); *dm; ++dm)
 	{
@@ -5349,6 +5417,13 @@ void Drawable::setPosition(const Coord3D *pos)
 //-------------------------------------------------------------------------------------------------
 void Drawable::reactToTransformChange(const Matrix3D* oldMtx, const Coord3D* oldPos, Real oldAngle)
 {
+	if (TheGameLogic->isInGameLogicUpdate())
+	{
+		m_transformPending = TRUE;
+		queueClientWork();
+		return;
+	}
+	LOGIC_CENSUS( CENSUS_DRAWABLE );
 	for (DrawModule** dm = getDrawModules(); *dm; ++dm)
 	{
 		(*dm)->reactToTransformChange(oldMtx, oldPos, oldAngle);
@@ -5381,7 +5456,8 @@ Bool Drawable::handleWeaponFireFX(WeaponSlotType wslot, Int specificBarrelToUse,
 		}
 	}
 
-	for (DrawModule** dm = getDrawModules(); *dm; ++dm)
+	// the barrels, muzzle flash and FX bones of the state the shot set, where the tick left the drawable
+	for (DrawModule** dm = getDrawModulesFlushed(); *dm; ++dm)
 	{
 		ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
 		if (di && di->handleWeaponFireFX(wslot, specificBarrelToUse, fxl, weaponSpeed, victimPos, damageRadius))
@@ -5886,7 +5962,8 @@ void Drawable::setSelectable( Bool selectable )
 	if( !selectable )
 		TheInGameUI->deselectDrawable( this );
 
-	for (DrawModule** dm = getDrawModules(); *dm; ++dm)
+	// onto the render object the tick's model condition builds; setModelState takes it from the template
+	for (DrawModule** dm = getDrawModulesFlushed(); *dm; ++dm)
 	{
 		ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
 		if (di)
@@ -5970,7 +6047,7 @@ void Drawable::xferDrawableModules( Xfer *xfer )
 	//
 #ifdef DIRTY_CONDITION_FLAGS
 	if( xfer->getXferMode() == XFER_SAVE )
-		getDrawModules();  // will re-evaluate modules that are dirty and update them
+		getDrawModulesFlushed();  // will re-evaluate modules that are dirty and update them
 #endif
 
 	// xfer number of module types

@@ -4031,9 +4031,11 @@ Int W3DModelDraw::getPristineBonePositionsForConditionState(
 	//BONEPOS_DUMPREAL(getDrawable()->getScale());
 	// we must call this every time we set m_nextState, to ensure cached bones are happy
 	stateToUse->validateStuff(
-		// if the state is the current state, pass in the current render object
-		// so that we don't have to re-create it!
-		stateToUse == m_curState ? m_renderObject : NULL, 
+		// never the current render object, the way getProjectileLaunchOffset and getBarrelCount ask:
+		// whether m_curState has caught up with the logic's state inside a tick depends on this
+		// machine's view (on-demand flushes behind visibility and ghosts), and a render object kept
+		// from the state before can carry that state's animation into the cached pristine bones
+		NULL,
 		getDrawable()->getScale(),
 		getW3DModelDrawModuleData()->m_extraPublicBones);
 

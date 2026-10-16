@@ -1213,11 +1213,14 @@ Bool ParticleUplinkCannonUpdate::calculateUpBonePositions()
 	Coord3D pos;
 	if( draw )
 	{
-		if( data->m_connectorBoneName.isNotEmpty() && draw->getCurrentClientBonePositions( data->m_connectorBoneName.str(), 0, &pos, &mtx, 1 ) )
+		// Pristine bones of the state logic believes in: both positions are saved and steer the beam, and
+		// the render object's live bones are where this machine last drew the antenna.  The uplink has
+		// no turret, so there is no turret angle to add.
+		if( data->m_connectorBoneName.isNotEmpty() && draw->getPristineBonePositions( data->m_connectorBoneName.str(), 0, &pos, &mtx, 1 ) )
 		{
 			obj->convertBonePosToWorldPos( &pos, &mtx, &m_connectorNodePosition, &mtx );
 		}
-		if( data->m_fireBoneName.isNotEmpty() && draw->getCurrentClientBonePositions( data->m_fireBoneName.str(), 0, &pos, &mtx, 1 ) )
+		if( data->m_fireBoneName.isNotEmpty() && draw->getPristineBonePositions( data->m_fireBoneName.str(), 0, &pos, &mtx, 1 ) )
 		{
 			obj->convertBonePosToWorldPos( &pos, &mtx, &m_laserOriginPosition, &mtx );
 		}

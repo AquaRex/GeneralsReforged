@@ -439,8 +439,11 @@ public:
 	ClientUpdateModule* findClientUpdateModule( NameKeyType key );
 
 	DrawModule** getDrawModulesNonDirty();
-	DrawModule** getDrawModules();
+	DrawModule** getDrawModules();					///< flushes a model condition change, or inside a logic tick queues it for after the tick
 	DrawModule const** getDrawModules() const;
+	DrawModule** getDrawModulesFlushed();		///< applies what the tick deferred now, for a caller that needs the render object as it stands
+	static void flushPendingClientWork();		///< after each tick, on the main thread: the transforms and model conditions the tick deferred
+	void flushPendingTransform( Bool onDemand );	///< tells the draw modules of a transform the tick deferred; GameClient::destroyDrawable
 
 	//---------------------------------------------------------------------------
 	void setDrawableStatus( DrawableStatus bit )  { BitSet( m_status, bit ); }
@@ -821,6 +824,13 @@ private:
 #ifdef DIRTY_CONDITION_FLAGS
 	mutable Bool m_isModelDirty;				///< if true, must call replaceModelConditionState() before drawing or accessing drawmodule info
 #endif
+	mutable Bool m_clientWorkQueued;		///< this drawable's ID is in the list flushPendingClientWork walks
+	Bool m_transformPending;						///< the tick moved it; the draw modules have not been told
+
+	void queueClientWork() const;
+	void flushModelCondition( Bool onDemand ) const;
+	void doPendingClientWork( Bool onDemand );
+	void markModelDirty();
 
 	//*******************************************
 	//Perhaps we can move this out of Drawable???

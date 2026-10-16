@@ -1042,6 +1042,10 @@ void GameClient::destroyDrawable( Drawable *draw )
 
 	}  // end if
 
+	// what the tick deferred on it happens now or never: the batched trees and props are made, placed
+	// and destroyed in one go by startNewGame, and placing them is what hands them to the terrain
+	draw->flushPendingTransform( TRUE );
+
 	// remove the drawable from our hash of drawables
 	removeDrawableFromLookupTable( draw );
 

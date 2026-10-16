@@ -44,8 +44,8 @@ namespace LogicThread
 
 	enum Channel
 	{
-		CENSUS_DRAWABLE,				///< Object::getDrawable from the tick
-		CENSUS_MODEL_CONDITION,	///< Drawable model condition setters
+		CENSUS_DRAWABLE,				///< draw modules told of a transform change from the tick
+		CENSUS_MODEL_CONDITION,	///< a model condition flush from the tick
 		CENSUS_AUDIO,						///< AudioManager add/remove event
 		CENSUS_INGAMEUI,				///< TheInGameUI messages, floating text, selection, superweapons, idle workers
 		CENSUS_CONTROLBAR,			///< TheControlBar dirty mark and command lookups
@@ -62,6 +62,7 @@ namespace LogicThread
 		CENSUS_MESSAGESTREAM,		///< MessageStream::appendMessage
 		CENSUS_DISPLAY,					///< TheDisplay shroud levels
 		CENSUS_JOBS,						///< JobSystem::parallel_for
+		CENSUS_ON_DEMAND_FLUSH,	///< Drawable::getDrawModulesFlushed applying deferred work inside the tick
 		CENSUS_COUNT
 	};
 

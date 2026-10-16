@@ -355,7 +355,7 @@ void W3DGhostObject::snapShot(int playerIndex)
 	W3DRenderObjectSnapshot *snap=m_parentSnapshots[playerIndex],*prevSnap=NULL;
 
 	//walk through all W3D render objects used by this object
-	for (DrawModule ** dm = draw->getDrawModules(); *dm; ++dm)
+	for (DrawModule ** dm = draw->getDrawModulesFlushed(); *dm; ++dm)
 	{
 		const ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
 		if (di)
@@ -430,7 +430,7 @@ void W3DGhostObject::removeParentObject(void)
 	draw->setFullyObscuredByShroud(true);
 
 	//walk through all W3D render objects used by this object
-	for (DrawModule ** dm = draw->getDrawModules(); *dm; ++dm)
+	for (DrawModule ** dm = draw->getDrawModulesFlushed(); *dm; ++dm)
 	{
 		const ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
 		if (di)
@@ -466,7 +466,7 @@ void W3DGhostObject::restoreParentObject(void)
 		return;
 
 	//walk through all W3D render objects used by this object
-	for (DrawModule ** dm = draw->getDrawModules(); *dm; ++dm)
+	for (DrawModule ** dm = draw->getDrawModulesFlushed(); *dm; ++dm)
 	{
 		const ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
 		if (di)
