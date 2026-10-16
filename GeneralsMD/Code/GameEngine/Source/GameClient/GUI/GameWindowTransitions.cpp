@@ -441,6 +441,8 @@ void GameWindowTransitionsHandler::load(void )
 	INI ini;
 	// Read from INI all the ControlBarSchemes
 	ini.load( AsciiString( "Data\\INI\\WindowTransitions.ini" ), INI_LOAD_OVERWRITE, NULL );
+	// the fork's own groups, new names only (the main menu's campaign mission panel)
+	ini.load( AsciiString( "Data\\INI\\WindowTransitionsReforged.ini" ), INI_LOAD_OVERWRITE, NULL );
 
 }
 

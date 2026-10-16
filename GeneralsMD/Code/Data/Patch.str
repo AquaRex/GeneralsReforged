@@ -1178,6 +1178,10 @@ GUI:SaveFromOlderGame
 "This save was made by the original game or by an older version of Reforged, and cannot be loaded."
 END
 
+GUI:CampaignMission
+"Mission %d"
+END
+
 GUI:MapCorrupt
 "The map %ls is damaged and cannot be played."
 END

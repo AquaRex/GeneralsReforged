@@ -8,6 +8,10 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
+## Every campaign mission is open
+
+- Picking USA, GLA or China now opens a list of that campaign's missions, every one of them open. Pick a mission, then the difficulty, and it starts with its briefing and movie as it always did; win it and the campaign carries on to the next one. Every campaign mission starts at the same rank however you reach it, so starting at the fourth is the same game as playing through to it.
+
 ## Health bars you can read at a glance
 
 - The bars over units are a third thinner, so a big fight no longer looks like a sheet of red and green stripes over the units underneath.

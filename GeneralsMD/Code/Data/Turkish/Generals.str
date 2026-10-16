@@ -15593,6 +15593,10 @@ GUI:SaveFromOlderGame
 "Bu kayıt orijinal oyunla ya da Reforged'ın eski bir sürümüyle yapılmış, yüklenemez."
 END
 
+GUI:CampaignMission
+"Görev %d"
+END
+
 GUI:MapCorrupt
 "%ls haritası bozuk, oynanamaz."
 END

@@ -2645,6 +2645,14 @@ if(Python3_Interpreter_FOUND)
            COMMAND ${Python3_EXECUTABLE}
                    ${CMAKE_CURRENT_SOURCE_DIR}/Tools/peacetime_layout.py selfcheck)
 
+  # The campaign mission panel is the same agreement across four files: MainMenu.cpp names the
+  # mission buttons, Data/Window/Menus/MainMenu.wnd has to carry them, the groups in
+  # WindowTransitionsReforged.ini have to name windows that exist, and Patch.str has to carry the
+  # label.  A transition naming a missing window just never animates it, so it is checked here.
+  add_test(NAME mainmenu_selfcheck
+           COMMAND ${Python3_EXECUTABLE}
+                   ${CMAKE_CURRENT_SOURCE_DIR}/Tools/mainmenu_layout.py selfcheck)
+
   # The lobby settings tab moves the host's settings onto a page of their own in all three lobbies,
   # and takes EA's superweapon checkbox out.  Same three-file agreement, plus one more failure the
   # null checks make silent: a control left behind on the old row would be drawn under the chat log.
