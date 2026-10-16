@@ -577,6 +577,12 @@ void MissileAIUpdate::doAttackState(Bool turnOK)
 		}
 	}
 
+	// a missile that would not dive before its lock flies EA's flight, not the cruise curve; the lock
+	// distance is halved for a ground position, as below
+	Real effectiveLockDistance = m_isTrackingTarget ? d->m_lockDistance : d->m_lockDistance * 0.5f;
+	if (curLoco)
+		curLoco->setDiveDistance(d->m_diveDistance < effectiveLockDistance ? d->m_diveDistance : 0.0f);
+
 	if (d->m_lockDistance > 0)
 	{
 		Real lockDistanceSquared = d->m_lockDistance;

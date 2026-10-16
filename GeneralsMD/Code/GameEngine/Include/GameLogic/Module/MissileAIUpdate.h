@@ -53,7 +53,7 @@ public:
 	UnsignedInt			m_ignitionDelay;			///< delay in frames from when missile is 'fired', to when it starts moving		15
 	Real						m_initialVel;			
 	Real						m_initialDist;
-	Real						m_diveDistance;				///< parsed and unused: a cruise missile flies one curve to its goal (Locomotor::moveTowardsPositionThrust)
+	Real						m_diveDistance;				///< inside the lock distance, the missile keeps EA's flight over the cruise curve (Locomotor::setDiveDistance)
 	const FXList*		m_ignitionFX;					///< FXList to do when missile 'ignites'
 	Bool						m_useWeaponSpeed;			///< if true, limit speed of projectile to the Weapon's info
 	Bool						m_detonateOnNoFuel;		///< If true, don't just stop thrusting, blow up when out of gas

@@ -384,6 +384,14 @@ public:
 	inline void setUsePreciseZPos(Bool u) { setFlag(PRECISE_Z_POS, u); }
 
 	/**
+		a missile's DistanceToTargetBeforeDiving, set only when that is inside its lock distance, so that
+		it never dives before the lock. Such a missile flies EA's flight instead of the cruise curve: it
+		holds its preferred height, dives inside this distance and is pulled straight onto the goal after
+		the lock.
+	*/
+	inline void setDiveDistance(Real dist) { m_diveDistance = dist; }
+
+	/**
     when off (the default), units slow down as they approach their target. 
 
     when on, units go full speed till the end, and may overshoot their target.
@@ -459,6 +467,7 @@ protected:
 	Real calcLiftToUseAtPt(Object* obj, PhysicsBehavior *physics, Real curZ, Real surfaceAtPt, Real preferredHeight);
 
 	Bool fixInvalidPosition(Object* obj, PhysicsBehavior *physics);
+	Bool holdsHeightToLock() const;		///< see setDiveDistance
 
 protected:
 	// snapshot methods
@@ -516,7 +525,7 @@ private:
 	UnsignedInt	m_flags;
 	Real				m_preferredHeight;
 	Real				m_preferredHeightDamping;
-	Real				m_sineDescentDistance;	///< no longer read; kept so saves keep their layout
+	Real				m_diveDistance;					///< see setDiveDistance
 
 	Real				m_angleOffset;
 	Real				m_offsetIncrement;

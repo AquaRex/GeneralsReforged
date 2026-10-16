@@ -316,6 +316,18 @@ static Bool Locomotor_projectileChasesStraight(Object* obj, const Vector3& toGoa
 }
 
 //-------------------------------------------------------------------------------------------------
+// A missile that holds its cruise height until it has locked keeps EA's whole flight: level at the
+// preferred height, then the cheat straight down onto the goal. Its data can count on that.
+// ShockWave's cluster missile holds 500 until 0.01 from its goal and splits into warheads where it
+// passes 420 over the ground coming down. The cruise curve split it 180 to 270 short of the aim;
+// held level, the arc after the lock looped it 230 past, the goal lying almost straight under a
+// level nose. A Scud or a Tomahawk dives before its lock and keeps the curve.
+Bool Locomotor::holdsHeightToLock() const
+{
+	return m_diveDistance > 0.0f && m_preferredHeight != 0.0f;
+}
+
+//-------------------------------------------------------------------------------------------------
 inline Real tryToOrientInThisDirection3D(Object* obj, Real maxTurnRate, const Coord3D* dir)
 {
 	return tryToOrientInThisDirection3D(obj, maxTurnRate, Vector3(dir->x, dir->y, dir->z));
@@ -810,7 +822,7 @@ Locomotor::Locomotor(const LocomotorTemplate* tmpl)
 #endif
 	m_preferredHeight = m_template->m_preferredHeight;
 	m_preferredHeightDamping = m_template->m_preferredHeightDamping;
-	m_sineDescentDistance = 0.0f;
+	m_diveDistance = 0.0f;
 
 	m_angleOffset = GameLogicRandomValueReal(-PI/6, PI/6);
 	m_offsetIncrement = (PI/40) * (GameLogicRandomValueReal(0.8f, 1.2f)/m_template->m_wanderLengthFactor);
@@ -847,7 +859,7 @@ Locomotor::Locomotor(const Locomotor& that)
 #endif
 	m_preferredHeight = that.m_preferredHeight;
 	m_preferredHeightDamping = that.m_preferredHeightDamping;
-	m_sineDescentDistance = that.m_sineDescentDistance;
+	m_diveDistance = that.m_diveDistance;
 	m_angleOffset = that.m_angleOffset;
 	m_offsetIncrement = that.m_offsetIncrement;
 	m_yawRate = that.m_yawRate;
@@ -876,7 +888,7 @@ Locomotor& Locomotor::operator=(const Locomotor& that)
 #endif
 		m_preferredHeight = that.m_preferredHeight;
 		m_preferredHeightDamping = that.m_preferredHeightDamping;
-		m_sineDescentDistance = that.m_sineDescentDistance;
+		m_diveDistance = that.m_diveDistance;
 		m_yawRate = that.m_yawRate;
 		m_driveAccelX = that.m_driveAccelX;
 		m_driveAccelY = that.m_driveAccelY;
@@ -903,7 +915,7 @@ void Locomotor::crc( Xfer *xfer )
 /** Xfer method
 	* Version Info:
 	* 1: Initial version
-	* 3: m_sineDescentDistance
+	* 3: m_diveDistance
 	* 4: m_yawRate, m_driveAccelX, m_driveAccelY
 	* 5: m_driveSpeed, m_driveFrame */
 // ------------------------------------------------------------------------------------------------
@@ -936,7 +948,7 @@ void Locomotor::xfer( Xfer *xfer )
 	xfer->xferReal(&m_offsetIncrement);
 
 	if (version >= 3)
-		xfer->xferReal(&m_sineDescentDistance);
+		xfer->xferReal(&m_diveDistance);
 
 	if (version >= 4)
 	{
@@ -1388,7 +1400,7 @@ void Locomotor::locoUpdate_moveTowardsPosition(Object* obj, const Coord3D& goalP
 				vel = MIN_VEL;
 			if (vel > dist)
 				vel = dist;	// do not overcompensate!
-			if (dist > 0.001f && Locomotor_projectileChasesStraight(obj, Vector3(dx, dy, dz)))
+			if (dist > 0.001f && (holdsHeightToLock() || Locomotor_projectileChasesStraight(obj, Vector3(dx, dy, dz))))
 			{
 				pos.x += dx / dist * vel;
 				pos.y += dy / dist * vel;
@@ -2975,7 +2987,8 @@ void Locomotor::moveTowardsPositionThrust(Object* obj, PhysicsBehavior *physics,
 	//out of the handleBehaviorZ() function
 	Coord3D pos = *obj->getPosition();
 	Real distToGoal2D = sqrt(sqr(goalPos.x - pos.x) + sqr(goalPos.y - pos.y));
-	if( m_preferredHeight != 0.0f && !getFlag(PRECISE_Z_POS) && obj->isKindOf(KINDOF_PROJECTILE) )
+	const Bool heldToLock = holdsHeightToLock();
+	if( m_preferredHeight != 0.0f && !getFlag(PRECISE_Z_POS) && obj->isKindOf(KINDOF_PROJECTILE) && !heldToLock )
 	{
 		// A cruise missile flies one smooth curve from where it is, leaving along the way it is going and
 		// arriving in a sixty degree dive, aiming a few frames ahead on it. The curve is drawn again every
@@ -3001,7 +3014,7 @@ void Locomotor::moveTowardsPositionThrust(Object* obj, PhysicsBehavior *physics,
 			localGoalPos.z = b0 * pos.z + b1 * (pos.z + leave.z * hLeave) + b2 * (goalPos.z - arrive.z * hArrive) + b3 * goalPos.z;
 		}
 	}
-	else if( m_preferredHeight != 0.0f && !getFlag(PRECISE_Z_POS) )
+	else if( m_preferredHeight != 0.0f && !getFlag(PRECISE_Z_POS) && !(heldToLock && distToGoal2D < m_diveDistance) )
 	{
 		// If we have a preferred flight height, and we haven't been told explicitly to ignore it...
 		Real surfaceHt =  getSurfaceHtAtPt(pos.x, pos.y);
@@ -3054,7 +3067,7 @@ void Locomotor::moveTowardsPositionThrust(Object* obj, PhysicsBehavior *physics,
 				// we are at target.
 				adjust = false;
 			}
-			else if (obj->isKindOf(KINDOF_PROJECTILE) && !Locomotor_projectileChasesStraight(obj, vel))
+			else if (obj->isKindOf(KINDOF_PROJECTILE) && !holdsHeightToLock() && !Locomotor_projectileChasesStraight(obj, vel))
 			{
 				// the projectile cheat moves along the nose, so this turn is the path it flies. It bends
 				// towards where a moving victim will be when the missile gets there rather than where the
