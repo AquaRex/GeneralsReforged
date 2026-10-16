@@ -1027,7 +1027,9 @@ Int Drawable::getPristineBonePositions(const char* boneNamePrefix, Int startInde
 Int Drawable::getCurrentClientBonePositions(const char* boneNamePrefix, Int startIndex, Coord3D* positions, Matrix3D* transforms, Int maxBones) const
 {
 	Int count = 0;
-	for (const DrawModule** dm = getDrawModules(); *dm; ++dm)
+	// the uplink cannon asks from the tick for its raised antenna: DEPLOYED starts on the animation's
+	// last frame, and the pristine bones are its first, about 34 units lower
+	for (DrawModule** dm = const_cast<Drawable*>(this)->getDrawModulesFlushed(); *dm; ++dm)
 	{
 		if (maxBones <= 0)
 			break;
@@ -5085,12 +5087,12 @@ DrawModule** Drawable::getDrawModulesNonDirty()
 //-------------------------------------------------------------------------------------------------
 DrawModule** Drawable::getDrawModules() 
 { 
-	DrawModule** dm = (DrawModule**)getModuleList(MODULETYPE_DRAW); 
+	DrawModule** dm = (DrawModule**)getModuleList(MODULETYPE_DRAW);
 #ifdef DIRTY_CONDITION_FLAGS
 	if (m_isModelDirty)
 	{
 		if (TheGameLogic->isInGameLogicUpdate())
-			queueClientWork();
+			deferModelConditionFlush();
 		else
 			flushModelCondition( FALSE );
 	}
@@ -5101,12 +5103,12 @@ DrawModule** Drawable::getDrawModules()
 //-------------------------------------------------------------------------------------------------
 DrawModule const** Drawable::getDrawModules() const 
 { 
-	DrawModule const** dm = (DrawModule const**)getModuleList(MODULETYPE_DRAW); 
+	DrawModule const** dm = (DrawModule const**)getModuleList(MODULETYPE_DRAW);
 #ifdef DIRTY_CONDITION_FLAGS
 	if (m_isModelDirty)
 	{
 		if (TheGameLogic->isInGameLogicUpdate())
-			queueClientWork();
+			deferModelConditionFlush();
 		else
 			flushModelCondition( FALSE );
 	}
@@ -5132,6 +5134,17 @@ void Drawable::queueClientWork() const
 }
 
 //-------------------------------------------------------------------------------------------------
+/** Where a flush used to run inside the tick, the state it would have applied is kept, so the flush
+	after the tick walks the same states in the same order and W3DModelDraw picks the same transition
+	animations (a door, a deploy, an unpack set A then B in one tick) as an immediate flush did. */
+void Drawable::deferModelConditionFlush() const
+{
+	if (m_conditionSteps.empty() || m_conditionSteps.back() != m_conditionState)
+		m_conditionSteps.push_back( m_conditionState );
+	queueClientWork();
+}
+
+//-------------------------------------------------------------------------------------------------
 /** The model condition flush.  The census counts it from the logic thread: on its own channel when a
 	caller asked for it on demand, under modelcondition when anything else made it run there. */
 void Drawable::flushModelCondition( Bool onDemand ) const
@@ -5145,13 +5158,20 @@ void Drawable::flushModelCondition( Bool onDemand ) const
 		// list of W3D render objects not being munged. (srj)
 		return;
 	}
+	// the states a flush inside the tick would have applied first, then the one the tick ended on
+	if (m_conditionSteps.empty() || m_conditionSteps.back() != m_conditionState)
+		m_conditionSteps.push_back( m_conditionState );
 	// yeah, yeah, yeah... I know (srj)
-	for (DrawModule** dm = (DrawModule**)getModuleList(MODULETYPE_DRAW); *dm; ++dm)
+	for (size_t i = 0; i < m_conditionSteps.size(); ++i)
 	{
-		ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
-		if (di)
-			di->replaceModelConditionState( m_conditionState );
+		for (DrawModule** dm = (DrawModule**)getModuleList(MODULETYPE_DRAW); *dm; ++dm)
+		{
+			ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
+			if (di)
+				di->replaceModelConditionState( m_conditionSteps[i] );
+		}
 	}
+	m_conditionSteps.clear();
 	m_isModelDirty = false;
 }
 
@@ -5255,6 +5275,7 @@ void Drawable::replaceModelConditionFlags( const ModelConditionFlags &flags, Boo
 			if (di)
 				di->replaceModelConditionState( m_conditionState );
 		}
+		m_conditionSteps.clear();
 		m_isModelDirty = false;
 	}
 	else
@@ -5420,7 +5441,10 @@ void Drawable::reactToTransformChange(const Matrix3D* oldMtx, const Coord3D* old
 	if (TheGameLogic->isInGameLogicUpdate())
 	{
 		m_transformPending = TRUE;
-		queueClientWork();
+		if (m_isModelDirty)
+			deferModelConditionFlush();		// the getDrawModules below flushed here
+		else
+			queueClientWork();
 		return;
 	}
 	LOGIC_CENSUS( CENSUS_DRAWABLE );

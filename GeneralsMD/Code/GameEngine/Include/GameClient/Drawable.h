@@ -826,8 +826,10 @@ private:
 #endif
 	mutable Bool m_clientWorkQueued;		///< this drawable's ID is in the list flushPendingClientWork walks
 	Bool m_transformPending;						///< the tick moved it; the draw modules have not been told
+	mutable std::vector<ModelConditionFlags> m_conditionSteps;	///< states an in-tick flush would have applied, in order
 
 	void queueClientWork() const;
+	void deferModelConditionFlush() const;
 	void flushModelCondition( Bool onDemand ) const;
 	void doPendingClientWork( Bool onDemand );
 	void markModelDirty();
