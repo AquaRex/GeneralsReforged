@@ -1557,7 +1557,7 @@ GUI:HotkeysCommandSELECT_ALL
 END
 
 GUI:HotkeysCommandSELECT_ALL_MILITARY
-"Select all fighting units"
+"Select all infantry"
 END
 
 GUI:HotkeysCommandSELECT_ALL_VEHICLES
@@ -1586,6 +1586,30 @@ END
 
 GUI:HotkeysCommandSELECT_NEXT_IDLE_UNIT
 "Next idle unit"
+END
+
+GUI:HotkeysCommandSELECT_NEXT_IDLE_AIRCRAFT
+"Next idle aircraft"
+END
+
+GUI:HotkeysCommandSELECT_NEXT_IDLE_VEHICLE
+"Next idle vehicle"
+END
+
+GUI:HotkeysCommandSELECT_NEXT_IDLE_INFANTRY
+"Next idle infantry"
+END
+
+GUI:HotkeysCommandSELECT_ALL_IDLE_UNITS
+"Select all idle units"
+END
+
+GUI:HotkeysCommandSELECT_ALL_IDLE_AIRCRAFT
+"Select all idle aircraft"
+END
+
+GUI:HotkeysCommandSELECT_ALL_IDLE_VEHICLES
+"Select all idle vehicles"
 END
 
 GUI:HotkeysCommandTOGGLE_PAUSE

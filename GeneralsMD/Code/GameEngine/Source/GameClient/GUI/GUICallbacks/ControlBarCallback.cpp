@@ -480,7 +480,9 @@ WindowMsgHandledType ControlBarSystem( GameWindow *window, UnsignedInt msg,
 			else if( controlID == buttonIdleWorker)
 			{
 				HideQuitMenu( );
-				TheInGameUI->selectNextIdleWorker();
+				Object *worker = TheInGameUI->selectNextIdleWorker();
+				if( worker )	// every worker busy: nothing was selected
+					TheTacticalView->lookAt( worker->getPosition() );
 			}
 			else
 			{

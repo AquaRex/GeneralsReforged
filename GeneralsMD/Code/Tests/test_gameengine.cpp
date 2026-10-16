@@ -1807,6 +1807,29 @@ TEST(hotkeys_file_reads_the_launchers_rows_and_leaves_its_defaults_out)
 	CHECK( mine.launcherPart.empty() );
 }
 
+// the name lookup CommandMap.ini and Hotkeys.ini go through on their way to a message
+struct MetaNameProbe : public MetaMap
+{
+	using MetaMap::findGameMessageMetaType;
+};
+
+TEST(hotkeys_every_row_the_page_lists_is_a_command_the_game_knows)
+{
+	static const char *const IDLE[] = { "SELECT_NEXT_IDLE_AIRCRAFT", "SELECT_NEXT_IDLE_VEHICLE", "SELECT_NEXT_IDLE_INFANTRY",
+		"SELECT_ALL_IDLE_UNITS", "SELECT_ALL_IDLE_AIRCRAFT", "SELECT_ALL_IDLE_VEHICLES" };
+	const std::vector< HotkeyCommandRow > rows = Hotkeys_commandRows( HOTKEYS_COMMAND_MAP );
+	MetaNameProbe names;
+	Int idle = 0;
+	for( size_t each = 0; each < rows.size(); each++ )
+	{
+		CHECK( names.findGameMessageMetaType( rows[ each ].id.c_str() ) != GameMessage::MSG_INVALID );
+		for( size_t name = 0; name < sizeof( IDLE ) / sizeof( IDLE[ 0 ] ); name++ )
+			if( rows[ each ].id == IDLE[ name ] && rows[ each ].category == "SELECTION" && rows[ each ].binding.key.empty() )
+				idle++;
+	}
+	CHECK_EQ( idle, 6 );
+}
+
 TEST(hotkeys_file_the_launcher_wrote_comes_back_byte_for_byte)
 {
 	const std::vector< HotkeyCommandRow > rows = Hotkeys_commandRows( HOTKEYS_COMMAND_MAP );

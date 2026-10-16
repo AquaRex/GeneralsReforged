@@ -758,7 +758,9 @@ std::vector< HotkeyCommandRow > Hotkeys_commandRows( const std::string& commandM
 	// UNBOUND_COMMANDS in hotkeys.js: commands the engine knows that the shipped map binds to nothing
 	std::vector< HotkeyCommandRow > unbound;
 	static const char *const SELECTION[] = { "SELECT_ALL", "SELECT_ALL_MILITARY", "SELECT_ALL_VEHICLES", "SELECT_ALL_AIRCRAFT",
-		"SELECT_ALL_BARRACKS", "SELECT_ALL_WARFACTORIES", "SELECT_ALL_AIRFIELDS", "SELECT_NEXT_IDLE_WORKER", "SELECT_NEXT_IDLE_UNIT" };
+		"SELECT_ALL_BARRACKS", "SELECT_ALL_WARFACTORIES", "SELECT_ALL_AIRFIELDS", "SELECT_NEXT_IDLE_WORKER", "SELECT_NEXT_IDLE_UNIT",
+		"SELECT_NEXT_IDLE_AIRCRAFT", "SELECT_NEXT_IDLE_VEHICLE", "SELECT_NEXT_IDLE_INFANTRY", "SELECT_ALL_IDLE_UNITS",
+		"SELECT_ALL_IDLE_AIRCRAFT", "SELECT_ALL_IDLE_VEHICLES" };
 	for( size_t each = 0; each < sizeof( SELECTION ) / sizeof( SELECTION[ 0 ] ); each++ )
 		unbound.push_back( commandRow( SELECTION[ each ], "SELECTION" ) );
 	unbound.push_back( commandRow( "TOGGLE_PAUSE", "INTERFACE" ) );

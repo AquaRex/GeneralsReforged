@@ -15954,7 +15954,7 @@ GUI:HotkeysCommandSELECT_ALL
 END
 
 GUI:HotkeysCommandSELECT_ALL_MILITARY
-"Bütün savaşan birlikleri seç"
+"Bütün piyadeleri seç"
 END
 
 GUI:HotkeysCommandSELECT_ALL_VEHICLES
@@ -15983,6 +15983,30 @@ END
 
 GUI:HotkeysCommandSELECT_NEXT_IDLE_UNIT
 "Sıradaki boştaki birlik"
+END
+
+GUI:HotkeysCommandSELECT_NEXT_IDLE_AIRCRAFT
+"Sıradaki boştaki hava aracı"
+END
+
+GUI:HotkeysCommandSELECT_NEXT_IDLE_VEHICLE
+"Sıradaki boştaki araç"
+END
+
+GUI:HotkeysCommandSELECT_NEXT_IDLE_INFANTRY
+"Sıradaki boştaki piyade"
+END
+
+GUI:HotkeysCommandSELECT_ALL_IDLE_UNITS
+"Bütün boştaki birlikleri seç"
+END
+
+GUI:HotkeysCommandSELECT_ALL_IDLE_AIRCRAFT
+"Bütün boştaki hava araçlarını seç"
+END
+
+GUI:HotkeysCommandSELECT_ALL_IDLE_VEHICLES
+"Bütün boştaki araçları seç"
 END
 
 GUI:HotkeysCommandTOGGLE_PAUSE

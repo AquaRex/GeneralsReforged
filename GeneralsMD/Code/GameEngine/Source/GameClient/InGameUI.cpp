@@ -229,6 +229,7 @@ struct KindOfSelectionData
 {
 	KindOfMaskType m_mustbeSet;
 	KindOfMaskType m_mustbeClear;
+	Bool m_idleOnly;
 
 	DrawableList newlySelectedDrawables;
 };
@@ -245,7 +246,8 @@ static Bool kindOfUnitSelection( Drawable *test, void *userData )
 		if (!object)
 			return FALSE;
 
-		Bool isKindOfMatch = object->isKindOfMulti(data->m_mustbeSet, data->m_mustbeClear);
+		Bool isKindOfMatch = object->isKindOfMulti(data->m_mustbeSet, data->m_mustbeClear)
+			&& ( !data->m_idleOnly || InGameUI::isIdleCombatUnit( object ) );
 
 		// only select objects if not already selected
 		if( object && isKindOfMatch 
@@ -7405,7 +7407,7 @@ Bool InGameUI::canSelectedObjectsEffectivelyUseWeapon( const CommandButton *comm
 }
 
 // ------------------------------------------------------------------------------------------------
-Int InGameUI::selectAllUnitsByTypeAcrossRegion( IRegion2D *region, KindOfMaskType mustBeSet, KindOfMaskType mustBeClear )
+Int InGameUI::selectAllUnitsByTypeAcrossRegion( IRegion2D *region, KindOfMaskType mustBeSet, KindOfMaskType mustBeClear, Bool idleOnly )
 {
 	KindOfSelectionData data;
 	Int newSelectionCount = 0;
@@ -7413,6 +7415,7 @@ Int InGameUI::selectAllUnitsByTypeAcrossRegion( IRegion2D *region, KindOfMaskTyp
 
 	data.m_mustbeSet = mustBeSet;
 	data.m_mustbeClear = mustBeClear;
+	data.m_idleOnly = idleOnly;
 
 	if (region)
 	{
@@ -7545,7 +7548,7 @@ Int InGameUI::selectMatchingAcrossRegion( IRegion2D *region )
 }
 
 // ------------------------------------------------------------------------------------------------
-Int InGameUI::selectAllUnitsByTypeAcrossScreen(KindOfMaskType mustBeSet, KindOfMaskType mustBeClear)
+Int InGameUI::selectAllUnitsByTypeAcrossScreen(KindOfMaskType mustBeSet, KindOfMaskType mustBeClear, Bool idleOnly)
 {
 	/// When implementing this, obey TheInGameUI->getMaxSelectCount() if it is > 0
 			
@@ -7559,7 +7562,7 @@ Int InGameUI::selectAllUnitsByTypeAcrossScreen(KindOfMaskType mustBeSet, KindOfM
  
 	buildRegion( &origin, &size, &region );
 
-	Int numSelected = selectAllUnitsByTypeAcrossRegion(&region, mustBeSet, mustBeClear);
+	Int numSelected = selectAllUnitsByTypeAcrossRegion(&region, mustBeSet, mustBeClear, idleOnly);
 	if (numSelected == -1)
 	{
 		UnicodeString message = TheGameText->fetch( "GUI:NothingSelected" );
@@ -7611,10 +7614,10 @@ Int InGameUI::selectMatchingAcrossScreen( void )
 }
 
 //-------------------------------------------------------------------------------------------------
-Int InGameUI::selectAllUnitsByTypeAcrossMap(KindOfMaskType mustBeSet, KindOfMaskType mustBeClear)
+Int InGameUI::selectAllUnitsByTypeAcrossMap(KindOfMaskType mustBeSet, KindOfMaskType mustBeClear, Bool idleOnly)
 {
 	/// When implementing this, obey TheInGameUI->getMaxSelectCount() if it is > 0
-	Int numSelected = selectAllUnitsByTypeAcrossRegion(NULL, mustBeSet, mustBeClear);
+	Int numSelected = selectAllUnitsByTypeAcrossRegion(NULL, mustBeSet, mustBeClear, idleOnly);
 	if (numSelected == -1)
 	{
 		UnicodeString message = TheGameText->fetch( "GUI:NothingSelected" );
@@ -7670,7 +7673,7 @@ Int InGameUI::selectMatchingAcrossMap()
 Int InGameUI::selectAllUnitsByType(KindOfMaskType mustBeSet, KindOfMaskType mustBeClear)
 {
 	/// When implementing this, obey TheInGameUI->getMaxSelectCount() if it is > 0
-	Int numSelected = selectAllUnitsByTypeAcrossScreen(mustBeSet, mustBeClear);
+	Int numSelected = selectAllUnitsByTypeAcrossScreen(mustBeSet, mustBeClear, FALSE);
 	if (numSelected == -1)
 	{
 		return numSelected;
@@ -7678,7 +7681,7 @@ Int InGameUI::selectAllUnitsByType(KindOfMaskType mustBeSet, KindOfMaskType must
 
 	if (numSelected == 0)
 	{
-		Int numSelectedAcrossMap = selectAllUnitsByTypeAcrossMap(mustBeSet, mustBeClear);
+		Int numSelectedAcrossMap = selectAllUnitsByTypeAcrossMap(mustBeSet, mustBeClear, FALSE);
 		return numSelectedAcrossMap;
 	}
 	return numSelected;
@@ -10098,13 +10101,14 @@ void InGameUI::removeIdleWorker( Object *obj, Int playerNumber )
 	return;
 }
 
-void InGameUI::selectNextIdleWorker( void )
+// The camera stays put; the idle worker buttons look at what this returns, the hotkey does not.
+Object *InGameUI::selectNextIdleWorker( void )
 {
 	Int index = ThePlayerList->getLocalPlayer()->getPlayerIndex();
 	if(m_idleWorkers[index].empty())
 	{
 		DEBUG_ASSERTCRASH(FALSE, ("InGameUI::selectNextIdleWorker We're trying to select a worker when our list is empty for player %s", WideCharAsUtf8( ThePlayerList->getLocalPlayer()->getPlayerDisplayName().str() ).str()));
-		return;
+		return NULL;
 	}
 	Object *selectThisObject = NULL;
 	
@@ -10165,15 +10169,13 @@ void InGameUI::selectNextIdleWorker( void )
 				{
 					TheAudio->addAudioEvent( soundEvent );
 				}*/
-		
-		// center on the unit
-		TheTacticalView->lookAt(selectThisObject->getPosition());
 	}
+	return selectThisObject;
 }
 
 // A unit of the local player's that is standing on the field with no order: not a dozer, a worker
 // or a supply truck (those have the idle-worker key), not a structure, not riding in anything.
-static Bool isIdleCombatUnit( const Object *obj )
+Bool InGameUI::isIdleCombatUnit( const Object *obj )
 {
 	if( !obj->isLocallyControlled() || obj->isEffectivelyDead() || obj->isContained() || !obj->isMobile() )
 		return FALSE;
@@ -10189,7 +10191,7 @@ static Bool isIdleCombatUnit( const Object *obj )
 	return ai && ai->isIdle();
 }
 
-void InGameUI::selectNextIdleUnit( void )
+void InGameUI::selectNextIdleUnit( KindOfMaskType mustBeSet, KindOfMaskType mustBeClear )
 {
 	// Nothing keeps a list of these the way the dozers keep m_idleWorkers, so the key walks the
 	// object list, which is in creation order and stays put between presses.  A lone selected unit
@@ -10201,7 +10203,7 @@ void InGameUI::selectNextIdleUnit( void )
 
 	for( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
 	{
-		if( isIdleCombatUnit( obj ) )
+		if( isIdleCombatUnit( obj ) && obj->isKindOfMulti( mustBeSet, mustBeClear ) )
 		{
 			if( passedCurrent )
 			{
@@ -10228,10 +10230,8 @@ void InGameUI::selectNextIdleUnit( void )
 	teamMsg->appendBooleanArgument( TRUE );
 	teamMsg->appendObjectIDArgument( selectThisObject->getID() );
 
+	// the camera stays where the player has it
 	selectDrawable( selectThisObject->getDrawable() );
-
-	// center on the unit
-	TheTacticalView->lookAt(selectThisObject->getPosition());
 }
 
 Int InGameUI::getIdleWorkerCount( void )
@@ -10433,7 +10433,9 @@ WindowMsgHandledType IdleWorkerSystem( GameWindow *window, UnsignedInt msg,
 			static NameKeyType buttonSelectID = NAMEKEY( "IdleWorker.wnd:ButtonSelectNextIdleWorker" );
 			if (control && control->winGetWindowId() == buttonSelectID)
 			{
-				TheInGameUI->selectNextIdleWorker( );
+				Object *worker = TheInGameUI->selectNextIdleWorker( );
+				if( worker )	// every worker busy: nothing was selected
+					TheTacticalView->lookAt( worker->getPosition() );
 			}
 			break;
 

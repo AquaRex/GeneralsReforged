@@ -2897,8 +2897,26 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 		}		// end select next idle worker
 
 		case GameMessage::MSG_META_SELECT_NEXT_IDLE_UNIT:
+		case GameMessage::MSG_META_SELECT_NEXT_IDLE_AIRCRAFT:
+		case GameMessage::MSG_META_SELECT_NEXT_IDLE_VEHICLE:
+		case GameMessage::MSG_META_SELECT_NEXT_IDLE_INFANTRY:
 		{
-			TheInGameUI->selectNextIdleUnit();
+			// isIdleCombatUnit narrowed by kind; vehicles are ground vehicles only, as for the
+			// select-all vehicles key. The cycle keeps its own filter: no IGNORES_SELECT_ALL,
+			// mass-selectable or off-map test.
+			KindOfMaskType mustBeSet;
+			KindOfMaskType mustBeClear;
+			if( t == GameMessage::MSG_META_SELECT_NEXT_IDLE_AIRCRAFT )
+				mustBeSet.set( KINDOF_AIRCRAFT );
+			else if( t == GameMessage::MSG_META_SELECT_NEXT_IDLE_VEHICLE )
+			{
+				mustBeSet.set( KINDOF_VEHICLE );
+				mustBeClear.set( KINDOF_AIRCRAFT );
+			}
+			else if( t == GameMessage::MSG_META_SELECT_NEXT_IDLE_INFANTRY )
+				mustBeSet.set( KINDOF_INFANTRY );
+
+			TheInGameUI->selectNextIdleUnit( mustBeSet, mustBeClear );
 
 			disp = DESTROY_MESSAGE;
 			break;
@@ -3244,9 +3262,18 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 		case GameMessage::MSG_META_SELECT_ALL_BARRACKS:
 		case GameMessage::MSG_META_SELECT_ALL_WARFACTORIES:
 		case GameMessage::MSG_META_SELECT_ALL_AIRFIELDS:
+		case GameMessage::MSG_META_SELECT_ALL_IDLE_UNITS:
+		case GameMessage::MSG_META_SELECT_ALL_IDLE_AIRCRAFT:
+		case GameMessage::MSG_META_SELECT_ALL_IDLE_VEHICLES:
 		{
 			// one category per key; selectAllUnitsByType takes the screen first and the
-			// whole map when the screen has nothing new left, so a second press widens
+			// whole map when the screen has nothing new left, so a second press widens.
+			// The idle keys take only units standing with no order, the screen first; pressed
+			// twice inside half a second they take the whole map, the way SELECT_MATCHING_UNITS
+			// does.
+			const Bool idleOnly = t == GameMessage::MSG_META_SELECT_ALL_IDLE_UNITS
+				|| t == GameMessage::MSG_META_SELECT_ALL_IDLE_AIRCRAFT
+				|| t == GameMessage::MSG_META_SELECT_ALL_IDLE_VEHICLES;
 			KindOfMaskType requiredKindofs;
 			KindOfMaskType disqualifyingKindofs;
 			disqualifyingKindofs.set(KINDOF_IGNORES_SELECT_ALL);
@@ -3260,21 +3287,19 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 					disqualifyingKindofs.set(KINDOF_DOZER);
 					disqualifyingKindofs.set(KINDOF_HARVESTER);
 					disqualifyingKindofs.set(KINDOF_STRUCTURE);
-					if( t == GameMessage::MSG_META_SELECT_ALL_AIRCRAFT )
+					if( t == GameMessage::MSG_META_SELECT_ALL_AIRCRAFT || t == GameMessage::MSG_META_SELECT_ALL_IDLE_AIRCRAFT )
 						requiredKindofs.set(KINDOF_AIRCRAFT);
 					else if( t == GameMessage::MSG_META_SELECT_ALL_MILITARY )
 					{
 						//
-						// Q W E under the left hand is infantry / vehicles / aircraft - one key per
-						// arm, so each one narrows the selection to something you can give a single
-						// order to. This used to be KINDOF_CAN_ATTACK, which is every armed unit
-						// there is: it swept up the tanks and the aircraft the other two keys are
-						// for and left no way to grab the foot soldiers on their own. Ctrl+A is
-						// still there for everything at once.
+						// Infantry only. This used to be KINDOF_CAN_ATTACK, which is every armed
+						// unit there is: it swept up the tanks and the aircraft the vehicle and
+						// aircraft keys are for and left no way to grab the foot soldiers on their
+						// own. SELECT_ALL is still there for everything at once.
 						//
 						requiredKindofs.set(KINDOF_INFANTRY);
 					}
-					else if( t == GameMessage::MSG_META_SELECT_ALL_VEHICLES )
+					else if( t == GameMessage::MSG_META_SELECT_ALL_VEHICLES || t == GameMessage::MSG_META_SELECT_ALL_IDLE_VEHICLES )
 					{
 						requiredKindofs.set(KINDOF_VEHICLE);
 						disqualifyingKindofs.set(KINDOF_AIRCRAFT);
@@ -3288,14 +3313,31 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			const DrawableList *drawList = TheInGameUI->getAllSelectedDrawables();
 			for( DrawableListCIt it = drawList->begin(); it != drawList->end(); ++it )
 			{
-				if( !(*it)->isKindOfMulti( requiredKindofs, disqualifyingKindofs ) )
+				if( !(*it)->isKindOfMulti( requiredKindofs, disqualifyingKindofs )
+						|| ( idleOnly && !InGameUI::isIdleCombatUnit( (*it)->getObject() ) ) )
 				{
 					TheInGameUI->deselectAllDrawables();
 					break;
 				}
 			}
 
-			TheInGameUI->selectAllUnitsByType(requiredKindofs, disqualifyingKindofs);
+			if( idleOnly )
+			{
+				enum { SELECT_IDLE_AGAIN_MS = 500 };		///< real time: the client frame rate is uncapped
+				static UnsignedInt s_lastIdleMs = 0;
+				static GameMessage::Type s_lastIdleType = GameMessage::MSG_INVALID;
+
+				const UnsignedInt now = Clock_Milliseconds();
+				const Bool again = ( s_lastIdleType == t && now - s_lastIdleMs <= SELECT_IDLE_AGAIN_MS );
+				s_lastIdleMs = now;
+				s_lastIdleType = t;
+
+				// a screen with none of them on it widens in the same press, as selectAllUnitsByType does
+				if( again || TheInGameUI->selectAllUnitsByTypeAcrossScreen(requiredKindofs, disqualifyingKindofs, TRUE) == 0 )
+					TheInGameUI->selectAllUnitsByTypeAcrossMap(requiredKindofs, disqualifyingKindofs, TRUE);
+			}
+			else
+				TheInGameUI->selectAllUnitsByType(requiredKindofs, disqualifyingKindofs);
 
 			disp = DESTROY_MESSAGE;
 			break;

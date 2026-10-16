@@ -15202,7 +15202,7 @@ GUI:HotkeysCommandSELECT_ALL
 END
 
 GUI:HotkeysCommandSELECT_ALL_MILITARY
-"Alle Kampfeinheiten auswählen"
+"Alle Infanteristen auswählen"
 END
 
 GUI:HotkeysCommandSELECT_ALL_VEHICLES
@@ -15231,6 +15231,30 @@ END
 
 GUI:HotkeysCommandSELECT_NEXT_IDLE_UNIT
 "Nächste untätige Einheit"
+END
+
+GUI:HotkeysCommandSELECT_NEXT_IDLE_AIRCRAFT
+"Nächstes untätiges Flugzeug"
+END
+
+GUI:HotkeysCommandSELECT_NEXT_IDLE_VEHICLE
+"Nächstes untätiges Fahrzeug"
+END
+
+GUI:HotkeysCommandSELECT_NEXT_IDLE_INFANTRY
+"Nächster untätiger Infanterist"
+END
+
+GUI:HotkeysCommandSELECT_ALL_IDLE_UNITS
+"Alle untätigen Einheiten auswählen"
+END
+
+GUI:HotkeysCommandSELECT_ALL_IDLE_AIRCRAFT
+"Alle untätigen Flugzeuge auswählen"
+END
+
+GUI:HotkeysCommandSELECT_ALL_IDLE_VEHICLES
+"Alle untätigen Fahrzeuge auswählen"
 END
 
 GUI:HotkeysCommandTOGGLE_PAUSE
