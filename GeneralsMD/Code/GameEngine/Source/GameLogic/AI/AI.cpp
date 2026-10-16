@@ -1437,17 +1437,15 @@ Bool aiShouldMass( Real waitingThreat, Real enemyVisibleThreat, Real massFractio
 }
 
 //-------------------------------------------------------------------------------------------------
-Bool aiWantsAnotherFactory( Int finished, Int constructing, Int idle, Int deepest, Bool unlimited )
+Bool aiWantsAnotherFactory( Int finished, Int constructing, Int shallowest, UnsignedInt backedUpFor )
 {
 	if( constructing > 0 )
 		return FALSE;					// one is already going up
-	if( unlimited )
-		return TRUE;
 	if( finished <= 0 )
 		return TRUE;					// the last one is gone, so put one back
-	if( idle > 0 )
-		return FALSE;					// a factory with nothing in it is the spare
-	return deepest >= 2;			// busy, and a unit is waiting behind the one being built
+	if( shallowest < 2 )
+		return FALSE;					// one of them has room: nothing is waiting behind what it builds
+	return backedUpFor >= (UnsignedInt)( AI_FACTORY_BACKLOG_SECONDS * LOGICFRAMES_PER_SECOND );
 }
 
 //-------------------------------------------------------------------------------------------------

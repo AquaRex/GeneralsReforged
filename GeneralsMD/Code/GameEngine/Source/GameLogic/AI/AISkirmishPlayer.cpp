@@ -236,6 +236,11 @@ void AISkirmishPlayer::processBaseBuilding( void )
 			if (bldg) {
 				continue; // already built.
 			}
+			// A second war factory, barracks or airfield of the plan's waits until the ones standing
+			// fall behind their queues, as an extra one would.
+			if (holdsExtraFactory(curPlan)) {
+				continue;
+			}
 			// The safety check below is a range query over everything near the spot, most of a
 			// millisecond each late in a 4v4, and it ran for every unbuilt entry on every pass (36 of
 			// them, 28ms, in one frame). An entry that cannot change what this pass picks skips it.

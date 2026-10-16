@@ -12262,30 +12262,31 @@ TEST(ground_flood_goes_round_the_wall_nearest_first)
 	CHECK_EQ( count, 3 );		// the source and its two side neighbours
 }
 
-/** Another factory when the queue is backing up, and another tech building until three are standing.
-	 Easy and Normal never reach the caller: economy buildings stay off below Brutal. */
+/** Another factory only when every one standing has kept a unit waiting for AI_FACTORY_BACKLOG_SECONDS,
+	 and another tech building until three are standing. */
 TEST(extra_factory_follows_the_queue_and_tech_stops_at_three)
 {
+	const UnsignedInt BACKLOG = AI_FACTORY_BACKLOG_SECONDS * LOGICFRAMES_PER_SECOND;
+
 	// nothing left standing: put one back
-	CHECK( aiWantsAnotherFactory( 0, 0, 0, 0, FALSE ) );
+	CHECK( aiWantsAnotherFactory( 0, 0, 0, 0 ) );
 
 	// one already going up is the building this would ask for
-	CHECK( !aiWantsAnotherFactory( 0, 1, 0, 0, FALSE ) );
-	CHECK( !aiWantsAnotherFactory( 2, 1, 0, 4, FALSE ) );
+	CHECK( !aiWantsAnotherFactory( 0, 1, 0, 0 ) );
+	CHECK( !aiWantsAnotherFactory( 2, 1, 4, BACKLOG ) );
 
-	// a factory with an empty queue is the spare
-	CHECK( !aiWantsAnotherFactory( 2, 0, 1, 3, FALSE ) );
+	// one with an empty queue, or only the unit it is building, has room
+	CHECK( !aiWantsAnotherFactory( 2, 0, 0, BACKLOG ) );
+	CHECK( !aiWantsAnotherFactory( 1, 0, 1, BACKLOG ) );
 
-	// every finished factory is busy, and a unit is waiting behind the one being built
-	CHECK( aiWantsAnotherFactory( 2, 0, 0, 2, FALSE ) );
+	// a team landing in the queue all at once is a batch, not a factory falling behind: the
+	// opening's training no longer buys a second barracks
+	CHECK( !aiWantsAnotherFactory( 1, 0, 5, 0 ) );
+	CHECK( !aiWantsAnotherFactory( 1, 0, 5, BACKLOG - 1 ) );
 
-	// busy, but the queue is only the unit under construction
-	CHECK( !aiWantsAnotherFactory( 1, 0, 0, 1, FALSE ) );
-
-	// airfields and the income buildings: another whenever one is not already going up,
-	// even while a finished one sits idle
-	CHECK( aiWantsAnotherFactory( 3, 0, 2, 0, TRUE ) );
-	CHECK( !aiWantsAnotherFactory( 3, 1, 0, 5, TRUE ) );
+	// every finished one has kept a unit waiting the whole time
+	CHECK( aiWantsAnotherFactory( 1, 0, 2, BACKLOG ) );
+	CHECK( aiWantsAnotherFactory( 3, 0, 2, BACKLOG + 600 ) );
 
 	CHECK( aiWantsAnotherTechBuilding( 0, 0 ) );
 	CHECK( aiWantsAnotherTechBuilding( AI_TECH_BUILDING_COPIES - 1, 0 ) );

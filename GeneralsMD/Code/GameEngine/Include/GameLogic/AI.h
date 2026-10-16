@@ -352,14 +352,19 @@ AIFallbackDecision aiRetreatHoldDecision( Bool arrived, UnsignedInt heldFrames, 
 Bool aiShouldMass( Real waitingThreat, Real enemyVisibleThreat, Real massFraction,
 									 Bool timeExpired, Bool baseUnderAttack );
 
+/** How long every finished factory of a kind has to keep a unit waiting behind the one it is building
+	* before the computer buys another.  A script's team lands in the queue all at once, so a backlog
+	* the moment it appears is a batch, not a factory falling behind. */
+static const Int AI_FACTORY_BACKLOG_SECONDS = 45;
+
 /** Another factory of this kind.  finished are standing and done, constructing are already on the
-	* way, idle are finished factories with an empty queue, deepest is the longest queue among them.
+	* way, shallowest is the shortest queue among the finished ones, and backedUpFor is how many frames
+	* every one of them has had a unit waiting behind the one it is building.
 	*
-	* A queue-gated kind (tanks, infantry) gets another when every finished factory is busy and one of
-	* them has a unit waiting behind the one under construction, and a replacement when none are left.
-	* An unlimited kind (airfields, and the income buildings that follow the same rule) gets another
-	* whenever one is not already going up.  One already on the way is the building this would ask for. */
-Bool aiWantsAnotherFactory( Int finished, Int constructing, Int idle, Int deepest, Bool unlimited );
+	* Another goes up only when every finished factory has had a unit waiting for
+	* AI_FACTORY_BACKLOG_SECONDS, and a replacement when none are left.  One already on the way is the
+	* building this would ask for. */
+Bool aiWantsAnotherFactory( Int finished, Int constructing, Int shallowest, UnsignedInt backedUpFor );
 
 /** How many copies of the faction tech building (strategy center, propaganda center, palace) to
 	* keep up so one of them blowing up does not take the tree with it. */

@@ -367,6 +367,7 @@ protected:
 	Int					m_bankMark;							///< ... and the bank then
 	Real				m_incomePerSecond;			///< smoothed over the windows measured so far
 	Int					m_startFortune;					///< what the match started with over the default starting cash, 0 at the default
+	UnsignedInt	m_factoryBackedUpSince[ 3 ];	///< per war factory, barracks, airfield: the frame every finished one was first seen with a unit waiting, 0 for not
 	Bool purchaseAllowed(Int key, Int cost, AIPurchaseKind kind, Bool startable, const AsciiString &what);
 	void purchased(Int key, Int cost, AIPurchaseKind kind, const AsciiString &what);
 	Bool buyUnit(ProductionUpdateInterface *pu, const ThingTemplate *unit, AIPurchaseKind kind);	///< queueCreateUnit through the queue
@@ -386,7 +387,8 @@ protected:
 	Int moneyUnitRoom(void) const;	///< how many more money units this player's army and internet centers carry
 	Bool hasEnoughMoneyUnitsFor(TeamPrototype *proto) const;	///< this team is all hackers and there is no room for more
 	Bool placeNear(const ThingTemplate *tmpl, const Coord3D *center, Real innerRadius, Bool walkOutward);	///< the nearest legal, safe spot by the ground from center, queued for a dozer. walkOutward keeps searching further out as the near ground fills
-	Bool queueExtraFactory(Object *dozer, KindOfType kind, Bool unlimited);	///< one more of this factory, beside a held expansion or around the base
+	Bool queueExtraFactory(Object *dozer, KindOfType kind);	///< one more of this factory, beside a held expansion or around the base, once the ones standing fall behind their queues
+	Bool holdsExtraFactory(const ThingTemplate *tmpl);	///< a factory of a kind already standing or going up, while the ones standing keep up with their queues
 	const ThingTemplate *nextBaseDefense(Object *dozer);	///< the base defence off this dozer's buttons that the base has fewest of, NULL for none
 	Bool placeDefense(const ThingTemplate *defense);	///< queue it on the ring spot whose clear field of fire covers the most ground the enemy drives in over
 	const std::vector<UnsignedShort> &groundFromBase(void);	///< AIGroundFlood distance of every pathfind cell from the base center, cached until the center moves

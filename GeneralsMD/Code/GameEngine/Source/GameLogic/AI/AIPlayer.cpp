@@ -393,6 +393,8 @@ m_role(AIROLE_AGGRESSIVE)
 	m_bankMark = 0;
 	m_incomePerSecond = 0.0f;
 	m_startFortune = 0;
+	for( Int k = 0; k < 3; ++k )
+		m_factoryBackedUpSince[ k ] = 0;
 	m_healerSeconds = 0;
 	m_healerClearSeconds = 0;
 	m_captureTimer = 1;
@@ -5766,11 +5768,14 @@ struct FactoryLoad
 	KindOfType kind;
 	Int finished;
 	Int constructing;
-	Int idle;
-	Int deepest;
+	Int shallowest;
 };
 
-static void readFactoryLoad( Object *obj, void *userData )
+/** The production kinds the computer buys extra copies of, in m_factoryBackedUpSince's order. */
+static const Int PRODUCTION_KINDS = 3;
+static const KindOfType PRODUCTION_KIND[ PRODUCTION_KINDS ] = { KINDOF_FS_WARFACTORY, KINDOF_FS_BARRACKS, KINDOF_FS_AIRFIELD };
+
+static void countFactoryLoad( Object *obj, void *userData )
 {
 	FactoryLoad *load = (FactoryLoad *)userData;
 	if( obj->isEffectivelyDead() || !obj->isKindOf( load->kind ) )
@@ -5783,12 +5788,32 @@ static void readFactoryLoad( Object *obj, void *userData )
 	ProductionUpdateInterface *pu = obj->getProductionUpdateInterface();
 	if( pu == NULL )
 		return;
-	++load->finished;
 	const Int queued = (Int)pu->getProductionCount();
-	if( queued == 0 )
-		++load->idle;
-	if( queued > load->deepest )
-		load->deepest = queued;
+	if( load->finished == 0 || queued < load->shallowest )
+		load->shallowest = queued;
+	++load->finished;
+}
+
+static FactoryLoad readFactoryLoad( Player *player, KindOfType kind )
+{
+	FactoryLoad load = { kind, 0, 0, 0 };
+	player->iterateObjects( countFactoryLoad, &load );
+	return load;
+}
+
+/** Factories of this kind the build list has yet to put up, which go up before any extra one. */
+static Int plannedOfKind( Player *player, KindOfType kind )
+{
+	Int planned = 0;
+	for( BuildListInfo *info = player->getBuildList(); info; info = info->getNext() )
+	{
+		if( info->getObjectID() != INVALID_ID || !info->isBuildable() )
+			continue;
+		const ThingTemplate *tmpl = TheThingFactory->findTemplate( info->getTemplateName(), FALSE );
+		if( tmpl && tmpl->isKindOf( kind ) )
+			++planned;
+	}
+	return planned;
 }
 
 struct TechCount
@@ -6269,13 +6294,12 @@ void AIPlayer::doEconomy( void )
 	const Int INCOME_KINDS = 3;
 	static const KindOfType INCOME[ INCOME_KINDS ] = {
 		KINDOF_FS_SUPPLY_DROPZONE, KINDOF_FS_BLACK_MARKET, KINDOF_FS_INTERNET_CENTER };
-	Bool homeFull = FALSE;		// an income building was wanted and the base had no room for it
 	for( Int i = 0; i < INCOME_KINDS; ++i )
 	{
 		const ThingTemplate *tmpl = buildableOfKind( dozer, GUI_COMMAND_DOZER_CONSTRUCT, INCOME[ i ] );
 		// from half way out to the edge: placeNear keeps these inside the base (staysHome)
-		if( tmpl && !priorityBuildPending( m_player, tmpl ) && !placeNear( tmpl, &m_baseCenter, 0.5f * m_baseRadius, FALSE ) )
-			homeFull = TRUE;
+		if( tmpl && !priorityBuildPending( m_player, tmpl ) )
+			placeNear( tmpl, &m_baseCenter, 0.5f * m_baseRadius, FALSE );
 	}
 
 	/* A gun on the side the trouble comes from, before the factories the pass buys.  Production and
@@ -6308,30 +6332,15 @@ void AIPlayer::doEconomy( void )
 	if( m_player->getMoney()->countMoney() <= 2 * profile->m_cashHoardThreshold )
 		return;
 
-	/* Airfields have no count, so a tank queue that never empties would take every pass and the
-		 airfield would wait forever.  Even economy ticks ask for the airfield first, odd ticks ask for
-		 the queues first, and a kind that wants nothing simply yields the pass. */
-	const KindOfType QUEUED_KINDS[ 2 ] = { KINDOF_FS_WARFACTORY, KINDOF_FS_BARRACKS };
-	const Bool airFirst = ((TheGameLogic->getFrame() + phase) / ECONOMY_CHECK_RATE) % 2 == 0;
-	for( Int pass = 0; pass < 2; ++pass )
-	{
-		const Bool airPass = (pass == 0) == airFirst;
-		if( airPass )
-		{
-			if( queueExtraFactory( dozer, KINDOF_FS_AIRFIELD, TRUE ) )
-				return;
-		}
-		else
-		{
-			// The income building the base had no room for used to go up out on the map, and that was
-			// where a GLA's money went: it has no airfield to spend on, and one banked 136,939 by the
-			// end of a match.  With home full the money goes into production, a factory a pass whether
-			// or not its queue is backing up, the way the airfields always have.
-			for( Int i = 0; i < 2; ++i )
-				if( queueExtraFactory( dozer, QUEUED_KINDS[ i ], homeFull ) )
-					return;
-		}
-	}
+	/* Another factory only once the ones standing fall behind their queues (aiWantsAnotherFactory).
+		 Airfields, and war factories and barracks while the base had no room for an income building,
+		 used to get one a pass whatever their queues, and the opening spent itself on a second barracks
+		 with the first one empty.  The kind asked first turns with each pass, so a queue that never
+		 empties does not keep the others waiting. */
+	const Int first = (Int)( ((TheGameLogic->getFrame() + phase) / ECONOMY_CHECK_RATE) % PRODUCTION_KINDS );
+	for( Int i = 0; i < PRODUCTION_KINDS; ++i )
+		if( queueExtraFactory( dozer, PRODUCTION_KIND[ (first + i) % PRODUCTION_KINDS ] ) )
+			return;
 }
 
 /** How near a point one of this player's tunnels has to stand to count as covering it. */
@@ -6857,22 +6866,13 @@ void AIPlayer::buyMoneyUnits( void )
 //----------------------------------------------------------------------------------------------------------
 /** One more factory of this kind, beside a held expansion or around the base.  The expansion try is
 	* local: a miss out there must not walk the base's ring cursor past the ground around the command
-	* center, or the first crowded dock skips the base itself. */
+	* center, or the first crowded dock skips the base itself.  Nothing while the build list still has one
+	* of this kind to put up, since that one goes first, and then only when holdsExtraFactory lets it. */
 //----------------------------------------------------------------------------------------------------------
-Bool AIPlayer::queueExtraFactory( Object *dozer, KindOfType kind, Bool unlimited )
+Bool AIPlayer::queueExtraFactory( Object *dozer, KindOfType kind )
 {
 	const ThingTemplate *tmpl = buildableOfKind( dozer, GUI_COMMAND_DOZER_CONSTRUCT, kind );
-	if( tmpl == NULL || priorityBuildPending( m_player, tmpl ) )
-		return FALSE;
-
-	FactoryLoad load;
-	load.kind = kind;
-	load.finished = 0;
-	load.constructing = 0;
-	load.idle = 0;
-	load.deepest = 0;
-	m_player->iterateObjects( readFactoryLoad, &load );
-	if( !aiWantsAnotherFactory( load.finished, load.constructing, load.idle, load.deepest, unlimited ) )
+	if( tmpl == NULL || plannedOfKind( m_player, kind ) > 0 || holdsExtraFactory( tmpl ) )
 		return FALSE;
 
 	const Object *warehouse = TheGameLogic->findObjectByID( m_curWarehouseID );
@@ -6881,6 +6881,27 @@ Bool AIPlayer::queueExtraFactory( Object *dozer, KindOfType kind, Bool unlimited
 				warehouse->getGeometryInfo().getBoundingCircleRadius() + SUPPLY_CENTER_CLOSE_DIST * 0.5f, FALSE ) )
 		return TRUE;
 	return placeNear( tmpl, &m_baseCenter, m_baseRadius, TRUE );
+}
+
+//----------------------------------------------------------------------------------------------------------
+/** A second factory of a kind waits until every finished one has kept a unit waiting for
+	* AI_FACTORY_BACKLOG_SECONDS (aiWantsAnotherFactory; doSpending keeps that clock), and while one is
+	* going up.  The build list's own copies wait the same way: the Infantry General's plan holds four
+	* barracks, and its scripts asked for the second 38 seconds in, before the first had trained anyone,
+	* and the bank went to nothing waiting on the third. */
+//----------------------------------------------------------------------------------------------------------
+Bool AIPlayer::holdsExtraFactory( const ThingTemplate *tmpl )
+{
+	for( Int k = 0; k < PRODUCTION_KINDS; ++k )
+	{
+		if( !tmpl->isKindOf( PRODUCTION_KIND[ k ] ) )
+			continue;
+		const FactoryLoad load = readFactoryLoad( m_player, PRODUCTION_KIND[ k ] );
+		const UnsignedInt since = m_factoryBackedUpSince[ k ];
+		return !aiWantsAnotherFactory( load.finished, load.constructing, load.shallowest,
+			since == 0 ? 0 : TheGameLogic->getFrame() - since );
+	}
+	return FALSE;
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -7732,6 +7753,17 @@ void AIPlayer::doSpending( void )
 	if( (now + computeUpdatePhase( m_player->getPlayerIndex(), ECONOMY_CHECK_RATE )) % ECONOMY_CHECK_RATE != 0 )
 		return;
 
+	// since when every finished factory of each kind has had a unit waiting behind the one it builds,
+	// read on every pass so a queue that ran dry in between starts the clock again (queueExtraFactory)
+	for( Int k = 0; k < PRODUCTION_KINDS; ++k )
+	{
+		const FactoryLoad load = readFactoryLoad( m_player, PRODUCTION_KIND[ k ] );
+		if( load.finished == 0 || load.shallowest < 2 )
+			m_factoryBackedUpSince[ k ] = 0;
+		else if( m_factoryBackedUpSince[ k ] == 0 )
+			m_factoryBackedUpSince[ k ] = now;
+	}
+
 	// the income, off what the score screen counts as earned: gathered, hacked, captured and given
 	const Int bank = (Int)m_player->getMoney()->countMoney();
 	const Int earned = m_player->getScoreKeeper()->getTotalMoneyEarned();
@@ -7888,45 +7920,28 @@ void AIPlayer::buyUpgradesForArmy( Bool overTarget )
 	* target (aiWantsMoreProduction): what stands is not spending what comes in.  One at a time, and no more than the rung's m_maxProduction war
 	* factories, barracks and airfields together.  A guessed spend rate a factory stood here first: a
 	* Hard AI earning 93 a second wanted the two factories it had.  Unbuilt plan entries count as standing,
-	* or the rule adds the factory the plan is about to put up. */
+	* or the rule adds the factory the plan is about to put up.  A bank alone is no reason: the kind's
+	* own factories have to be falling behind their queues too (queueExtraFactory), or a match started on
+	* a big bank opened on a second barracks before the first had trained anyone. */
 //----------------------------------------------------------------------------------------------------------
 void AIPlayer::addProductionForIncome( Int bank, Int bankWindowAgo, Int target )
 {
 	if( !m_player->getCanBuildBase() || !m_baseCenterSet )
 		return;
 
-	const Int KINDS = 3;
-	const KindOfType PRODUCTION[ KINDS ] = { KINDOF_FS_WARFACTORY, KINDOF_FS_BARRACKS, KINDOF_FS_AIRFIELD };
-	Int standing[ KINDS ];
+	Int standing[ PRODUCTION_KINDS ];
 	Int total = 0;
-	for( Int k = 0; k < KINDS; ++k )
+	// ... and the ones the plan has yet to put up count as standing: early on a Medium plan of two war
+	// factories and a barracks had two up, and the rule added the third the plan was about to build
+	Int planned = 0;
+	for( Int k = 0; k < PRODUCTION_KINDS; ++k )
 	{
-		FactoryLoad load;
-		load.kind = PRODUCTION[ k ];
-		load.finished = 0;
-		load.constructing = 0;
-		load.idle = 0;
-		load.deepest = 0;
-		m_player->iterateObjects( readFactoryLoad, &load );
+		const FactoryLoad load = readFactoryLoad( m_player, PRODUCTION_KIND[ k ] );
 		if( load.constructing > 0 )
 			return;		// one at a time
 		standing[ k ] = load.finished;
 		total += load.finished;
-	}
-	// ... and the ones the plan has yet to put up count as standing: early on a Medium plan of two war
-	// factories and a barracks had two up, and the rule added the third the plan was about to build
-	Int planned = 0;
-	for( BuildListInfo *info = m_player->getBuildList(); info; info = info->getNext() )
-	{
-		if( info->getObjectID() != INVALID_ID || !info->isBuildable() )
-			continue;
-		const ThingTemplate *tmpl = TheThingFactory->findTemplate( info->getTemplateName(), FALSE );
-		for( Int k = 0; tmpl && k < KINDS; ++k )
-			if( tmpl->isKindOf( PRODUCTION[ k ] ) )
-			{
-				++planned;
-				break;
-			}
+		planned += plannedOfKind( m_player, PRODUCTION_KIND[ k ] );
 	}
 	total += planned;
 	const Int cap = getSkillProfile()->m_maxProduction;
@@ -7940,8 +7955,8 @@ void AIPlayer::addProductionForIncome( Int bank, Int bankWindowAgo, Int target )
 	const Int first = standing[ 1 ] < standing[ 0 ] ? 1 : 0;
 	for( Int k = 0; k < 2; ++k )
 	{
-		const KindOfType kind = PRODUCTION[ k == 0 ? first : 1 - first ];
-		if( queueExtraFactory( dozer, kind, TRUE ) )
+		const KindOfType kind = PRODUCTION_KIND[ k == 0 ? first : 1 - first ];
+		if( queueExtraFactory( dozer, kind ) )
 		{
 			DEBUG_LOG(("AI ECONOMY frame %d player %d puts up another %s, %d of at most %d standing (%d of them planned), %d in the bank (%d a window ago), bank target %d, %.0f a second of income\n",
 				TheGameLogic->getFrame(), m_player->getPlayerIndex(), kind == KINDOF_FS_WARFACTORY ? "war factory" : "barracks",
@@ -14437,7 +14452,7 @@ void AIPlayer::xfer( Xfer *xfer )
 {
 
 	// version
-	XferVersion currentVersion = 24;		// 2: scout  3: rung and role  4: scouting stamps  5: the capturer  6: parked waves  7: superweapon aims  8: the hijacker  9: tactical steps  10: the ferry and dropped riders  11: the outward placement ring  12: the pressure level  13: falling back  14: gunship Chinooks and the boarding wait  15: transport Chinooks and the lent one  16: healer and raider Helixes  17: the seen-enemy ledger  18: the fist  19: the Ambulances  20: the last Ambulance lost  21: the purchase queue's reservation  22: the measured income  23: the Ambulances bought  24: the starting fortune
+	XferVersion currentVersion = 25;		// 2: scout  3: rung and role  4: scouting stamps  5: the capturer  6: parked waves  7: superweapon aims  8: the hijacker  9: tactical steps  10: the ferry and dropped riders  11: the outward placement ring  12: the pressure level  13: falling back  14: gunship Chinooks and the boarding wait  15: transport Chinooks and the lent one  16: healer and raider Helixes  17: the seen-enemy ledger  18: the fist  19: the Ambulances  20: the last Ambulance lost  21: the purchase queue's reservation  22: the measured income  23: the Ambulances bought  24: the starting fortune  25: the factory backlog clocks
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -14842,6 +14857,8 @@ void AIPlayer::xfer( Xfer *xfer )
 		xfer->xferInt( &m_ambulancesBought );
 	if( version >= 24 )
 		xfer->xferInt( &m_startFortune );
+	if( version >= 25 )
+		xfer->xferUser( m_factoryBackedUpSince, sizeof( m_factoryBackedUpSince ) );
 
 	// the ladder rung and the role, which are rolled once and must come back the same way
 	if( version >= 3 )
