@@ -2714,8 +2714,10 @@ void ZoneBlock::blockCalculateZones(PathfindCell **map, PathfindLayer layers[], 
 	UnsignedInt minZone = map[bounds.lo.x][bounds.lo.y].getZone();
 	UnsignedInt maxZone = minZone;
 
-	for( j=bounds.lo.y; j<=bounds.hi.y; j++ )	{
-		for( i=bounds.lo.x; i<=bounds.hi.x; i++ )	{
+	// both walks go down the columns, as the cells lie in memory; a merge keeps the smaller id
+	// whichever pair comes first, so the tables are the same as a walk along the rows gave
+	for( i=bounds.lo.x; i<=bounds.hi.x; i++ )	{
+		for( j=bounds.lo.y; j<=bounds.hi.y; j++ )	{
 			PathfindCell *cell = &map[i][j];
 			zoneStorageType zone = cell->getZone();
 			if (minZone>zone) minZone=zone;
@@ -2737,8 +2739,8 @@ void ZoneBlock::blockCalculateZones(PathfindCell **map, PathfindLayer layers[], 
 		m_crusherZones[i] = i+m_firstZone;
 	}
 
-	for( j=bounds.lo.y; j<=bounds.hi.y; j++ )	{
-		for( i=bounds.lo.x; i<=bounds.hi.x; i++ )	{
+	for( i=bounds.lo.x; i<=bounds.hi.x; i++ )	{
+		for( j=bounds.lo.y; j<=bounds.hi.y; j++ )	{
 			if (i>bounds.lo.x && map[i][j].getZone()!=map[i-1][j].getZone()) {
 
 				if (waterGround(map[i][j], map[i-1][j])) {
@@ -3151,23 +3153,16 @@ void PathfindZoneManager::calculateZones( PathfindCell **map, PathfindLayer laye
 
 
 
-	// Now map the zones in the map back into the collapsed zones.
-	j=globalBounds.lo.y;
-  while( j<=globalBounds.hi.y )	
-  {
-    i=globalBounds.lo.x;
-		while( i<=globalBounds.hi.x )	
-    {
-      PathfindCell &cell = map[i][j];
-			cell.setZone(collapsedZones[cell.getZone()]);
-			
-      //if (cell.getZone()==0) 
-      //{
-			//	DEBUG_CRASH(("Zone not set cell %d, %d", i, j));
-			//}
-      ++i;
-		}
-    ++j;
+	// Now map the zones in the map back into the collapsed zones. Each cell is mapped on its own, so
+	// the walk goes down a column, the way the cells lie in memory: across a row every cell was a
+	// cache line of its own, and a building put down late in a match stalled a frame for 7-10ms on it.
+	i=globalBounds.lo.x;
+	while( i<=globalBounds.hi.x )
+	{
+		PathfindCell *column = map[i];
+		for( j=globalBounds.lo.y; j<=globalBounds.hi.y; ++j )
+			column[j].setZone(collapsedZones[column[j].getZone()]);
+		++i;
 	}
 
 //	for( j=globalBounds.lo.y; j<=globalBounds.hi.y; j++ )	{
@@ -3364,11 +3359,14 @@ void PathfindZoneManager::calculateZones( PathfindCell **map, PathfindLayer laye
 //		}
 //	}
   UnsignedInt maxZone = m_maxZone;
-	j=globalBounds.lo.y;
-  while( j <= globalBounds.hi.y )	
+	/* Down each column, as the cells lie in memory, rather than across the rows. Every pair this looks
+		 at is the same either way, and a merge keeps the smaller id of the two sets whichever comes
+		 first, so the flattened tables come out the same. */
+	i=globalBounds.lo.x;
+  while( i <= globalBounds.hi.x )
   {
-    i=globalBounds.lo.x;
-		while( i <= globalBounds.hi.x )	
+    j=globalBounds.lo.y;
+		while( j <= globalBounds.hi.y )
     {
       PathfindCell &r_thisCell = map[i][j];
 
@@ -3450,10 +3448,10 @@ void PathfindZoneManager::calculateZones( PathfindCell **map, PathfindLayer laye
 
 //			DEBUG_ASSERTCRASH(r_thisCell.getZone() != 0, ("Cleared the zone."));
 
-      ++i;
+      ++j;
 		}
 
-    ++j; 
+    ++i;
 	}
 
 
