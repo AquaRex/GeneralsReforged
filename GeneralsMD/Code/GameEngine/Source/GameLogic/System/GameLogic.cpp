@@ -124,6 +124,20 @@
 
 #include <rts/profile.h>
 
+/* A hint that a cache line is about to be read, as PM_PREFETCH in PartitionManager.cpp. It decides
+	 nothing, so the sleepy heap's walk and the order the modules run in cannot depend on it. */
+#if defined(__GNUC__) || defined(__clang__)
+	#define GL_PREFETCH(addr) __builtin_prefetch(addr)
+#elif defined(_M_X64) || defined(_M_IX86)
+	#include <xmmintrin.h>
+	#define GL_PREFETCH(addr) _mm_prefetch((const char *)(addr), _MM_HINT_T0)
+#elif defined(_M_ARM64)
+	#include <intrin.h>
+	#define GL_PREFETCH(addr) __prefetch(addr)
+#else
+	#define GL_PREFETCH(addr) ((void)0)
+#endif
+
 DECLARE_PERF_TIMER(SleepyMaintenance)
 
 #include "Common/UnitTimings.h" //Contains the DO_UNIT_TIMINGS define jba.		 
@@ -3187,6 +3201,15 @@ Int GameLogic::rebalanceChildSleepyUpdate(Int i)
 	Int child = ((i+1)<<1)-1;
 	while (child < sz)
 	{
+		/* The level below is read next, and which half of it depends on the comparison about to be made.
+			 Its four entries are one or two cache lines, so asking for both now has them in by then: a late
+			 heap holds a few thousand entries and each level of the walk was a miss waiting on the last. */
+		const Int grandchild = ((child+1)<<1)-1;
+		if (grandchild < sz)
+			GL_PREFETCH(&entries[grandchild]);
+		if (grandchild + 3 < sz)
+			GL_PREFETCH(&entries[grandchild + 3]);
+
 		// choose the higher-priority of the two children; we must be higher-pri than that.
 		if (child < sz-1)
 			child += (Int)isLowerPriority(entries[child], entries[child+1]);
@@ -4829,6 +4852,13 @@ void GameLogic::update( void )
 			{
 				break;
 			}
+
+			// unless this module sorts first again, one of the two below it is the next to run, and its
+			// first read is its own fields; the update in between is long enough to have the line in
+			if (m_sleepyUpdates.size() > 1)
+				GL_PREFETCH(m_sleepyUpdates[1].module);
+			if (m_sleepyUpdates.size() > 2)
+				GL_PREFETCH(m_sleepyUpdates[2].module);
 
 			UpdateSleepTime sleepLen = UPDATE_SLEEP_NONE;	// default, if it is disabled.
 
