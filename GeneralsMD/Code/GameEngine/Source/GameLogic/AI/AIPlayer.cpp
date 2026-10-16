@@ -7599,6 +7599,8 @@ void AIPlayer::defendHome( void )
 	* before a factory is turned over to it, what counts as an answer money for money, and what the bank
 	* keeps back for the team plan. */
 static const Int ANSWER_RATE = 10 * LOGICFRAMES_PER_SECOND;
+/** The last third of the player's slot, as ECONOMY_SLOT_STEP splits the economy's, but off this rate. */
+static const Int ANSWER_SLOT_OFFSET = 2 * ( ANSWER_RATE / ( 3 * MAX_PLAYER_COUNT ) );
 static const Real ANSWER_MIN_GAP = 1500.0f;
 static const Real ANSWER_SCORE = 0.6f;
 static const Int ANSWER_RESERVE = 1000;
@@ -7638,7 +7640,7 @@ static void creditWhereNeeded( const ThingTemplate *tmpl, const Player *owner, c
 void AIPlayer::answerArmy( void )
 {
 	if( !isSkirmishAI() || !m_baseCenterSet || !getSkillProfile()->m_answerArmy ||
-			(TheGameLogic->getFrame() + computeUpdatePhase( m_player->getPlayerIndex(), ANSWER_RATE ) + ANSWER_RATE - 2 * ECONOMY_SLOT_STEP) % ANSWER_RATE != 0 )
+			(TheGameLogic->getFrame() + computeUpdatePhase( m_player->getPlayerIndex(), ANSWER_RATE ) + ANSWER_RATE - ANSWER_SLOT_OFFSET) % ANSWER_RATE != 0 )
 		return;
 	if( isBaseUnderAttack() )
 		return;		// defendHome's
