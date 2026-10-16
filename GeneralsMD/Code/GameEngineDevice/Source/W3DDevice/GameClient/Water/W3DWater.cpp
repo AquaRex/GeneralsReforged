@@ -2107,7 +2107,10 @@ void WaterRenderObjClass::drawSea(RenderInfoClass & rinfo)
 			D3DXMatrixTranspose(&matWorldViewProj, &matWorldViewProj);
 			m_pDev->SetVertexShaderConstantF(CV_WORLDVIEWPROJ_0, (const float*)&matWorldViewProj, 4);	//pass transform matrix into shader
 
-			m_pDev->DrawIndexedPrimitive(D3DPT_TRIANGLESTRIP,0,0,m_numVertices,0,m_numIndices);
+			// Nobody sees a Direct3D 9 draw while Direct3D 11 presents; renderWaterMesh skips its own
+			// the same way, and this patch has no Direct3D 11 draw beside it.
+			if (!Direct3D11_Present_Is_Enabled())
+				m_pDev->DrawIndexedPrimitive(D3DPT_TRIANGLESTRIP,0,0,m_numVertices,0,m_numIndices);
 		}
 	}
 //	DX8Wrapper::Set_DX8_Render_State(D3DRS_FILLMODE,D3DFILL_SOLID);
@@ -2163,7 +2166,8 @@ void WaterRenderObjClass::drawSea(RenderInfoClass & rinfo)
 
 				DX8Wrapper::_Set_DX8_Transform(D3DTS_WORLD, *(Matrix4x4*)&matTemp);
 
-				m_pDev->DrawIndexedPrimitive(D3DPT_TRIANGLESTRIP,0,0,m_numVertices,0,m_numIndices);
+				if (!Direct3D11_Present_Is_Enabled())
+					m_pDev->DrawIndexedPrimitive(D3DPT_TRIANGLESTRIP,0,0,m_numVertices,0,m_numIndices);
 			}
 		}
 		W3DShaderManager::resetShader(W3DShaderManager::ST_SHROUD_TEXTURE);

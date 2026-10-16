@@ -541,6 +541,8 @@ W3DDisplay::~W3DDisplay()
 			twinBuffers, twinBytes / 1024,
 			texturesMirrored, texturesReused, texturesRefused,
 			pipelines, drawsMade, drawsRefused));
+		if( Direct3D11_Is_Active() )
+			DEBUG_LOG(("-dx11 constants: %s\n", Direct3D11_Constant_Path()));
 		unsigned programsShipped = 0;
 		unsigned programsHeld = 0;
 		Direct3D11_Program_Statistics( programsShipped, programsHeld );
@@ -1235,8 +1237,9 @@ void W3DDisplay::init( void )
 #endif
 	DEBUG_LOG(("W3DDisplay::init - present: %s\n", DX8Wrapper::Is_Flip_Present() ? "flip" : "discard"));
 	if (Direct3D11_Present_Is_Enabled())
-		DEBUG_LOG(("W3DDisplay::init - dx11 swap chain: %s\n",
-							 Direct3D11_Can_Tear() ? "flip, tearing allowed" : "blt, held to the refresh"));
+		DEBUG_LOG(("W3DDisplay::init - dx11 swap chain: %s%s\n",
+							 Direct3D11_Can_Tear() ? "flip, tearing allowed" : "blt, held to the refresh",
+							 Direct3D11_Has_Frame_Wait() ? ", the frame waits for room in its queue" : ""));
 	DEBUG_LOG(("W3DDisplay::init - adapter: %s\n",
 						 WW3D::Get_Render_Device_Name(WW3D::Get_Render_Device())));
 	{
@@ -2753,10 +2756,21 @@ AGAIN:
 					double textureMS = 0.0;
 					unsigned textures = 0;
 					unsigned depthCopies = 0;
-					Direct3D11_Take_Frame_Cost( pipelineMS, pipelines, textureMS, textures, depthCopies );
+					unsigned constantWrites = 0;
+					unsigned constantRenames = 0;
+					Direct3D11_Take_Frame_Cost( pipelineMS, pipelines, textureMS, textures, depthCopies,
+						constantWrites, constantRenames );
 					if( pipelineMS + textureMS > DX11_FRAME_COST_REPORT_MS )
-						DEBUG_LOG(("DX11 FRAME COST frame %d: %u pipelines built in %.1f ms, %u textures copied in %.1f ms, %u soft particle depth copies\n",
-							TheGameLogic->getFrame(), pipelines, pipelineMS, textures, textureMS, depthCopies));
+						DEBUG_LOG(("DX11 FRAME COST frame %d: %u pipelines built in %.1f ms, %u textures copied in %.1f ms, %u soft particle depth copies, %u constant writes, %u renames\n",
+							TheGameLogic->getFrame(), pipelines, pipelineMS, textures, textureMS, depthCopies,
+							constantWrites, constantRenames));
+
+					/* Once a second in a match, what the GPU's own clock says the frames cost and how
+						 long it sat idle between them: busy well under 100% beside a low frame rate is a
+						 frame held up on the CPU side, not by the card. */
+					const char *gpuReport = Direct3D11_Take_GPU_Report();
+					if( gpuReport && TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() )
+						DEBUG_LOG(("DX11 GPU frame %d: %s\n", TheGameLogic->getFrame(), gpuReport));
 
 					long presentResult = 0;
 					if( Direct3D11_Take_Present_Failure( presentResult ) )

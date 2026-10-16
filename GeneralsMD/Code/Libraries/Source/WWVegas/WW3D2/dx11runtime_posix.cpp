@@ -167,14 +167,20 @@ void Direct3D11_Program_Statistics(unsigned & shipped, unsigned & held)
 	held = 0;
 }
 void Direct3D11_Take_Frame_Cost(double & pipeline_milliseconds, unsigned & pipelines,
-	double & texture_milliseconds, unsigned & textures, unsigned & depth_copies)
+	double & texture_milliseconds, unsigned & textures, unsigned & depth_copies,
+	unsigned & constant_writes, unsigned & constant_renames)
 {
 	pipeline_milliseconds = 0.0;
 	pipelines = 0;
 	texture_milliseconds = 0.0;
 	textures = 0;
 	depth_copies = 0;
+	constant_writes = 0;
+	constant_renames = 0;
 }
+const char * Direct3D11_Take_GPU_Report() { return NULL; }
+bool Direct3D11_Has_Frame_Wait() { return false; }
+const char * Direct3D11_Constant_Path() { return ""; }
 void Direct3D11_Refusals(unsigned long long & no_buffer, unsigned long long & no_stage,
 	unsigned long long & no_layout, unsigned long long & no_program,
 	unsigned long long & no_object, unsigned long long & foreign_shader,
