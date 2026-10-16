@@ -1175,7 +1175,7 @@ LAN:NoMod
 END
 
 GUI:SaveFromOlderGame
-"This save was made by the original game or by an older version of Reforged, and cannot be loaded."
+"This save was made by the original game or by an older version of Reforged, and cannot be loaded. Its \"Mission Start\" saves still load and carry the campaign on from that mission's beginning, and every campaign mission can be picked from the campaign menu."
 END
 
 GUI:CampaignMission

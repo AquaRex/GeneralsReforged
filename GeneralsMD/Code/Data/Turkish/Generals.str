@@ -15590,7 +15590,7 @@ CONTROLBAR:Demo_ToolTipGLAScienceRebelAmbush
 END
 
 GUI:SaveFromOlderGame
-"Bu kayıt orijinal oyunla ya da Reforged'ın eski bir sürümüyle yapılmış, yüklenemez."
+"Bu kayıt orijinal oyunla ya da Reforged'ın eski bir sürümüyle yapılmış, yüklenemez. O sürümün \"Görev Başlangıcı\" kayıtları yine yüklenir ve kampanyayı o görevin başından sürdürür; her kampanya görevi kampanya menüsünden de seçilebilir."
 END
 
 GUI:CampaignMission

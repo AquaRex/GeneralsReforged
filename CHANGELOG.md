@@ -11,7 +11,7 @@ found and fixed â€” EA's own, not port damage.**
 ## Every campaign mission is open
 
 - Picking USA, GLA or China now opens a list of that campaign's missions, every one of them open. Pick a mission, then the difficulty, and it starts with its briefing and movie as it always did; win it and the campaign carries on to the next one. Every campaign mission starts at the same rank however you reach it, so starting at the fourth is the same game as playing through to it.
-- The "Mission Start" saves the campaign makes after each victory load again, from the original game and from every earlier version of Reforged. They hold only the campaign, the mission and the difficulty, none of which the 60-step battle changed. A game saved in the middle of a mission on an earlier version still does not load.
+- The "Mission Start" saves the campaign makes after each victory load again, from the original game and from every earlier version of Reforged. They hold only the campaign, the mission and the difficulty, none of which the 60-step battle changed. A game saved in the middle of a mission on an earlier version still does not load, and the message that refuses it now says which saves do.
 
 ## Health bars you can read at a glance
 
