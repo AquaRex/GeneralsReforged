@@ -719,7 +719,9 @@ public:
 
 	void setInitialDelay( UnsignedInt delay ) { m_delayLeft = delay; }
 
-	AsciiString getParticleTypeName( void ) { return m_particleTypeName; }	///< return the name of the particles
+	/// the name of the particles; a reference, as the renderer asks it of every system several times
+	/// a frame and a copy is an atomic increment and decrement each
+	const AsciiString &getParticleTypeName( void ) const { return m_particleTypeName; }
 	Bool isUsingDrawables( void ) { return (m_particleType == DRAWABLE) ? true : false; }
 	Bool isUsingStreak( void ) { return (m_particleType == STREAK) ? true : false; }
 	Bool isUsingSmudge( void ) { return (m_particleType == SMUDGE) ? true : false; }
