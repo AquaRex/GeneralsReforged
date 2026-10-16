@@ -311,6 +311,26 @@ public:
 	Real calcMinTurnRadius(BodyDamageType condition, Real* timeToTravelThatDist) const;
 
 	/**
+		A live fixed-wing aircraft flown by JetAIUpdate on a WINGS locomotor: Raptor, MiG, Aurora,
+		Stealth Fighter and every general's copy. It banks into its turns: the turn rate falls off
+		above its corner speed, so a fast jet turns wide, and the velocity follows the nose. The B-52,
+		the Spectre and the other scripted aircraft keep EA's flight.
+	*/
+	Bool isJet(const Object* obj) const;
+	/// the speed a jet turns tightest at, for the time a turn takes: half its top speed
+	Real getJetCornerSpeed(BodyDamageType condition) const;
+	/// a jet's turn rate at this speed, in radians a frame: TurnRate up to the corner speed, falling off as 1/speed above it
+	Real getJetMaxYawRate(BodyDamageType condition, Real speed) const;
+	/// the lateral acceleration a jet's wings pull at full rate above its corner speed
+	Real getJetPull(BodyDamageType condition) const;
+	/**
+		The circle a hard turn begun now would fly, for an aircraft on wings, and in entryDist how far
+		it goes straight before it is on that circle (a jet's roll into the bank). Other aircraft get
+		EA's estimate, a speed halfway down to MinSpeed at TurnRate, and no entry.
+	*/
+	Real calcTurnCircle(const Object* obj, Real* entryDist) const;
+
+	/**
 		A live aircraft on a hovering air locomotor: Comanche, Chinook, Helix and every general's copy.
 		Its locomotor steers the whole 2D velocity, so it flies sideways and backwards and the nose
 		is free to point elsewhere. Drones and parachutes hover too, but are not KINDOF_AIRCRAFT.
@@ -318,12 +338,15 @@ public:
 	Bool isHelicopter(const Object* obj) const;
 
 	/**
-		A tank, car or bike driving under its own power: treads, four wheels or a motorcycle, on an
-		object that is no aircraft taxiing, and not in an ULTRA_ACCURATE manoeuvre. Its speed eases
-		up and down, it brakes into bends and stops it can see coming, treads back up to a goal
-		close behind and wheels turn no tighter than their wheelbase allows.
+		A tank, car or bike driving under its own power: treads, four wheels or a motorcycle, not in
+		an ULTRA_ACCURATE manoeuvre; or a jet taxiing on four wheels, which is. A helicopter taxiing
+		on treads is not. Its speed eases up and down, it brakes into bends and stops it can see
+		coming, treads back up to a goal close behind and wheels turn no tighter than their wheelbase
+		allows.
 	*/
 	Bool isGroundVehicle(const Object* obj) const;
+	/// the tightest circle a ground vehicle on wheels drives at speed, from its length
+	Real calcWheelTurnRadius(const Object* obj) const;
 
 	/// this is handy for doing things like forcing helicopters to crash realistically: cut their lift.
 	inline void setMaxLift(Real lift) { m_maxLift = lift; }
@@ -408,6 +431,9 @@ protected:
 	Real getVehicleStopDecel(BodyDamageType condition) const;
 	void moveTowardsPositionThrust(Object* obj, PhysicsBehavior *physics, const Coord3D& goalPos, Real onPathDistToGoal, Real desiredSpeed);
 	void moveTowardsPositionWings(Object* obj, PhysicsBehavior *physics, const Coord3D& goalPos, Real onPathDistToGoal, Real desiredSpeed);
+	void moveTowardsPositionJet(Object* obj, PhysicsBehavior *physics, const Coord3D& goalPos, Real onPathDistToGoal, Real desiredSpeed);
+	void flyJet(Object* obj, PhysicsBehavior *physics, Real headingError, Real goalSpeed);
+	Real getJetBraking(BodyDamageType condition) const;
 
 	void maintainCurrentPositionThrust(Object* obj, PhysicsBehavior *physics);
 	void maintainCurrentPositionOther(Object* obj, PhysicsBehavior *physics);
@@ -495,7 +521,7 @@ private:
 	Real				m_angleOffset;
 	Real				m_offsetIncrement;
 	UnsignedInt m_donutTimer;				///< Frame time to keep units from doing the donut. jba.
-	Real				m_yawRate;		///< radians a frame a helicopter's or ground vehicle's nose is swinging, eased up and down
+	Real				m_yawRate;		///< radians a frame a helicopter's, jet's or ground vehicle's nose is swinging, eased up and down
 	Real				m_driveAccelX;	///< the 2D acceleration a helicopter is pulling, eased towards what it wants;
 	Real				m_driveAccelY;	///< a ground vehicle uses X alone, for its pull along the nose
 	Real				m_driveSpeed;		///< the speed along the nose a ground vehicle's last drive left it at

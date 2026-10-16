@@ -2509,6 +2509,72 @@ TEST(jet_runs_out_from_a_target_it_cannot_turn_onto)
 	CHECK( !AIAttackAim_needsRunOut( 60.0f,   60.0f, R, 0.7071068f, 0.0f ) );
 }
 
+/* JetAIUpdate.cpp: the glide down to a touchdown and the climb from a liftoff are one shape, a
+   straight slope that rounds out to level at the runway and stops at the approach height. */
+extern Real JetRunway_slopeHeight( Real dist, Real maxHeight, Real slope, Real roundDist );
+
+TEST(jet_glide_rounds_out_to_a_level_touchdown)
+{
+	const Real SLOPE = 0.176f;
+	const Real ROUND = 50.0f;
+
+	/* on and past the threshold it is on the runway */
+	CHECK_NEAR( JetRunway_slopeHeight( 0.0f,   50.0f, SLOPE, ROUND ), 0.0f, 1e-6f );
+	CHECK_NEAR( JetRunway_slopeHeight( -30.0f, 50.0f, SLOPE, ROUND ), 0.0f, 1e-6f );
+
+	/* the round-out meets the slope with the same height and the same steepness, so the sink rate
+	   eases off instead of stepping */
+	const Real atJoin = JetRunway_slopeHeight( ROUND, 50.0f, SLOPE, ROUND );
+	CHECK_NEAR( atJoin, SLOPE * ROUND * 0.5f, 1e-4f );
+	CHECK_NEAR( JetRunway_slopeHeight( ROUND + 10.0f, 50.0f, SLOPE, ROUND ) - atJoin, SLOPE * 10.0f, 1e-4f );
+	CHECK( JetRunway_slopeHeight( 5.0f, 50.0f, SLOPE, ROUND ) < SLOPE * 5.0f * 0.1f );
+
+	/* far out it holds the approach height */
+	CHECK_NEAR( JetRunway_slopeHeight( 2000.0f, 50.0f, SLOPE, ROUND ), 50.0f, 1e-6f );
+}
+
+/* JetAIUpdate.cpp: a taxi route's corners become arcs a jet on its wheels can drive round. */
+extern void JetTaxi_roundCorners( std::vector<Coord3D>& route, Real radius );
+
+TEST(jet_taxi_corner_becomes_an_arc)
+{
+	std::vector<Coord3D> route(3);
+	route[0].set( 0.0f, 0.0f, 0.0f );
+	route[1].set( 100.0f, 0.0f, 0.0f );
+	route[2].set( 100.0f, 100.0f, 0.0f );
+	JetTaxi_roundCorners( route, 20.0f );
+
+	/* the ends stay put, and everything between lies on the circle round (80, 20), from where it
+	   leaves the leg in to where it joins the leg out */
+	CHECK( route.size() > 3 );
+	CHECK_NEAR( route.front().x, 0.0f, 1e-4f );
+	CHECK_NEAR( route.back().y, 100.0f, 1e-4f );
+	for (size_t i = 1; i + 1 < route.size(); ++i)
+	{
+		Real dx = route[i].x - 80.0f;
+		Real dy = route[i].y - 20.0f;
+		CHECK_NEAR( sqrt(dx*dx + dy*dy), 20.0f, 0.01f );
+	}
+	CHECK_NEAR( route[1].x, 80.0f, 0.01f );
+	CHECK_NEAR( route[route.size() - 2].y, 20.0f, 0.01f );
+
+	/* a leg too short for the radius shrinks the arc to fit in under half of it */
+	std::vector<Coord3D> tight(3);
+	tight[0].set( 0.0f, 0.0f, 0.0f );
+	tight[1].set( 10.0f, 0.0f, 0.0f );
+	tight[2].set( 10.0f, 100.0f, 0.0f );
+	JetTaxi_roundCorners( tight, 20.0f );
+	CHECK_NEAR( tight[1].x, 5.5f, 0.01f );
+
+	/* a straight route is left alone */
+	std::vector<Coord3D> straight(3);
+	straight[0].set( 0.0f, 0.0f, 0.0f );
+	straight[1].set( 50.0f, 0.0f, 0.0f );
+	straight[2].set( 100.0f, 0.0f, 0.0f );
+	JetTaxi_roundCorners( straight, 20.0f );
+	CHECK_EQ( straight.size(), (size_t)3 );
+}
+
 /* AIStates.cpp: telling a firing pass from a failed approach when the attack move
    disengages.  A fight the unit spent rounds on was real however short; only one it
    never fired in is charged the re-acquire delay.  The ammunition count is the state

@@ -8,6 +8,16 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
+## Jets fly like jets
+
+- The Raptor, King Raptor, MiG, Aurora and Stealth Fighter turn the way a plane turns. The faster a jet flies, the slower it comes round, so at cruise it sweeps a wide arc and only a slow jet turns tight. It no longer slides sideways through a turn. A Raptor's half circle at cruise takes about 3.2 seconds, where it took about 1.7.
+- A jet banks into every turn and rolls through level when it swings from one turn into the opposite one, so you can read where it is going from its wings.
+- Attack runs take longer, and against a target that moves that is a real nerf. A jet cannot snap round onto a tank that drives out from under it, so it flies a wider loop to come back for another pass. In a test a Raptor's pass on a moving Overlord took about 14 seconds where it took about 4. That is the price of a plane that turns like one.
+- Takeoff has a runway in it. The jet rolls at full throttle, rotates its nose up, lifts its wheels off the tarmac and climbs out at a steady angle, where it used to hop off the end of the runway.
+- Landing has a circuit in it. The jet turns down in a descending curve onto a straight final, glides in, flares and touches down on the centreline, then rolls out and slows. It used to corkscrew down and stop dead.
+- On the ground a jet taxis on its wheels. It rounds the taxiway corners, rolls straight out of the landing into the taxi and turns into its parking spot in one smooth sweep.
+- Helicopters are untouched and fly as they did.
+
 ## A tank shell kills the man it hits
 
 - A cannon shell did 6 damage to a soldier. A Ranger has 180 health, so thirty shells that actually hit him left him standing, a full minute of fire from a Crusader, while the same shell does 60 to another tank. It now does that 60 to him as well. Three hits kill a Ranger. Two kill a Red Guard or a Rebel.

@@ -1458,7 +1458,7 @@ void Path::computePointOnPath(
 	Returns the goal position in goalPos.  This is intended for use with flying paths, that go
 	directly to the goal and don't consider obstacles.  jba.
  */
-Real Path::computeFlightDistToGoal( const Coord3D *pos, Coord3D& goalPos )
+Real Path::computeFlightDistToGoal( const Coord3D *pos, Coord3D& goalPos, Real nodeReachedDist )
 {
 	if (m_path == NULL)
 	{
@@ -1501,7 +1501,7 @@ Real Path::computeFlightDistToGoal( const Coord3D *pos, Coord3D& goalPos )
 
 		// Dot product is the posToGoal vector projected onto the path vector.
 		Real dotProduct = posToGoalVector.x*pathVector.x	+ posToGoalVector.y*pathVector.y;
-		if (dotProduct>=0) {
+		if (dotProduct>=nodeReachedDist) {
 			distance += dotProduct;
 			useNext = false;
 		}	else if (useNext) {
@@ -1512,6 +1512,46 @@ Real Path::computeFlightDistToGoal( const Coord3D *pos, Coord3D& goalPos )
 	}
 	return distance;
 
+}
+
+//-----------------------------------------------------------------------------------
+Real Path::computeFlightRouteLeft( const Coord3D *pos, Real *bendDist, Real *bendCos ) const
+{
+	*bendDist = 0.0f;
+	*bendCos = 1.0f;
+	const PathNode *curNode = m_cpopRecentStart ? m_cpopRecentStart : m_path;
+	if (curNode == NULL)
+		return 0.0f;
+	Coord2D dir;
+	Real length;
+	const PathNode *nextNode = curNode->getNextOptimized(&dir, &length);
+	if (nextNode == NULL)
+		return 0.0f;
+
+	Real left = (nextNode->getPosition()->x - pos->x) * dir.x + (nextNode->getPosition()->y - pos->y) * dir.y;
+	if (left < 0.0f)
+		left = 0.0f;
+	Real toNext = left;
+
+	/* A corner rounded into an arc is many small bends; the one braked for is the whole turn off this
+		 segment's heading within BEND_LOOK past the node steered for, so the speed comes down before the
+		 arc and stays down round it. */
+	const Real BEND_LOOK = 4.0f * PATHFIND_CELL_SIZE_F;
+	Coord2D outDir;
+	for (const PathNode *node = nextNode->getNextOptimized(&outDir, &length); node; node = node->getNextOptimized(&outDir, &length))
+	{
+		if (left - toNext < BEND_LOOK)
+		{
+			Real turnCos = dir.x * outDir.x + dir.y * outDir.y;
+			if (turnCos < *bendCos)
+			{
+				*bendCos = turnCos;
+				*bendDist = toNext;
+			}
+		}
+		left += length;
+	}
+	return left;
 }
 //-----------------------------------------------------------------------------------
 

@@ -3952,6 +3952,8 @@ Bool AIUpdateInterface::isValidLocomotorPosition(const Coord3D* pos) const
 	return TheAI->pathfinder()->validMovementPosition( getObject()->getCrusherLevel()>0, getObject()->getLayer(), m_locomotorSet, pos );
 }
 
+static const Real JET_TAXI_NODE_REACHED_DIST = 0.01f;	///< a taxiing jet this close short of a route node has passed it
+
 //-------------------------------------------------------------------------------------------------
 DECLARE_PERF_TIMER(doLocomotor)
 /**
@@ -4138,7 +4140,14 @@ UpdateSleepTime AIUpdateInterface::doLocomotor( void )
 						if (!isDoingGroundMovement())
 						{
 							// airborne locomotor.  Get the goal and distance direct to the goal, don't consider obstacles.
-							onPathDistToGoal = getPath()->computeFlightDistToGoal(getObject()->getPosition(), goalPos);
+							// A jet taxiing on its wheels passes a node it stands on, since its last-cell slide
+							// (Locomotor::moveTowardsPositionVehicle) puts it exactly there and it would sit there for
+							// good, and it plans its stop and its corners from what is left of the route. A tank
+							// falling off a bridge or out of a plane keeps EA's flight path.
+							Bool taxiingJet = getObject()->isKindOf(KINDOF_AIRCRAFT) && m_curLocomotor->isGroundVehicle(getObject());
+							onPathDistToGoal = getPath()->computeFlightDistToGoal(getObject()->getPosition(), goalPos, taxiingJet ? JET_TAXI_NODE_REACHED_DIST : 0.0f);
+							if (taxiingJet)
+								onPathDistToGoal = getPath()->computeFlightRouteLeft(getObject()->getPosition(), &bendDist, &bendCos);
 						} 
 						else 
 						{

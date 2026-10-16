@@ -194,6 +194,9 @@ public:
 	Real m_airPitch;						///< hover or wings pitch, roll and yaw from that frame, drawn until the next one
 	Real m_airRoll;
 	Real m_airYaw;
+	Real m_jetHeading;					///< a jet's heading on the retail frame wings last stepped on, for its turn rate
+	Real m_jetBank;							///< a jet's bank into its turn and its nose-up pitch, eased
+	Real m_jetPitch;
 	Real m_groundLeanStages[2][3];	///< a ground vehicle's pitch and roll lean, smoothed through three stages once a retail frame
 	UnsignedInt m_groundFrame;	///< the retail frame (logic frame / LOGICFRAMES_PER_RETAIL_FRAME) those were last stepped on
 	Real m_prevForwardSpeed;		///< a ground vehicle's forward speed on that frame

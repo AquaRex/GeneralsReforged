@@ -227,6 +227,9 @@ DrawableLocoInfo::DrawableLocoInfo()
 	m_airPitch = 0.0f;
 	m_airRoll = 0.0f;
 	m_airYaw = 0.0f;
+	m_jetHeading = 0.0f;
+	m_jetBank = 0.0f;
+	m_jetPitch = 0.0f;
 	for (Int i = 0; i < 3; ++i)
 		m_groundLeanStages[0][i] = m_groundLeanStages[1][i] = 0.0f;
 	m_groundFrame = 0;
@@ -1828,7 +1831,88 @@ void Drawable::calcPhysicsXformHoverOrWings( const Locomotor *locomotor, Physics
 		info.m_totalZ = 0.0f;
 		return;
 	}
+	UnsignedInt elapsed = now - m_locoInfo->m_airFrame;
 	m_locoInfo->m_airFrame = now;
+
+	/* A jet banks into its turn and pitches with its climb. The bank is the lateral acceleration of
+		 the turn, speed times turn rate, against the full pull of its wings (Locomotor::getJetPull):
+		 JET_MAX_BANK at the full pull and level flying straight. The logic eases the turn in and out,
+		 so the bank rolls with it, and through level when a turn reverses. The pitch is the climb
+		 angle, clamped, plus a few degrees of nose-up while it flies slow, the attitude it comes in to
+		 land with, fading out over the last few feet so the nose comes down after the wheels touch.
+		 Both are eased again here against single-frame jumps. The springs below are left holding
+		 the same attitude, so a jet that dies falls from where it was. */
+	if (locomotor->isJet(obj))
+	{
+		const Real JET_MAX_BANK = 1.1f;				// radians, about 63 degrees, at the full pull of the wings
+		const Real JET_MAX_CLIMB = 0.35f;			// radians, about 20 degrees, nose up or down
+		const Real JET_SLOW_NOSE_UP = 0.12f;	// radians, about 7 degrees, at MinSpeed and below, none from twice that
+		const Real JET_NOSE_UP_HEIGHT = 5.0f;	// the nose-up fades out below this height
+		const Real JET_EASE_FRAMES = 3.0f;		// retail frames
+		const UnsignedInt MAX_GAP = 4;				// retail frames; after a longer gap (taxiing, hidden) the turn rate is not known
+
+		BodyDamageType bdt = obj->getBodyModule()->getDamageState();
+		Real speed = sqrt(sqr(vel->x) + sqr(vel->y));	// per logic frame
+		Real heading = obj->getOrientation();
+		Real bank = 0.0f;
+		Real pull = locomotor->getJetPull(bdt);
+		if (elapsed <= MAX_GAP && pull > 0.0f)
+		{
+			Real turnRate = stdAngleDiff(heading, m_locoInfo->m_jetHeading) / (Real)(elapsed * LOGICFRAMES_PER_RETAIL_FRAME);
+			bank = JET_MAX_BANK * speed * turnRate / pull;
+			if (bank > JET_MAX_BANK)
+				bank = JET_MAX_BANK;
+			else if (bank < -JET_MAX_BANK)
+				bank = -JET_MAX_BANK;
+		}
+		m_locoInfo->m_jetHeading = heading;
+
+		Real pitch = 0.0f;	// nose up
+		if (speed > 0.01f || fabs(vel->z) > 0.01f)
+			pitch = atan2(vel->z, speed);
+		if (pitch > JET_MAX_CLIMB)
+			pitch = JET_MAX_CLIMB;
+		else if (pitch < -JET_MAX_CLIMB)
+			pitch = -JET_MAX_CLIMB;
+		Real height = obj->getHeightAboveTerrain();
+		if (obj->getStatusBits().test( OBJECT_STATUS_DECK_HEIGHT_OFFSET ))
+			height -= obj->getCarrierDeckHeight();
+		Real minSpeed = locomotor->getMinSpeed();
+		if (height > 0.0f && minSpeed > 0.0f)
+		{
+			Real slow = (2.0f * minSpeed - speed) / minSpeed;
+			if (slow > 1.0f)
+				slow = 1.0f;
+			if (slow > 0.0f)
+			{
+				Real fade = height / JET_NOSE_UP_HEIGHT;
+				if (fade > 1.0f)
+					fade = 1.0f;
+				pitch += JET_SLOW_NOSE_UP * slow * fade;
+			}
+		}
+
+		m_locoInfo->m_jetBank += (bank - m_locoInfo->m_jetBank) / JET_EASE_FRAMES;
+		m_locoInfo->m_jetPitch += (pitch - m_locoInfo->m_jetPitch) / JET_EASE_FRAMES;
+
+		info.m_totalRoll = m_locoInfo->m_jetBank;		// positive rolls the left wing down, into a turn to the left
+		info.m_totalPitch = -m_locoInfo->m_jetPitch;	// negative lifts the nose
+		info.m_totalYaw = 0.0f;
+		info.m_totalZ = 0.0f;
+
+		m_locoInfo->m_pitch = info.m_totalPitch;
+		m_locoInfo->m_roll = info.m_totalRoll;
+		m_locoInfo->m_pitchRate = 0.0f;
+		m_locoInfo->m_rollRate = 0.0f;
+		m_locoInfo->m_accelerationPitch = 0.0f;
+		m_locoInfo->m_accelerationPitchRate = 0.0f;
+		m_locoInfo->m_accelerationRoll = 0.0f;
+		m_locoInfo->m_accelerationRollRate = 0.0f;
+		m_locoInfo->m_airPitch = info.m_totalPitch;
+		m_locoInfo->m_airRoll = info.m_totalRoll;
+		m_locoInfo->m_airYaw = info.m_totalYaw;
+		return;
+	}
 
 	m_locoInfo->m_pitchRate += ((-PITCH_STIFFNESS * m_locoInfo->m_pitch) + (-PITCH_DAMPING * m_locoInfo->m_pitchRate));		// spring/damper
 	m_locoInfo->m_rollRate += ((-ROLL_STIFFNESS * m_locoInfo->m_roll) + (-ROLL_DAMPING * m_locoInfo->m_rollRate));		// spring/damper

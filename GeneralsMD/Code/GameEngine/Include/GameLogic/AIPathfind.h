@@ -250,8 +250,14 @@ public:
 			False if the path is empty or has a single node, in which case there is no direction. */
 	Bool closestPointAndDir( const Coord3D& pos, Coord3D *ptOut, Coord2D *dirOut ) const;
 
-	/// Given a flight path, compute the distance to goal (0 if we are past it) & return the goal pos.
-	Real computeFlightDistToGoal( const Coord3D *pos, Coord3D& goalPos );
+	/** Given a flight path, compute the distance to goal (0 if we are past it) & return the goal pos.
+			A node counts as passed once pos is less than nodeReachedDist short of it along its leg. */
+	Real computeFlightDistToGoal( const Coord3D *pos, Coord3D& goalPos, Real nodeReachedDist = 0.0f );
+	/** After computeFlightDistToGoal, the distance still to drive along the route, where that one sums
+			the reach to every node and so overstates it; and in bendDist and bendCos how far off the
+			node it steers for is and the cosine of the sharpest turn off the present heading in the few
+			cells after it, or 0 and 1 when that node is the last. */
+	Real computeFlightRouteLeft( const Coord3D *pos, Real *bendDist, Real *bendCos ) const;
 
 	/// Given a location, return closest location on path, and along-path dist to end as function result
 	void markOptimized(void) {m_isOptimized = true;}
