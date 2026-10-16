@@ -802,8 +802,9 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 
 			// A box with an army in it takes the army and leaves the dozers and trucks standing among
 			// it; a box of workers alone still takes the workers.  Drag-only, like the filters above,
-			// and not in Classic, which is the 2003 box.
-			if (!isPoint && !TheGlobalData->isClassicMouse())
+			// but in Classic too: Classic is what every player gets, and there a box round an army
+			// still came back with the dozer standing in it.
+			if (!isPoint)
 				prioritizeMilitaryBoxSelection(drawablesThatWillSelect, isSelectableMilitaryInBox);
 
 			SelectionInfo si;
