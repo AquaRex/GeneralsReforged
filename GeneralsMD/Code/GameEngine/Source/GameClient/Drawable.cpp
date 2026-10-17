@@ -537,7 +537,37 @@ Bool Drawable_disabledShowsBlueHealthBar( DisabledMaskType disabledFlags )
 //-------------------------------------------------------------------------------------------------
 Real Drawable::getEffectiveOpacity() const
 {
+	if( LogicThread::isInsideWindow() )
+		return m_lookForDraw.effectiveOpacity;
 	return Drawable_effectiveOpacity( m_explicitOpacity, m_effectiveStealthOpacity, m_objectForDraw.awaitingBuilder );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** LOGIC-THREAD.md phase 3, step 3b: see LookForDraw.  Outside the window, so every getter reads the
+	* drawable's own fields. */
+//-------------------------------------------------------------------------------------------------
+void Drawable::takeLookForDraw( void )
+{
+	LookForDraw &look = m_lookForDraw;
+	look.hidden = isDrawableEffectivelyHidden();
+	look.fullyObscured = m_drawableFullyObscuredByShroud;
+	look.drawsInMirror = getDrawsInMirror();
+	look.receivesDynamicLights = m_receivesDynamicLights;
+	look.stealthLook = m_stealthLook;
+	look.stealthDrawnLook = m_stealthDrawnLook;
+	look.stealthFade = m_stealthFade;
+	look.stealthSolid = getStealthSolid();
+	look.secondMaterialPassOpacity = m_secondMaterialPassOpacity;
+	look.effectiveOpacity = getEffectiveOpacity();
+	look.tintStatus = m_tintStatus;
+	const Vector3 *tint = getTintColor();
+	look.hasTintColor = tint != NULL;
+	if( tint )
+		look.tintColor = *tint;
+	const Vector3 *selection = getSelectionColor();
+	look.hasSelectionColor = selection != NULL;
+	if( selection )
+		look.selectionColor = *selection;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -622,6 +652,21 @@ Drawable::Drawable( const ThingTemplate *thingTemplate, DrawableStatus statusBit
 	m_objectForDraw.safeOcclusionFrame = 0;
 	m_objectForDraw.layer = LAYER_GROUND;
 	m_objectForDraw.layerHeight = 0.0f;
+	m_lookForDraw.hidden = FALSE;
+	m_lookForDraw.fullyObscured = FALSE;
+	m_lookForDraw.drawsInMirror = FALSE;
+	m_lookForDraw.receivesDynamicLights = TRUE;
+	m_lookForDraw.hasTintColor = FALSE;
+	m_lookForDraw.hasSelectionColor = FALSE;
+	m_lookForDraw.stealthLook = STEALTHLOOK_NONE;
+	m_lookForDraw.stealthDrawnLook = STEALTHLOOK_NONE;
+	m_lookForDraw.stealthFade = 0.0f;
+	m_lookForDraw.stealthSolid = 1.0f;
+	m_lookForDraw.secondMaterialPassOpacity = 0.0f;
+	m_lookForDraw.effectiveOpacity = 1.0f;
+	m_lookForDraw.tintStatus = 0;
+	m_lookForDraw.tintColor.Set( 0.0f, 0.0f, 0.0f );
+	m_lookForDraw.selectionColor.Set( 0.0f, 0.0f, 0.0f );
 
 	for (i = 0; i < NUM_DRAWABLE_MODULE_TYPES; ++i)
 		m_modules[i] = NULL;
@@ -1323,6 +1368,8 @@ void Drawable::onUnselected()
 //-------------------------------------------------------------------------------------------------
 const Vector3 * Drawable::getTintColor( void ) const
 {
+	if( LogicThread::isInsideWindow() )
+		return m_lookForDraw.hasTintColor ? &m_lookForDraw.tintColor : NULL;
 	if ( m_colorTintEnvelope )
 	{
 		if (m_colorTintEnvelope->isEffective())
@@ -1339,6 +1386,8 @@ const Vector3 * Drawable::getTintColor( void ) const
 //-------------------------------------------------------------------------------------------------
 const Vector3 * Drawable::getSelectionColor( void )	const
 {
+	if( LogicThread::isInsideWindow() )
+		return m_lookForDraw.hasSelectionColor ? &m_lookForDraw.selectionColor : NULL;
 	if (m_selectionFlashEnvelope)
 	{
 		if (m_selectionFlashEnvelope->isEffective())
@@ -5149,6 +5198,10 @@ DrawModule** Drawable::getDrawModules()
 { 
 	DrawModule** dm = (DrawModule**)getModuleList(MODULETYPE_DRAW);
 #ifdef DIRTY_CONDITION_FLAGS
+	// LOGIC-THREAD.md phase 3, step 3b: inside the overlap window the tick may be setting this drawable's
+	// conditions; W3DDisplay's takeReadsForRender flushed the client's at the sync point
+	if (LogicThread::isInsideWindow())
+		return dm;
 	if (m_isModelDirty)
 	{
 		if (TheGameLogic->isInGameLogicUpdate())
@@ -5165,6 +5218,8 @@ DrawModule const** Drawable::getDrawModules() const
 { 
 	DrawModule const** dm = (DrawModule const**)getModuleList(MODULETYPE_DRAW);
 #ifdef DIRTY_CONDITION_FLAGS
+	if (LogicThread::isInsideWindow())
+		return dm;
 	if (m_isModelDirty)
 	{
 		if (TheGameLogic->isInGameLogicUpdate())
@@ -6961,6 +7016,9 @@ void Drawable::loadPostProcess( void )
 #ifdef DIRTY_CONDITION_FLAGS
 /*static*/ void Drawable::friend_lockDirtyStuffForIteration()
 {
+	// the walk ran at the sync point, and the tick reads s_modelLockCount beside the render
+	if (LogicThread::isInsideWindow())
+		return;
 	if (s_modelLockCount == 0)
 	{
 		if (TheGameClient)	// WB has no GameClient!
@@ -6981,6 +7039,8 @@ void Drawable::loadPostProcess( void )
 #ifdef DIRTY_CONDITION_FLAGS
 /*static*/ void Drawable::friend_unlockDirtyStuffForIteration()
 {
+	if (LogicThread::isInsideWindow())
+		return;
 	if (s_modelLockCount > 0)
 		--s_modelLockCount;
 }

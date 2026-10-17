@@ -165,7 +165,7 @@ public:
 	UnsignedInt getFrame( void );										///< Returns the current simulation frame number
 	/** LOGIC-THREAD.md phase 3: the frame as the render's sync point found it, which getFrame answers the
 		* main thread with inside the overlap window, where the tick may be advancing m_frame beside it. */
-	void takeFrameForDraw( void ) { m_frameForDraw = m_frame; }
+	void takeFrameForDraw( void ) { m_frameForDraw = m_frame; m_pausedForDraw = m_gamePaused; }
 	UnsignedInt getFrameForClient( void ) const { return m_frameForClient; }	///< the frame the last tick ran, for the client's clock (LogicThread::runTick)
 	UnsignedInt getCRC( Int mode = CRC_CACHED, AsciiString deepCRCFileName = AsciiString::TheEmptyString );		///< Returns the CRC
 
@@ -367,6 +367,7 @@ private:
 	UnsignedInt m_frame;																		///< Simulation frame number
 	UnsignedInt m_frameForClient;														///< m_frame at the top of the last update that got past the intro movie
 	UnsignedInt m_frameForDraw = 0;													///< see takeFrameForDraw
+	Bool m_pausedForDraw = FALSE;														///< m_gamePaused, taken with m_frameForDraw for the same reason
 	
 	// CRC cache system -----------------------------------------------------------------------------
 	UnsignedInt	m_CRC;																			///< Cache of previous CRC value

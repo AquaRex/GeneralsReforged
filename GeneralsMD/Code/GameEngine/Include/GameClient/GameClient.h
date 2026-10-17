@@ -157,7 +157,11 @@ public:
 	virtual void selectDrawablesInGroup( Int group );									///< select all drawables belong to the specifies group
 	virtual void assignSelectedDrawablesToGroup( Int group );						///< assign all selected drawables to the specified group
 	//---------------------------------------------------------------------------------------
-	virtual UnsignedInt getFrame( void ) { return m_frame; }						///< Returns the current simulation frame number
+	virtual UnsignedInt getFrame( void ) { return LogicThread::isInsideWindow() ? m_frameForDraw : m_frame; }	///< Returns the current simulation frame number
+	/** LOGIC-THREAD.md phase 3, step 3b: the frame the render draws.  A tick handed over beside the render
+		* moves m_frame to its own frame first (LogicThread::runTick), and the window's clocks (tree sway,
+		* move hints, string caches) read the frame they read when the tick ran after the draw. */
+	void takeFrameForDraw( void ) { m_frameForDraw = m_frame; }
 
 	//---------------------------------------------------------------------------
 	virtual void setTeamColor( Int red, Int green, Int blue ) = 0;  ///< @todo superhack for demo, remove!!!
@@ -185,6 +189,7 @@ protected:
 
 	// @todo Should there be a separate GameClient frame counter?
 	UnsignedInt m_frame;																				///< Simulation frame number from server
+	UnsignedInt m_frameForDraw = 0;																///< see takeFrameForDraw
 
 	Drawable *m_drawableList;																		///< All of the drawables in the world
 //	DrawablePtrHash m_drawableHash;															///< Used for DrawableID lookups

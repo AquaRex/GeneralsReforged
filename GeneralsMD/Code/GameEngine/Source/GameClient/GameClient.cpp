@@ -982,6 +982,9 @@ void GameClient::update( void )
 			Int64 drawStart, drawEnd;
 			drawStart = Clock_Ticks();
 #endif
+			// LOGIC-THREAD.md phase 3, step 3b: at 1 and 2 the message stream and the pacer run here, so a
+			// due tick can go to the logic thread when the draw's sync point is done
+			LogicThread::prepareOverlap();
 			/* -directorrecord's panes: every pane past the first is drawn first, for the recording only
 				 and never presented, then the frame everybody sees.  W3D's clock stands still for every
 				 draw after the first on one client frame, so nothing animates twice. */

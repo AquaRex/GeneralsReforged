@@ -88,6 +88,7 @@ static void drawFramerateBar(void);
 #include "GameClient/Line2D.h"
 #include "GameClient/Mouse.h"
 #include "GameClient/ObserverCamera.h"
+#include "GameClient/CinemaDirector.h"
 #include "GameClient/GlobalLanguage.h"
 #include "GameClient/Water.h"
 
@@ -2308,10 +2309,23 @@ static Bool rendersThisPass( void )
 	 stealth fades and fields, the toppling trees, and the strings the last pass's overlays freed, now
 	 that nothing recorded draws them.  The scene's own reads of an object were taken by
 	 GameClient::update's drawable walk (Drawable::getObjectForDraw) and the radar's blips by its update. */
+extern void W3DControlBar_takeReadsForRender( void );
+
 static void takeReadsForRender( Bool renders )
 {
 	TheDisplay->freeDeferred();
 	TheGameLogic->takeFrameForDraw();
+	// step 3b: what the tick handed over at the window's opening writes beside the render, the client's
+	// clock, each drawable's look (after the views' update eased its fades) and the players the control
+	// bar's painters ask
+	TheGameClient->takeFrameForDraw();
+	for( Drawable *draw = TheGameClient->firstDrawable(); draw; draw = draw->getNextDrawable() )
+	{
+		// flushes the conditions the client set; inside the window the scene's dirty walk is a no-op
+		draw->getDrawModules();
+		draw->takeLookForDraw();
+	}
+	W3DControlBar_takeReadsForRender();
 	if( !renders || TheGlobalData->m_breakTheMovie || TheGlobalData->m_disableRender )
 		return;
 	for( View *view = TheDisplay->getFirstView(); view; view = TheDisplay->getNextView( view ) )
@@ -2604,9 +2618,24 @@ AGAIN:
 #ifdef DEBUG_LOGGING
 			tOverlapStart = Clock_Ticks();
 #endif
-			// a draw from inside a tick (the load screen the map start paints) is the tick's own
+			// a draw from inside a tick (the load screen the map start paints) is the tick's own.  The
+			// tick runs beside a render that reads logic only through the sync point's copies, which
+			// rules out the scripted camera's loop of renders, the debug overlays and displays that walk
+			// the objects live, -cinema's own interface, smooth motion's restore and the load screen.
 			if( !TheGameLogic->isInGameLogicUpdate() )
-				overlapWindow.open();
+			{
+				Bool mayOverlap = !loopForCameraMovement && rendersThisPass() && !TheSmoothMotionActive
+					&& m_debugDisplayCallback == NULL && !TheGlobalData->m_loadScreenRender
+					&& !TheGlobalData->m_showLanes && !CinemaDirector_hidesHud()
+					&& TheObserverCamera.getDrawnPaneCount() <= 1;
+#if defined(_DEBUG) || defined(_INTERNAL)
+				mayOverlap = mayOverlap && !TheGlobalData->m_debugAI && !TheGlobalData->m_debugCamera
+					&& !TheGlobalData->m_showAudioLocations;
+#else
+				mayOverlap = mayOverlap && !TheGlobalData->m_debugAI;
+#endif
+				overlapWindow.open( mayOverlap );
+			}
 
 			// R1: after the particles read the logic bones (Lorenzen's note above), before anything renders.
 			smoothMotionApply();
@@ -2867,6 +2896,10 @@ AGAIN:
 
 	// R1: the logic transforms back on every model, before picking (the message stream) and the logic.
 	smoothMotionRestore();
+
+	// LOGIC-THREAD.md phase 3, step 3b: the tick that ran beside the render hands the client its work here,
+	// after the restore, so the transforms it gives the models are the ones they keep
+	LogicThread::flushOverlap();
 
 #ifdef EXTENDED_STATS
 	if (DX8Wrapper::stats.m_disableOverhead) {

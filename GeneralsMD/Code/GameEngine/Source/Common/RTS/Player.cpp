@@ -3884,6 +3884,7 @@ void Player::enableRadar()
 //-------------------------------------------------------------------------------------------------
 Bool Player::hasRadar() const
 {
+	LOGIC_WINDOW_READ( WINDOW_PLAYER_STATE );
 	if( m_radarDisabled  && (m_disableProofRadarCount == 0) )
 		return FALSE;// Nope, no matter how many you have, if I say no, you don't have it
 
@@ -4650,6 +4651,7 @@ Bool Player::isPlayerDead(void) const
 // ------------------------------------------------------------------------------------------------
 Bool Player::isPlayerActive(void) const
 {
+	LOGIC_WINDOW_READ( WINDOW_PLAYER_STATE );
 	return !m_observer && !m_isPlayerDead;
 }
 

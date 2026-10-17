@@ -816,11 +816,13 @@ void W3DTerrainVisual::setRawMapHeight(const ICoord2D *gridPos, Int height)
 		Int x = gridPos->x+m_logicHeightMap->getBorderSizeInline();
 		Int y = gridPos->y+m_logicHeightMap->getBorderSizeInline();
  		//if (m_logicHeightMap->getHeight(x,y) != height) //ML changed to prevent scissoring with roads
- 		if (m_logicHeightMap->getHeight(x,y) > height) 
+ 		if (m_terrainRenderObject->getLogicRawHeight(x,y) > height)
 		{
-			// logic's own height, read back by getGroundHeight, so now; the drawn terrain after the tick
-			m_logicHeightMap->setRawHeight(x, y, height);
+			// logic's own height, read back by getGroundHeight, so now; the drawn map after the tick, which
+			// the render reads beside it (LOGIC-THREAD.md phase 3, LogicHeightMapData)
+			m_terrainRenderObject->setLogicRawHeight(x, y, height);
 			LogicThread::callAfterTick( [this, x, y, height]() {
+				m_logicHeightMap->setRawHeight(x, y, height);
 				/* This used to be staticLightingChanged(), which rebuilds and re-lights every drawn
 					 vertex on the map - 61 ms, measured, a visible stutter - because one cell moved.  EA
 					 had noticed: "OOH! this could benefit from the new Seismic update code".  It gets a
@@ -848,7 +850,7 @@ Int W3DTerrainVisual::getRawMapHeight(const ICoord2D *gridPos)
 		Int x = gridPos->x+m_logicHeightMap->getBorderSizeInline();
 		Int y = gridPos->y+m_logicHeightMap->getBorderSizeInline();
  		//if (m_logicHeightMap->getHeight(x,y) != height) //ML changed to prevent scissoring with roads
-    return m_logicHeightMap->getHeight(x,y) ;
+    return m_terrainRenderObject->getLogicRawHeight(x,y) ;
 	}
   return 0;
 

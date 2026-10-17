@@ -119,6 +119,8 @@ extern HeightMapRenderObjClass *TheHeightMap;
 
 static ShaderClass detailOpaqueShader(SC_DETAIL_BLEND);
 
+LogicHeightMapData BaseHeightMapRenderObjClass::s_logicHeights;
+
 //-----------------------------------------------------------------------------
 //         Global Functions & Data                                              
 //-----------------------------------------------------------------------------
@@ -931,25 +933,26 @@ Real BaseHeightMapRenderObjClass::getHeightMapHeight(Real x, Real y, Coord3D* no
 
   // M Lorenzen
 
-  // by doing it this way the compiler won't call getLogicHeightMap twice...
-  WorldHeightMap *logicHeightMap = TheTerrainVisual?TheTerrainVisual->getLogicHeightMap():m_map;
-	return TerrainHeightSampling::getHeightMapHeight(m_map, logicHeightMap, x, y, normal);
+  // LOGIC-THREAD.md phase 3, step 3b: logic's heights are their own copy now (LogicHeightMapData), the
+  // same bytes as the visual's logical map whenever no tick is running
+	WorldHeightMapData *logicHeights = logicHeightsOrNull();
+	return TerrainHeightSampling::getHeightMapHeight(logicHeights, logicHeights, x, y, normal);
 }
 
 //=============================================================================
-/** getHeightMapHeight for the render: the same sampling over the heights the last sync point left
-	(DrawHeightMapData), which a tick running beside the render does not write. */
+/** getHeightMapHeight for the render: the same sampling over the drawn map, which the tick does not
+	write (LogicHeightMapData). */
 //=============================================================================
 Real BaseHeightMapRenderObjClass::getDrawHeight(Real x, Real y) const
 {
-	return TerrainHeightSampling::getHeightMapHeight(&m_drawHeights, &m_drawHeights, x, y, NULL);
+	return TerrainHeightSampling::getHeightMapHeight(m_map, m_map, x, y, NULL);
 }
 
 //=============================================================================
 Bool BaseHeightMapRenderObjClass::isClearLineOfSight(const Coord3D& pos, const Coord3D& posOther) const
 {
-	WorldHeightMap *logicHeightMap = TheTerrainVisual?TheTerrainVisual->getLogicHeightMap():m_map;
-	return TerrainHeightSampling::isClearLineOfSight(m_map, logicHeightMap, getMaxHeight(), pos, posOther);
+	WorldHeightMapData *logicHeights = logicHeightsOrNull();
+	return TerrainHeightSampling::isClearLineOfSight(logicHeights, logicHeights, getMaxHeight(), pos, posOther);
 }
 
 //=============================================================================
@@ -959,8 +962,8 @@ Bool BaseHeightMapRenderObjClass::isClearLineOfSight(const Coord3D& pos, const C
 //=============================================================================
 Real BaseHeightMapRenderObjClass::getMaxCellHeight(Real x, Real y) const
 {
-	WorldHeightMap *logicHeightMap = TheTerrainVisual?TheTerrainVisual->getLogicHeightMap():m_map;
-	return TerrainHeightSampling::getMaxCellHeight(m_map, logicHeightMap, x, y);
+	WorldHeightMapData *logicHeights = logicHeightsOrNull();
+	return TerrainHeightSampling::getMaxCellHeight(logicHeights, logicHeights, x, y);
 }
 
 //=============================================================================
@@ -1498,8 +1501,10 @@ Int BaseHeightMapRenderObjClass::initHeightData(Int x, Int y, WorldHeightMap *pM
 {	
 
 	REF_PTR_SET(m_map, pMap);	//update our heightmap pointer in case it changed since last call.
-	if (pMap)
-		m_drawHeights.copyFrom(pMap);
+	// a device reset re-inits the same map from inside the overlap window, beside a tick that may be
+	// flattening cells the drawn map takes only after it
+	if (pMap && !LogicThread::isInsideWindow())
+		s_logicHeights.copyFrom(pMap);
 	m_staticDiffuseStale = true;
 	m_terrainContentVersion++;
 
@@ -2277,7 +2282,6 @@ void BaseHeightMapRenderObjClass::terrainHeightChanged( Int x, Int y )
 		 rebuilding only the cell that moved leaves a seam of stale shading around it. */
 	const Int PAD = 2;
 	m_terrainContentVersion++;
-	m_drawHeights.copyCell(m_map, x, y);
 	if (!m_hasDirtyRegion)
 	{
 		m_dirtyRegion.lo.x = x - PAD;

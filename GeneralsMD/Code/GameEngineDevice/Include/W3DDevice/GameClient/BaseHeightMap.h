@@ -42,6 +42,7 @@
 #include "Lib/BaseType.h"
 #include "GameLogic/TerrainHeightSampling.h"
 #include "Common/GameType.h"
+#include "Common/LogicThread.h"
 #include "WorldHeightMap.h"
 
 // The lights one terrain relight takes in, the rest dropped.  Only the vertex path reads it: the
@@ -62,13 +63,15 @@ class W3DPropBuffer;
 class W3DTreeDrawModuleData;
 class GeometryInfo;
 
-/** LOGIC-THREAD.md phase 3: the drawn map's heights as the last sync point left them.  The map the
-	* terrain draws is logic's own, and a structure flattening its footprint lowers it inside the tick;
-	* this copy takes a cell only when terrainHeightChanged tells the terrain, after the tick. */
-class DrawHeightMapData : public WorldHeightMapData
+/** LOGIC-THREAD.md phase 3, step 3b: logic's own copy of the map's heights.  A structure flattening its
+	* footprint lowers cells inside the tick (W3DTerrainVisual::setRawMapHeight), and the render reads the
+	* map beside the tick everywhere it builds, lights and shadows the ground.  So the tick writes this
+	* copy and every height logic asks for comes from it, and the map the terrain draws takes the cell
+	* after the tick, with terrainHeightChanged. */
+class LogicHeightMapData : public WorldHeightMapData
 {
 public:
-	~DrawHeightMapData( void ) { m_data = NULL; }	// m_heights owns them, not the base
+	~LogicHeightMapData( void ) { m_data = NULL; }	// m_heights owns them, not the base
 	void copyFrom( WorldHeightMapData *map )
 	{
 		m_width = map->getXExtent();
@@ -78,7 +81,6 @@ public:
 		m_heights.assign( map->getDataPtr(), map->getDataPtr() + m_dataSize );
 		m_data = m_heights.empty() ? NULL : &m_heights[ 0 ];
 	}
-	void copyCell( WorldHeightMapData *map, Int x, Int y ) { m_heights[ x + y * m_width ] = map->getDataPtr()[ x + y * m_width ]; }
 private:
 	std::vector< UnsignedByte > m_heights;
 };
@@ -243,8 +245,10 @@ public:
 	void setShoreLineDetail(void);	///<update shoreline tiles in case the feature was toggled by user.
 	Bool getMaximumVisibleBox(const FrustumClass &frustum,  AABoxClass *box, Bool ignoreMaxHeight);	///<3d extent of visible terrain.
 	Real getHeightMapHeight(Real x, Real y, Coord3D* normal) const;	///<return height and normal at given point
-	Real getDrawHeight(Real x, Real y) const;	///< getHeightMapHeight from the sync point's copy, for the render beside a tick
-	void heightsLoaded(void) { m_drawHeights.copyFrom(m_map); staticLightingChanged(); }	///< a save wrote every height at once
+	Real getDrawHeight(Real x, Real y) const;	///< getHeightMapHeight from the drawn map, for the render beside a tick
+	void heightsLoaded(void) { s_logicHeights.copyFrom(m_map); staticLightingChanged(); }	///< a save wrote every height at once
+	UnsignedByte getLogicRawHeight(Int x, Int y) { return s_logicHeights.getHeight(x, y); }	///< a cell of logic's heights (LogicHeightMapData)
+	void setLogicRawHeight(Int x, Int y, UnsignedByte height) { s_logicHeights.setRawHeight(x, y, height); }	///< the drawn map takes it with terrainHeightChanged
 	Bool isCliffCell(Real x, Real y);	///<return height and normal at given point
 	Real getMinHeight(void) const {return m_minHeight;}	///<return minimum height of entire terrain
 	Real getMaxHeight(void) const {return m_maxHeight;}	///<return maximum height of entire terrain
@@ -313,7 +317,20 @@ protected:
 	void drawScorches(void);		///< Draws the scorch mark polygons in m_vertexScorch.
 #endif
 	WorldHeightMap *m_map;
-	mutable DrawHeightMapData m_drawHeights;	///< getDrawHeight's, see DrawHeightMapData
+	/** Every height logic asks for, see LogicHeightMapData.  One for the map, not one a render object: the
+		* terrain LOD swaps TheTerrainRenderObject between this and the flat one, a choice each machine
+		* makes for itself, and logic has to read the same heights through either. */
+	static LogicHeightMapData s_logicHeights;
+	/** The heights a query reads: logic's copy, or the drawn map for a render inside the overlap window
+		* (the tree shadows, the decals), where the tick may be writing the copy. */
+	WorldHeightMapData *logicHeightsOrNull( void ) const
+	{
+		if( m_map == NULL )
+			return NULL;
+		if( LogicThread::isInsideWindow() )
+			return m_map;
+		return &s_logicHeights;
+	}
 	Bool m_useDepthFade;	///<fade terrain lighting under water
 	Bool m_updating;
 	Vector3 m_depthFade;	///<depth based fall off values for r,g,b

@@ -5455,7 +5455,7 @@ void GameLogic::sendObjectDestroyed( Object *obj )
 // ------------------------------------------------------------------------------------------------
 Bool GameLogic::isGamePaused( void )
 {
-	return m_gamePaused;
+	return LogicThread::isInsideWindow() ? m_pausedForDraw : m_gamePaused;
 }
 
 // ------------------------------------------------------------------------------------------------

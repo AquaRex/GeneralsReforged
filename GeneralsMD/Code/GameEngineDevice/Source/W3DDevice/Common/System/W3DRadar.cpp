@@ -1379,12 +1379,8 @@ void W3DRadar::setShroudLevel(Int shroudX, Int shroudY, CellShroudStatus setting
 //-------------------------------------------------------------------------------------------------
 void W3DRadar::draw( Int pixelX, Int pixelY, Int width, Int height )
 {
-
-	// if the local player does not have a radar then we can't draw anything
-	Player *player = ThePlayerList->getLocalPlayer();
-	if( !player->hasRadar() && !TheRadar->isRadarForced() )
-		return;
-
+	// W3DLeftHUDDraw, the one caller, asked whether the local player has a radar, from the sync point's
+	// copy inside the overlap window
 	//
 	// given a upper left corner at pixelX|Y and a width and height to draw into, figure out
 	// where we should start and end the image so that the final drawn image has the

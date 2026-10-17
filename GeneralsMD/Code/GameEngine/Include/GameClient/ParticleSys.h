@@ -857,6 +857,7 @@ protected:
 
 	DrawableID				m_attachedToDrawableID;					///< if non-zero, system is parented to this Drawable
 	ObjectID					m_attachedToObjectID;						///< if non-zero, system is parented to this Object
+	DrawableID				m_attachedObjectDrawableForDraw;	///< that Object's drawable at the last update, for getStealthFade inside the overlap window
 
 	Matrix3D					m_localTransform;								///< local orientation & position of system
 	Matrix3D					m_transform;										///< composite transform of parent Drawable and local

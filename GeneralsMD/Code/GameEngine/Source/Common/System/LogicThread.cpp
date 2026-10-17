@@ -27,6 +27,7 @@
 #include "Common/CriticalSection.h"
 #include "Common/EarlyCommandLine.h"
 #include "Common/GameAudio.h"
+#include "Common/GameEngine.h"
 #include "Common/MessageStream.h"
 #include "GameClient/ControlBar.h"
 #include "GameClient/Drawable.h"
@@ -92,8 +93,24 @@ namespace
 	const char *const WINDOW_NAMES[ LogicThread::WINDOW_COUNT ] =
 	{
 		"drawableobject", "findobject", "objectlist", "logicframe", "thing", "shroud", "partition",
-		"terrain", "player", "radarobject"
+		"terrain", "player", "radarobject", "drawablefield", "playerstate"
 	};
+
+	// step 3b, main thread only: the pass's first tick due and allowed beside the render (prepareOverlap),
+	// handed over (the window open), waited for (the window closed), flushed, and the times of the last one
+	Bool				s_overlapWanted = FALSE;
+	Bool				s_overlapRunning = FALSE;
+	Bool				s_overlapDone = FALSE;
+	Bool				s_overlapTaken = FALSE;
+	std::exception_ptr	s_overlapError;
+	LogicClock::time_point	s_overlapStart;
+	Real				s_overlapTickMS = 0.0f;
+	Real				s_overlapWaitMS = 0.0f;
+	Int					s_overlappedTicks = 0;
+	Real				s_overlapWaitTotalMS = 0.0f;
+	// the wait in tenths of a millisecond up to 50, the last bucket everything past it
+	const Int		WAIT_BUCKETS = 501;
+	Int					s_waitHistogram[ WAIT_BUCKETS ] = { 0 };
 
 	// -logicthread 2: 1 with a jitter on both sides of the handoff, so the races step 3 must not have
 	// meet more orders.  A generator per thread and of its own: nothing here may touch a game stream.
@@ -269,8 +286,63 @@ void LogicThread::noteWindow( WindowRead read )
 }
 
 //-------------------------------------------------------------------------------------------------
-void LogicThread::OverlapWindow::open( void )
+/* Step 3b: the pass's first tick to the logic thread, at the sync point's end.  Everything the render
+	 reads of logic was taken before this (takeReadsForRender), and the client block the tick reads is
+	 taken here, as runTick takes it. */
+static void startOverlap( void )
 {
+	if( tickNeedsMainThread() )
+		return;
+	captureClientBlock();
+	TheGameClient->setFrame( TheGameLogic->getFrame() );
+	jitter();
+	s_overlapStart = LogicClock::now();
+	{
+		std::lock_guard<std::mutex> lock( s_lock );
+		s_tickPending = TRUE;
+	}
+	s_wakeCv.notify_one();
+	s_overlapRunning = TRUE;
+}
+
+//-------------------------------------------------------------------------------------------------
+static void waitOverlap( void )
+{
+	const LogicClock::time_point t0 = LogicClock::now();
+	std::exception_ptr error;
+	Real tickMS;
+	{
+		std::unique_lock<std::mutex> lock( s_lock );
+		s_doneCv.wait( lock, []{ return s_tickDone; } );
+		s_tickDone = FALSE;
+		error = s_error;
+		s_error = NULL;
+		tickMS = s_tickMS;
+	}
+	const LogicClock::time_point t1 = LogicClock::now();
+	jitter();
+	// as runTick: the main thread's FPU as an inline tick leaves it
+	setFPMode();
+
+	s_overlapRunning = FALSE;
+	s_overlapDone = TRUE;
+	s_overlapError = error;
+	s_overlapTickMS = tickMS;
+	s_overlapWaitMS = elapsedMS( t0, t1 );
+	++s_overlappedTicks;
+	s_overlapWaitTotalMS += s_overlapWaitMS;
+	Int bucket = (Int)( s_overlapWaitMS * 10.0f );
+	if( bucket >= WAIT_BUCKETS )
+		bucket = WAIT_BUCKETS - 1;
+	++s_waitHistogram[ bucket ];
+}
+
+//-------------------------------------------------------------------------------------------------
+void LogicThread::OverlapWindow::open( Bool mayOverlap )
+{
+	if( mayOverlap && s_overlapWanted )
+		startOverlap();
+	s_overlapWanted = FALSE;
 	m_open = TRUE;
 	++s_windows;
 	g_windowOpen.store( 1, std::memory_order_relaxed );
@@ -283,6 +355,48 @@ void LogicThread::OverlapWindow::close( void )
 		return;
 	m_open = FALSE;
 	g_windowOpen.store( 0, std::memory_order_relaxed );
+	if( s_overlapRunning )
+		waitOverlap();
+}
+
+//-------------------------------------------------------------------------------------------------
+void LogicThread::prepareOverlap( void )
+{
+	s_overlapWanted = s_enabled && TheGameEngine->planOverlappedTick();
+}
+
+//-------------------------------------------------------------------------------------------------
+void LogicThread::flushOverlap( void )
+{
+	if( !s_overlapDone )
+		return;
+	s_overlapDone = FALSE;
+	s_overlapTaken = TRUE;
+	if( s_overlapError )
+	{
+		std::exception_ptr error = s_overlapError;
+		s_overlapError = NULL;
+		std::rethrow_exception( error );
+	}
+	flushAfterTick();
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool LogicThread::takeOverlappedTick( void )
+{
+	// a draw that left before its flush (none does today) still has the tick flushed before the engine goes on
+	flushOverlap();
+	const Bool taken = s_overlapTaken;
+	s_overlapTaken = FALSE;
+	s_overlapWanted = FALSE;
+	return taken;
+}
+
+//-------------------------------------------------------------------------------------------------
+void LogicThread::takeOverlapTimes( Real &tickMS, Real &waitMS )
+{
+	tickMS = s_overlapTickMS;
+	waitMS = s_overlapWaitMS;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -495,6 +609,22 @@ void LogicThread::report( void )
 		s_enabled ? "on" : "off", s_threadedTicks, s_inlineTicks,
 		s_threadedTicks ? s_handoffTotalMS / s_threadedTicks : 0.0f,
 		handoffPercentileMicros( 0.5f ) / 1000.0f, handoffPercentileMicros( 0.99f ) / 1000.0f, s_handoffMaxMS ));
+
+	// step 3b: the ticks that ran beside the render, and how long the render's end waited for them
+	{
+		Int waitP50 = 0, waitP99 = 0, seen = 0;
+		for( Int i = 0; i < WAIT_BUCKETS; ++i )
+		{
+			if( seen <= s_overlappedTicks / 2 && seen + s_waitHistogram[ i ] > s_overlappedTicks / 2 )
+				waitP50 = i;
+			if( seen <= (Int)( s_overlappedTicks * 0.99f ) && seen + s_waitHistogram[ i ] > (Int)( s_overlappedTicks * 0.99f ) )
+				waitP99 = i;
+			seen += s_waitHistogram[ i ];
+		}
+		DEBUG_LOG(( "HEADLESS LOGICTHREAD OVERLAP: %d ticks beside the render | wait %.2f/%.1f/%.1f ms mean/p50/p99\n",
+			s_overlappedTicks, s_overlappedTicks ? s_overlapWaitTotalMS / s_overlappedTicks : 0.0f,
+			waitP50 / 10.0f, waitP99 / 10.0f ));
+	}
 
 	char line[ 1024 ];
 	Int used = 0;

@@ -374,7 +374,7 @@ public:
 	
 	void setTintStatus( TintStatus statusBits ) { BitSet( m_tintStatus, statusBits ); };
 	void clearTintStatus( TintStatus statusBits ) { BitClear( m_tintStatus, statusBits ); };
-	Bool testTintStatus( TintStatus statusBits ) const { return BitTest( m_tintStatus, statusBits ); };
+	Bool testTintStatus( TintStatus statusBits ) const { return BitTest( LogicThread::isInsideWindow() ? m_lookForDraw.tintStatus : m_tintStatus, statusBits ); };
 	TintEnvelope *getColorTintEnvelope( void ) { return m_colorTintEnvelope; }
 	void setColorTintEnvelope( TintEnvelope &source ) { if (m_colorTintEnvelope) *m_colorTintEnvelope = source; }
 
@@ -395,7 +395,7 @@ public:
 	// note that this is not necessarily the 'get' reflection of setDrawableHidden, since drawables
 	// can spontaneously hide via stealth. (srj)
 	//
-	inline Bool isDrawableEffectivelyHidden() const { return m_hidden || m_hiddenByStealth; }
+	inline Bool isDrawableEffectivelyHidden() const { if( LogicThread::isInsideWindow() ) return m_lookForDraw.hidden; return m_hidden || m_hiddenByStealth; }
 
 	void setSelectable( Bool selectable );												///< Changes the drawables selectability	
 	Bool isSelectable( void ) const;
@@ -403,15 +403,17 @@ public:
 
 
 	void setStealthLook(StealthLookType look);
-	StealthLookType getStealthLook() const { return m_stealthLook; }
-	StealthLookType getStealthDrawnLook() const { return m_stealthDrawnLook; }
-	Real getStealthFade() const { return m_stealthFade; }
+	StealthLookType getStealthLook() const { return LogicThread::isInsideWindow() ? m_lookForDraw.stealthLook : m_stealthLook; }
+	StealthLookType getStealthDrawnLook() const { return LogicThread::isInsideWindow() ? m_lookForDraw.stealthDrawnLook : m_stealthDrawnLook; }
+	Real getStealthFade() const { return LogicThread::isInsideWindow() ? m_lookForDraw.stealthFade : m_stealthFade; }
 	// 1 is own paint with no bend, the stealth floor (about a half) is glass.  Cloak-in fade 0
 	// is solid.  The mix goes to that floor so the first frames still have travel while the
 	// pulse has not left 1.0; once faded, the 2003 breath owns it.  Decloak: fade 1 is the
 	// pulse, fade 0 is solid.  The shader keeps coverage: this is the mix, not alpha.
 	Real getStealthSolid() const
 	{
+		if( LogicThread::isInsideWindow() )
+			return m_lookForDraw.stealthSolid;
 		const Real breath = getEffectiveOpacity();
 		const Real fade = getStealthFade();
 		if( getStealthLook() == STEALTHLOOK_NONE )
@@ -472,7 +474,7 @@ public:
 	//---------------------------------------------------------------------------
 	void setDrawableStatus( DrawableStatus bit )  { BitSet( m_status, bit ); }
 	void clearDrawableStatus( DrawableStatus bit ) { BitClear( m_status, bit ); }
-	inline Bool testDrawableStatus( DrawableStatus bit ) const { return (m_status & bit) != 0; }
+	inline Bool testDrawableStatus( DrawableStatus bit ) const { LOGIC_WINDOW_READ( WINDOW_DRAWABLE_FIELD ); return (m_status & bit) != 0; }
 
 	void setShroudClearFrame( UnsignedInt frame )  { m_shroudClearFrame = frame; }
 	UnsignedInt getShroudClearFrame( void ) { return m_shroudClearFrame; }
@@ -510,12 +512,37 @@ public:
 	void allocateShadows(void); ///< create shadow resources if not already present. Used by Options screen.
 
 	void setFullyObscuredByShroud(Bool fullyObscured);
-	inline Bool getFullyObscuredByShroud(void) {return m_drawableFullyObscuredByShroud;}
+	inline Bool getFullyObscuredByShroud(void) { return LogicThread::isInsideWindow() ? m_lookForDraw.fullyObscured : m_drawableFullyObscuredByShroud; }
 
   // Put on ice until later... M Lorenzen
   //	inline UnsignedByte getFullyObscuredByShroudWithCheatSpy(void) {return (UnsignedByte)m_drawableFullyObscuredByShroud | 128;}//8 looks like a zero in most fonts
 
-	Bool getDrawsInMirror() const { return BitTest(m_status, DRAWABLE_STATUS_DRAWS_IN_MIRROR) || isKindOf(KINDOF_CAN_CAST_REFLECTIONS); }
+	Bool getDrawsInMirror() const { if( LogicThread::isInsideWindow() ) return m_lookForDraw.drawsInMirror; return BitTest(m_status, DRAWABLE_STATUS_DRAWS_IN_MIRROR) || isKindOf(KINDOF_CAN_CAST_REFLECTIONS); }
+
+	/** LOGIC-THREAD.md phase 3, step 3b.  How the drawable looks, as the render reads it: hidden, stealth,
+		* opacity, tint, the mirror and dynamic light flags.  The tick writes these fields beside the render
+		* (a unit stealthing, a container hiding its passengers, a flash on a hit) and Drawable::draw eases
+		* the fades at the sync point, so takeLookForDraw copies them there, after the views' update and
+		* before the overlap window, and every getter above answers the copy from inside the window. */
+	struct LookForDraw
+	{
+		Bool						hidden;
+		Bool						fullyObscured;
+		Bool						drawsInMirror;
+		Bool						receivesDynamicLights;
+		Bool						hasTintColor;
+		Bool						hasSelectionColor;
+		StealthLookType	stealthLook;
+		StealthLookType	stealthDrawnLook;
+		Real						stealthFade;
+		Real						stealthSolid;
+		Real						secondMaterialPassOpacity;
+		Real						effectiveOpacity;
+		UnsignedInt			tintStatus;
+		Vector3					tintColor;
+		Vector3					selectionColor;
+	};
+	void takeLookForDraw( void );
 
 	void colorFlash( const RGBColor *color, UnsignedInt decayFrames = DEF_DECAY_FRAMES, UnsignedInt attackFrames = 0, UnsignedInt sustainAtPeak = FALSE );  ///< flash a drawable in the color specified for a short time
 	void colorTint( const RGBColor *color );	 ///< tint this drawable the color specified
@@ -554,7 +581,7 @@ public:
 	void removeFromList(Drawable **pListHead);
 	void setID( DrawableID id );											///< set this drawable's unique ID
 
-	inline const ModelConditionFlags& getModelConditionFlags( void ) const { return m_conditionState; }
+	inline const ModelConditionFlags& getModelConditionFlags( void ) const { LOGIC_WINDOW_READ( WINDOW_DRAWABLE_FIELD ); return m_conditionState; }
 
 	//
 	// NOTE: avoid repeated calls to the set and clear for the condition state as they 
@@ -670,7 +697,7 @@ public:
 	void setEffectiveOpacity( Real pulseFactor, Real explicitOpacity = -1.0f );
 	
 	// this is for the add'l pass fx which operates completely independently of the stealth opacity effects. Draw() does the fading every frame.
-	inline Real getSecondMaterialPassOpacity() const { return m_secondMaterialPassOpacity; }		///< get alpha/opacity value used to render add'l  rendering pass.
+	inline Real getSecondMaterialPassOpacity() const { return LogicThread::isInsideWindow() ? m_lookForDraw.secondMaterialPassOpacity : m_secondMaterialPassOpacity; }		///< get alpha/opacity value used to render add'l  rendering pass.
 	void setSecondMaterialPassOpacity( Real op ) { m_secondMaterialPassOpacity = op; }; ///< set alpha/opacity value used to render add'l  rendering pass.
 	
 	// both of these assume that you are starting at one extreme 100% or 0% opacity and are trying to go to the other!! -- amit
@@ -701,7 +728,7 @@ public:
 	Bool hasIconInfo() const { return m_iconInfo != NULL; }
 
   
-  Bool getReceivesDynamicLights( void ) { return m_receivesDynamicLights; };
+  Bool getReceivesDynamicLights( void ) { return LogicThread::isInsideWindow() ? m_lookForDraw.receivesDynamicLights : m_receivesDynamicLights; };
   void setReceivesDynamicLights( Bool set ) { m_receivesDynamicLights = set; };
   
   //---------------------------------------------------------------------------------
@@ -828,6 +855,7 @@ private:
 	ObjectShroudStatus	m_shroudForDraw;				///< see setShroudForDraw
 	Bool					m_objectDeadForDraw;				///< see setShroudForDraw
 	ObjectForDraw	m_objectForDraw;						///< see setObjectForDraw
+	LookForDraw		m_lookForDraw;							///< see takeLookForDraw
 
 	DrawableLocoInfo*	m_locoInfo;	// lazily allocated
 

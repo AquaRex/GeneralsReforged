@@ -359,6 +359,7 @@ private:
 	AsciiString		m_cameraSlaveObjectBoneName;
 
 	Display::DrawCalls m_postDraw;	///< recordPostDraw's calls, replayed by draw
+	Drawable *m_cameraLockDrawForDraw = NULL;	///< the camera lock's drawable, looked up by recordPostDraw for a filtered draw
 };  // end class W3DView
 
 // EXTERNALS //////////////////////////////////////////////////////////////////////////////////////

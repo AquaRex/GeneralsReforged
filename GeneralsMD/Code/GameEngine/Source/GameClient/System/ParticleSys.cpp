@@ -1422,6 +1422,7 @@ ParticleSystem::ParticleSystem( const ParticleSystemTemplate *sysTemplate,
 
 	m_attachedToDrawableID = INVALID_DRAWABLE_ID;
 	m_attachedToObjectID = INVALID_ID;
+	m_attachedObjectDrawableForDraw = INVALID_DRAWABLE_ID;
 
 	m_isLocalIdentity = true;
 	m_localTransform.Make_Identity();
@@ -2350,6 +2351,7 @@ Bool ParticleSystem::updateEmission( Int localPlayerIndex, Bool *keepSystem )
 				isShrouded = (objectAttachedTo->getShroudedStatus(localPlayerIndex) >= OBJECTSHROUD_FOGGED);
  
       const Drawable * draw = objectAttachedTo->getDrawable();
+			m_attachedObjectDrawableForDraw = draw ? draw->getID() : INVALID_DRAWABLE_ID;
       if ( draw )
   			parentXfrm = draw->getTransformMatrix();
       else
@@ -2762,6 +2764,8 @@ Real ParticleSystem::getStealthFade( void ) const
 	const Drawable *draw = NULL;
 	if (sys->m_attachedToDrawableID != INVALID_DRAWABLE_ID)
 		draw = TheGameClient->findDrawableByID( sys->m_attachedToDrawableID );
+	else if (LogicThread::isInsideWindow())
+		draw = TheGameClient->findDrawableByID( sys->m_attachedObjectDrawableForDraw );
 	else if (sys->m_attachedToObjectID != INVALID_ID)
 	{
 		// gone since the last particle update, which then destroys the system

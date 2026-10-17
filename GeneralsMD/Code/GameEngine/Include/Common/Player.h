@@ -55,6 +55,7 @@
 #include "Common/GameType.h"
 #include "Common/Handicap.h"
 #include "Common/KindOf.h"
+#include "Common/LogicThread.h"
 #include "Common/MissionStats.h"
 #include "Common/Money.h"
 #include "Common/Science.h"
@@ -401,8 +402,8 @@ public:
 
 	UnsignedInt getSupplyBoxValue();///< Many things can affect the alue of a crate, but at heart it is a GlobalData ratio.
 
-	inline Energy *getEnergy() { return &m_energy; }
-	inline const Energy *getEnergy() const { return &m_energy; }
+	inline Energy *getEnergy() { LOGIC_WINDOW_READ( WINDOW_PLAYER_STATE ); return &m_energy; }
+	inline const Energy *getEnergy() const { LOGIC_WINDOW_READ( WINDOW_PLAYER_STATE ); return &m_energy; }
 
 	// adds a power bonus to this player because of energy upgrade at his power plants
 	inline void addPowerBonus(Object *obj) { m_energy.addPowerBonus(obj); }
@@ -883,6 +884,7 @@ public:
 	/// divide by that difference.
 	Int getRankProgressPercent() const
 	{
+		LOGIC_WINDOW_READ( WINDOW_PLAYER_STATE );
 		const Int span = m_levelUp - m_levelDown;
 		if( span <= 0 )
 			return 100;

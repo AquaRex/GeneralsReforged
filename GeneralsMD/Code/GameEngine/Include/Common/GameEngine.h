@@ -158,7 +158,24 @@ public:
 	virtual Bool isActive(void) {return m_isActive;}	///< returns whether app has OS focus.
 	virtual void setIsActive(Bool isActive) { m_isActive = isActive; };
 
+	/** LOGIC-THREAD.md phase 3, step 3b.  Called by GameClient::update in front of the draw at
+		* -logicthread 1 and 2: in a single-player game it runs this pass's message stream and asks the
+		* pacer here, and answers whether this pass's first tick is due and may run beside the render. */
+	Bool planOverlappedTick( void );
+
+	/** What the pacer decided for one pass, see planLogicPass. */
+	struct LogicPassPlan
+	{
+		Bool fastMode;
+		Bool mayRun;
+		Bool due;
+		Bool mayCatchUp;
+		Bool networkPaced;
+	};
+
 protected:
+
+	void planLogicPass( LogicPassPlan &plan );	///< the pacer: whether logic frames are due this pass, asked once a pass
 
 	virtual FileSystem *createFileSystem( void );								///< Factory for FileSystem classes
 	virtual LocalFileSystem *createLocalFileSystem( void ) = 0;	///< Factory for LocalFileSystem classes

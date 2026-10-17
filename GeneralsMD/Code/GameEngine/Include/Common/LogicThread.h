@@ -110,6 +110,8 @@ namespace LogicThread
 		WINDOW_TERRAIN,					///< TerrainLogic's heights and water
 		WINDOW_PLAYER,					///< PlayerList::getNthPlayer
 		WINDOW_RADAR_OBJECT,		///< RadarObject::friend_getObject, the radar's list of Objects
+		WINDOW_DRAWABLE_FIELD,	///< a drawable's model condition or status bits, which the tick sets beside the render (step 3b); the look is LookForDraw's
+		WINDOW_PLAYER_STATE,		///< a player's energy, radar, rank or defeat, which the tick changes (step 3b)
 		WINDOW_COUNT
 	};
 
@@ -129,17 +131,34 @@ namespace LogicThread
 			noteWindow( read );
 	}
 
-	/** The window's span on the main thread, closed when it goes out of scope (a continue included). */
+	/** The window's span on the main thread, closed when it goes out of scope (a continue included).
+		* Step 3b: at 1 and 2, a window opened with mayOverlap on a pass prepareOverlap found a tick due
+		* for hands that tick to the logic thread before it marks itself open, and close waits for it. */
 	class OverlapWindow
 	{
 	public:
 		OverlapWindow( void ) : m_open( FALSE ) {}
 		~OverlapWindow( void ) { close(); }
-		void open( void );
+		void open( Bool mayOverlap );
 		void close( void );
 	private:
 		Bool m_open;
 	};
+
+	/** LOGIC-THREAD.md phase 3, step 3b, the overlap.  GameClient::update calls this in front of the
+		* draw: at 1 and 2 it asks GameEngine::planOverlappedTick, which runs the message stream and the
+		* pacer there in a single-player match, whether the pass's first tick is due. */
+	void prepareOverlap( void );
+
+	/** W3DDisplay::draw, after the render's own restore (smooth motion): the tick that ran beside the
+		* render is flushed here, as runTick flushes one, and an exception it threw is thrown again. */
+	void flushOverlap( void );
+
+	/** GameEngine::update: TRUE once if this pass's first tick ran beside the render. */
+	Bool takeOverlappedTick( void );
+
+	/** The last overlapped tick's own length on the logic thread, and how long the main thread waited for it. */
+	void takeOverlapTimes( Real &tickMS, Real &waitMS );
 
 	/** Read -logicthread and start the thread if it asks for one.  Called once, from GameEngine::init. */
 	void init( void );

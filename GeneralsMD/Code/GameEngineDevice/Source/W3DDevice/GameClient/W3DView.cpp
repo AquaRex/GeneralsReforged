@@ -2331,6 +2331,10 @@ static Real viewElapsedMS( const Int64 &from, const Int64 &to )
 //-------------------------------------------------------------------------------------------------
 void W3DView::recordPostDraw( void )
 {
+	// a view filter draws the camera's locked object on its own, over the filtered scene (draw)
+	const Object *cameraLockObj = getCameraLock() != INVALID_ID ? TheGameLogic->findObjectByID( getCameraLock() ) : NULL;
+	m_cameraLockDrawForDraw = cameraLockObj ? cameraLockObj->getDrawable() : NULL;
+
 	Region3D axisAlignedRegion;
 	getAxisAlignedViewRegion(axisAlignedRegion);
 
@@ -2349,6 +2353,20 @@ void W3DView::recordPostDraw( void )
 #endif
 }
 
+/* LOGIC-THREAD.md phase 3, step 3b: the locked drawable is left out of a filtered scene and drawn alone
+	 over it by hiding its render objects.  It used to go through Drawable::setDrawableHidden, which writes
+	 a field the tick writes beside the render and deselected the unit for the frame; shown again, the
+	 render objects take the drawable's own look. */
+static void hideLockedDrawable( Drawable *draw, Bool hide )
+{
+	for( DrawModule **dm = draw->getDrawModulesNonDirty(); *dm; ++dm )
+	{
+		ObjectDrawInterface *di = (*dm)->getObjectDrawInterface();
+		if( di )
+			di->setHidden( hide );
+	}
+}
+
 void W3DView::draw( void )
 {
 	USE_PERF_TIMER(W3DView_drawView)
@@ -2363,15 +2381,8 @@ void W3DView::draw( void )
 	{	
 		// Most likely will redirect rendering to a texture.
 		preRenderResult=W3DShaderManager::filterPreRender(m_viewFilter, skipRender, customScenePassMode);
-		if (!skipRender && getCameraLock()) 
-		{
-			Object* cameraLockObj = TheGameLogic->findObjectByID(getCameraLock());
-			if (cameraLockObj) 
-			{
-				Drawable *drawable = cameraLockObj->getDrawable();
-				drawable->setDrawableHidden(true);
-			}
-		}
+		if (!skipRender && m_cameraLockDrawForDraw)
+			hideLockedDrawable( m_cameraLockDrawForDraw, TRUE );
 	}
 
 	if (!skipRender) 
@@ -2412,13 +2423,11 @@ void W3DView::draw( void )
 									 (Int)m_viewFilter, (Int)m_viewFilterMode));
 			}
 		}
-		if (!skipRender && getCameraLock()) 
+		if (!skipRender && m_cameraLockDrawForDraw)
 		{
-			Object* cameraLockObj = TheGameLogic->findObjectByID(getCameraLock());
-			if (cameraLockObj) 
 			{
-				Drawable *drawable = cameraLockObj->getDrawable();
-				drawable->setDrawableHidden(false);
+				Drawable *drawable = m_cameraLockDrawForDraw;
+				hideLockedDrawable( drawable, drawable->isDrawableEffectivelyHidden() );
 				RenderInfoClass rinfo(*m_3DCamera);
 				// Apply the camera and viewport (including depth range)
 				m_3DCamera->Apply();
