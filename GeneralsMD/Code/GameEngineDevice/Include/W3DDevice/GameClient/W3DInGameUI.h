@@ -70,6 +70,7 @@ public:
 	//-----------------------------------------------------------------------------------------------
 
 	virtual void draw( void ); ///< Render the in-game user interface
+	virtual void recordDraw( void ); ///< what draw asks of logic, run at the sync point (LOGIC-THREAD.md phase 3)
 
 protected:
 
@@ -92,6 +93,11 @@ protected:
 	void drawMoveHints( View *view );
 	RenderObjClass *m_moveHintRenderObj[ MAX_MOVE_HINTS ];
 	HAnimClass		 *m_moveHintAnim[ MAX_MOVE_HINTS ];
+
+	// recordDraw's lists, replayed by draw
+	Display::DrawCalls m_overWorldDraw;		///< preDraw to the guard markers
+	Display::DrawCalls m_postDrawCalls;		///< postDraw
+	Display::DrawCalls m_hudOverlayDraw;	///< drawHudOverlay
 
 };  // end class W3DInGameUI
 

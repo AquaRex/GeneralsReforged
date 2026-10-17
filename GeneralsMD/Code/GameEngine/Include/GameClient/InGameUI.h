@@ -1004,6 +1004,7 @@ public:  // ********************************************************************
 
 	virtual void preDraw( void );														///< Logic which needs to occur before the UI renders
 	virtual void draw( void ) = 0;													///< Render the in-game user interface
+	virtual void recordDraw( void ) { }											///< what draw asks of logic, at the sync point (W3DInGameUI)
 	virtual void postDraw( void );													///< Logic which needs to occur after the UI renders
 	/// -directorrecord's broadcast over the director's picture: a score bar along the top with every
 	/// player's name, side, cash and army and the match clock, the armies' tug of war under it, and a

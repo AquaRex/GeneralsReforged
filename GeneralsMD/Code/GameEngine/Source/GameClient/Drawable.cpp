@@ -532,15 +532,12 @@ Bool Drawable_disabledShowsBlueHealthBar( DisabledMaskType disabledFlags )
 /** The silhouette is the finished building, not a foundation: the construction model conditions are
 	* left alone until the builder arrives, so what stands on the map is the shape that was under the
 	* cursor.  A drawable with no object behind it is the placement preview itself, which carries the
-	* same opacity explicitly. */
+	* same opacity explicitly.  The render asks this, so the object's half is the sync point's
+	* (setObjectForDraw). */
 //-------------------------------------------------------------------------------------------------
 Real Drawable::getEffectiveOpacity() const
 {
-	const Object *obj = getObject();
-	Bool awaitingBuilder = obj && Object_isAwaitingBuilder( obj->testStatus( OBJECT_STATUS_UNDER_CONSTRUCTION ),
-																													 obj->getConstructionPercent() );
-
-	return Drawable_effectiveOpacity( m_explicitOpacity, m_effectiveStealthOpacity, awaitingBuilder );
+	return Drawable_effectiveOpacity( m_explicitOpacity, m_effectiveStealthOpacity, m_objectForDraw.awaitingBuilder );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -616,6 +613,15 @@ Drawable::Drawable( const ThingTemplate *thingTemplate, DrawableStatus statusBit
 	m_shroudClearFrame = 0;
 	m_shroudForDraw = OBJECTSHROUD_CLEAR;
 	m_objectDeadForDraw = FALSE;
+	m_objectForDraw.hasObject = FALSE;
+	m_objectForDraw.awaitingBuilder = FALSE;
+	m_objectForDraw.empDisabled = FALSE;
+	m_objectForDraw.outage = FALSE;
+	m_objectForDraw.playerIndex = 0;
+	m_objectForDraw.playerColor = 0;
+	m_objectForDraw.safeOcclusionFrame = 0;
+	m_objectForDraw.layer = LAYER_GROUND;
+	m_objectForDraw.layerHeight = 0.0f;
 
 	for (i = 0; i < NUM_DRAWABLE_MODULE_TYPES; ++i)
 		m_modules[i] = NULL;

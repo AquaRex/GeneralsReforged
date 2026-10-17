@@ -103,7 +103,7 @@ namespace LogicThread
 		WINDOW_DRAWABLE_OBJECT,	///< Drawable::getObject: the render's way into an Object
 		WINDOW_FIND_OBJECT,			///< GameLogic::findObjectByID
 		WINDOW_OBJECT_LIST,			///< GameLogic::getFirstObject, a walk of logic's object list
-		WINDOW_LOGIC_FRAME,			///< GameLogic::getFrame, which the tick advances
+		WINDOW_LOGIC_FRAME,			///< GameLogic::getFrame, which the tick advances; inside the window it answers from takeFrameForDraw's copy and counts nothing
 		WINDOW_THING,						///< Thing::getPosition and getTransformMatrix: an Object's, or a Drawable's the tick writes at once
 		WINDOW_SHROUD,					///< PartitionData::getShroudedStatus, a cache it fills
 		WINDOW_PARTITION,				///< PartitionManager's cell shroud reads
@@ -117,9 +117,15 @@ namespace LogicThread
 	extern std::atomic<Int> g_windowOpen;
 	void noteWindow( WindowRead read );
 
+	/** TRUE on the main thread inside the window, where a read has to come from a copy. */
+	inline Bool isInsideWindow( void )
+	{
+		return g_windowOpen.load( std::memory_order_relaxed ) && !t_isLogicThread;
+	}
+
 	inline void windowRead( WindowRead read )
 	{
-		if( g_windowOpen.load( std::memory_order_relaxed ) && !t_isLogicThread )
+		if( isInsideWindow() )
 			noteWindow( read );
 	}
 

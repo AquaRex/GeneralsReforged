@@ -1561,7 +1561,8 @@ void WaterRenderObjClass::updateRenderTargetTextures(CameraClass *cam)
 			continue;
 
 		Coord3D center;
-		pTrig->getCenterPoint(&center);
+		pTrig->getCenterXY(&center);
+		center.z = TheTerrainRenderObject->getDrawHeight(center.x, center.y);
 		if (cam->Cull_Sphere(SphereClass(Vector3(center.x, center.y, center.z), pTrig->getRadius())))
 			continue;
 

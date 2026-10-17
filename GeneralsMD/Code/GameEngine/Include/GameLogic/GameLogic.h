@@ -163,6 +163,9 @@ public:
 	Bool isInGameLogicUpdate( void ) const { return s_isInUpdate; }
 	Bool isNewGamePending( void ) const { return m_startNewGame; }	///< the next update starts a map (LogicThread keeps that tick on the main thread)
 	UnsignedInt getFrame( void );										///< Returns the current simulation frame number
+	/** LOGIC-THREAD.md phase 3: the frame as the render's sync point found it, which getFrame answers the
+		* main thread with inside the overlap window, where the tick may be advancing m_frame beside it. */
+	void takeFrameForDraw( void ) { m_frameForDraw = m_frame; }
 	UnsignedInt getFrameForClient( void ) const { return m_frameForClient; }	///< the frame the last tick ran, for the client's clock (LogicThread::runTick)
 	UnsignedInt getCRC( Int mode = CRC_CACHED, AsciiString deepCRCFileName = AsciiString::TheEmptyString );		///< Returns the CRC
 
@@ -363,6 +366,7 @@ private:
 	Real m_width, m_height;																	///< Dimensions of the world
 	UnsignedInt m_frame;																		///< Simulation frame number
 	UnsignedInt m_frameForClient;														///< m_frame at the top of the last update that got past the intro movie
+	UnsignedInt m_frameForDraw = 0;													///< see takeFrameForDraw
 	
 	// CRC cache system -----------------------------------------------------------------------------
 	UnsignedInt	m_CRC;																			///< Cache of previous CRC value
@@ -494,7 +498,7 @@ inline void GameLogic::setWidth( Real width ) { m_width = width; }
 inline Real GameLogic::getWidth( void ) { return m_width; }
 inline void GameLogic::setHeight( Real height ) { m_height = height; }
 inline Real GameLogic::getHeight( void ) { return m_height; }
-inline UnsignedInt GameLogic::getFrame( void ) { LOGIC_WINDOW_READ( WINDOW_LOGIC_FRAME ); return m_frame; }
+inline UnsignedInt GameLogic::getFrame( void ) { return LogicThread::isInsideWindow() ? m_frameForDraw : m_frame; }
 
 inline Bool GameLogic::isInGame( void ) { return !(m_gameMode == GAME_NONE); }
 

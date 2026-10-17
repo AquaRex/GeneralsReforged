@@ -1169,7 +1169,7 @@ void W3DTerrainVisual::xfer( Xfer *xfer )
 		if (xfer->getXferMode() == XFER_LOAD)	
     {	
 			// Update the display height map.
-			m_terrainRenderObject->staticLightingChanged();
+			m_terrainRenderObject->heightsLoaded();
 		}
 	}
 

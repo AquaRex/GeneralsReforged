@@ -559,22 +559,16 @@ void W3DRadar::drawEvents( Int pixelX, Int pixelY, Int width, Int height )
 {
 	Int i;
 
+	// update plays the sound of an event drawn for the first time: the sound asks the player list who
+	// may hear it, and draw runs inside the render
+	m_eventsDrawn = TRUE;
+
 	for( i = 0;  i < MAX_RADAR_EVENTS; i++ )
 	{
 
 		// only 'active' events actually have something to draw
 		if( m_event[ i ].active == TRUE && m_event[ i ].type != RADAR_EVENT_FAKE )
 		{
-
-			// if we haven't played the sound for this event, do it now that we can see it
-			if( m_event[ i ].soundPlayed == FALSE && m_event[i].type != RADAR_EVENT_BEACON_PULSE )
-			{
-				static AudioEventRTS eventSound("RadarEvent");
-				TheAudio->addAudioEvent( &eventSound );
-
-			}  // end if
-
-			m_event[ i ].soundPlayed = TRUE;
 
 			if ( m_event[ i ].type == RADAR_EVENT_BEACON_PULSE )
 				drawSingleBeaconEvent( pixelX, pixelY, width, height, i );
@@ -823,6 +817,8 @@ W3DRadar::W3DRadar( void )
 	m_overlayTextureFormat = WW3D_FORMAT_UNKNOWN;
 	m_overlayImage = NULL;
 	m_overlayTexture = NULL;
+	m_overlayDrawn = FALSE;
+	m_eventsDrawn = FALSE;
 
 	m_shroudTextureFormat = WW3D_FORMAT_UNKNOWN;
 	m_shroudImage = NULL;
@@ -989,6 +985,42 @@ void W3DRadar::update( void )
 
 	// extend base class
 	Radar::update();
+
+	// the sound of each event the last draw showed for the first time
+	if( m_eventsDrawn )
+	{
+		m_eventsDrawn = FALSE;
+		for( Int i = 0; i < MAX_RADAR_EVENTS; i++ )
+		{
+			if( m_event[ i ].active == FALSE || m_event[ i ].type == RADAR_EVENT_FAKE )
+				continue;
+			if( m_event[ i ].soundPlayed == FALSE && m_event[ i ].type != RADAR_EVENT_BEACON_PULSE )
+			{
+				static AudioEventRTS eventSound("RadarEvent");
+				TheAudio->addAudioEvent( &eventSound );
+			}
+			m_event[ i ].soundPlayed = TRUE;
+		}
+	}
+
+	// Refresh the overlay texture once every so many frames, while the radar is shown.  Here, not in
+	// draw: the blips ask each object where it is, whether the drawn player sees it and whether it is
+	// stealthed, and draw runs inside the render, beside the tick once it runs there (LOGIC-THREAD.md
+	// phase 3).
+	if( m_overlayDrawn && TheGameClient->getFrame() % OVERLAY_REFRESH_RATE == 0 )
+	{
+		m_overlayDrawn = FALSE;
+
+		// reset the overlay texture
+		SurfaceClass *surface = m_overlayTexture->Get_Surface_Level();
+		surface->Clear();
+		REF_PTR_RELEASE(surface);
+
+		// rebuild the object overlay
+		renderObjectList( getObjectList(), m_overlayTexture );
+		renderObjectList( getLocalObjectList(), m_overlayTexture, TRUE );
+
+	}  // end if
 
 }  // end update
 
@@ -1391,22 +1423,8 @@ void W3DRadar::draw( Int pixelX, Int pixelY, Int width, Int height )
 	// draw the terrain texture
 	TheDisplay->drawImage( m_terrainImage, ul.x, ul.y, lr.x, lr.y );
 
-	// refresh the overlay texture once every so many frames
-	if( TheGameClient->getFrame() % OVERLAY_REFRESH_RATE == 0 )
-	{
-
-		// reset the overlay texture
-		SurfaceClass *surface = m_overlayTexture->Get_Surface_Level();
-		surface->Clear();
-		REF_PTR_RELEASE(surface);
-
-		// rebuild the object overlay
-		renderObjectList( getObjectList(), m_overlayTexture );
-		renderObjectList( getLocalObjectList(), m_overlayTexture, TRUE );
-
-	}  // end if
-
-	// draw the overlay image
+	// draw the overlay image, which update refreshes
+	m_overlayDrawn = TRUE;
  	TheDisplay->drawImage( m_overlayImage, ul.x, ul.y, lr.x, lr.y );
 
 	// draw the shroud image

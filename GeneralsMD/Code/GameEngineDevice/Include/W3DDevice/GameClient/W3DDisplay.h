@@ -79,7 +79,7 @@ public:
 	// Drawing management
 	virtual void setClipRegion( IRegion2D *region );	///< Set clip rectangle for 2D draw operations.
 	virtual Bool	isClippingEnabled( void ) 	{ return m_isClippedEnabled; }
-	virtual void	enableClipping( Bool onoff )		{ m_isClippedEnabled = onoff; }
+	virtual void	enableClipping( Bool onoff )		{ if( isRecording() ) { record( [=]() { enableClipping( onoff ); } ); return; } m_isClippedEnabled = onoff; }
 
 	virtual void draw( void );  ///< redraw the entire display
 

@@ -507,6 +507,52 @@ static void fillAround( const IRegion2D &window, Int outside, Color color )
 }
 
 //-------------------------------------------------------------------------------------------------
+/** LOGIC-THREAD.md phase 3.  The parts of draw that ask logic what to show (the superweapon clocks,
+	* the guard markers, the world animations' fog, the production list) run here, at the sync point
+	* before the render, and record what they draw; draw replays each list where the part used to run.
+	* Under -cinema draw takes its own branch and none of this is drawn. */
+//-------------------------------------------------------------------------------------------------
+void W3DInGameUI::recordDraw( void )
+{
+	m_overWorldDraw.clear();
+	m_postDrawCalls.clear();
+	m_hudOverlayDraw.clear();
+	if( CinemaDirector_hidesHud() )
+		return;
+
+	TheDisplay->beginRecording( &m_overWorldDraw );
+	preDraw();
+
+	// draw selection region if drag selecting
+	if( m_isDragSelecting )
+		drawSelectionRegion();
+
+	// draw the formation line if one is being dragged out
+	if( m_isFormationDragging )
+		drawFormationLine();
+
+	// the attack circle, while the left button is still sweeping it out
+	if( isAttackCircling() )
+		drawAttackCircle();
+
+	// which of the local player's units are holding a guard
+	drawGuardMarkers();
+	TheDisplay->endRecording();
+
+	// While the map loads the display calls this every pass to paint the load screen's windows, and
+	// the match is already "in game" with its peace time set: the truce plate, the corner readout and
+	// the lists drew over the load screen.  Only the windows belong there.
+	if( TheGlobalData->m_loadScreenRender )
+		return;
+	TheDisplay->beginRecording( &m_postDrawCalls );
+	postDraw();
+	TheDisplay->endRecording();
+	TheDisplay->beginRecording( &m_hudOverlayDraw );
+	drawHudOverlay();
+	TheDisplay->endRecording();
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Draw member for the W3D implemenation of the game user interface */
 //-------------------------------------------------------------------------------------------------
 void W3DInGameUI::draw( void )
@@ -587,22 +633,9 @@ void W3DInGameUI::draw( void )
 		return;
 	}
 
-	preDraw();
-
-	// draw selection region if drag selecting
-	if( m_isDragSelecting )
-		drawSelectionRegion();
-
-	// draw the formation line if one is being dragged out
-	if( m_isFormationDragging )
-		drawFormationLine();
-
-	// the attack circle, while the left button is still sweeping it out
-	if( isAttackCircling() )
-		drawAttackCircle();
-
-	// which of the local player's units are holding a guard
-	drawGuardMarkers();
+	// preDraw, the drag box, the formation line, the attack circle and the guard markers, which
+	// recordDraw ran at the sync point
+	Display::replay( m_overWorldDraw );
 
 	// for each view draw hints
 	/// @todo should the UI be iterating through views like this?
@@ -651,12 +684,8 @@ void W3DInGameUI::draw( void )
 	tPostStart = Clock_Ticks();
 #endif
 
-	// While the map loads the display calls this every pass to paint the load screen's windows, and
-	// the match is already "in game" with its peace time set: the truce plate, the corner readout and
-	// the lists drew over the load screen.  Only the windows belong there.
-	const Bool matchOnScreen = !TheGlobalData->m_loadScreenRender;
-	if( matchOnScreen )
-		postDraw();
+	// postDraw, as recordDraw ran it
+	Display::replay( m_postDrawCalls );
 
 #ifdef DEBUG_LOGGING
 	tPostEnd = Clock_Ticks();
@@ -679,8 +708,7 @@ void W3DInGameUI::draw( void )
 	// painted: drawn before the window manager, a dialog, the menu or the control bar's own art
 	// covered it.
 	//
-	if( matchOnScreen )
-		drawHudOverlay();
+	Display::replay( m_hudOverlayDraw );
 
 #ifdef EXTENDED_STATS
 	}

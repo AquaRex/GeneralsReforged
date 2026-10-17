@@ -56,6 +56,8 @@ public:
 	virtual void queueParticleRender();
 	///< returns the number of particles shown on screen per frame
 	virtual Int getOnScreenParticleCount() { return m_onScreenParticleCount; }
+	/// at the render's sync point: the systems' stealth fades and the fields' fades, which read the logic
+	void takeReadsForRender( void );
 
 private:
 	enum { MAX_POINTS_PER_GROUP = 512 };

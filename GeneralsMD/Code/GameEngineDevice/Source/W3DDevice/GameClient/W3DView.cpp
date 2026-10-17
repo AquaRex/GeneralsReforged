@@ -2323,6 +2323,32 @@ static Real viewElapsedMS( const Int64 &from, const Int64 &to )
 }
 #endif
 
+//-------------------------------------------------------------------------------------------------
+/** LOGIC-THREAD.md phase 3.  The post draw over the finished world - health bars, ranks, ammo, the
+	* capture clock, captions, group numbers - asks each object what to show, so it runs here, at the
+	* sync point before the render, and records what it draws; draw replays it where it always went.
+	* The view's camera is the one updateViews left, which the render draws with. */
+//-------------------------------------------------------------------------------------------------
+void W3DView::recordPostDraw( void )
+{
+	Region3D axisAlignedRegion;
+	getAxisAlignedViewRegion(axisAlignedRegion);
+
+	TheGameClient->resetRenderedObjectCount();
+	// the post draw is where health bars are drawn, and each one records where it landed
+	TheGameClient->clearHealthBarPickRegions();
+#ifdef DEBUG_LOGGING
+	Int64 tIconStart = Clock_Ticks();
+#endif
+	TheDisplay->beginRecording( &m_postDraw );
+	TheGameClient->iterateDrawablesInRegion( &axisAlignedRegion, drawablePostDraw, this );
+	TheGameClient->flushTextBearingDrawables();
+	TheDisplay->endRecording();
+#ifdef DEBUG_LOGGING
+	TheIconDrawMS = viewElapsedMS( tIconStart, Clock_Ticks() );
+#endif
+}
+
 void W3DView::draw( void )
 {
 	USE_PERF_TIMER(W3DView_drawView)
@@ -2649,13 +2675,6 @@ void W3DView::draw( void )
   }
 #endif // DEBUG or INTERNAL
 
-	Region3D axisAlignedRegion;
-	getAxisAlignedViewRegion(axisAlignedRegion);
-
-	//
-	// there are several things we might want to do as a post pass on the objects after
-	// they are all drawn
-	/// @todo we might want to consider wiping this iterate out if there is nothing to post draw
 	//
 	// The world is finished here and everything below this line is drawn over it: health bars,
 	// veterancy chevrons, unit names, the 2D scene.  So this is where -dx11post's chain runs, and
@@ -2667,7 +2686,7 @@ void W3DView::draw( void )
 	//
 	// Nothing happens here unless a chain was asked for, and only the first view of a frame runs it.
 #ifdef DEBUG_LOGGING
-	Int64 tPostChainStart, tPostChainEnd, tIconStart, tIconEnd;
+	Int64 tPostChainStart, tPostChainEnd;
 	tPostChainStart = Clock_Ticks();
 #endif
 	updateScreenDistortions();
@@ -2677,19 +2696,8 @@ void W3DView::draw( void )
 	ThePostChainMS = viewElapsedMS( tPostChainStart, tPostChainEnd );
 #endif
 
-	TheGameClient->resetRenderedObjectCount();
-	// the post draw is where health bars are drawn, and each one records where it landed
-	TheGameClient->clearHealthBarPickRegions();
-#ifdef DEBUG_LOGGING
-	tIconStart = Clock_Ticks();
-#endif
-	TheGameClient->iterateDrawablesInRegion( &axisAlignedRegion, drawablePostDraw, this );
-#ifdef DEBUG_LOGGING
-	tIconEnd = Clock_Ticks();
-	TheIconDrawMS = viewElapsedMS( tIconStart, tIconEnd );
-#endif
-
-	TheGameClient->flushTextBearingDrawables();
+	// the health bars and the rest of the post draw, recorded at the sync point by recordPostDraw
+	Display::replay( m_postDraw );
 
 	// Render 2D scene
 	W3DDisplay::m_2DScene->doRender( m_2DCamera );

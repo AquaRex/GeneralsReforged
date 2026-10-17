@@ -695,6 +695,7 @@ struct FieldState
 	ParticleSystemInfo::ParticleShaderType shader;
 	AsciiString texture;
 	Real stealth;				///< ParticleSystem::getStealthFade of the last system seen at it
+	Real lifeFade;			///< fieldFade's answer at the last sync point
 };
 
 static const Int	FIELD_GRACE						= LOGICFRAMES_PER_SECOND;			///< logic frames a field with no object outlives its systems
@@ -813,16 +814,12 @@ static Real fieldFade( FieldState &state, Int now )
 	return state.shown;
 }
 
-/** Collects this frame's fields from their systems and lays them on the terrain into the field
-	* buffers; drawGroundFields draws them.  Returns the puddles laid.  `systems` is every isGroundField
-	* system in list order, empty ones too. */
-static Int collectGroundFields( const std::vector<ParticleSystem *> &systems, const AABoxClass &view )
+/** This frame's fields from their systems, and each one's fade, at the sync point before the render:
+	* finding a field's object, its life and the fog over it read the logic (LOGIC-THREAD.md phase 3).
+	* `systems` is every isGroundField system in list order, empty ones too. */
+static void updateGroundFields( const std::vector<ParticleSystem *> &systems )
 {
 	const Int now = (Int)TheGameLogic->getFrame();
-	// between the last two logic ticks, as the models are, so a pulse does not step at the logic rate
-	const Real seconds = ((Real)now + (TheSmoothMotionActive ? TheSmoothMotionAlpha : 0.0f)) / LOGICFRAMES_PER_SECOND;
-	s_fieldPuddles.clear();
-	s_fieldDraws.clear();
 
 	// where the fields are this frame, and what each one looks like
 	for (size_t f = 0; f < systems.size(); ++f)
@@ -886,25 +883,42 @@ static Int collectGroundFields( const std::vector<ParticleSystem *> &systems, co
 		st->second.stealth = sys->getStealthFade();
 	}
 
-	Int laid = 0;
 	for (std::map<FieldKey, FieldState>::iterator st = s_fieldStates.begin(); st != s_fieldStates.end(); )
 	{
-		const FieldKey &key = st->first;
 		FieldState &state = st->second;
 
 		// Kept while its systems are, even faded out: the systems outlive the object by a few
 		// seconds, and a field forgotten under them would be found again as a new one.
-		const Real lifeFade = fieldFade( state, now );
+		state.lifeFade = fieldFade( state, now );
 		const Bool stale = now - state.seen > FIELD_GRACE;
-		if ((stale && lifeFade <= 0.0f) || now < state.seen)
+		if ((stale && state.lifeFade <= 0.0f) || now < state.seen)
 		{
 			// out, or a frame count from before a load
 			s_fieldStates.erase( st++ );
 			continue;
 		}
 		++st;
+	}
+}
+
+/** Lays the fields updateGroundFields found on the terrain into the field buffers; drawGroundFields
+	* draws them.  Returns the puddles laid. */
+static Int collectGroundFields( const AABoxClass &view )
+{
+	const Int now = (Int)TheGameLogic->getFrame();
+	// between the last two logic ticks, as the models are, so a pulse does not step at the logic rate
+	const Real seconds = ((Real)now + (TheSmoothMotionActive ? TheSmoothMotionAlpha : 0.0f)) / LOGICFRAMES_PER_SECOND;
+	s_fieldPuddles.clear();
+	s_fieldDraws.clear();
+
+	Int laid = 0;
+	for (std::map<FieldKey, FieldState>::iterator st = s_fieldStates.begin(); st != s_fieldStates.end(); ++st)
+	{
+		const FieldKey &key = st->first;
+		FieldState &state = st->second;
+
 		// a field on a stealthed thing goes with it, as its other particles do
-		const Real fade = lifeFade * state.stealth;
+		const Real fade = state.lifeFade * state.stealth;
 		if (fade <= 0.0f)
 			continue;
 
@@ -1239,6 +1253,15 @@ void W3DParticleSystemManager::reset()
 	s_fieldStates.clear();	// the object IDs it holds belong to the game that ended
 }
 
+/** LOGIC-THREAD.md phase 3.  A system's stealth fade asks its object's drawable, and a field asks for
+	* its object, its life and the fog, so the frame view and the fields are taken here, before the
+	* render; the render's own refreshFrameView finds the view still valid. */
+void W3DParticleSystemManager::takeReadsForRender( void )
+{
+	refreshFrameView();
+	updateGroundFields( m_fieldSystems );
+}
+
 /** The systems a pass draws from, walked again only when a particle update or anything else that
 	* adds or takes away a system or a particle has run since the last walk.  A system with no
 	* particles draws nothing and one the local player cannot see is skipped, so neither is kept. */
@@ -1524,7 +1547,7 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 	s_fieldIndex.clear();
 	s_fieldChunks.clear();
 	{
-		const Int puddles = collectGroundFields( m_fieldSystems, bbox );
+		const Int puddles = collectGroundFields( bbox );
 		// counted as field particles on purpose: past MaxFieldParticleCount the field systems keep
 		// one particle each, and that one is all the steady pool needs from them
 		m_fieldParticleCount += puddles;

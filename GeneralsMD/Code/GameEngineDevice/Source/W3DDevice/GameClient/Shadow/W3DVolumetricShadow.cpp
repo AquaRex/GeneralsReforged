@@ -4266,7 +4266,7 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 	{
 		Coord3D look;
 		TheTacticalView->getPosition( &look );
-		focus.Set( look.x, look.y, TheTerrainLogic->getGroundHeight( look.x, look.y ) );
+		focus.Set( look.x, look.y, TheTerrainRenderObject->getDrawHeight( look.x, look.y ) );
 		transform.Look_At( focus + toSun * sunDistance, focus, 0.0f );
 		halfWidth = shadowMapHalfWidth( sceneCamera, transform, lowestReceiver,
 			TheTerrainRenderObject->getMaxHeight() );

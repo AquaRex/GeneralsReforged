@@ -102,6 +102,8 @@ static void drawFramerateBar(void);
 #include "W3DDevice/GameClient/HeightMap.h"
 #include "W3DDevice/GameClient/WorldHeightMap.h"
 #include "W3DDevice/GameClient/W3DScene.h"
+#include "W3DDevice/GameClient/W3DParticleSys.h"
+#include "W3DDevice/GameClient/W3DView.h"
 #include "W3DDevice/GameClient/W3DTerrainTracks.h"
 #include "W3DDevice/GameClient/W3DWater.h"
 #include "W3DDevice/GameClient/W3DVideobuffer.h"
@@ -2289,6 +2291,36 @@ static Real w3dElapsedMS( const Int64 &from, const Int64 &to )
 }
 #endif
 
+/* Whether this pass draws a picture.  TiVO's fast forward through a replay draws one logic frame a
+	 second of game time. */
+static Bool rendersThisPass( void )
+{
+#if defined(_ALLOW_DEBUG_CHEATS_IN_RELEASE)
+	return (TheGameLogic->getFrame() % LOGICFRAMES_PER_SECOND == 1) || ( ! ( !TheGameLogic->isGamePaused() && TheGlobalData->m_TiVOFastMode) );
+#else
+	return (TheGameLogic->getFrame() % LOGICFRAMES_PER_SECOND == 1) || ( ! (!TheGameLogic->isGamePaused() && TheGlobalData->m_TiVOFastMode && TheGameLogic->isInReplayGame()) );
+#endif
+}
+
+/* LOGIC-THREAD.md phase 3.  The sync point of the render: everything the render below reads of logic
+	 is taken here, before the overlap window opens, and the render reads only these.  The logic frame,
+	 the overlays that ask objects what to show, recorded for the render to replay, the particles'
+	 stealth fades and fields, the toppling trees, and the strings the last pass's overlays freed, now
+	 that nothing recorded draws them.  The scene's own reads of an object were taken by
+	 GameClient::update's drawable walk (Drawable::getObjectForDraw) and the radar's blips by its update. */
+static void takeReadsForRender( Bool renders )
+{
+	TheDisplay->freeDeferred();
+	TheGameLogic->takeFrameForDraw();
+	if( !renders || TheGlobalData->m_breakTheMovie || TheGlobalData->m_disableRender )
+		return;
+	for( View *view = TheDisplay->getFirstView(); view; view = TheDisplay->getNextView( view ) )
+		static_cast<W3DView *>( view )->recordPostDraw();
+	TheInGameUI->recordDraw();
+	TheTerrainRenderObject->stepTrees();	// before the particles: a falling tree's FX makes systems
+	static_cast<W3DParticleSystemManager *>( TheParticleSystemManager )->takeReadsForRender();
+}
+
 void W3DDisplay::draw( void )
 {
 	USE_PERF_TIMER(W3DDisplay_draw)
@@ -2567,9 +2599,14 @@ AGAIN:
 #ifdef DEBUG_LOGGING
 			tParticleEnd = Clock_Ticks();
 			TheParticleUpdateMS = w3dElapsedMS( tParticleStart, tParticleEnd );
-			tOverlapStart = tParticleEnd;
 #endif
-			overlapWindow.open();
+			takeReadsForRender( rendersThisPass() );
+#ifdef DEBUG_LOGGING
+			tOverlapStart = Clock_Ticks();
+#endif
+			// a draw from inside a tick (the load screen the map start paints) is the tick's own
+			if( !TheGameLogic->isInGameLogicUpdate() )
+				overlapWindow.open();
 
 			// R1: after the particles read the logic bones (Lorenzen's note above), before anything renders.
 			smoothMotionApply();
@@ -2611,11 +2648,7 @@ AGAIN:
 		Int numRenderTargetVertices=Debug_Statistics::Get_DX8_Vertices();
 
 		// start render block
-		#if defined(_ALLOW_DEBUG_CHEATS_IN_RELEASE)
-    if ( (TheGameLogic->getFrame() % LOGICFRAMES_PER_SECOND == 1) || ( ! ( !TheGameLogic->isGamePaused() && TheGlobalData->m_TiVOFastMode) ) )
-		#else
-	    if ( (TheGameLogic->getFrame() % LOGICFRAMES_PER_SECOND == 1) || ( ! (!TheGameLogic->isGamePaused() && TheGlobalData->m_TiVOFastMode && TheGameLogic->isInReplayGame())) )
-    #endif
+		if ( rendersThisPass() )
 		{
 			USE_PERF_TIMER(BigAssRenderLoop)
 			static Bool couldRender = true;
@@ -3070,6 +3103,7 @@ void W3DDisplay::flush2D( void )
 //=============================================================================
 void W3DDisplay::beginBatch2D( void )
 {
+	if( isRecording() ) { record( [=]() { beginBatch2D(); } ); return; }
 
 	flush2D();
 	m_batch2D = TRUE;
@@ -3080,6 +3114,7 @@ void W3DDisplay::beginBatch2D( void )
 //=============================================================================
 void W3DDisplay::endBatch2D( void )
 {
+	if( isRecording() ) { record( [=]() { endBatch2D(); } ); return; }
 
 	flush2D();
 	m_batch2D = FALSE;
@@ -3091,6 +3126,7 @@ void W3DDisplay::endBatch2D( void )
 //=============================================================================
 void W3DDisplay::flushBatch2D( void )
 {
+	if( isRecording() ) { record( [=]() { flushBatch2D(); } ); return; }
 
 	flush2D();
 
@@ -3104,6 +3140,7 @@ void W3DDisplay::drawLine( Int startX, Int startY,
 													 Real lineWidth,
 													 UnsignedInt lineColor )
 {
+	if( isRecording() ) { record( [=]() { drawLine( startX, startY, endX, endY, lineWidth, lineColor ); } ); return; }
 
 	if( setup2D( NULL, TRUE ) )
 		m_2DRender->Enable_Texturing( FALSE );
@@ -3121,7 +3158,8 @@ void W3DDisplay::drawLine( Int startX, Int startY,
 													 Real lineWidth,
 													 UnsignedInt lineColor1,UnsignedInt lineColor2 )
 {
-	
+	if( isRecording() ) { record( [=]() { drawLine( startX, startY, endX, endY, lineWidth, lineColor1, lineColor2 ); } ); return; }
+
 	if( setup2D( NULL, TRUE ) )
 		m_2DRender->Enable_Texturing( FALSE );
 	m_2DRender->Add_Line( Vector2( startX, startY ), Vector2( endX, endY ),
@@ -3136,7 +3174,8 @@ void W3DDisplay::drawLine( Int startX, Int startY,
 void W3DDisplay::drawOpenRect( Int startX, Int startY, Int width, Int height,
 															 Real lineWidth, UnsignedInt lineColor )
 {
-	
+	if( isRecording() ) { record( [=]() { drawOpenRect( startX, startY, width, height, lineWidth, lineColor ); } ); return; }
+
 	if (m_isClippedEnabled)
 	{
 		ICoord2D start, end, returnStart, returnEnd;
@@ -3186,6 +3225,7 @@ void W3DDisplay::drawOpenRect( Int startX, Int startY, Int width, Int height,
 void W3DDisplay::drawFillRect( Int startX, Int startY, Int width, Int height,
 															 UnsignedInt color )
 {
+	if( isRecording() ) { record( [=]() { drawFillRect( startX, startY, width, height, color ); } ); return; }
 
 	if( setup2D( NULL, TRUE ) )
 		m_2DRender->Enable_Texturing( FALSE );
@@ -3199,6 +3239,7 @@ void W3DDisplay::drawFillRect( Int startX, Int startY, Int width, Int height,
 
 void W3DDisplay::drawRectClock(Int startX, Int startY, Int width, Int height, Int percent, UnsignedInt color)
 {
+	if( isRecording() ) { record( [=]() { drawRectClock( startX, startY, width, height, percent, color ); } ); return; }
 	// sanity
 	if(percent < 1 || percent > 100)
 		return;
@@ -3362,6 +3403,7 @@ void W3DDisplay::drawRectClock(Int startX, Int startY, Int width, Int height, In
 //--------------------------------------------------------------------------------------------------------------------
 void W3DDisplay::drawRemainingRectClock(Int startX, Int startY, Int width, Int height, Int percent, UnsignedInt color)
 {
+	if( isRecording() ) { record( [=]() { drawRemainingRectClock( startX, startY, width, height, percent, color ); } ); return; }
 	// sanity
 	if( percent < 0 || percent > 99 )
 		return;
@@ -3542,6 +3584,7 @@ void W3DDisplay::drawImage( const Image *image, Int startX, Int startY,
 	// sanity
 	if( image == NULL )
 		return;
+	if( isRecording() ) { record( [=]() { drawImage( image, startX, startY, endX, endY, color, mode ); } ); return; }
 
 	// !!
 	// Remember to update the GUIEditDisplay::drawImage when you make
@@ -3776,6 +3819,7 @@ VideoBuffer*	W3DDisplay::createVideoBuffer( void )
 
 void W3DDisplay::drawVideoBuffer( VideoBuffer *buffer, Int startX, Int startY, Int endX, Int endY )
 {
+	if( isRecording() ) { record( [=]() { drawVideoBuffer( buffer, startX, startY, endX, endY ); } ); return; }
 	W3DVideoBuffer *vbuffer = (W3DVideoBuffer*) buffer;
 
 	setup2D( NULL, FALSE );
@@ -3793,6 +3837,7 @@ void W3DDisplay::drawVideoBuffer( VideoBuffer *buffer, Int startX, Int startY, I
 //=============================================================================
 void W3DDisplay::setClipRegion( IRegion2D *region )
 {
+	if( isRecording() ) { const IRegion2D at = *region; record( [=]() { IRegion2D copy = at; setClipRegion( &copy ); } ); return; }
 		// assign new region
 		m_clipRegion = *region;
 		m_isClippedEnabled = TRUE;

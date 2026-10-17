@@ -44,6 +44,7 @@
 // USER INCLUDES //////////////////////////////////////////////////////////////////////////////////
 #include "Common/LogicThread.h"
 #include "Common/STLTypedefs.h"
+#include "GameClient/Display.h"
 #include "GameClient/ParabolicEase.h"
 #include "GameClient/View.h"
 #include "GameClient/CameraScrollClock.h"
@@ -146,6 +147,7 @@ public:
 	virtual void updateView(void);	///<called once per frame to determine the final camera and object transforms
 
 	virtual void draw( );  ///< draw this view
+	void recordPostDraw( void );	///< the post draw over the world, recorded at the sync point for draw to replay
 	virtual void update( );	///<called once per frame to determine the final camera and object transforms
 
 	virtual Drawable *pickDrawable( const ICoord2D *screen, Bool forceAttack, PickType pickType );  ///< pick drawable given the screen pixel coords.  If force attack, picks bridges.
@@ -355,6 +357,8 @@ private:
 	Bool				m_useRealZoomCam;
 	AsciiString		m_cameraSlaveObjectName;
 	AsciiString		m_cameraSlaveObjectBoneName;
+
+	Display::DrawCalls m_postDraw;	///< recordPostDraw's calls, replayed by draw
 };  // end class W3DView
 
 // EXTERNALS //////////////////////////////////////////////////////////////////////////////////////

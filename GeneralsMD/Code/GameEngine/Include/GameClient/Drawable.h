@@ -484,7 +484,25 @@ public:
 	void setShroudForDraw( ObjectShroudStatus status, Bool objectDead ) { m_shroudForDraw = status; m_objectDeadForDraw = objectDead; }
 	ObjectShroudStatus getShroudForDraw( void ) const { return m_shroudForDraw; }
 	Bool isObjectDeadForDraw( void ) const { return m_objectDeadForDraw; }
- 
+
+	/** The rest of what the render asks of the object, taken by the same walk: the scene's look and
+		* occlusion, the translucent silhouette of a building waiting for its builder, a projected shadow
+		* lifted onto a bridge.  The render reads these and calls no getObject. */
+	struct ObjectForDraw
+	{
+		Bool					hasObject;
+		Bool					awaitingBuilder;		///< Object_isAwaitingBuilder, for getEffectiveOpacity
+		Bool					empDisabled;				///< DISABLED_EMP
+		Bool					outage;							///< a structure underpowered, script underpowered or hacked
+		Int						playerIndex;				///< the controlling player's
+		Color					playerColor;				///< clientPlayerColor of the controlling player
+		UnsignedInt		safeOcclusionFrame;
+		PathfindLayerEnum	layer;
+		Real					layerHeight;				///< getLayerHeight at the drawable, off LAYER_GROUND only
+	};
+	void setObjectForDraw( const ObjectForDraw &forDraw ) { m_objectForDraw = forDraw; }
+	const ObjectForDraw &getObjectForDraw( void ) const { return m_objectForDraw; }
+
 	void setShadowsEnabled(Bool enable);
 	Bool getShadowsEnabled() const { return BitTest(m_status, DRAWABLE_STATUS_SHADOWS); }
 
@@ -809,6 +827,7 @@ private:
 	UnsignedInt		m_shroudClearFrame;						///< Last frame the local player saw this drawable "OBJECTSHROUD_CLEAR"
 	ObjectShroudStatus	m_shroudForDraw;				///< see setShroudForDraw
 	Bool					m_objectDeadForDraw;				///< see setShroudForDraw
+	ObjectForDraw	m_objectForDraw;						///< see setObjectForDraw
 
 	DrawableLocoInfo*	m_locoInfo;	// lazily allocated
 

@@ -86,6 +86,7 @@
 #include "GameClient/Shell.h"
 #include "GameClient/Snow.h"
 #include "GameClient/TerrainVisual.h"
+#include "GameLogic/TerrainLogic.h"
 #include "GameClient/View.h"
 #include "GameClient/VideoPlayer.h"
 #include "GameClient/WindowXlat.h"
@@ -908,12 +909,31 @@ void GameClient::update( void )
 	// so this reads it; the draw no longer calls into the partition beside a tick.
 	for( Drawable *draw = m_drawableList; draw; draw = draw->getNextDrawable() )
 	{
-		const Object *object = draw->getObject();
+		Object *object = draw->getObject();
+		Drawable::ObjectForDraw forDraw = draw->getObjectForDraw();
+		forDraw.hasObject = object != NULL;
 		if( object )
 		{
 			draw->setShroudForDraw( object->getShroudedStatus( localPlayerIndex ), object->isEffectivelyDead() );
+			// and the rest of what the scene asks of it
+			forDraw.awaitingBuilder = Object_isAwaitingBuilder( object->testStatus( OBJECT_STATUS_UNDER_CONSTRUCTION ),
+																													object->getConstructionPercent() );
+			forDraw.empDisabled = object->isDisabledByType( DISABLED_EMP );
+			forDraw.outage = object->isKindOf( KINDOF_STRUCTURE )
+				&& ( object->isDisabledByType( DISABLED_UNDERPOWERED ) || object->isDisabledByType( DISABLED_SCRIPT_UNDERPOWERED )
+					|| object->isDisabledByType( DISABLED_HACKED ) );
+			const Player *player = object->getControllingPlayer();
+			forDraw.playerIndex = player->getPlayerIndex();
+			forDraw.playerColor = clientPlayerColor( player );
+			forDraw.safeOcclusionFrame = object->getSafeOcclusionFrame();
+			forDraw.layer = object->getLayer();
+			if( forDraw.layer != LAYER_GROUND )
+				forDraw.layerHeight = TheTerrainLogic->getLayerHeight( draw->getPosition()->x, draw->getPosition()->y, forDraw.layer );
+			draw->setObjectForDraw( forDraw );
 			continue;
 		}
+		forDraw.awaitingBuilder = FALSE;
+		draw->setObjectForDraw( forDraw );
 		//Hack for prison camps which contain enemy prisoner drawables: another object holds the shroud
 		ObjectShroudStatus status = OBJECTSHROUD_CLEAR;
 		const ObjectID shroudObjectID = draw->getDrawableInfo()->m_shroudStatusObjectID;

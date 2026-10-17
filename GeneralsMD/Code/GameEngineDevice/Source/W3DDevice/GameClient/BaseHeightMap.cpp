@@ -937,6 +937,15 @@ Real BaseHeightMapRenderObjClass::getHeightMapHeight(Real x, Real y, Coord3D* no
 }
 
 //=============================================================================
+/** getHeightMapHeight for the render: the same sampling over the heights the last sync point left
+	(DrawHeightMapData), which a tick running beside the render does not write. */
+//=============================================================================
+Real BaseHeightMapRenderObjClass::getDrawHeight(Real x, Real y) const
+{
+	return TerrainHeightSampling::getHeightMapHeight(&m_drawHeights, &m_drawHeights, x, y, NULL);
+}
+
+//=============================================================================
 Bool BaseHeightMapRenderObjClass::isClearLineOfSight(const Coord3D& pos, const Coord3D& posOther) const
 {
 	WorldHeightMap *logicHeightMap = TheTerrainVisual?TheTerrainVisual->getLogicHeightMap():m_map;
@@ -1489,6 +1498,8 @@ Int BaseHeightMapRenderObjClass::initHeightData(Int x, Int y, WorldHeightMap *pM
 {	
 
 	REF_PTR_SET(m_map, pMap);	//update our heightmap pointer in case it changed since last call.
+	if (pMap)
+		m_drawHeights.copyFrom(pMap);
 	m_staticDiffuseStale = true;
 	m_terrainContentVersion++;
 
@@ -2080,6 +2091,12 @@ void BaseHeightMapRenderObjClass::removeAllTrees()
 //=============================================================================
 /** Updates a tree's position and angle in the tree buffer.*/
 //=============================================================================
+void BaseHeightMapRenderObjClass::stepTrees(void)
+{
+	m_treeBuffer->stepTrees();
+}
+
+//=============================================================================
 Bool BaseHeightMapRenderObjClass::updateTreePosition(DrawableID id, Coord3D location, Real angle)
 {
 	if (m_treeBuffer) {
@@ -2260,6 +2277,7 @@ void BaseHeightMapRenderObjClass::terrainHeightChanged( Int x, Int y )
 		 rebuilding only the cell that moved leaves a seam of stale shading around it. */
 	const Int PAD = 2;
 	m_terrainContentVersion++;
+	m_drawHeights.copyCell(m_map, x, y);
 	if (!m_hasDirtyRegion)
 	{
 		m_dirtyRegion.lo.x = x - PAD;

@@ -30,6 +30,7 @@
 #ifndef __BASE_HEIGHTMAP_H_
 #define __BASE_HEIGHTMAP_H_
 
+#include <vector>
 #include "always.h"
 #include "rendobj.h"
 #include "w3d_file.h"
@@ -60,6 +61,27 @@ class W3DPropDrawModuleData;
 class W3DPropBuffer;
 class W3DTreeDrawModuleData;
 class GeometryInfo;
+
+/** LOGIC-THREAD.md phase 3: the drawn map's heights as the last sync point left them.  The map the
+	* terrain draws is logic's own, and a structure flattening its footprint lowers it inside the tick;
+	* this copy takes a cell only when terrainHeightChanged tells the terrain, after the tick. */
+class DrawHeightMapData : public WorldHeightMapData
+{
+public:
+	~DrawHeightMapData( void ) { m_data = NULL; }	// m_heights owns them, not the base
+	void copyFrom( WorldHeightMapData *map )
+	{
+		m_width = map->getXExtent();
+		m_height = map->getYExtent();
+		m_borderSize = map->getBorderSizeInline();
+		m_dataSize = m_width * m_height;
+		m_heights.assign( map->getDataPtr(), map->getDataPtr() + m_dataSize );
+		m_data = m_heights.empty() ? NULL : &m_heights[ 0 ];
+	}
+	void copyCell( WorldHeightMapData *map, Int x, Int y ) { m_heights[ x + y * m_width ] = map->getDataPtr()[ x + y * m_width ]; }
+private:
+	std::vector< UnsignedByte > m_heights;
+};
 
 #define no_TIMING_TESTS	1
 
@@ -174,6 +196,7 @@ public:
 	void removeAllTrees(void);
 	void removeTree(DrawableID id);
 	Bool updateTreePosition(DrawableID id, Coord3D location, Real angle);
+	void stepTrees(void);	///< W3DTreeBuffer::stepTrees, at the render's sync point
 	void renderTrees(CameraClass * camera); ///< renders the tree buffer.
 
 	void addProp(Int id, Coord3D location, Real angle, Real scale, const AsciiString &modelName);
@@ -220,6 +243,8 @@ public:
 	void setShoreLineDetail(void);	///<update shoreline tiles in case the feature was toggled by user.
 	Bool getMaximumVisibleBox(const FrustumClass &frustum,  AABoxClass *box, Bool ignoreMaxHeight);	///<3d extent of visible terrain.
 	Real getHeightMapHeight(Real x, Real y, Coord3D* normal) const;	///<return height and normal at given point
+	Real getDrawHeight(Real x, Real y) const;	///< getHeightMapHeight from the sync point's copy, for the render beside a tick
+	void heightsLoaded(void) { m_drawHeights.copyFrom(m_map); staticLightingChanged(); }	///< a save wrote every height at once
 	Bool isCliffCell(Real x, Real y);	///<return height and normal at given point
 	Real getMinHeight(void) const {return m_minHeight;}	///<return minimum height of entire terrain
 	Real getMaxHeight(void) const {return m_maxHeight;}	///<return maximum height of entire terrain
@@ -288,6 +313,7 @@ protected:
 	void drawScorches(void);		///< Draws the scorch mark polygons in m_vertexScorch.
 #endif
 	WorldHeightMap *m_map;
+	mutable DrawHeightMapData m_drawHeights;	///< getDrawHeight's, see DrawHeightMapData
 	Bool m_useDepthFade;	///<fade terrain lighting under water
 	Bool m_updating;
 	Vector3 m_depthFade;	///<depth based fall off values for r,g,b
