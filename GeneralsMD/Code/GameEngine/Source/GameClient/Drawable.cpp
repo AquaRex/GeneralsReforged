@@ -5380,8 +5380,8 @@ void Drawable::flushPendingClientWork()
 		draw->doPendingClientWork( FALSE );
 	}
 	s_clientWorkQueue.clear();
-	// last, so a work above that holds a drawable the tick destroyed runs before it is deleted
-	TheGameClient->flushDestroyedDrawables();
+	// LogicThread's flushAfterTick deletes the drawables the tick destroyed after this and the
+	// tick's effects, so a work above or an effect that holds one runs before it is deleted
 }
 
 //-------------------------------------------------------------------------------------------------

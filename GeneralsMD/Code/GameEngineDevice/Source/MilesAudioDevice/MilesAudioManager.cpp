@@ -58,6 +58,7 @@
 #include "Common/GameSounds.h"
 #include "Common/CRCDebug.h"
 #include "Common/GlobalData.h"
+#include "Common/LogicThread.h"
 #include "Common/ScopedMutex.h"
 
 #include "GameClient/DebugDisplay.h"
@@ -1649,6 +1650,7 @@ Bool MilesAudioManager::isMusicPlaying( void ) const
 //-------------------------------------------------------------------------------------------------
 Bool MilesAudioManager::hasMusicTrackCompleted( const AsciiString& trackName, Int numberOfTimes ) const
 {
+	LOGIC_CENSUS( CENSUS_AUDIO_READ );
 	std::list<PlayingAudio *>::const_iterator it;
 	PlayingAudio *playing;
 	for (it = m_playingStreams.begin(); it != m_playingStreams.end(); ++it) {
@@ -1751,6 +1753,7 @@ void MilesAudioManager::closeDevice( void )
 //-------------------------------------------------------------------------------------------------
 Bool MilesAudioManager::isCurrentlyPlaying( AudioHandle handle )
 {
+	LOGIC_CENSUS( CENSUS_AUDIO_READ );
 	std::list<PlayingAudio *>::iterator it;
 	PlayingAudio *playing;
 
@@ -1785,7 +1788,8 @@ Bool MilesAudioManager::isCurrentlyPlaying( AudioHandle handle )
 		}
 	}
 
-	return false;
+	// and so is a sound the tick asked for, which waits for the end of the tick to be requested
+	return isQueuedFromTick(handle);
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -255,6 +255,22 @@ DEBUG_LOG(( "%d: GetGameLogicRandomValue = %d (%d - %d), %s line %d\n",
 // all stays in step.  That is what client-side effects need: they are allowed to want a number
 // that everybody agrees on without being allowed to decide how the simulation unfolds.
 //
+// LOGIC-THREAD.md phase 2, M5: a sound logic plays inside a tick is built after the tick, when the
+// seed has moved on.  The tick copies the seed at the call and the build pins that copy, so the
+// unchanged reads pick the file they would have picked at the call.
+static const UnsignedInt *thePinnedLogicSeed = NULL;
+
+void CopyGameLogicSeed( UnsignedInt seed[6] )
+{
+	for (int i = 0; i < 6; ++i)
+		seed[i] = theGameLogicSeed[i];
+}
+
+void PinGameLogicSeedForUnchanged( const UnsignedInt *seed )
+{
+	thePinnedLogicSeed = seed;
+}
+
 Int GetGameLogicRandomValueUnchanged( int lo, int hi )
 {
 	UnsignedInt delta = hi - lo + 1;
@@ -262,9 +278,10 @@ Int GetGameLogicRandomValueUnchanged( int lo, int hi )
 	if (delta == 0)
 		return hi;
 
+	const UnsignedInt *seed = thePinnedLogicSeed ? thePinnedLogicSeed : theGameLogicSeed;
 	UnsignedInt seedCopy[6];
 	for (int i = 0; i < 6; ++i)
-		seedCopy[i] = theGameLogicSeed[i];
+		seedCopy[i] = seed[i];
 
 	return ((Int)(randomValue(seedCopy) % delta)) + lo;
 }
@@ -279,9 +296,10 @@ Real GetGameLogicRandomValueRealUnchanged( Real lo, Real hi )
 	if (delta <= 0.0f)
 		return hi;
 
+	const UnsignedInt *seed = thePinnedLogicSeed ? thePinnedLogicSeed : theGameLogicSeed;
 	UnsignedInt seedCopy[6];
 	for (int i = 0; i < 6; ++i)
-		seedCopy[i] = theGameLogicSeed[i];
+		seedCopy[i] = seed[i];
 
 	return ((Real)(randomValue(seedCopy)) * theMultFactor ) * delta + lo;
 }

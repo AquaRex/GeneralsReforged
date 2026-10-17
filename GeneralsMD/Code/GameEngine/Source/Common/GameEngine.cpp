@@ -1565,7 +1565,11 @@ void GameEngine::reset( void )
 	if (TheGameLogic->isInMultiplayerGame())
 		deleteNetwork = true;
 
+	// the clear-game tick resets from inside the tick; its sounds and effects have no game to play in
+	LogicThread::discardEffects();
 	TheSubsystemList->resetAll();
+	// and what the objects' teardown asked for, GameLogic resetting last
+	LogicThread::discardEffects();
 
 	if (deleteNetwork)
 	{

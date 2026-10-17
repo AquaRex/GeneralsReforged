@@ -27,6 +27,7 @@
 #include "Common/MessageStream.h"
 #include "GameClient/ControlBar.h"
 #include "GameClient/Drawable.h"
+#include "GameClient/GameClient.h"
 #include "GameLogic/FPUControl.h"
 #include "GameLogic/GameLogic.h"
 
@@ -35,6 +36,7 @@
 #include <exception>
 #include <mutex>
 #include <thread>
+#include <vector>
 #if defined(_WIN32)
 #include <eh.h>
 #endif
@@ -80,8 +82,27 @@ namespace
 		"drawable", "modelcondition", "audio", "ingameui", "controlbar", "tacticalview", "radar",
 		"fxlist", "terrainvisual", "particles", "gameclient", "eva", "newdrawable", "clientrandom",
 		"ghost", "messagestream", "display", "jobs", "ondemandflush", "observerlookat",
-		"drawablepush", "destroydrawable"
+		"drawablepush", "destroydrawable", "audioread"
 	};
+
+	// M5: what the tick asked of the audio, the FX lists and the particle systems, in call order.
+	// Filled inside the tick, run and emptied by flushAfterTick; one thread touches it at a time.
+	std::vector< std::function<void()> > s_effects;
+
+	/* Everything a tick left for the main thread, in the order it has to run: the drawables' work first
+		 (M1, M3, M4 builds the render objects of the drawables the tick made), then the effects, which
+		 attach to those drawables and read their bones, then the deletion of the drawables the tick
+		 destroyed, whose bones a death effect may still have read, then the control bar (M2). */
+	void flushAfterTick( void )
+	{
+		Drawable::flushPendingClientWork();
+		// an effect queues nothing more: none of them runs inside a tick
+		for( size_t i = 0; i < s_effects.size(); ++i )
+			s_effects[ i ]();
+		s_effects.clear();
+		TheGameClient->flushDestroyedDrawables();
+		ControlBar::flushLogicCalls();
+	}
 
 	Real elapsedMS( LogicClock::time_point a, LogicClock::time_point b )
 	{
@@ -208,8 +229,7 @@ void LogicThread::runTick( void )
 	{
 		++s_inlineTicks;
 		TheGameLogic->UPDATE();
-		Drawable::flushPendingClientWork();
-		ControlBar::flushLogicCalls();
+		flushAfterTick();
 		return;
 	}
 
@@ -251,10 +271,30 @@ void LogicThread::runTick( void )
 	if( error )
 		std::rethrow_exception( error );
 
-	// What the tick deferred on the drawables (phase 2, M1) and on the control bar (M2), here on the
-	// main thread at both settings.
-	Drawable::flushPendingClientWork();
-	ControlBar::flushLogicCalls();
+	// What the tick deferred on the drawables (phase 2, M1), the effects (M5) and the control bar (M2),
+	// here on the main thread at both settings.
+	flushAfterTick();
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool LogicThread::defersEffects( void )
+{
+	return TheGameLogic != NULL && TheGameLogic->isInGameLogicUpdate() && !TheGameLogic->isLoadingMap();
+}
+
+//-------------------------------------------------------------------------------------------------
+void LogicThread::callAfterTick( const std::function<void()>& call )
+{
+	if( defersEffects() )
+		s_effects.push_back( call );
+	else
+		call();
+}
+
+//-------------------------------------------------------------------------------------------------
+void LogicThread::discardEffects( void )
+{
+	s_effects.clear();
 }
 
 //-------------------------------------------------------------------------------------------------

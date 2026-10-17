@@ -29,6 +29,8 @@
 
 #include "Lib/BaseType.h"
 
+#include <functional>
+
 /**
 	* `-logicthread 0` (the default) runs the tick on the main thread, as it always ran.
 	* `-logicthread 1` hands every tick to a dedicated thread and waits for it: nothing overlaps
@@ -66,6 +68,7 @@ namespace LogicThread
 		CENSUS_OBSERVER_LOOKAT,	///< ControlBar::getObserverLookAtPlayer, a logic read of client state (M7)
 		CENSUS_DRAWABLE_PUSH,		///< Drawable::doClientWork run inside the tick: hidden, colour, decal, shadows, sub-objects, ambient sound, caption
 		CENSUS_DESTROY_DRAWABLE,	///< a drawable deleted: draw modules, render objects, shadows (M4: after the tick for one logic destroyed)
+		CENSUS_AUDIO_READ,			///< a logic read of the audio device: sound lengths, a track done, a handle still playing (hazard 4, M7)
 		CENSUS_COUNT
 	};
 
@@ -96,6 +99,19 @@ namespace LogicThread
 
 	/** The census and the handoff cost, as HEADLESS LOGICTHREAD lines. */
 	void report( void );
+
+	/** LOGIC-THREAD.md phase 2, M5.  The effects a tick asks of the client (sounds, FX lists, particle
+		* systems) wait in one queue, in the order the tick asked for them, and runTick runs them on the
+		* main thread after the drawables' deferred work, so every drawable they attach to has its render
+		* objects.  Keyed on isInGameLogicUpdate past the map load, like the drawables, so -logicthread 0
+		* and 1 run one path. */
+	Bool defersEffects( void );
+
+	/** Inside a tick, queue `call` for after it; anywhere else, run it now. */
+	void callAfterTick( const std::function<void()>& call );
+
+	/** The tick cleared the game: what it queued has no game left to play in.  GameEngine::reset. */
+	void discardEffects( void );
 
 }  // namespace LogicThread
 

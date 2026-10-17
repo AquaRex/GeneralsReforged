@@ -332,7 +332,15 @@ class AudioManager : public SubsystemInterface
     virtual void removeLevelSpecificAudioEventInfos( void );
     
     void removeAllAudioRequests( void );
-    
+
+		/** What addAudioEvent and removeAudioEvent do on the main thread.  A sound a tick plays gets its
+			* handle at the call and comes here after the tick with it (LOGIC-THREAD.md M5); 0 mints one. */
+		AudioHandle addAudioEventNow( const AudioEventRTS *eventToAdd, AudioHandle handle );
+		void removeAudioEventNow( AudioHandle audioEvent );
+
+		/// a handle a tick minted for a sound still waiting for the end of the tick counts as playing
+		Bool isQueuedFromTick( AudioHandle handle ) const;
+
 	protected:
 		AudioSettings *m_audioSettings;
 		MiscAudio *m_miscAudio;
@@ -346,6 +354,7 @@ class AudioManager : public SubsystemInterface
 		AudioEventInfoHash m_allAudioEventInfo;
 		std::vector< std::pair<AudioEventInfo *, AudioEventInfo *> > m_beforeMapOverrides;	///< live event, its copy from before the map
 		AudioHandle theAudioHandlePool;
+		std::vector<AudioHandle> m_handlesQueuedFromTick;	///< minted by addAudioEvent inside a tick, not yet added
 		std::list<std::pair<AsciiString, Real> > m_adjustedVolumes;
 
 		Real m_musicVolume;

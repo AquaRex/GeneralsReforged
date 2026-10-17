@@ -38,6 +38,7 @@
 #include "Common/AudioHandleSpecialValues.h"
 #include "Common/GameAudio.h"
 #include "Common/GameEngine.h"
+#include "Common/LogicThread.h"
 #include "Common/MapObject.h"							// For MAP_XY_FACTOR
 #include "Common/PartitionSolver.h"
 #include "Common/Player.h"
@@ -3336,7 +3337,8 @@ void ScriptActions::doResumeSupplyTruckingForIdleUnits(const AsciiString& player
 //-------------------------------------------------------------------------------------------------
 void ScriptActions::doAmbientSoundsPause(Bool pausing)	// if true, then pause, if false then resume.
 {
-	TheAudio->pauseAmbient(pausing);
+	// the audio state calls go after the tick in order with its sounds (LOGIC-THREAD.md M5)
+	LogicThread::callAfterTick( [pausing]{ TheAudio->pauseAmbient(pausing); } );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4027,7 +4029,7 @@ void ScriptActions::doAudioSetVolume(AudioAffect whichToAffect, Real newVolumeLe
 		newVolumeLevel = 1.0f;
 	}
 
-	TheAudio->setVolume(newVolumeLevel, whichToAffect);
+	LogicThread::callAfterTick( [newVolumeLevel, whichToAffect]{ TheAudio->setVolume(newVolumeLevel, whichToAffect); } );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5173,13 +5175,13 @@ void ScriptActions::doSetWarehouseValue( const AsciiString& warehouseName, Int c
 //-------------------------------------------------------------------------------------------------
 void ScriptActions::doSoundEnableType( const AsciiString& soundEventName, Bool enable )
 {
-	TheAudio->setAudioEventEnabled(soundEventName, enable);
+	LogicThread::callAfterTick( [soundEventName, enable]{ TheAudio->setAudioEventEnabled(soundEventName, enable); } );
 }
 
 //-------------------------------------------------------------------------------------------------
 void ScriptActions::doSoundRemoveAllDisabled()
 {
-	TheAudio->removeDisabledEvents(); 
+	LogicThread::callAfterTick( []{ TheAudio->removeDisabledEvents(); } );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5193,7 +5195,7 @@ void ScriptActions::doSoundRemoveType( const AsciiString& soundEventName )
 //-------------------------------------------------------------------------------------------------
 void ScriptActions::doSoundOverrideVolume( const AsciiString& soundEventName, Real newVolume )
 {
-	TheAudio->setAudioEventVolumeOverride(soundEventName, newVolume / 100.0f);
+	LogicThread::callAfterTick( [soundEventName, newVolume]{ TheAudio->setAudioEventVolumeOverride(soundEventName, newVolume / 100.0f); } );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -6605,10 +6607,10 @@ void ScriptActions::executeAction( ScriptAction *pAction )
 			TheTacticalView->setTimeMultiplier(pAction->getParameter(0)->getInt());
 			return;
 		case ScriptAction::SUSPEND_BACKGROUND_SOUNDS:
-			TheAudio->pauseAudio(AudioAffect_Sound);
+			LogicThread::callAfterTick( []{ TheAudio->pauseAudio(AudioAffect_Sound); } );
 			return;
-		case ScriptAction::RESUME_BACKGROUND_SOUNDS: 
-			TheAudio->resumeAudio(AudioAffect_Sound);
+		case ScriptAction::RESUME_BACKGROUND_SOUNDS:
+			LogicThread::callAfterTick( []{ TheAudio->resumeAudio(AudioAffect_Sound); } );
 			return;
 		case ScriptAction::PLAY_SOUND_EFFECT_AT: 
 			doPlaySoundEffectAt(pAction->getParameter(0)->getString(), pAction->getParameter(1)->getString());

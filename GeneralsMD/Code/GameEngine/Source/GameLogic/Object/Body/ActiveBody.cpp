@@ -1174,15 +1174,12 @@ void ActiveBody::createParticleSystems( const AsciiString &boneBaseName,
 void ActiveBody::deleteAllParticleSystems( void )
 {
 	BodyParticleSystem *nextBodySystem;
-	ParticleSystem *particleSystem;
 
 	while( m_particleSystems )
 	{
 
-		// get this particle system
-		particleSystem = TheParticleSystemManager->findParticleSystem( m_particleSystems->m_particleSystemID );
-		if( particleSystem )
-			particleSystem->destroy();
+		// this particle system, after the tick (LOGIC-THREAD.md M5)
+		TheParticleSystemManager->destroyParticleSystemByID( m_particleSystems->m_particleSystemID );
 
 		// get next system in the body
 		nextBodySystem = m_particleSystems->m_next;
