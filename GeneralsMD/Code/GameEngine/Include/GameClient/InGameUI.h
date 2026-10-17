@@ -40,6 +40,7 @@
 #include "Common/GameType.h"
 #include "Common/MessageStream.h"		// for GameMessageTranslator
 #include "Common/KindOf.h"
+#include "Common/LogicThread.h"
 #include "Common/SpecialPowerType.h"
 #include "Common/Snapshot.h"
 #include "Common/STLTypedefs.h"
@@ -981,9 +982,9 @@ public:  // ********************************************************************
 	virtual void deselectAllDrawables( void );							///< Clear the "select" flag from all drawables
 	void holdSelectionThroughTunnel( Drawable *draw );			///< a selected unit going down a tunnel on its own is selected again when it comes up
 	void restoreSelectionAfterTunnel( Drawable *draw );			///< reselect a unit held by holdSelectionThroughTunnel
-	virtual Int getSelectCount( void ) { return m_selectCount; }		///< Get count of currently selected drawables
+	virtual Int getSelectCount( void ) { LOGIC_CENSUS( CENSUS_CLIENT_READ ); return m_selectCount; }		///< Get count of currently selected drawables
 	virtual Int getMaxSelectCount( void ) { return m_maxSelectCount; }	///< Get the max number of selected drawables
-	virtual UnsignedInt getFrameSelectionChanged( void ) { return m_frameSelectionChanged; }	///< Get the max number of selected drawables
+	virtual UnsignedInt getFrameSelectionChanged( void ) { LOGIC_CENSUS( CENSUS_CLIENT_READ ); return m_frameSelectionChanged; }	///< Get the max number of selected drawables
 	virtual const DrawableList *getAllSelectedDrawables( void ) const;	///< Return the list of all the currently selected Drawable IDs.
 	virtual const DrawableList *getAllSelectedLocalDrawables( void );		///< Return the list of all the currently selected Drawable IDs owned by the current player.
 	virtual Drawable *getFirstSelectedDrawable( void );							///< get the first selected drawable (if any)
@@ -997,7 +998,7 @@ public:  // ********************************************************************
 
 	virtual void setInputEnabled( Bool enable );										///< Set the input enabled or disabled
 	virtual void clearModifierModes( void );												///< forget every mode a held key puts us in (see the definition)
-	virtual Bool getInputEnabled( void ) { return m_inputEnabled; }	///< Get the current input status
+	virtual Bool getInputEnabled( void ) { LOGIC_CENSUS( CENSUS_CLIENT_READ ); return m_inputEnabled; }	///< Get the current input status
 
 	virtual void disregardDrawable( Drawable *draw );				///< Drawable is being destroyed, clean up any UI elements associated with it
 

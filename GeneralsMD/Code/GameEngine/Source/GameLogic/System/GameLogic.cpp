@@ -247,6 +247,7 @@ GameLogic::GameLogic( void )
 	//
 
 	m_frame = 0;
+	m_frameForClient = 0;
 	m_frameObjectsChangedTriggerAreas = 0;
 	m_width = 0;
 	m_height = 0;
@@ -461,6 +462,7 @@ void GameLogic::reset( void )
 //	m_objHash.resize(OBJ_HASH_SIZE);
 	m_objVector.clear();
 	m_objVector.resize(OBJ_HASH_SIZE, NULL);
+	m_frameForClient = 0;
 
 	/* Unpause properly rather than just clearing the flag.  Loading a save from the in-game menu
 		 resets while the game is paused, and setGamePaused is where the mouse comes back, the audio
@@ -4617,10 +4619,10 @@ void GameLogic::update( void )
 		 this stands - before a new game starts, before the scripts, before anything in the frame reads
 		 or writes the grid.  The logic catch-up runs frames with no client pass in front of them, and
 		 there the grid fell a step behind for each: grid heights depended on the machine's frame rate.
-		 The gate stays: a frozen or held frame, which does not advance, does not step twice. */
-	if (TheTerrainVisual)
-		TheTerrainVisual->updateWaterGrid( m_frame );
-	
+		 The gate stays: a frozen or held frame, which does not advance, does not step twice.  The grid is
+		 TerrainLogic's now (M7); the render object only draws it. */
+	TheTerrainLogic->getWaterGrid()->update( m_frame );
+
 	/// @todo remove this hack
 	if ( m_startNewGame && !TheDisplay->isMoviePlaying())
 	{
@@ -4676,10 +4678,10 @@ void GameLogic::update( void )
 	if (isIntroMoviePlaying())
 		return;
 
-	// send the current time to the GameClient
+	// the current time for the GameClient, which LogicThread::runTick hands it (LOGIC-THREAD.md M7)
 	DEBUG_ASSERTCRASH(TheGameLogic == this, ("hmm, TheGameLogic is not right"));
 	UnsignedInt now = TheGameLogic->getFrame();
-	TheGameClient->setFrame(now);
+	m_frameForClient = now;
 
 	/* A logic frame that runs long is a hitch the player feels, and a release build has no
 		 profiler to ask about it.  Time the frame's own phases and, when the frame runs over
@@ -4709,10 +4711,8 @@ void GameLogic::update( void )
 		 once per frozen pass: in a multiplayer or skirmish session a machine whose camera took longer
 		 counted its script timers down further.  There the camera freezes nothing, as the camera
 		 condition in ScriptConditions already reports every move finished. */
-	if( !TheGameEngine->isMultiplayerSession() )
-		LogicThread::readViewFromTick();
 	Bool freezeTime = !TheGameEngine->isMultiplayerSession()
-										&& TheTacticalView->isTimeFrozen() && !TheTacticalView->isCameraMovementFinished();
+										&& LogicThread::isTimeFrozenForTick() && !LogicThread::isCameraMovementFinishedForTick();
 	freezeTime = freezeTime || TheScriptEngine->isTimeFrozenDebug() || TheScriptEngine->isTimeFrozenScript();
 
 	if (freezeTime)

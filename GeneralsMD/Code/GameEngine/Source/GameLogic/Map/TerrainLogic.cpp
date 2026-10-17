@@ -1010,6 +1010,23 @@ TerrainLogic::~TerrainLogic()
 void TerrainLogic::init( void )
 {
 
+	// the vertex animated water's index 0 settings, which W3DTerrainVisual::init gave the grid when
+	// the grid lived in the render object; they stand until a WaveGuide1 map picks its own
+	Int waterSettingIndex = 0;
+	m_waterGrid.setHeightClamps( TheGlobalData->m_vertexWaterHeightClampLow[ waterSettingIndex ],
+															 TheGlobalData->m_vertexWaterHeightClampHi[ waterSettingIndex ] );
+	m_waterGrid.setTransform( TheGlobalData->m_vertexWaterAngle[ waterSettingIndex ],
+														TheGlobalData->m_vertexWaterXPosition[ waterSettingIndex ],
+														TheGlobalData->m_vertexWaterYPosition[ waterSettingIndex ],
+														TheGlobalData->m_vertexWaterZPosition[ waterSettingIndex ] );
+	m_waterGrid.setResolution( TheGlobalData->m_vertexWaterXGridCells[ waterSettingIndex ],
+														 TheGlobalData->m_vertexWaterYGridCells[ waterSettingIndex ],
+														 TheGlobalData->m_vertexWaterGridSize[ waterSettingIndex ] );
+	m_waterGrid.setChangeAttenuationFactors( TheGlobalData->m_vertexWaterAttenuationA[ waterSettingIndex ],
+																					 TheGlobalData->m_vertexWaterAttenuationB[ waterSettingIndex ],
+																					 TheGlobalData->m_vertexWaterAttenuationC[ waterSettingIndex ],
+																					 TheGlobalData->m_vertexWaterAttenuationRange[ waterSettingIndex ] );
+
 }  // end init
 
 //-------------------------------------------------------------------------------------------------
@@ -1022,6 +1039,7 @@ void TerrainLogic::reset( void )
 	deleteBridges();
 	PolygonTrigger::deleteTriggers();
 	m_numWaterToUpdate = 0;
+	m_waterGrid.reset();	// zero the mesh; the flags and settings carry over, as they did in the render object
 
 }  // end reset
 
@@ -1226,27 +1244,24 @@ void TerrainLogic::enableWaterGrid( Bool enable )
 
 		}  // end if
 
-		TheTerrainVisual->setWaterGridHeightClamps( NULL, 
-																								TheGlobalData->m_vertexWaterHeightClampLow[ waterSettingIndex ], 
-																								TheGlobalData->m_vertexWaterHeightClampHi[ waterSettingIndex ] );
-		TheTerrainVisual->setWaterTransform( NULL, 
-																				 TheGlobalData->m_vertexWaterAngle[ waterSettingIndex ], 
-																				 TheGlobalData->m_vertexWaterXPosition[ waterSettingIndex ], 
-																				 TheGlobalData->m_vertexWaterYPosition[ waterSettingIndex ], 
-																				 TheGlobalData->m_vertexWaterZPosition[ waterSettingIndex ] );
-		TheTerrainVisual->setWaterGridResolution( NULL, 
-																							TheGlobalData->m_vertexWaterXGridCells[ waterSettingIndex ], 
-																							TheGlobalData->m_vertexWaterYGridCells[ waterSettingIndex ], 
-																							TheGlobalData->m_vertexWaterGridSize[ waterSettingIndex ] );
-		TheTerrainVisual->setWaterAttenuationFactors( NULL, 
-																									TheGlobalData->m_vertexWaterAttenuationA[ waterSettingIndex ], 
-																									TheGlobalData->m_vertexWaterAttenuationB[ waterSettingIndex ], 
-																									TheGlobalData->m_vertexWaterAttenuationC[ waterSettingIndex ], 
-																									TheGlobalData->m_vertexWaterAttenuationRange[ waterSettingIndex ] );	
+		m_waterGrid.setHeightClamps( TheGlobalData->m_vertexWaterHeightClampLow[ waterSettingIndex ],
+																 TheGlobalData->m_vertexWaterHeightClampHi[ waterSettingIndex ] );
+		m_waterGrid.setTransform( TheGlobalData->m_vertexWaterAngle[ waterSettingIndex ],
+															TheGlobalData->m_vertexWaterXPosition[ waterSettingIndex ],
+															TheGlobalData->m_vertexWaterYPosition[ waterSettingIndex ],
+															TheGlobalData->m_vertexWaterZPosition[ waterSettingIndex ] );
+		m_waterGrid.setResolution( TheGlobalData->m_vertexWaterXGridCells[ waterSettingIndex ],
+															 TheGlobalData->m_vertexWaterYGridCells[ waterSettingIndex ],
+															 TheGlobalData->m_vertexWaterGridSize[ waterSettingIndex ] );
+		m_waterGrid.setChangeAttenuationFactors( TheGlobalData->m_vertexWaterAttenuationA[ waterSettingIndex ],
+																						 TheGlobalData->m_vertexWaterAttenuationB[ waterSettingIndex ],
+																						 TheGlobalData->m_vertexWaterAttenuationC[ waterSettingIndex ],
+																						 TheGlobalData->m_vertexWaterAttenuationRange[ waterSettingIndex ] );
 
 	}  // end if
 
-	// notify the terrain visual of the change
+	// the grid itself, then the terrain visual, which only builds what it draws the grid with
+	m_waterGrid.enable( enable );
 	TheTerrainVisual->enableWaterGrid( enable );
 
 }  // end enableWaterGrid
@@ -1319,6 +1334,8 @@ Bool TerrainLogic::loadMap( AsciiString filename, Bool query )
 #endif
 
 	if (!query) {
+		// W3DTerrainVisual::load turned the render object's grid flag off; newMap turns it back on
+		m_waterGrid.disableMotion();
 		// tell the game interface a new terrain file has been loaded up
 		TheTerrainVisual->load( getSourceFilename() );
 	}
@@ -2217,7 +2234,7 @@ Bool TerrainLogic::isUnderwater( Real x, Real y, Real *waterZ, Real *terrainZ )
 	//
 	Real wZ = 0.0f;
 	if( waterHandle == &m_gridWaterHandle )
-		TheTerrainVisual->getWaterGridHeight( x, y, &wZ );
+		m_waterGrid.getHeight( x, y, &wZ );
 	else
 		wZ = getWaterHeight( waterHandle );
 
@@ -2275,7 +2292,7 @@ const WaterHandle* TerrainLogic::getWaterHandle( Real x, Real y )
 	/**@todo: Remove this after we have all water types included
 		in water triggers.  For now do special check for water grid mesh. */
 	Real meshZ;
-	if( TheTerrainVisual->getWaterGridHeight( x, y, &meshZ ) )
+	if( m_waterGrid.getHeight( x, y, &meshZ ) )
 	{	
 
 		//
@@ -2369,14 +2386,14 @@ void TerrainLogic::setWaterHeight( const WaterHandle *water, Real height, Real d
 
 		// get transform information
 		Matrix3D transform;
-		TheTerrainVisual->getWaterTransform( water, &transform );
+		m_waterGrid.getTransform( &transform );
 
 		// save the old height
 		previousHeight = transform.Get_Z_Translation();
 
 		// set the new height
 		transform.Set_Z_Translation( height );
-		TheTerrainVisual->setWaterTransform( &transform );
+		m_waterGrid.setTransform( &transform );
 
 	}  // end if
 	else
@@ -2556,7 +2573,7 @@ void TerrainLogic::findAxisAlignedBoundingRect( const WaterHandle *water, Region
 
 		// compute the 4 corners of the table according to the grids and grid spacing
 		Real gridX, gridY, cellSize;
-		TheTerrainVisual->getWaterGridResolution( water, &gridX, &gridY, &cellSize );
+		m_waterGrid.getResolution( &gridX, &gridY, &cellSize );
 		p[ 0 ].x = 0;
 		p[ 0 ].y = 0;
 		p[ 1 ].x = gridX * cellSize;
@@ -2569,7 +2586,7 @@ void TerrainLogic::findAxisAlignedBoundingRect( const WaterHandle *water, Region
 		// transform the 4 points using the transform matrix of the water
 		Vector3 v;
 		Matrix3D transform;
-		TheTerrainVisual->getWaterTransform( water, &transform );
+		m_waterGrid.getTransform( &transform );
 		for( i = 0; i < 4; i++ )
 		{
 

@@ -376,6 +376,7 @@ HAnimClass* W3DAnimationInfo::getAnimHandle() const
 #ifdef RETAIN_ANIM_HANDLES
 	if (m_handle == NULL)
 	{
+		LOGIC_CENSUS( CENSUS_ASSET_LOAD );
 		// Get_HAnim addrefs it, so we'll have to release it in our dtor.
 		m_handle = W3DDisplay::m_assetManager->Get_HAnim(m_name.str());
 		DEBUG_ASSERTCRASH(m_handle, ("*** ASSET ERROR: animation %s not found\n",m_name.str()));
@@ -642,13 +643,16 @@ void ModelConditionInfo::validateCachedBones(RenderObjClass* robj, Real scale) c
 	Bool tossRobj = false;
 	if (robj == NULL)
 	{
-		if (m_modelName.isEmpty())
+		// the asset manager's built-in NULL object has no bones either, so it is not worth a trip there
+		// from the tick
+		if (m_modelName.isEmpty() || m_modelName.compareNoCase("NULL") == 0)
 		{
 			//BONEPOS_LOG(("Bailing: model name is empty\n"));
 			return;
 		}
 
-		robj = W3DDisplay::m_assetManager->Create_Render_Obj(m_modelName.str(), scale, 0);
+		LOGIC_CENSUS( CENSUS_ASSET_LOAD );
+		robj =W3DDisplay::m_assetManager->Create_Render_Obj(m_modelName.str(), scale, 0);
 		DEBUG_ASSERTCRASH(robj, ("*** ASSET ERROR: Model %s not found!\n",m_modelName.str()));
 		if (!robj)
 		{
@@ -1105,7 +1109,10 @@ void W3DModelDrawModuleData::validateStuffForTimeAndWeather(const Drawable* draw
 	ModelConditionVector::iterator c_it;	// VC6 leaked it out to the transition loop below
 	for (c_it = m_conditionStates.begin(); c_it != m_conditionStates.end(); ++c_it)
 	{
-		if (!c_it->matchesMode(false, false) && !c_it->matchesMode(night, snowy))
+		// a template with no state for both night and snow falls back on its night or its snow state,
+		// and logic asks that one's bones; validated here it is not loaded from inside a tick
+		if (!c_it->matchesMode(false, false) && !c_it->matchesMode(night, false) &&
+				!c_it->matchesMode(false, snowy) && !c_it->matchesMode(night, snowy))
 			continue;
 
 		c_it->validateStuff(NULL, draw->getScale(), m_extraPublicBones);
@@ -1821,18 +1828,26 @@ W3DModelDraw::W3DModelDraw(Thing *thing, const ModuleData* moduleData) : DrawMod
 
 //-------------------------------------------------------------------------------------------------
 /** The pristine bone, turret and barrel caches are logic's, and filling them loads every state's
-	model.  A drawable logic makes in a tick fills them here, after the tick, in a window where the
-	caches count as logic's (isValidTimeToCalcLogicStuff), so they take the same values from the same
-	unanimated models as they did in the constructor.  Without that, the first fill could come from
-	an on-demand setModelState inside a later tick with this machine's live render object. */
+	model.  A drawable logic makes in a tick fills them here after the tick, and one the map load makes
+	fills them here too, in a window where the caches count as logic's (isValidTimeToCalcLogicStuff),
+	so they take the same values from the same unanimated models as they did in the constructor.
+	Without that, the first fill could come from an on-demand setModelState inside a later tick with
+	this machine's live render object, or from a bone query loading the model inside the tick: a
+	campaign map loads outside GameLogic::update, and its garrisons and spawn points asked on frame 1.
+	A map object can also set its own night and snow flags once it is made (Object.cpp, objectTime
+	and objectWeather), so the map load validates the night and snow states as well. */
 void W3DModelDraw::buildRenderObjects( Bool madeInTick )
 {
 	{
-		LatchRestore<Bool> forLogic( s_fillingLogicCaches, s_fillingLogicCaches || madeInTick );
+		const Bool loadingMap = TheGameLogic->isLoadingMap();
+		LatchRestore<Bool> forLogic( s_fillingLogicCaches, s_fillingLogicCaches || madeInTick || loadingMap );
 		// only validate the current time-of-day and weather conditions by default.
 		getW3DModelDrawModuleData()->validateStuffForTimeAndWeather(getDrawable(),
 												TheGlobalData->m_timeOfDay == TIME_OF_DAY_NIGHT,
 												TheGlobalData->m_weather == WEATHER_SNOWY);
+		// ponytail: loads every map object's night and snow models once; validate per object override if memory bites
+		if (loadingMap)
+			getW3DModelDrawModuleData()->validateStuffForTimeAndWeather(getDrawable(), TRUE, TRUE);
 	}
 
 	ModelConditionFlags emptyFlags;

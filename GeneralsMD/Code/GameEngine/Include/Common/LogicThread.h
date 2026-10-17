@@ -28,8 +28,12 @@
 #define __LOGICTHREAD_H__
 
 #include "Lib/BaseType.h"
+#include "Common/GameType.h"
 
 #include <functional>
+#include <vector>
+
+class Player;
 
 /**
 	* `-logicthread 0` (the default) runs the tick on the main thread, as it always ran.
@@ -69,7 +73,8 @@ namespace LogicThread
 		CENSUS_DRAWABLE_PUSH,		///< Drawable::doClientWork run inside the tick: hidden, colour, decal, shadows, sub-objects, ambient sound, caption
 		CENSUS_DESTROY_DRAWABLE,	///< a drawable deleted: draw modules, render objects, shadows (M4: after the tick for one logic destroyed)
 		CENSUS_AUDIO_READ,			///< a logic read of the audio device: sound lengths, a track done, a handle still playing (hazard 4, M7)
-		CENSUS_CLIENT_READ,			///< a logic read of other client state: selection, input enabled, camera, the water grid (hazard 4, M7)
+		CENSUS_CLIENT_READ,			///< a logic read of other client state: selection, input enabled, camera (hazard 4, M7)
+		CENSUS_ASSET_LOAD,			///< the W3D asset manager loading a model or an animation for a cache logic reads (hazards 5 and 22, M7)
 		CENSUS_COUNT
 	};
 
@@ -124,6 +129,49 @@ namespace LogicThread
 
 	/** The tick cleared the game: what it queued has no game left to play in.  GameEngine::reset. */
 	void discardEffects( void );
+
+	/** LOGIC-THREAD.md phase 2, M7.  What logic reads of the client, copied by runTick on the main
+		* thread before every tick (the sync point), so the tick reads this block and never the client.
+		* Between ticks only the player changes these, so the copy holds what a live read in the tick
+		* gave.  Inside the tick logic changes some of them itself through calls that now wait for the
+		* tick's end: a script selects a unit, starts a camera move.  Those calls write the block too,
+		* at the call, so a read later in the same tick sees them as it saw the immediate call. */
+	struct SelectedEntry
+	{
+		DrawableID drawable;
+		ObjectID object;
+	};
+	struct ClientBlock
+	{
+		std::vector<SelectedEntry> selection;		///< the local selection (InGameUI::m_selectedDrawables)
+		UnsignedInt frameSelectionChanged;	///< InGameUI::getFrameSelectionChanged
+		Player *observerLookAt;							///< ControlBar::getObserverLookAtPlayer
+		Bool cameraFrozen;									///< View::isTimeFrozen
+		Bool cameraMoving;									///< View::isCameraMoving
+		Bool cameraBlurring;								///< View::isCameraMotionBlurring
+	};
+	const ClientBlock &clientBlock( void );
+
+	/** A select or deselect the tick queued (InGameUI), written to the block at the call. */
+	void noteSelected( DrawableID drawable, ObjectID object, Bool selected );
+	void noteSelectionCleared( void );
+
+	/** What a queued camera call does to the two answers logic reads (time frozen, movement finished),
+		* written to the block at the call.  This is the camera's state machine in four words, not the
+		* camera: a move whose path collapses to one point, or a motion blur the device refuses, leaves the
+		* real camera finished where the block says moving.  So -logicthread 0 keeps asking the camera
+		* (readViewFromTick), exact as it always was, and counts every read where the block would have
+		* answered otherwise; -logicthread 1 answers from the block. */
+	enum ViewEffect
+	{
+		VIEW_MOVES,							///< a move, zoom, pitch or rotation starts
+		VIEW_FREEZES_TIME,			///< cameraModFreezeTime
+		VIEW_BLUR_STARTS,				///< an in or out motion blur, which counts as a finished movement
+		VIEW_BLUR_ENDS					///< a filter mode that replaces it
+	};
+	void noteViewEffect( ViewEffect effect );
+	Bool isCameraMovementFinishedForTick( void );
+	Bool isTimeFrozenForTick( void );
 
 }  // namespace LogicThread
 

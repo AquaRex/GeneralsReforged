@@ -6032,6 +6032,8 @@ Bool InGameUI::rotatePendingPlacement( Int steps )
 void InGameUI::selectDrawable( Drawable *draw )
 {
 	// a drawable the tick destroys leaves the selection in this queue too, before it is deleted
+	if( LogicThread::defersEffects() )
+		LogicThread::noteSelected( draw->getID(), draw->getObject()->getID(), TRUE );	// what the tick reads back (M7)
 	LOGIC_AFTER_TICK( [=]() { selectDrawable( draw ); } );
 	LOGIC_CENSUS( CENSUS_INGAMEUI );
 
@@ -6073,6 +6075,8 @@ void InGameUI::setDisplayedMaxWarning( Bool selected )
 //-------------------------------------------------------------------------------------------------
 void InGameUI::deselectDrawable( Drawable *draw )
 {
+	if( LogicThread::defersEffects() )
+		LogicThread::noteSelected( draw->getID(), INVALID_ID, FALSE );	// what the tick reads back (M7)
 	LOGIC_AFTER_TICK( [=]() { deselectDrawable( draw ); } );
 	LOGIC_CENSUS( CENSUS_INGAMEUI );
 
@@ -6113,6 +6117,8 @@ void InGameUI::deselectDrawable( Drawable *draw )
 //-------------------------------------------------------------------------------------------------
 void InGameUI::deselectAllDrawables( void )
 {
+	if( LogicThread::defersEffects() )
+		LogicThread::noteSelectionCleared();	// what the tick reads back (M7)
 	LOGIC_AFTER_TICK( [=]() { deselectAllDrawables(); } );
 	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	const DrawableList *selected = TheInGameUI->getAllSelectedDrawables();

@@ -137,6 +137,15 @@ static void updateTeamAndPlayerStuff( Object *obj, void *userData )
 #define VIEW_AFTER_TICK( ... ) \
 	if( LogicThread::defersView() ) { LogicThread::callViewAfterTick( __VA_ARGS__ ); return; }
 
+/** M7.  What a camera action about to wait in that queue does to the two camera answers the tick
+	* reads back, written to LogicThread::ClientBlock at the call.  Only when it waits: run from the
+	* queue it was noted when it was queued. */
+static void noteView( Bool applies, LogicThread::ViewEffect effect )
+{
+	if( applies && LogicThread::defersView() )
+		LogicThread::noteViewEffect( effect );
+}
+
 // GLOBALS ////////////////////////////////////////////////////////////////////////////////////////
 ScriptActionsInterface *TheScriptActions = NULL;
 GameWindow *ScriptActions::m_messageWindow = NULL;
@@ -813,6 +822,7 @@ void ScriptActions::doCreateReinforcements(const AsciiString& team, const AsciiS
 //-------------------------------------------------------------------------------------------------
 void ScriptActions::doMoveCameraTo(const AsciiString& waypoint, Real sec, Real cameraStutterSec, Real easeIn, Real easeOut)
 {
+	noteView( TheTerrainLogic->getWaypointByName( waypoint ) != NULL, LogicThread::VIEW_MOVES );
 	VIEW_AFTER_TICK( [=]() { doMoveCameraTo( waypoint, sec, cameraStutterSec, easeIn, easeOut ); } );
 	for (Waypoint *way = TheTerrainLogic->getFirstWaypoint(); way; way = way->getNext()) {
 		if (way->getName() == waypoint) {
@@ -828,6 +838,7 @@ void ScriptActions::doMoveCameraTo(const AsciiString& waypoint, Real sec, Real c
 //-------------------------------------------------------------------------------------------------
 void ScriptActions::doZoomCamera(Real zoom, Real sec, Real easeIn, Real easeOut)
 {
+	noteView( TRUE, LogicThread::VIEW_MOVES );
 	VIEW_AFTER_TICK( [=]() { doZoomCamera( zoom, sec, easeIn, easeOut ); } );
 	TheTacticalView->zoomCamera(zoom, sec*1000.0f, easeIn*1000.0f, easeOut*1000.0f);
 }
@@ -837,6 +848,7 @@ void ScriptActions::doZoomCamera(Real zoom, Real sec, Real easeIn, Real easeOut)
 //-------------------------------------------------------------------------------------------------
 void ScriptActions::doPitchCamera(Real pitch, Real sec, Real easeIn, Real easeOut)
 {
+	noteView( TRUE, LogicThread::VIEW_MOVES );
 	VIEW_AFTER_TICK( [=]() { doPitchCamera( pitch, sec, easeIn, easeOut ); } );
 	TheTacticalView->pitchCamera(pitch, sec*1000.0f, easeIn*1000.0f, easeOut*1000.0f);
 }
@@ -857,6 +869,8 @@ void ScriptActions::doOversizeTheTerrain(Int amount)
 //-------------------------------------------------------------------------------------------------
 void ScriptActions::doSetupCamera(const AsciiString& waypoint, Real zoom, Real pitch, const AsciiString& lookAtWaypoint)
 {
+	noteView( TheTerrainLogic->getWaypointByName( waypoint ) && TheTerrainLogic->getWaypointByName( lookAtWaypoint ),
+		LogicThread::VIEW_MOVES );
 	VIEW_AFTER_TICK( [=]() { doSetupCamera( waypoint, zoom, pitch, lookAtWaypoint ); } );
 	Waypoint *way = TheTerrainLogic->getWaypointByName(waypoint);
 	if (way==NULL) return;
@@ -937,6 +951,7 @@ void ScriptActions::doModCameraMoveToSelection(void)
 //-------------------------------------------------------------------------------------------------
 void ScriptActions::doResetCamera(const AsciiString& waypoint, Real sec, Real easeIn, Real easeOut)
 {
+	noteView( TheTerrainLogic->getWaypointByName( waypoint ) != NULL, LogicThread::VIEW_MOVES );
 	VIEW_AFTER_TICK( [=]() { doResetCamera( waypoint, sec, easeIn, easeOut ); } );
 	for (Waypoint *way = TheTerrainLogic->getFirstWaypoint(); way; way = way->getNext()) {
 		if (way->getName() == waypoint) {
@@ -952,6 +967,7 @@ void ScriptActions::doResetCamera(const AsciiString& waypoint, Real sec, Real ea
 //-------------------------------------------------------------------------------------------------
 void ScriptActions::doRotateCamera(Real rotations, Real sec, Real easeIn, Real easeOut)
 {
+	noteView( TRUE, LogicThread::VIEW_MOVES );
 	VIEW_AFTER_TICK( [=]() { doRotateCamera( rotations, sec, easeIn, easeOut ); } );
 	TheTacticalView->rotateCamera(rotations, sec*1000.0f, easeIn*1000.0f, easeOut*1000.0f);			
 }
@@ -961,6 +977,7 @@ void ScriptActions::doRotateCamera(Real rotations, Real sec, Real easeIn, Real e
 //-------------------------------------------------------------------------------------------------
 void ScriptActions::doRotateCameraTowardObject(const AsciiString& unitName, Real sec, Real holdSec, Real easeIn, Real easeOut)
 {
+	noteView( TheScriptEngine->getUnitNamed( unitName ) != NULL, LogicThread::VIEW_MOVES );
 	VIEW_AFTER_TICK( [=]() { doRotateCameraTowardObject( unitName, sec, holdSec, easeIn, easeOut ); } );
 	const Object *unit = TheScriptEngine->getUnitNamed(unitName);
 	if (!unit)
@@ -973,6 +990,7 @@ void ScriptActions::doRotateCameraTowardObject(const AsciiString& unitName, Real
 //-------------------------------------------------------------------------------------------------
 void ScriptActions::doRotateCameraTowardWaypoint(const AsciiString& waypointName, Real sec, Real easeIn, Real easeOut, Bool reverseRotation)
 {
+	noteView( TheTerrainLogic->getWaypointByName( waypointName ) != NULL, LogicThread::VIEW_MOVES );
 	VIEW_AFTER_TICK( [=]() { doRotateCameraTowardWaypoint( waypointName, sec, easeIn, easeOut, reverseRotation ); } );
 	Waypoint *way = TheTerrainLogic->getWaypointByName(waypointName);
 	if (way==NULL) return;
@@ -984,6 +1002,7 @@ void ScriptActions::doRotateCameraTowardWaypoint(const AsciiString& waypointName
 //-------------------------------------------------------------------------------------------------
 void ScriptActions::doMoveCameraAlongWaypointPath(const AsciiString& waypoint, Real sec, Real cameraStutterSec, Real easeIn, Real easeOut)
 {
+	noteView( TheTerrainLogic->getWaypointByName( waypoint ) != NULL, LogicThread::VIEW_MOVES );
 	VIEW_AFTER_TICK( [=]() { doMoveCameraAlongWaypointPath( waypoint, sec, cameraStutterSec, easeIn, easeOut ); } );
 	for (Waypoint *way = TheTerrainLogic->getFirstWaypoint(); way; way = way->getNext()) {
 		if (way->getName() == waypoint) {
@@ -3003,6 +3022,7 @@ void ScriptActions::doRadarEnable(void)
 //-------------------------------------------------------------------------------------------------
 void ScriptActions::doCameraMotionBlurJump(const AsciiString& waypointName, Bool saturate)
 {
+	noteView( TheTerrainLogic->getWaypointByName( waypointName ) != NULL, LogicThread::VIEW_BLUR_STARTS );
 	VIEW_AFTER_TICK( [=]() { doCameraMotionBlurJump( waypointName, saturate ); } );
 	Waypoint *way = TheTerrainLogic->getWaypointByName(waypointName);
 	if (!way) {
@@ -3042,6 +3062,7 @@ void ScriptActions::doCameraMotionBlurJump(const AsciiString& waypointName, Bool
 //-------------------------------------------------------------------------------------------------
 void ScriptActions::doCameraMotionBlur(Bool zoomIn, Bool saturate)
 {
+	noteView( TRUE, LogicThread::VIEW_BLUR_STARTS );
 	VIEW_AFTER_TICK( [=]() { doCameraMotionBlur( zoomIn, saturate ); } );
 	if (TheTacticalView->setViewFilter(FT_VIEW_MOTION_BLUR_FILTER))
 	{
@@ -3874,6 +3895,7 @@ void ScriptActions::doLetterBoxMode(Bool startLetterbox)
 void ScriptActions::doBlackWhiteMode(Bool startBWMode, Int frames)
 {
 	// which filter is on is the client's to read, after the tick
+	noteView( startBWMode, LogicThread::VIEW_BLUR_ENDS );	// its filter mode replaces a motion blur's
 	VIEW_AFTER_TICK( [=]() { doBlackWhiteMode( startBWMode, frames ); } );
 	if (startBWMode)
 	{
@@ -5088,6 +5110,7 @@ void ScriptActions::doForceObjectSelection(const AsciiString& teamName, const As
 
 	if (centerInView) {
 		Coord3D pos = *bestGuess->getPosition();
+		noteView( TRUE, LogicThread::VIEW_MOVES );
 		LogicThread::callViewAfterTick( [pos]() mutable { TheTacticalView->moveCameraTo(&pos, 0, 0, FALSE, 0.0f, 0.0f); } );
 	}
 }
@@ -6630,6 +6653,7 @@ void ScriptActions::executeAction( ScriptAction *pAction )
 			return;
 		// the camera's own calls go to its queue (VIEW_AFTER_TICK), the parameters read now
 		case ScriptAction::CAMERA_MOD_FREEZE_TIME:
+			noteView( TRUE, LogicThread::VIEW_FREEZES_TIME );
 			LogicThread::callViewAfterTick( []{ TheTacticalView->cameraModFreezeTime(); } );
 			return;
 		case ScriptAction::CAMERA_MOD_FREEZE_ANGLE:
@@ -7087,6 +7111,7 @@ void ScriptActions::executeAction( ScriptAction *pAction )
 		case ScriptAction::CAMERA_MOTION_BLUR_FOLLOW:
 		{
 			const FilterModes mode = (enum FilterModes)(FM_VIEW_MB_PAN_ALPHA+pAction->getParameter(0)->getInt());
+			noteView( TRUE, LogicThread::VIEW_BLUR_ENDS );
 			LogicThread::callViewAfterTick( [=]{
 				TheTacticalView->setViewFilterMode(mode);
 				TheTacticalView->setViewFilter(FT_VIEW_MOTION_BLUR_FILTER);
@@ -7094,6 +7119,7 @@ void ScriptActions::executeAction( ScriptAction *pAction )
 			return;
 		}
 		case ScriptAction::CAMERA_MOTION_BLUR_END_FOLLOW:
+			noteView( TRUE, LogicThread::VIEW_BLUR_ENDS );
 			LogicThread::callViewAfterTick( []{
 				TheTacticalView->setViewFilterMode(FM_VIEW_MB_END_PAN_ALPHA);
 				TheTacticalView->setViewFilter(FT_VIEW_MOTION_BLUR_FILTER);

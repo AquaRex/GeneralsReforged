@@ -172,6 +172,8 @@ public:
 	virtual void moveCameraTo(const Coord3D *o, Int miliseconds,  Int shutter, Bool orient, Real easeIn, Real easeOut);
 	virtual void moveCameraAlongWaypointPath(Waypoint *pWay, Int frames, Int shutter, Bool orient, Real easeIn, Real easeOut);
 	virtual Bool isCameraMovementFinished(void);
+	virtual Bool isCameraMoving(void) { return m_doingMoveCameraOnWaypointPath || m_doingRotateCamera || m_doingPitchCamera || m_doingZoomCamera; }
+	virtual Bool isCameraMotionBlurring(void);
 	virtual Bool isCameraMovementAtWaypointAlongPath(void);
  	virtual void resetCamera(const Coord3D *location, Int frames, Real easeIn, Real easeOut);	///< Move camera to location, and reset to default angle & zoom.
  	virtual void rotateCamera(Real rotations, Int frames, Real easeIn, Real easeOut);					///< Rotate camera about current viewpoint.

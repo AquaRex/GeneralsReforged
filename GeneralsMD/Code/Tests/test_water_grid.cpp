@@ -19,7 +19,7 @@
  * T1c, defect 17: the water grid steps once per logic frame, however many logic frames a pass runs.
  *
  * WaterGridMotion::updateForLogicFrame is the step moved out of WaterRenderObjClass::update; GameLogic::
- * update calls it (through TerrainVisual::updateWaterGrid) at the top of every logic frame.  This plays
+ * update calls it (through TerrainLogic's WaterGrid::update) at the top of every logic frame.  This plays
  * Tests/water_grid_scenario.h through it that way, under EA's loop and three shapes of the fork's
  * catch-up, and requires every one to print what the ORIGINAL code printed under EA's loop.
  *

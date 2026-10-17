@@ -25,13 +25,18 @@
 #include "Common/LogicThread.h"
 #include "Common/AudioEventRTS.h"
 #include "Common/EarlyCommandLine.h"
+#include "Common/GameAudio.h"
 #include "Common/MessageStream.h"
 #include "GameClient/ControlBar.h"
 #include "GameClient/Drawable.h"
 #include "GameClient/GameClient.h"
+#include "GameClient/InGameUI.h"
+#include "GameClient/View.h"
+#include "GameLogic/Object.h"
 #include "GameLogic/FPUControl.h"
 #include "GameLogic/GameLogic.h"
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <exception>
@@ -83,7 +88,7 @@ namespace
 		"drawable", "modelcondition", "audio", "ingameui", "controlbar", "tacticalview", "radar",
 		"fxlist", "terrainvisual", "particles", "gameclient", "eva", "newdrawable", "clientrandom",
 		"ghost", "messagestream", "display", "jobs", "ondemandflush", "observerlookat",
-		"drawablepush", "destroydrawable", "audioread", "clientread"
+		"drawablepush", "destroydrawable", "audioread", "clientread", "assetload"
 	};
 
 	// M5: what the tick asked of the audio, the FX lists and the particle systems, in call order.
@@ -92,6 +97,35 @@ namespace
 
 	// M6: the camera calls of the tick, see callViewAfterTick
 	std::vector< std::function<void()> > s_viewCalls;
+
+	// M7: what the tick reads of the client, see LogicThread::ClientBlock
+	LogicThread::ClientBlock s_block;
+	Int64				s_viewReads = 0;					///< camera answers the tick asked the camera for, at -logicthread 0
+	Int64				s_viewMispredicted = 0;		///< of those, the ones the block would have answered otherwise
+
+	/* The sync point: the main thread, before the tick, with every call the last tick queued already
+		 run.  So the block holds what the tick's first read of the client would have returned. */
+	void captureClientBlock( void )
+	{
+		s_block.selection.clear();
+		const DrawableList *selected = TheInGameUI->getAllSelectedDrawables();
+		for( DrawableListCIt it = selected->begin(); it != selected->end(); ++it )
+		{
+			LogicThread::SelectedEntry entry = { (*it)->getID(), (*it)->getObject()->getID() };
+			s_block.selection.push_back( entry );
+		}
+		s_block.frameSelectionChanged = TheInGameUI->getFrameSelectionChanged();
+		s_block.observerLookAt = TheControlBar->getObserverLookAtPlayer();
+		s_block.cameraFrozen = TheTacticalView->isTimeFrozen();
+		s_block.cameraMoving = TheTacticalView->isCameraMoving();
+		s_block.cameraBlurring = TheTacticalView->isCameraMotionBlurring();
+		TheAudio->captureForLogic();
+	}
+
+	Bool blockSaysCameraFinished( void )
+	{
+		return s_block.cameraBlurring || !s_block.cameraMoving;
+	}
 
 	void runViewCalls( void )
 	{
@@ -109,6 +143,9 @@ namespace
 		 bones a death effect may still have read, then the control bar (M2). */
 	void flushAfterTick( void )
 	{
+		// M7: the frame the tick ran, which it used to hand the client itself; a tick that started a map
+		// ran frame 0 after the load, one that cleared the game left 0
+		TheGameClient->setFrame( TheGameLogic->getFrameForClient() );
 		Drawable::flushPendingClientWork();
 		runViewCalls();
 		// an effect queues nothing more: none of them runs inside a tick
@@ -241,6 +278,10 @@ void LogicThread::shutdown( void )
 //-------------------------------------------------------------------------------------------------
 void LogicThread::runTick( void )
 {
+	captureClientBlock();
+	// the client's clock reads the frame the tick runs, as GameLogic::update set it at its top
+	TheGameClient->setFrame( TheGameLogic->getFrame() );
+
 	if( !s_enabled || tickNeedsMainThread() )
 	{
 		++s_inlineTicks;
@@ -342,6 +383,77 @@ void LogicThread::readViewFromTick( void )
 }
 
 //-------------------------------------------------------------------------------------------------
+const LogicThread::ClientBlock &LogicThread::clientBlock( void )
+{
+	return s_block;
+}
+
+//-------------------------------------------------------------------------------------------------
+void LogicThread::noteSelected( DrawableID drawable, ObjectID object, Bool selected )
+{
+	std::vector<SelectedEntry>::iterator it = s_block.selection.begin();
+	while( it != s_block.selection.end() && it->drawable != drawable )
+		++it;
+	if( selected == ( it != s_block.selection.end() ) )
+		return;
+	if( selected )
+	{
+		SelectedEntry entry = { drawable, object };
+		s_block.selection.push_back( entry );
+	}
+	else
+		s_block.selection.erase( it );
+	s_block.frameSelectionChanged = TheGameLogic->getFrame();
+}
+
+//-------------------------------------------------------------------------------------------------
+void LogicThread::noteSelectionCleared( void )
+{
+	if( s_block.selection.empty() )
+		return;
+	s_block.selection.clear();
+	s_block.frameSelectionChanged = TheGameLogic->getFrame();
+}
+
+//-------------------------------------------------------------------------------------------------
+void LogicThread::noteViewEffect( ViewEffect effect )
+{
+	switch( effect )
+	{
+		case VIEW_MOVES:					s_block.cameraMoving = TRUE;		break;
+		case VIEW_FREEZES_TIME:		s_block.cameraFrozen = TRUE;		break;
+		case VIEW_BLUR_STARTS:		s_block.cameraBlurring = TRUE;	break;
+		case VIEW_BLUR_ENDS:			s_block.cameraBlurring = FALSE;	break;
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool LogicThread::isCameraMovementFinishedForTick( void )
+{
+	if( s_enabled )
+		return blockSaysCameraFinished();
+	readViewFromTick();
+	const Bool finished = TheTacticalView->isCameraMovementFinished();
+	++s_viewReads;
+	if( finished != blockSaysCameraFinished() )
+		++s_viewMispredicted;
+	return finished;
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool LogicThread::isTimeFrozenForTick( void )
+{
+	if( s_enabled )
+		return s_block.cameraFrozen;
+	readViewFromTick();
+	const Bool frozen = TheTacticalView->isTimeFrozen();
+	++s_viewReads;
+	if( frozen != s_block.cameraFrozen )
+		++s_viewMispredicted;
+	return frozen;
+}
+
+//-------------------------------------------------------------------------------------------------
 void LogicThread::discardEffects( void )
 {
 	s_effects.clear();
@@ -362,4 +474,6 @@ void LogicThread::report( void )
 	for( Int i = 0; i < CENSUS_COUNT; ++i )
 		used += snprintf( line + used, sizeof(line) - used, "%s%s %lld", i ? " | " : "", CHANNEL_NAMES[ i ], (long long)s_census[ i ] );
 	DEBUG_LOG(( "HEADLESS LOGICTHREAD CENSUS: %s\n", line ));
+	DEBUG_LOG(( "HEADLESS LOGICTHREAD VIEW: %lld camera reads asked of the camera, %lld the block would have answered otherwise\n",
+		(long long)s_viewReads, (long long)s_viewMispredicted ));
 }

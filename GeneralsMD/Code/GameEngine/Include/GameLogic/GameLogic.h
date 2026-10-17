@@ -160,6 +160,7 @@ public:
 	Bool isInGameLogicUpdate( void ) const { return m_isInUpdate; }
 	Bool isNewGamePending( void ) const { return m_startNewGame; }	///< the next update starts a map (LogicThread keeps that tick on the main thread)
 	UnsignedInt getFrame( void );										///< Returns the current simulation frame number
+	UnsignedInt getFrameForClient( void ) const { return m_frameForClient; }	///< the frame the last tick ran, for the client's clock (LogicThread::runTick)
 	UnsignedInt getCRC( Int mode = CRC_CACHED, AsciiString deepCRCFileName = AsciiString::TheEmptyString );		///< Returns the CRC
 
 	void setObjectIDCounter( ObjectID nextObjID ) { m_nextObjID = nextObjID; }
@@ -358,6 +359,7 @@ private:
 
 	Real m_width, m_height;																	///< Dimensions of the world
 	UnsignedInt m_frame;																		///< Simulation frame number
+	UnsignedInt m_frameForClient;														///< m_frame at the top of the last update that got past the intro movie
 	
 	// CRC cache system -----------------------------------------------------------------------------
 	UnsignedInt	m_CRC;																			///< Cache of previous CRC value

@@ -82,12 +82,14 @@ public:
 	// generateFilename is separate from generatePlayInfo because generatePlayInfo should only be called once
 	// per triggered event. generateFilename will be called once per loop, or once to get each filename if 'all' is 
 	// specified.
-	void generateFilename( void );
+	// forPlaying FALSE: only the file names, as AudioManager::getAudioLengthMS measures them from the tick,
+	// with no draw from the audio stream for the delay, pitch and volume it does not need (LOGIC-THREAD.md M7)
+	void generateFilename( Bool forPlaying = TRUE );
 	AsciiString getFilename( void );
 
 	// The attack and decay sounds are generated in generatePlayInfo, because they will never be played more
 	// than once during a given sound event.
-	void generatePlayInfo( void );
+	void generatePlayInfo( Bool forPlaying = TRUE );
 	Real getPitchShift( void ) const;
 	Real getVolumeShift( void ) const;
 	AsciiString getAttackFilename( void ) const;

@@ -52,6 +52,7 @@
 
 #include "GameLogic/Object.h"
 #include "GameLogic/GameLogic.h"
+#include "GameLogic/TerrainLogic.h"
 
 #include "W3DDevice/GameClient/W3DScene.h"
 #include "W3DDevice/GameClient/W3DTerrainVisual.h"
@@ -286,26 +287,8 @@ void W3DTerrainVisual::init( void )
 	else
 		m_waterRenderObject->toggleCloudLayer(false);
 
-	// set the vertex animated water properties
-	Int waterSettingIndex = 0;  // use index 0 settings by default
-	TheTerrainVisual->setWaterGridHeightClamps( NULL, 
-																							TheGlobalData->m_vertexWaterHeightClampLow[ waterSettingIndex ], 
-																							TheGlobalData->m_vertexWaterHeightClampHi[ waterSettingIndex ] );
-	TheTerrainVisual->setWaterTransform( NULL, 
-																			 TheGlobalData->m_vertexWaterAngle[ waterSettingIndex ], 
-																			 TheGlobalData->m_vertexWaterXPosition[ waterSettingIndex ], 
-																			 TheGlobalData->m_vertexWaterYPosition[ waterSettingIndex ], 
-																			 TheGlobalData->m_vertexWaterZPosition[ waterSettingIndex ] );
-	TheTerrainVisual->setWaterGridResolution( NULL, 
-																						TheGlobalData->m_vertexWaterXGridCells[ waterSettingIndex ], 
-																						TheGlobalData->m_vertexWaterYGridCells[ waterSettingIndex ], 
-																						TheGlobalData->m_vertexWaterGridSize[ waterSettingIndex ] );
-	TheTerrainVisual->setWaterAttenuationFactors( NULL, 
-																								TheGlobalData->m_vertexWaterAttenuationA[ waterSettingIndex ], 
-																								TheGlobalData->m_vertexWaterAttenuationB[ waterSettingIndex ], 
-																								TheGlobalData->m_vertexWaterAttenuationC[ waterSettingIndex ], 
-																								TheGlobalData->m_vertexWaterAttenuationRange[ waterSettingIndex ] );	
-	m_isWaterGridRenderingEnabled = FALSE;
+	// the vertex animated water's index 0 settings, which were set here, are TerrainLogic::init's now:
+	// the grid is logic's, and the render object takes its transform from it when it draws
 
 #ifdef DO_SEISMIC_SIMULATIONS
   m_seismicSimulationList.clear();
@@ -730,10 +713,8 @@ Bool W3DTerrainVisual::load( AsciiString filename )
 void W3DTerrainVisual::enableWaterGrid( Bool enable )
 {
 
-	//Get default water type
-	m_isWaterGridRenderingEnabled = enable;
-
-	// make the changes in the water render object
+	// the flag getWaterGridHeight answered to is TerrainLogic's WaterGrid's now; the render object
+	// still has buffers and river flags to see to
 	if( m_waterRenderObject )
 		m_waterRenderObject->enableWaterGrid( enable );
 
@@ -820,139 +801,6 @@ TerrainType *W3DTerrainVisual::getTerrainTile( Real x, Real y )
 	return tile;
 
 }  // end getTerrainTile
-
-// ------------------------------------------------------------------------------------------------
-/** set min/max height values allowed in water grid pointed to by waterTable */
-// ------------------------------------------------------------------------------------------------
-void W3DTerrainVisual::setWaterGridHeightClamps( const WaterHandle *waterTable, 
-																								 Real minZ, Real maxZ )
-{
-
-	if( m_waterRenderObject )
-		m_waterRenderObject->setGridHeightClamps( minZ, maxZ );
-
-}  // end setWaterGridHeightClamps
-
-// ------------------------------------------------------------------------------------------------
-/** adjust fallof parameters for grid change method */
-// ------------------------------------------------------------------------------------------------
-void W3DTerrainVisual::setWaterAttenuationFactors( const WaterHandle *waterTable, 
-																									 Real a, Real b, Real c, Real range )
-{
-
-	if( m_waterRenderObject )
-		m_waterRenderObject->setGridChangeAttenuationFactors( a, b, c, range );
-
-}  // end setWaterAttenuationFactors
-
-// ------------------------------------------------------------------------------------------------
-/** set the water table position and orientation in world space */
-// ------------------------------------------------------------------------------------------------
-void W3DTerrainVisual::setWaterTransform( const WaterHandle *waterTable, 
-																					Real angle, Real x, Real y, Real z )
-{
-
-	if( m_waterRenderObject )
-		m_waterRenderObject->setGridTransform( angle, x, y, z );
-
-}  // end setWaterTransform
-
-// ------------------------------------------------------------------------------------------------
-/** set water table transform by matrix */
-// ------------------------------------------------------------------------------------------------
-void W3DTerrainVisual::setWaterTransform( const Matrix3D *transform )
-{
-
-	if( m_waterRenderObject )
-		m_waterRenderObject->setGridTransform( transform );
-			
-}  // end setWaterTransform
-
-// ------------------------------------------------------------------------------------------------
-/** get the water transform matrix */
-// ------------------------------------------------------------------------------------------------
-void W3DTerrainVisual::getWaterTransform( const WaterHandle *waterTable, Matrix3D *transform )
-{
-
-	if( m_waterRenderObject )
-		m_waterRenderObject->getGridTransform( transform );
-
-}  // end getWaterTransform
-
-// ------------------------------------------------------------------------------------------------
-/** water grid resolution spacing */
-// ------------------------------------------------------------------------------------------------
-void W3DTerrainVisual::setWaterGridResolution( const WaterHandle *waterTable,
-																							 Real gridCellsX, Real gridCellsY, Real cellSize )
-{
-
-	if( m_waterRenderObject )
-		m_waterRenderObject->setGridResolution( gridCellsX, gridCellsY, cellSize );
-
-}  // end setWaterGridResolution
-
-// ------------------------------------------------------------------------------------------------
-/** get water grid resolution spacing */
-// ------------------------------------------------------------------------------------------------
-void W3DTerrainVisual::getWaterGridResolution( const WaterHandle *waterTable,	
-																							 Real *gridCellsX, Real *gridCellsY, Real *cellSize )
-{
-
-	if( m_waterRenderObject )
-		m_waterRenderObject->getGridResolution( gridCellsX, gridCellsY, cellSize );
-
-}  // end getWaterGridResolution
-
-// ------------------------------------------------------------------------------------------------
-/** adjust the water grid in world coords by the delta */
-// ------------------------------------------------------------------------------------------------
-void W3DTerrainVisual::changeWaterHeight( Real x, Real y, Real delta )
-{
-
-	if( m_waterRenderObject )
-		m_waterRenderObject->changeGridHeight( x, y, delta );
-
-}  // end changeWaterHeight
-
-// ------------------------------------------------------------------------------------------------
-// ------------------------------------------------------------------------------------------------
-void W3DTerrainVisual::addWaterVelocity( Real worldX, Real worldY, 
-																				 Real velocity, Real preferredHeight )
-{
-	LOGIC_CENSUS( CENSUS_CLIENT_READ );	// the water grid's motion, as updateWaterGrid
-	if( m_waterRenderObject )
-		m_waterRenderObject->addVelocity( worldX, worldY, velocity, preferredHeight );
-
-}  // end addWaterVelocity
-
-// ------------------------------------------------------------------------------------------------
-// ------------------------------------------------------------------------------------------------
-void W3DTerrainVisual::updateWaterGrid( UnsignedInt logicFrame )
-{
-	/* The water grid's motion is simulation: logic steps it here and reads it back through
-		 getWaterGridHeight, so it cannot wait for the tick's end.  It lives in the render object,
-		 which makes it client state logic reads (M7 moves the grid into TerrainLogic). */
-	LOGIC_CENSUS( CENSUS_CLIENT_READ );
-	// whether or not the grid is drawn: the simulation reads it either way, as update() stepped it
-	if( m_waterRenderObject )
-		m_waterRenderObject->updateMeshMotion( logicFrame );
-}  // end updateWaterGrid
-
-// ------------------------------------------------------------------------------------------------
-// ------------------------------------------------------------------------------------------------
-Bool W3DTerrainVisual::getWaterGridHeight( Real worldX, Real worldY, Real *height)
-{
-	LOGIC_CENSUS( CENSUS_CLIENT_READ );
-	Real gridX, gridY;
-
-	if (m_isWaterGridRenderingEnabled && m_waterRenderObject &&
-		m_waterRenderObject->worldToGridSpace(worldX, worldY, gridX, gridY))
-	{	//point falls within grid, return correct height
-		m_waterRenderObject->getGridVertexHeight(REAL_TO_INT(gridX),REAL_TO_INT(gridY),height);
-		return TRUE;
-	}
-	return FALSE;
-}
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
@@ -1258,10 +1106,12 @@ void W3DTerrainVisual::xfer( Xfer *xfer )
 	// extend base class
 	TerrainVisual::xfer( xfer );
 
-	// flag for whether or not the water grid is enabled
-	Bool gridEnabled = m_isWaterGridRenderingEnabled;
+	// flag for whether or not the water grid is enabled; the flag and the grid are TerrainLogic's
+	// now, written here, in this block and in these bytes, as they were from the render object
+	WaterGrid *waterGrid = TheTerrainLogic->getWaterGrid();
+	Bool gridEnabled = waterGrid->isHeightEnabled();
 	xfer->xferBool( &gridEnabled );
-	if( gridEnabled != m_isWaterGridRenderingEnabled )
+	if( gridEnabled != waterGrid->isHeightEnabled() )
 	{
 
 		DEBUG_CRASH(( "W3DTerrainVisual::xfer - m_isWaterGridRenderingEnabled mismatch\n" ));
@@ -1271,7 +1121,7 @@ void W3DTerrainVisual::xfer( Xfer *xfer )
 
 	// xfer grid data if enabled
 	if( gridEnabled )
-		xfer->xferSnapshot( m_waterRenderObject );
+		xfer->xferSnapshot( waterGrid );
 
 /*
 	{

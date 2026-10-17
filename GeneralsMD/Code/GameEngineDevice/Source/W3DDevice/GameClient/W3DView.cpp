@@ -3818,18 +3818,21 @@ void W3DView::resetCamera(const Coord3D *location, Int milliseconds, Real easeIn
 Bool W3DView::isCameraMovementFinished(void)
 {
 	LOGIC_CENSUS( CENSUS_CLIENT_READ );
-	if (m_viewFilter == FT_VIEW_MOTION_BLUR_FILTER) {
-		// Several of the motion blur effects are similar to camera movements.
-		if (m_viewFilterMode == FM_VIEW_MB_IN_AND_OUT_ALPHA ||
-				m_viewFilterMode == FM_VIEW_MB_IN_AND_OUT_SATURATE ||
-				m_viewFilterMode == FM_VIEW_MB_IN_ALPHA ||
-				m_viewFilterMode == FM_VIEW_MB_OUT_ALPHA ||
-				m_viewFilterMode == FM_VIEW_MB_IN_SATURATE ||
-				m_viewFilterMode == FM_VIEW_MB_OUT_SATURATE ) {
-			return true;
-		}
-	}
-	return !m_doingMoveCameraOnWaypointPath && !m_doingRotateCamera && !m_doingPitchCamera && !m_doingZoomCamera;
+	return isCameraMotionBlurring() || !isCameraMoving();
+}
+
+// ------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------
+Bool W3DView::isCameraMotionBlurring(void)
+{
+	// Several of the motion blur effects are similar to camera movements.
+	return m_viewFilter == FT_VIEW_MOTION_BLUR_FILTER &&
+		(m_viewFilterMode == FM_VIEW_MB_IN_AND_OUT_ALPHA ||
+		 m_viewFilterMode == FM_VIEW_MB_IN_AND_OUT_SATURATE ||
+		 m_viewFilterMode == FM_VIEW_MB_IN_ALPHA ||
+		 m_viewFilterMode == FM_VIEW_MB_OUT_ALPHA ||
+		 m_viewFilterMode == FM_VIEW_MB_IN_SATURATE ||
+		 m_viewFilterMode == FM_VIEW_MB_OUT_SATURATE);
 }
 
 

@@ -190,6 +190,13 @@ class AudioManager : public SubsystemInterface
 		///< NOTE NOTE NOTE !!DO NOT USE THIS IN FOR GAMELOGIC PURPOSES!! NOTE NOTE NOTE
 		virtual Bool isCurrentlyPlaying( AudioHandle handle );
 
+		/** LOGIC-THREAD.md M7.  At the sync point, before every tick: which sounds play and how many loops
+			* each music track has finished, so isCurrentlyPlaying and hasMusicTrackCompleted asked from the
+			* tick answer from that and never touch the device.  A sound ends on this machine's clock, so
+			* the copy differs from a read in the middle of the tick only by the milliseconds the tick took;
+			* the tick's own adds and removes reach the device after it either way. */
+		virtual void captureForLogic( void ) { }
+
 		// Device Dependent open and close functions
 		virtual void openDevice( void ) = 0;
 		virtual void closeDevice( void ) = 0;

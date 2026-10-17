@@ -585,7 +585,7 @@ void SpecialPowerModule::aboutToDoSpecialPower( const Coord3D *location )
   Player *localPlayer = ThePlayerList->getLocalPlayer();
   if( localPlayer && !localPlayer->isPlayerActive() )
   {
-    Player *observed = TheControlBar ? TheControlBar->getObserverLookAtPlayer() : NULL;
+    Player *observed = LogicThread::clientBlock().observerLookAt;	// as the sync point saw it (M7)
     if( observed )
       localPlayer = observed;
   }

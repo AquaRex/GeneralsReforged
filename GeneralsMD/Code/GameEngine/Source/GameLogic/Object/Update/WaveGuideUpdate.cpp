@@ -429,10 +429,10 @@ void WaveGuideUpdate::doWaterMotion( void )
 	{
 
 		// push up the water here
-		TheTerrainVisual->addWaterVelocity( m_transformedShapePoints[ i ].x,
-																				m_transformedShapePoints[ i ].y,
-																				modData->m_waterVelocity, 
-																				modData->m_preferredHeight );
+		TheTerrainLogic->getWaterGrid()->addVelocity( m_transformedShapePoints[ i ].x,
+																									m_transformedShapePoints[ i ].y,
+																									modData->m_waterVelocity,
+																									modData->m_preferredHeight );
 
 
 	}  // end for i

@@ -1179,9 +1179,11 @@ Real AudioManager::getWaveFileLengthMS( AsciiString strToLoad ) const
 }
 
 //-------------------------------------------------------------------------------------------------
+/* Logic's, not the device's (LOGIC-THREAD.md M7): the event table, the file headers and the logic
+	 stream's Unchanged reads, with no draw from the audio stream.  Only a file that is not a .wav goes
+	 to the device, in getFileLengthMS, which counts it. */
 Real AudioManager::getAudioLengthMS( const AudioEventRTS *event )
 {
-	LOGIC_CENSUS( CENSUS_AUDIO_READ );
 	if (!event->getAudioEventInfo()) {
 		getInfoForAudioEvent(event);
 		if (!event->getAudioEventInfo()) {
@@ -1191,8 +1193,8 @@ Real AudioManager::getAudioLengthMS( const AudioEventRTS *event )
 
 	AudioEventRTS tmpEvent = *event;
 
-	tmpEvent.generateFilename();
-	tmpEvent.generatePlayInfo();
+	tmpEvent.generateFilename( FALSE );
+	tmpEvent.generatePlayInfo( FALSE );
 	AsciiString attack = tmpEvent.getAttackFilename();
 	AsciiString sound = tmpEvent.getFilename();
 	AsciiString decay = tmpEvent.getDecayFilename();

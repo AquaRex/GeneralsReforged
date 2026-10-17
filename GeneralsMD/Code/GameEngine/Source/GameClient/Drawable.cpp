@@ -912,10 +912,15 @@ Bool Drawable::clientOnly_getFirstRenderObjInfo(Coord3D* pos, Real* boundingSphe
 }
 
 //-------------------------------------------------------------------------------------------------
+/** The bones, launch offsets and barrel counts logic reads skip a draw module the player's "extra
+	* animations" option (m_useDrawModuleLOD) can leave out, on every machine, so one player's option
+	* cannot change where another machine's shot leaves from. */
 Bool Drawable::getProjectileLaunchOffset(WeaponSlotType wslot, Int specificBarrelToUse, Matrix3D* launchPos, WhichTurretType tur, Coord3D* turretRotPos, Coord3D* turretPitchPos) const
 {
 	for (const DrawModule** dm = getDrawModules(); *dm; ++dm)
 	{
+		if ((*dm)->isLODOptional())
+			continue;
 		const ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
 		if (di && di->getProjectileLaunchOffset(m_conditionState, wslot, specificBarrelToUse, launchPos, tur, turretRotPos, turretPitchPos))
 			return true;
@@ -1021,10 +1026,13 @@ Int Drawable::getPristineBonePositions(const char* boneNamePrefix, Int startInde
 		if (maxBones <= 0)
 			break;
 
+		if ((*dm)->isLODOptional())
+			continue;
+
 		const ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
 		if (di)
 		{
-			Int subcount = 
+			Int subcount =
 				di->getPristineBonePositionsForConditionState(m_conditionState, boneNamePrefix, startIndex, positions, transforms, maxBones);
 
 			if (subcount > 0)
@@ -1051,6 +1059,8 @@ Int Drawable::getCurrentClientBonePositions(const char* boneNamePrefix, Int star
 	{
 		if (maxBones <= 0)
 			break;
+		if ((*dm)->isLODOptional())
+			continue;
 
 		const ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
 		if (di)
@@ -1078,6 +1088,8 @@ Bool Drawable::getCurrentWorldspaceClientBonePositions(const char* boneName, Mat
 	// LaserUpdate asks from the tick; the bones have to be where the tick left the drawable
 	for (DrawModule** dm = const_cast<Drawable*>(this)->getDrawModulesFlushed(); *dm; ++dm)
 	{
+		if ((*dm)->isLODOptional())
+			continue;
 		const ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
 		if (di && di->getCurrentWorldspaceClientBonePositions(boneName, transform))
 			return true;
@@ -5670,6 +5682,8 @@ Int Drawable::getBarrelCount(WeaponSlotType wslot) const
 {
 	for (const DrawModule** dm = getDrawModules(); *dm; ++dm)
 	{
+		if ((*dm)->isLODOptional())
+			continue;
 		const ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
 		Int count = di ? di->getBarrelCount(wslot) : 0;
 		if (count != 0)
