@@ -33,6 +33,7 @@
 #include <functional>
 #include <vector>
 
+class Drawable;
 class Player;
 
 /**
@@ -155,6 +156,10 @@ namespace LogicThread
 	/** A select or deselect the tick queued (InGameUI), written to the block at the call. */
 	void noteSelected( DrawableID drawable, ObjectID object, Bool selected );
 	void noteSelectionCleared( void );
+
+	/** Drawable::isSelected for logic: inside a tick, whether the block's selection holds the drawable;
+		* anywhere else the drawable's own flag, since there a select or deselect runs at the call. */
+	Bool isSelectedForTick( const Drawable *draw );
 
 	/** What a queued camera call does to the two answers logic reads (time frozen, movement finished),
 		* written to the block at the call.  This is the camera's state machine in four words, not the

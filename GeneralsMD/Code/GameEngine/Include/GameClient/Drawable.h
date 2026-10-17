@@ -35,6 +35,7 @@
 #include "Common/AudioEventRTS.h"
 #include "Common/DisabledTypes.h"
 #include "Common/GameType.h"
+#include "Common/LogicThread.h"
 #include "Common/ModelState.h"
 #include "Common/ModuleFactory.h"
 #include "Common/Thing.h"
@@ -493,7 +494,7 @@ public:
 	void flashAsSelected( const RGBColor *color = NULL ); ///< drawable takes care of the details if you spec no color
 	
 	/// Return true if drawable has been marked as "selected"
-	Bool isSelected( void ) const {	return m_selected; }
+	Bool isSelected( void ) const {	LOGIC_CENSUS( CENSUS_CLIENT_READ ); return m_selected; }	///< logic asks LogicThread::isSelectedForTick
 	void onSelected();														///< Work unrelated to selection that must happen at time of selection
 	void onUnselected();													///< Work unrelated to selection that must happen at time of unselection
 

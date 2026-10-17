@@ -262,7 +262,7 @@ static void doSetRallyPoint( Object *obj, const Coord3D& pos )
 
 		// mark the UI as dirty so that we re-evaluate the selection and show the rally point
 		Drawable *draw = obj->getDrawable();
-		if( draw && draw->isSelected() )
+		if( draw && LogicThread::isSelectedForTick( draw ) )
 			TheControlBar->markUIDirty();
 
 	}  // end if
@@ -293,7 +293,7 @@ static void doClearRallyPoint( Object *obj )
 
 	// mark the UI as dirty so that we re-evaluate the selection and take the flag down
 	Drawable *draw = obj->getDrawable();
-	if( obj->isLocallyControlled() && draw && draw->isSelected() )
+	if( obj->isLocallyControlled() && draw && LogicThread::isSelectedForTick( draw ) )
 		TheControlBar->markUIDirty();
 
 }

@@ -416,6 +416,18 @@ void LogicThread::noteSelectionCleared( void )
 }
 
 //-------------------------------------------------------------------------------------------------
+Bool LogicThread::isSelectedForTick( const Drawable *draw )
+{
+	if( !defersEffects() )
+		return draw->isSelected();
+	const DrawableID id = draw->getID();
+	for( size_t i = 0; i < s_block.selection.size(); ++i )
+		if( s_block.selection[ i ].drawable == id )
+			return TRUE;
+	return FALSE;
+}
+
+//-------------------------------------------------------------------------------------------------
 void LogicThread::noteViewEffect( ViewEffect effect )
 {
 	switch( effect )
