@@ -914,12 +914,18 @@ Bool Drawable::clientOnly_getFirstRenderObjInfo(Coord3D* pos, Real* boundingSphe
 //-------------------------------------------------------------------------------------------------
 /** The bones, launch offsets and barrel counts logic reads skip a draw module the player's "extra
 	* animations" option (m_useDrawModuleLOD) can leave out, on every machine, so one player's option
-	* cannot change where another machine's shot leaves from. */
+	* cannot change where another machine's shot leaves from.  Only logic's reads skip it, the tick's
+	* and the map load's: an FX at a bone or a supply box count on the client reads every module drawn. */
+static Bool skipsForLogic( const DrawModule *dm )
+{
+	return dm->isLODOptional() && ( TheGameLogic->isInGameLogicUpdate() || TheGameLogic->isLoadingMap() );
+}
+
 Bool Drawable::getProjectileLaunchOffset(WeaponSlotType wslot, Int specificBarrelToUse, Matrix3D* launchPos, WhichTurretType tur, Coord3D* turretRotPos, Coord3D* turretPitchPos) const
 {
 	for (const DrawModule** dm = getDrawModules(); *dm; ++dm)
 	{
-		if ((*dm)->isLODOptional())
+		if (skipsForLogic(*dm))
 			continue;
 		const ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
 		if (di && di->getProjectileLaunchOffset(m_conditionState, wslot, specificBarrelToUse, launchPos, tur, turretRotPos, turretPitchPos))
@@ -1026,7 +1032,7 @@ Int Drawable::getPristineBonePositions(const char* boneNamePrefix, Int startInde
 		if (maxBones <= 0)
 			break;
 
-		if ((*dm)->isLODOptional())
+		if (skipsForLogic(*dm))
 			continue;
 
 		const ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
@@ -1059,7 +1065,7 @@ Int Drawable::getCurrentClientBonePositions(const char* boneNamePrefix, Int star
 	{
 		if (maxBones <= 0)
 			break;
-		if ((*dm)->isLODOptional())
+		if (skipsForLogic(*dm))
 			continue;
 
 		const ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
@@ -1088,7 +1094,7 @@ Bool Drawable::getCurrentWorldspaceClientBonePositions(const char* boneName, Mat
 	// LaserUpdate asks from the tick; the bones have to be where the tick left the drawable
 	for (DrawModule** dm = const_cast<Drawable*>(this)->getDrawModulesFlushed(); *dm; ++dm)
 	{
-		if ((*dm)->isLODOptional())
+		if (skipsForLogic(*dm))
 			continue;
 		const ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
 		if (di && di->getCurrentWorldspaceClientBonePositions(boneName, transform))
@@ -5682,7 +5688,7 @@ Int Drawable::getBarrelCount(WeaponSlotType wslot) const
 {
 	for (const DrawModule** dm = getDrawModules(); *dm; ++dm)
 	{
-		if ((*dm)->isLODOptional())
+		if (skipsForLogic(*dm))
 			continue;
 		const ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
 		Int count = di ? di->getBarrelCount(wslot) : 0;
