@@ -541,15 +541,19 @@ public:
 	void clearAndSetModelConditionFlags( const ModelConditionFlags& clr, const ModelConditionFlags& set );
 	void replaceModelConditionFlags( const ModelConditionFlags &flags, Bool forceReplace = FALSE );
 
-	Bool handleWeaponFireFX(
-							WeaponSlotType wslot, 
-							Int specificBarrelToUse, 
-							const FXList* fxl, 
-							Real weaponSpeed, 
-							Real recoilAmount, 
-							Real recoilAngle, 
+	/** A shot's recoil, muzzle flash and FX at the barrel's bone; with no draw module that has one, the FX
+		* at the victim (fxAtVictim, a contact weapon) or at the drawable.  Inside a tick it is the drawable's
+		* deferred work, in its place between the condition states (LOGIC-THREAD.md phase 3). */
+	void handleWeaponFireFX(
+							WeaponSlotType wslot,
+							Int specificBarrelToUse,
+							const FXList* fxl,
+							Real weaponSpeed,
+							Real recoilAmount,
+							Real recoilAngle,
 							const Coord3D* victimPos,
-							Real damageRadius
+							Real damageRadius,
+							Bool fxAtVictim
 							);
 
 	Int getBarrelCount(WeaponSlotType wslot) const;

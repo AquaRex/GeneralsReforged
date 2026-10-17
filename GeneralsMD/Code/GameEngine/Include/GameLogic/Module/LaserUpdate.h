@@ -79,6 +79,7 @@ public:
 	//Actually puts the laser in the world.
 	void initLaser( const Object *parent, const Object *target, const Coord3D *startPos, const Coord3D *endPos, AsciiString parentBoneName, Int sizeDeltaFrames = 0 );
 	void setDecayFrames( UnsignedInt decayFrames );
+	void moveEnds( const Coord3D *startPos, const Coord3D *endPos ) { m_startPos = *startPos; m_endPos = *endPos; m_dirty = TRUE; }
 
 	const Coord3D* getStartPos() { return &m_startPos; }
 	const Coord3D* getEndPos() { return &m_endPos; }

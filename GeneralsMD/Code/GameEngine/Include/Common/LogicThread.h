@@ -118,14 +118,10 @@ namespace LogicThread
 	void callAfterTick( const std::function<void()>& call );
 
 	/** LOGIC-THREAD.md phase 2, M6.  The camera calls a tick's scripts make (moves, filters, letterbox,
-		* fades, the time freeze) wait in a queue of their own, run first after the tick.  Their own queue,
-		* because a script asks the camera back in the same tick whether its move is finished and whether
-		* time is frozen: readViewFromTick runs what is queued before such a read, so the answer is the
-		* one an immediate call gave.  That run counts as ondemandflush, not tacticalview; the read itself
-		* counts as clientread, which M7's captured block replaces. */
+		* fades, the time freeze) wait in a queue of their own, run first after the tick.  A script that
+		* asks the camera back in the same tick whether its move is finished or time frozen reads M7's
+		* block, which each queued call updates (noteViewEffect). */
 	void callViewAfterTick( const std::function<void()>& call );
-	void readViewFromTick( void );
-	/** defersEffects, except while readViewFromTick runs the queue: then a camera call runs its body. */
 	Bool defersView( void );
 
 	/** The tick cleared the game: what it queued has no game left to play in.  GameEngine::reset. */
@@ -164,9 +160,9 @@ namespace LogicThread
 	/** What a queued camera call does to the two answers logic reads (time frozen, movement finished),
 		* written to the block at the call.  This is the camera's state machine in four words, not the
 		* camera: a move whose path collapses to one point, or a motion blur the device refuses, leaves the
-		* real camera finished where the block says moving.  So -logicthread 0 keeps asking the camera
-		* (readViewFromTick), exact as it always was, and counts every read where the block would have
-		* answered otherwise; -logicthread 1 answers from the block. */
+		* real camera finished where the block says moving.  Every setting answers from the block since
+		* phase 3: asking the camera meant running its queued calls inside the tick, and phase 2 counted 0
+		* of 18680 campaign reads where the two answers differed. */
 	enum ViewEffect
 	{
 		VIEW_MOVES,							///< a move, zoom, pitch or rotation starts

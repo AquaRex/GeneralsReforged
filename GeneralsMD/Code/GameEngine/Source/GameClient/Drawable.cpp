@@ -81,6 +81,7 @@
 #include "GameClient/DisplayStringManager.h"
 #include "GameClient/Drawable.h"
 #include "GameClient/DrawGroupInfo.h"
+#include "GameClient/FXList.h"
 #include "GameClient/GameClient.h"
 #include "GameClient/GlobalLanguage.h"
 #include "GameClient/InGameUI.h"
@@ -1059,8 +1060,8 @@ Int Drawable::getPristineBonePositions(const char* boneNamePrefix, Int startInde
 Int Drawable::getCurrentClientBonePositions(const char* boneNamePrefix, Int startIndex, Coord3D* positions, Matrix3D* transforms, Int maxBones) const
 {
 	Int count = 0;
-	// the uplink cannon asks from the tick for its raised antenna: DEPLOYED starts on the animation's
-	// last frame, and the pristine bones are its first, about 34 units lower
+	// the bones as drawn; asked after the tick (the uplink cannon's raised antenna, FX at bones), where
+	// what the tick deferred on this drawable is applied first
 	for (DrawModule** dm = const_cast<Drawable*>(this)->getDrawModulesFlushed(); *dm; ++dm)
 	{
 		if (maxBones <= 0)
@@ -1091,7 +1092,7 @@ Int Drawable::getCurrentClientBonePositions(const char* boneNamePrefix, Int star
 //-------------------------------------------------------------------------------------------------
 Bool Drawable::getCurrentWorldspaceClientBonePositions(const char* boneName, Matrix3D& transform) const
 {
-	// LaserUpdate asks from the tick; the bones have to be where the tick left the drawable
+	// a laser's client update and the attached models ask; the bones have to be where the tick left the drawable
 	for (DrawModule** dm = const_cast<Drawable*>(this)->getDrawModulesFlushed(); *dm; ++dm)
 	{
 		if (skipsForLogic(*dm))
@@ -5651,37 +5652,38 @@ void Drawable::reactToGeometryChange()
 } 
 
 //-------------------------------------------------------------------------------------------------
-Bool Drawable::handleWeaponFireFX(WeaponSlotType wslot, Int specificBarrelToUse, const FXList* fxl, Real weaponSpeed, Real recoilAmount, Real recoilAngle, const Coord3D* victimPos, Real damageRadius)
-{	  
-	if (recoilAmount != 0.0f)
+void Drawable::handleWeaponFireFX(WeaponSlotType wslot, Int specificBarrelToUse, const FXList* fxl, Real weaponSpeed, Real recoilAmount, Real recoilAngle, const Coord3D* victimPos, Real damageRadius, Bool fxAtVictim)
+{
+	// adjust recoil from absolute to relative, against the way the object faced when it fired
+	if (recoilAmount != 0.0f && getObject())
+		recoilAngle -= getObject()->getOrientation();
+	const Coord3D victim = *victimPos;
+
+	// After the tick, in its place among the condition states the tick set: the barrels, muzzle flash
+	// and FX bone are the state the shot set, and the tick never flushes a render object to read them
+	// (LOGIC-THREAD.md phase 3).  A drawable made in this tick has its render objects by then.
+	doClientWork([=]()
 	{
-		// adjust recoil from absolute to relative.
-		if (getObject())
-			recoilAngle -= getObject()->getOrientation();
-		// flip direction 180 degrees.
-		recoilAngle += PI;
-		if (m_locoInfo)
+		if (recoilAmount != 0.0f && m_locoInfo)
 		{
-			m_locoInfo->m_accelerationPitchRate += recoilAmount * Cos(recoilAngle);
-			m_locoInfo->m_accelerationRollRate += recoilAmount * Sin(recoilAngle);
+			// flip direction 180 degrees.
+			const Real angle = recoilAngle + PI;
+			m_locoInfo->m_accelerationPitchRate += recoilAmount * Cos(angle);
+			m_locoInfo->m_accelerationRollRate += recoilAmount * Sin(angle);
 		}
-	}
 
-	// a drawable made this tick has no render object yet to take an FX bone or a muzzle flash from:
-	// the weapon plays the FX at the drawable, as it does for a model with no FX bone (the jet
-	// crash's impact and fire objects fire in the tick that makes them)
-	if (m_renderPending)
-		return false;
+		for (DrawModule** dm = getDrawModulesNonDirty(); *dm; ++dm)
+		{
+			ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
+			if (di && di->handleWeaponFireFX(wslot, specificBarrelToUse, fxl, weaponSpeed, &victim, damageRadius))
+				return;
+		}
 
-	// the barrels, muzzle flash and FX bones of the state the shot set, where the tick left the drawable
-	for (DrawModule** dm = getDrawModulesFlushed(); *dm; ++dm)
-	{
-		ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
-		if (di && di->handleWeaponFireFX(wslot, specificBarrelToUse, fxl, weaponSpeed, victimPos, damageRadius))
-			return true;
-	}
-	return false;
-} 
+		// bah. just play it at the drawable's pos.
+		if (fxl)
+			FXList::doFXPos(fxl, fxAtVictim ? &victim : getPosition(), getTransformMatrix(), weaponSpeed, &victim, damageRadius);
+	}, WORK_AFTER_FLUSH, TRUE );
+}
 
 //-------------------------------------------------------------------------------------------------
 Int Drawable::getBarrelCount(WeaponSlotType wslot) const

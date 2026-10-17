@@ -100,8 +100,6 @@ namespace
 
 	// M7: what the tick reads of the client, see LogicThread::ClientBlock
 	LogicThread::ClientBlock s_block;
-	Int64				s_viewReads = 0;					///< camera answers the tick asked the camera for, at -logicthread 0
-	Int64				s_viewMispredicted = 0;		///< of those, the ones the block would have answered otherwise
 
 	/* The sync point: the main thread, before the tick, with every call the last tick queued already
 		 run.  So the block holds what the tick's first read of the client would have returned. */
@@ -120,11 +118,6 @@ namespace
 		s_block.cameraMoving = TheTacticalView->isCameraMoving();
 		s_block.cameraBlurring = TheTacticalView->isCameraMotionBlurring();
 		TheAudio->captureForLogic();
-	}
-
-	Bool blockSaysCameraFinished( void )
-	{
-		return s_block.cameraBlurring || !s_block.cameraMoving;
 	}
 
 	void runViewCalls( void )
@@ -349,12 +342,9 @@ void LogicThread::callAfterTick( const std::function<void()>& call )
 }
 
 //-------------------------------------------------------------------------------------------------
-// TRUE while readViewFromTick runs the queue inside the tick: a queued call runs its body then
-static Bool s_runningViewNow = FALSE;
-
 Bool LogicThread::defersView( void )
 {
-	return defersEffects() && !s_runningViewNow;
+	return defersEffects();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -364,22 +354,6 @@ void LogicThread::callViewAfterTick( const std::function<void()>& call )
 		s_viewCalls.push_back( call );
 	else
 		call();
-}
-
-//-------------------------------------------------------------------------------------------------
-void LogicThread::readViewFromTick( void )
-{
-	census( CENSUS_CLIENT_READ );
-	if( s_viewCalls.empty() )
-		return;
-	census( CENSUS_ON_DEMAND_FLUSH );
-	// the camera's own hooks would count this as the tick's tacticalview work; it is counted above
-	const Bool onLogicThread = t_isLogicThread;
-	t_isLogicThread = FALSE;
-	s_runningViewNow = TRUE;
-	runViewCalls();
-	s_runningViewNow = FALSE;
-	t_isLogicThread = onLogicThread;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -440,29 +414,18 @@ void LogicThread::noteViewEffect( ViewEffect effect )
 }
 
 //-------------------------------------------------------------------------------------------------
+/* Phase 3: the block at both settings.  Asking the camera meant running the tick's queued camera calls
+	 inside the tick, on the camera the render reads; phase 2's three campaign missions found 0 reads,
+	 of 18680, where the camera and the block disagreed. */
 Bool LogicThread::isCameraMovementFinishedForTick( void )
 {
-	if( s_enabled )
-		return blockSaysCameraFinished();
-	readViewFromTick();
-	const Bool finished = TheTacticalView->isCameraMovementFinished();
-	++s_viewReads;
-	if( finished != blockSaysCameraFinished() )
-		++s_viewMispredicted;
-	return finished;
+	return s_block.cameraBlurring || !s_block.cameraMoving;
 }
 
 //-------------------------------------------------------------------------------------------------
 Bool LogicThread::isTimeFrozenForTick( void )
 {
-	if( s_enabled )
-		return s_block.cameraFrozen;
-	readViewFromTick();
-	const Bool frozen = TheTacticalView->isTimeFrozen();
-	++s_viewReads;
-	if( frozen != s_block.cameraFrozen )
-		++s_viewMispredicted;
-	return frozen;
+	return s_block.cameraFrozen;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -486,6 +449,4 @@ void LogicThread::report( void )
 	for( Int i = 0; i < CENSUS_COUNT; ++i )
 		used += snprintf( line + used, sizeof(line) - used, "%s%s %lld", i ? " | " : "", CHANNEL_NAMES[ i ], (long long)s_census[ i ] );
 	DEBUG_LOG(( "HEADLESS LOGICTHREAD CENSUS: %s\n", line ));
-	DEBUG_LOG(( "HEADLESS LOGICTHREAD VIEW: %lld camera reads asked of the camera, %lld the block would have answered otherwise\n",
-		(long long)s_viewReads, (long long)s_viewMispredicted ));
 }

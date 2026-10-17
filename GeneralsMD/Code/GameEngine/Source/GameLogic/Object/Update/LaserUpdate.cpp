@@ -32,6 +32,7 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
 
+#include "Common/LogicThread.h"
 #include "Common/Player.h"
 #include "Common/PlayerList.h"
 #include "Common/Xfer.h"
@@ -286,8 +287,13 @@ void LaserUpdate::initLaser( const Object *parent, const Object *target, const C
 			m_parentID = parent->getDrawable()->getID();
 
 		// the parent's drawable as the object holds it: initLaser runs in the tick, which does not look
-		// drawables up in the client's table (LOGIC-THREAD.md M8)
-		updateStartPos( parent->getDrawable() );
+		// drawables up in the client's table (LOGIC-THREAD.md M8).  Nor does it read a bone off a render
+		// object the tick has not caught up yet (phase 3): the beam starts at the drawable, and its own
+		// client update moves it to the bone before the first frame that draws it.
+		if( LogicThread::defersEffects() && m_parentBoneName.isNotEmpty() && parent->getDrawable() )
+			m_startPos = *parent->getDrawable()->getPosition();
+		else
+			updateStartPos( parent->getDrawable() );
 	}
 	else if( startPos )
 	{
