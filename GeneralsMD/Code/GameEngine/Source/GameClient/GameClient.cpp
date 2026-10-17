@@ -903,6 +903,29 @@ void GameClient::update( void )
 		}
 	}
 
+	// LOGIC-THREAD.md phase 3: what the draw below asks of the shroud, asked here, on every pass and
+	// frozen time included, as the draw asked it.  The walk above has filled the cache for this player,
+	// so this reads it; the draw no longer calls into the partition beside a tick.
+	for( Drawable *draw = m_drawableList; draw; draw = draw->getNextDrawable() )
+	{
+		const Object *object = draw->getObject();
+		if( object )
+		{
+			draw->setShroudForDraw( object->getShroudedStatus( localPlayerIndex ), object->isEffectivelyDead() );
+			continue;
+		}
+		//Hack for prison camps which contain enemy prisoner drawables: another object holds the shroud
+		ObjectShroudStatus status = OBJECTSHROUD_CLEAR;
+		const ObjectID shroudObjectID = draw->getDrawableInfo()->m_shroudStatusObjectID;
+		if( shroudObjectID != INVALID_ID )
+		{
+			const Object *shroudObject = TheGameLogic->findObjectByID( shroudObjectID );
+			if( shroudObject )
+				status = shroudObject->getShroudedStatus( localPlayerIndex );
+		}
+		draw->setShroudForDraw( status, FALSE );
+	}
+
 	// update all particle systems
 	if( !freezeTime )
 	{

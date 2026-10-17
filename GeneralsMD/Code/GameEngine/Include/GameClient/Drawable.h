@@ -474,6 +474,14 @@ public:
 
 	void setShroudClearFrame( UnsignedInt frame )  { m_shroudClearFrame = frame; }
 	UnsignedInt getShroudClearFrame( void ) { return m_shroudClearFrame; }
+
+	/** LOGIC-THREAD.md phase 3: what the draw asks of the shroud, taken by GameClient::update's drawable
+		* walk, at the sync point, for the player whose fog is drawn: the object's status, or for a drawable
+		* with no object the status of the object its DrawableInfo names (a prison's inmates).  The draw
+		* calls no getShroudedStatus, which fills the partition's cache and can take a ghost snapshot. */
+	void setShroudForDraw( ObjectShroudStatus status, Bool objectDead ) { m_shroudForDraw = status; m_objectDeadForDraw = objectDead; }
+	ObjectShroudStatus getShroudForDraw( void ) const { return m_shroudForDraw; }
+	Bool isObjectDeadForDraw( void ) const { return m_objectDeadForDraw; }
  
 	void setShadowsEnabled(Bool enable);
 	Bool getShadowsEnabled() const { return BitTest(m_status, DRAWABLE_STATUS_SHADOWS); }
@@ -797,6 +805,9 @@ private:
 	UnsignedInt		m_timeToFade;						///< how slowly am I fading
 
 	UnsignedInt		m_shroudClearFrame;						///< Last frame the local player saw this drawable "OBJECTSHROUD_CLEAR"
+	ObjectShroudStatus	m_shroudForDraw;				///< see setShroudForDraw
+	Bool					m_objectDeadForDraw;				///< see setShroudForDraw
+
 	DrawableLocoInfo*	m_locoInfo;	// lazily allocated
 
 	DynamicAudioEventRTS*	m_ambientSound;		///< sound module for ambient sound (lazily allocated)

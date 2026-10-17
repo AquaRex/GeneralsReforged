@@ -614,6 +614,8 @@ Drawable::Drawable( const ThingTemplate *thingTemplate, DrawableStatus statusBit
 	m_timeToFade = 0;
 
 	m_shroudClearFrame = 0;
+	m_shroudForDraw = OBJECTSHROUD_CLEAR;
+	m_objectDeadForDraw = FALSE;
 
 	for (i = 0; i < NUM_DRAWABLE_MODULE_TYPES; ++i)
 		m_modules[i] = NULL;
@@ -4471,7 +4473,7 @@ void Drawable::drawSupplyCash( const IRegion2D *healthBarRegion )
 	}
 
 	// shrouded ground keeps its secrets: what was there when you last looked is not news
-	if( obj->getShroudedStatus( TheObserverCamera.getShroudPlayerIndex() ) != OBJECTSHROUD_CLEAR )
+	if( getShroudForDraw() != OBJECTSHROUD_CLEAR )
 		return;
 
 	// only a SupplyWarehouseDockUpdate answers getSupplyCashValue with cash, so this finds one

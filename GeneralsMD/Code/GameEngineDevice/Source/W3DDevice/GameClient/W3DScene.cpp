@@ -762,16 +762,18 @@ void RTS3DScene::renderOneObject(RenderInfoClass &rinfo, RenderObjClass *robj, I
 			ambient.Add(ambient, *drawAmbient, &ambient);
 #endif
 		obj = draw->getObject();
+		// the shroud as GameClient::update's pass asked it for this player, ahead of the draw
+		// (LOGIC-THREAD.md phase 3: the draw does not call into the partition)
 		if (obj) {
-			ss = obj->getShroudedStatus(localPlayerIndex);
-			// For objects like planes, that pop out of the shroud, fire, then head back, 
-			// we keep drawing them for 2 seconds after they return to the fogged area, 
+			ss = draw->getShroudForDraw();
+			// For objects like planes, that pop out of the shroud, fire, then head back,
+			// we keep drawing them for 2 seconds after they return to the fogged area,
 			// so the player can see them and missiles chasing them.  jba.
 			if (ss == OBJECTSHROUD_CLEAR) {
 				draw->setShroudClearFrame(TheGameLogic->getFrame());
 			}	else if (ss >= OBJECTSHROUD_FOGGED && draw->getShroudClearFrame()!=0) {
 				UnsignedInt limit = 2*LOGICFRAMES_PER_SECOND;
-				if (obj->isEffectivelyDead()) {
+				if (draw->isObjectDeadForDraw()) {
 					limit += 3*LOGICFRAMES_PER_SECOND;
 				}
 				if (TheGameLogic->getFrame() < limit + draw->getShroudClearFrame()) {
@@ -779,19 +781,13 @@ void RTS3DScene::renderOneObject(RenderInfoClass &rinfo, RenderObjClass *robj, I
 					ss = OBJECTSHROUD_PARTIAL_CLEAR;
 				}
 			}
- 			if (!robj->Peek_Scene())
- 				return;	//this object was removed by the getShroudedStatus() call.
 		}
 		else
 		{	//drawable with no object so no way to know if it's shrouded.
-			ss = OBJECTSHROUD_CLEAR;	//assume not shrouded/fogged.
-			//Check to see if there is another unrelated object which controls the shroud status
-			//(Hack for prison camps which contain enemy prisoner drawables)
-			if (drawInfo->m_shroudStatusObjectID != INVALID_ID)
-			{	Object *shroudObject=TheGameLogic->findObjectByID(drawInfo->m_shroudStatusObjectID);
-				if (shroudObject && shroudObject->getShroudedStatus(localPlayerIndex) >= OBJECTSHROUD_FOGGED)
-					ss = OBJECTSHROUD_SHROUDED;	//we will assume that drawables without objects are 'particle' like and therefore don't need drawing if fogged/shrouded.
-			}
+			//Unless another unrelated object controls the shroud status
+			//(Hack for prison camps which contain enemy prisoner drawables): we will assume that drawables
+			//without objects are 'particle' like and therefore don't need drawing if fogged/shrouded.
+			ss = draw->getShroudForDraw() >= OBJECTSHROUD_FOGGED ? OBJECTSHROUD_SHROUDED : OBJECTSHROUD_CLEAR;
 		}
 
 		if (draw->isKindOf(KINDOF_INFANTRY))

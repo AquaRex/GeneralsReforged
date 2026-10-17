@@ -1581,12 +1581,12 @@ static void drawablePostDraw( Drawable *draw, void *userData )
 	if (CinemaDirector_hidesHud() && !TheGlobalData->m_directorRecord)
 		return;
 
+	// the shroud as GameClient::update's pass asked it, ahead of the draw (LOGIC-THREAD.md phase 3)
 	Object* obj = draw->getObject();
-	Int localPlayerIndex = ThePlayerList ? TheObserverCamera.getShroudPlayerIndex() : 0;
 #if defined(_DEBUG) || defined(_INTERNAL)
-	ObjectShroudStatus ss = (!obj || !TheGlobalData->m_shroudOn) ? OBJECTSHROUD_CLEAR : obj->getShroudedStatus(localPlayerIndex);
+	ObjectShroudStatus ss = (!obj || !TheGlobalData->m_shroudOn) ? OBJECTSHROUD_CLEAR : draw->getShroudForDraw();
 #else
-	ObjectShroudStatus ss = (!obj) ? OBJECTSHROUD_CLEAR : obj->getShroudedStatus(localPlayerIndex);
+	ObjectShroudStatus ss = (!obj) ? OBJECTSHROUD_CLEAR : draw->getShroudForDraw();
 #endif
 	if (ss > OBJECTSHROUD_PARTIAL_CLEAR)
 		return;
