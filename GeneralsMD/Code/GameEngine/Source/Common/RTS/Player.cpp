@@ -2242,11 +2242,12 @@ void Player::killPlayer(void)
 		{
 			if (isPlayerActive())
 			{
-				TheControlBar->setControlBarSchemeByPlayer(this);
+				ControlBar::callFromLogic( [this]{ TheControlBar->setControlBarSchemeByPlayer(this); } );
 			}
 			else
 			{
-				TheControlBar->setControlBarSchemeByPlayerTemplate(ThePlayerTemplateStore->findPlayerTemplate(NAMEKEY("FactionObserver")));
+				const PlayerTemplate *observer = ThePlayerTemplateStore->findPlayerTemplate(NAMEKEY("FactionObserver"));
+				ControlBar::callFromLogic( [observer]{ TheControlBar->setControlBarSchemeByPlayerTemplate(observer); } );
 			}
 		}
 
@@ -2802,7 +2803,7 @@ void Player::addSciencePurchasePoints(Int delta)
 		m_sciencePurchasePoints = 0;
 
 	if (oldSPP != m_sciencePurchasePoints && TheControlBar != NULL)
-		TheControlBar->onPlayerSciencePurchasePointsChanged(this);
+		ControlBar::callFromLogic( [this]{ TheControlBar->onPlayerSciencePurchasePointsChanged(this); } );
 
 }
 
@@ -2965,12 +2966,14 @@ Bool Player::setRankLevel(Int newLevel)
 				TheEva->setShouldPlay( EVA_GeneralLevelUp );
 		}
 
-		// notify of rank-change first
-		TheControlBar->onPlayerRankChanged(this);
-
-		// then of SPP change, if any
-		if (oldSPP != m_sciencePurchasePoints)
-			TheControlBar->onPlayerSciencePurchasePointsChanged(this);
+		// notify of rank-change first, then of SPP change, if any
+		const Bool sppChanged = oldSPP != m_sciencePurchasePoints;
+		ControlBar::callFromLogic( [this, sppChanged]
+		{
+			TheControlBar->onPlayerRankChanged(this);
+			if (sppChanged)
+				TheControlBar->onPlayerSciencePurchasePointsChanged(this);
+		} );
 	}
 
 	return true;

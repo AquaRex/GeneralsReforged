@@ -3447,7 +3447,7 @@ void AIPlayer::buildUpgrade(const AsciiString &upgrade)
 			if( factory->getStatusBits().test( OBJECT_STATUS_SOLD ) )
 				continue;
 			Bool canUpgradeHere = false;
-			const CommandSet *commandSet = TheControlBar->findCommandSet( factory->getCommandSetString() );
+			const CommandSet *commandSet = TheCommandStore->findCommandSet( factory->getCommandSetString() );
 			if( commandSet == NULL) continue;
 			for( Int j = 0; j < MAX_COMMANDS_PER_SET; j++ )
 			{
@@ -5439,7 +5439,7 @@ static Bool footprintOnClearGround( const Coord3D *pos, Real half )
 	* the bank cannot pay for yet, for a request the purchase queue saves up for. */
 static const ThingTemplate *buildableOfKind( Object *builder, GUICommandType commandType, KindOfType kind, Bool moneyLater = FALSE )
 {
-	const CommandSet *commandSet = TheControlBar->findCommandSet( builder->getCommandSetString() );
+	const CommandSet *commandSet = TheCommandStore->findCommandSet( builder->getCommandSetString() );
 	if( commandSet == NULL )
 		return NULL;
 
@@ -5468,7 +5468,7 @@ static Bool priorityBuildPending( Player *player, const ThingTemplate *tmpl );
 //----------------------------------------------------------------------------------------------------------
 const ThingTemplate *AIPlayer::nextBaseDefense( Object *dozer )
 {
-	const CommandSet *commandSet = TheControlBar->findCommandSet( dozer->getCommandSetString() );
+	const CommandSet *commandSet = TheCommandStore->findCommandSet( dozer->getCommandSetString() );
 	if( commandSet == NULL )
 		return NULL;
 
@@ -6184,7 +6184,7 @@ Bool AIPlayer::readyToPush( void )
 		return TRUE;
 	Object *dozer = NULL;
 	m_player->iterateObjects( findAnyDozer, &dozer );
-	const CommandSet *commandSet = dozer ? TheControlBar->findCommandSet( dozer->getCommandSetString() ) : NULL;
+	const CommandSet *commandSet = dozer ? TheCommandStore->findCommandSet( dozer->getCommandSetString() ) : NULL;
 	if( commandSet == NULL )
 		return TRUE;
 	// one the dozer has the prerequisites for, whatever else stops it this moment: asking for one it
@@ -6365,7 +6365,7 @@ static const Real FORWARD_TUNNEL_SHARE = 0.75f;
 	* FS_BASE_DEFENSE like the guns, so the kind cannot tell them apart; the module can. */
 static const ThingTemplate *buildableTunnel( Object *builder )
 {
-	const CommandSet *commandSet = TheControlBar->findCommandSet( builder->getCommandSetString() );
+	const CommandSet *commandSet = TheCommandStore->findCommandSet( builder->getCommandSetString() );
 	if( commandSet == NULL )
 		return NULL;
 
@@ -7398,7 +7398,7 @@ static void findDefenseUnderConstruction( Object *obj, void *userData )
 static const ThingTemplate *bestDefender( Object *factory, const Player *owner, const AIVisibleEnemy &enemy,
 																					Bool allowHelicopters = FALSE, Real *outScore = NULL )
 {
-	const CommandSet *commandSet = TheControlBar->findCommandSet( factory->getCommandSetString() );
+	const CommandSet *commandSet = TheCommandStore->findCommandSet( factory->getCommandSetString() );
 	if( commandSet == NULL )
 		return NULL;
 
@@ -7717,7 +7717,7 @@ static Real armyMatchup( const ThingTemplate *tmpl, const Player *owner, const s
 	* worker, a gatherer, a hacker or a jet; a helicopter stays with the army, so it may. */
 static const ThingTemplate *surplusUnit( Object *factory, const Player *owner, const std::vector<AIVisibleEnemy> &army, Real weight )
 {
-	const CommandSet *commandSet = TheControlBar->findCommandSet( factory->getCommandSetString() );
+	const CommandSet *commandSet = TheCommandStore->findCommandSet( factory->getCommandSetString() );
 	if( commandSet == NULL )
 		return NULL;
 
@@ -7844,7 +7844,7 @@ void AIPlayer::buyUpgradesForArmy( Bool overTarget )
 	std::vector<Object *> where;
 	for( std::vector<Object *>::const_iterator f = factories.begin(); f != factories.end(); ++f )
 	{
-		const CommandSet *commandSet = TheControlBar->findCommandSet( (*f)->getCommandSetString() );
+		const CommandSet *commandSet = TheCommandStore->findCommandSet( (*f)->getCommandSetString() );
 		if( commandSet == NULL )
 			continue;
 		const UnsignedInt queued = (*f)->getProductionUpdateInterface()->getProductionCount();
@@ -8031,7 +8031,7 @@ static const Int MASS_RESERVE = 1500;
 /** This factory has a button for that unit. */
 static Bool factoryOffers( Object *factory, const ThingTemplate *tmpl )
 {
-	const CommandSet *commandSet = TheControlBar->findCommandSet( factory->getCommandSetString() );
+	const CommandSet *commandSet = TheCommandStore->findCommandSet( factory->getCommandSetString() );
 	for( Int i = 0; commandSet && i < MAX_COMMANDS_PER_SET; ++i )
 	{
 		const CommandButton *button = commandSet->getCommandButton( i );
@@ -8053,7 +8053,7 @@ const ThingTemplate *AIPlayer::pickMassUnit( const std::vector<AIVisibleEnemy> &
 	Int bestCost = 0;
 	for( std::vector<Object *>::const_iterator f = factories.begin(); f != factories.end(); ++f )
 	{
-		const CommandSet *commandSet = TheControlBar->findCommandSet( (*f)->getCommandSetString() );
+		const CommandSet *commandSet = TheCommandStore->findCommandSet( (*f)->getCommandSetString() );
 		for( Int i = 0; commandSet && i < MAX_COMMANDS_PER_SET; ++i )
 		{
 			const CommandButton *button = commandSet->getCommandButton( i );
@@ -9373,7 +9373,7 @@ void AIPlayer::garrisonBuildings( void )
 	* kills it fastest: the Tank Hunter a bunkered Helix is bought for, a Missile Defender in a Humvee. */
 static const ThingTemplate *gunshipRiderTemplate( Object *factory, const ThingTemplate *armour )
 {
-	const CommandSet *commandSet = TheControlBar->findCommandSet( factory->getCommandSetString() );
+	const CommandSet *commandSet = TheCommandStore->findCommandSet( factory->getCommandSetString() );
 	if( commandSet == NULL )
 		return NULL;
 	const ThingTemplate *best = NULL;
@@ -9504,7 +9504,7 @@ static Bool passengersFireFrom( const ThingTemplate *tmpl )
 	* which the shuttle buys as a transport. */
 static const ThingTemplate *chinookTemplate( Object *factory, Bool firing )
 {
-	const CommandSet *commandSet = TheControlBar->findCommandSet( factory->getCommandSetString() );
+	const CommandSet *commandSet = TheCommandStore->findCommandSet( factory->getCommandSetString() );
 	if( commandSet == NULL )
 		return NULL;
 	for( Int i = 0; i < MAX_COMMANDS_PER_SET; ++i )
@@ -10422,7 +10422,7 @@ static const Real NO_GUN_DEPTH = -1.0e9f;
 	* The built-with set, because an upgraded Helix swaps its own for a shorter one. */
 static const UpgradeTemplate *helixUpgradeOn( const ThingTemplate *tmpl, Int kind )
 {
-	const CommandSet *commandSet = TheControlBar->findCommandSet( tmpl->friend_getCommandSetString() );
+	const CommandSet *commandSet = TheCommandStore->findCommandSet( tmpl->friend_getCommandSetString() );
 	if( commandSet == NULL )
 		return NULL;
 	for( Int i = 0; i < MAX_COMMANDS_PER_SET; ++i )
@@ -10568,7 +10568,7 @@ void AIPlayer::buyDutyHelix( void )
 	m_player->iterateObjects( collectFactories, &factories );
 	for( size_t f = 0; f < factories.size(); ++f )
 	{
-		const CommandSet *commandSet = TheControlBar->findCommandSet( factories[ f ]->getCommandSetString() );
+		const CommandSet *commandSet = TheCommandStore->findCommandSet( factories[ f ]->getCommandSetString() );
 		if( commandSet == NULL )
 			continue;
 		for( Int i = 0; i < MAX_COMMANDS_PER_SET; ++i )
@@ -11393,7 +11393,7 @@ void AIPlayer::doAmbulances( void )
 		Bool ordered = FALSE;
 		for( size_t f = 0; f < factories.size() && !ordered; ++f )
 		{
-			const CommandSet *commandSet = TheControlBar->findCommandSet( factories[ f ]->getCommandSetString() );
+			const CommandSet *commandSet = TheCommandStore->findCommandSet( factories[ f ]->getCommandSetString() );
 			if( commandSet == NULL )
 				continue;
 			for( Int i = 0; i < MAX_COMMANDS_PER_SET && !ordered; ++i )
@@ -13550,9 +13550,6 @@ Bool AIPlayer::nextScoutTarget( Int slot, const Coord3D *from, Coord3D *pos )
 	* Red Guard - and on whatever a mod gave the ability to. */
 static const ThingTemplate *cheapestCapturerTemplate( Player *player )
 {
-	if( TheControlBar == NULL )
-		return NULL;
-
 	const ThingTemplate *best = NULL;
 	Int bestCost = 0;
 
@@ -13567,7 +13564,7 @@ static const ThingTemplate *cheapestCapturerTemplate( Player *player )
 		if( cost <= 0 || (best != NULL && cost >= bestCost) )
 			continue;
 
-		const CommandSet *set = TheControlBar->findCommandSet( t->friend_getCommandSetString() );
+		const CommandSet *set = TheCommandStore->findCommandSet( t->friend_getCommandSetString() );
 		if( set == NULL )
 			continue;
 

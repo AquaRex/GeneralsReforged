@@ -15973,10 +15973,6 @@ TEST(the_bars_windows_can_be_torn_down_twice_without_taking_the_bar_with_them)
 	// again, on a bar that is already holding nothing - which is what the destructor does
 	bar.shutdownWindows();
 	CHECK( !bar.getShowBuildTooltipLayout() );
-
-	// the command buttons are not window state and are not touched by any of it
-	CHECK( bar.getCommandButtons() == NULL );
-	CHECK( bar.findCommandButton( AsciiString( "NoSuchCommandButton" ) ) == NULL );
 }
 
 /* CommandSetReforged.ini names EA's Early_Command_ChinaCarpetBomb in slot 2 of a China command center
@@ -15986,9 +15982,9 @@ TEST(command_set_slot_naming_an_unknown_button_is_skipped)
 {
 	CHECK( bootOnce() );
 
-	ControlBar bar;
-	ControlBar *savedBar = TheControlBar;
-	TheControlBar = &bar;
+	CommandStore store;
+	CommandStore *savedStore = TheCommandStore;
+	TheCommandStore = &store;
 
 	writeFile( TEST_INI,
 		"CommandButton ProbeButton\r\n"
@@ -16000,8 +15996,8 @@ TEST(command_set_slot_naming_an_unknown_button_is_skipped)
 		"End\r\n" );
 	CHECK( loadIni( TEST_INI ) );
 
-	const CommandButton *probe = bar.findCommandButton( AsciiString( "ProbeButton" ) );
-	const CommandSet *set = bar.findCommandSet( AsciiString( "ProbeCommandSet" ) );
+	const CommandButton *probe = store.findCommandButton( AsciiString( "ProbeButton" ) );
+	const CommandSet *set = store.findCommandSet( AsciiString( "ProbeCommandSet" ) );
 	CHECK( probe != NULL );
 	CHECK( set != NULL );
 	if( set != NULL )
@@ -16012,7 +16008,7 @@ TEST(command_set_slot_naming_an_unknown_button_is_skipped)
 	}
 
 	remove( TEST_INI );
-	TheControlBar = savedBar;
+	TheCommandStore = savedStore;
 }
 
 /* Mouse.cpp: the tooltip box was placed by two flips and nothing else, under EA's own note that

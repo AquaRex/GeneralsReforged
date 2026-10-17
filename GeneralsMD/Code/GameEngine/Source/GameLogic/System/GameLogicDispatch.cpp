@@ -347,8 +347,7 @@ void GameLogic::closeWindows( void )
 		TheGameConsole->resetCheatWindow();
 	HideInGameChat();
 	ResetInGameChat();
-	TheControlBar->hidePurchaseScience();
-	TheControlBar->hideSpecialPowerShortcut();
+	ControlBar::callFromLogic( []{ TheControlBar->hidePurchaseScience(); TheControlBar->hideSpecialPowerShortcut(); } );
 	HideQuitMenu();
 	
 	// hide the options menu

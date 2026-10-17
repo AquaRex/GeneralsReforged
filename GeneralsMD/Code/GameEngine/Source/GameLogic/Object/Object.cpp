@@ -6744,7 +6744,7 @@ const AsciiString& Object::getCommandSetString() const
 Bool Object::canProduceUpgrade( const UpgradeTemplate *upgrade )
 {
 	// We need to have the button to make the upgrade.  CommandSets are a weird Logic/Client hybrid.
-	const CommandSet *set = TheControlBar->findCommandSet(getCommandSetString());
+	const CommandSet *set = TheCommandStore->findCommandSet(getCommandSetString());
 	if( set == NULL )
 		return FALSE;	// a Supply Drop Zone, a GLA hole or a captured Oil Derrick has no command set
 
@@ -6764,7 +6764,7 @@ Bool Object::canProduceUpgrade( const UpgradeTemplate *upgrade )
 	* lock on its laser-guided missiles and fired them at anything, as fast as they reload. */
 Bool Object::canSwitchToWeapon( WeaponSlotType weaponSlot ) const
 {
-	const CommandSet *set = TheControlBar->findCommandSet(getCommandSetString());
+	const CommandSet *set = TheCommandStore->findCommandSet(getCommandSetString());
 	if( set == NULL )
 		return FALSE;	// an object with no command set has no buttons at all
 

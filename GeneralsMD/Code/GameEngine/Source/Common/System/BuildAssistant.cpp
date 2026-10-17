@@ -1391,7 +1391,7 @@ Bool BuildAssistant::isPossibleToMakeUnit( Object *builder, const ThingTemplate 
 		return FALSE;
 
 	// get the command set for the producer object
-	const CommandSet *commandSet = TheControlBar->findCommandSet( builder->getCommandSetString() );
+	const CommandSet *commandSet = TheCommandStore->findCommandSet( builder->getCommandSetString() );
 	
 	// if no command set we cannot build anything
 	if( commandSet == NULL )

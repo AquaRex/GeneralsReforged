@@ -1210,7 +1210,7 @@ void Radar::tryUnderAttackEvent( const Object *obj )
 	{
 		// the lamp beside the radar
 		if( TheControlBar )
-			TheControlBar->triggerRadarAttackGlow();
+			ControlBar::callFromLogic( []{ TheControlBar->triggerRadarAttackGlow(); } );
 		//
 		///@todo Should make an INI data driven table for radar event strings, and audio events
 		//

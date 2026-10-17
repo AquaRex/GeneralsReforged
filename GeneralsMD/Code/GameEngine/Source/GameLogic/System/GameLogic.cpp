@@ -6298,7 +6298,7 @@ void GameLogic::xfer( Xfer *xfer )
 				ConstCommandButtonPtr button = NULL;
 				if (value.isNotEmpty())
 				{
-					button = TheControlBar->findCommandButton(value);
+					button = TheCommandStore->findCommandButton(value);
 					DEBUG_ASSERTCRASH(button != NULL, ("Could not find button %s\n",value.str()));
 				}
 				m_controlBarOverrides[name] = button;

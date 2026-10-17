@@ -25,6 +25,7 @@
 #include "Common/LogicThread.h"
 #include "Common/EarlyCommandLine.h"
 #include "Common/MessageStream.h"
+#include "GameClient/ControlBar.h"
 #include "GameClient/Drawable.h"
 #include "GameLogic/FPUControl.h"
 #include "GameLogic/GameLogic.h"
@@ -78,7 +79,7 @@ namespace
 	{
 		"drawable", "modelcondition", "audio", "ingameui", "controlbar", "tacticalview", "radar",
 		"fxlist", "terrainvisual", "particles", "gameclient", "eva", "newdrawable", "clientrandom",
-		"ghost", "messagestream", "display", "jobs", "ondemandflush"
+		"ghost", "messagestream", "display", "jobs", "ondemandflush", "observerlookat"
 	};
 
 	Real elapsedMS( LogicClock::time_point a, LogicClock::time_point b )
@@ -207,6 +208,7 @@ void LogicThread::runTick( void )
 		++s_inlineTicks;
 		TheGameLogic->UPDATE();
 		Drawable::flushPendingClientWork();
+		ControlBar::flushLogicCalls();
 		return;
 	}
 
@@ -248,8 +250,10 @@ void LogicThread::runTick( void )
 	if( error )
 		std::rethrow_exception( error );
 
-	// What the tick deferred on the drawables (phase 2, M1), here on the main thread at both settings.
+	// What the tick deferred on the drawables (phase 2, M1) and on the control bar (M2), here on the
+	// main thread at both settings.
 	Drawable::flushPendingClientWork();
+	ControlBar::flushLogicCalls();
 }
 
 //-------------------------------------------------------------------------------------------------

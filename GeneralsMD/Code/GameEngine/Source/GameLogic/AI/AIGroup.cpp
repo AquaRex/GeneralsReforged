@@ -3724,7 +3724,7 @@ static Bool mayPlayerSell( const Object *obj )
 	if( obj->testScriptStatusBit( OBJECT_STATUS_SCRIPT_UNSELLABLE ) || obj->isDisabledByType( DISABLED_SUBDUED ) )
 		return FALSE;
 
-	const CommandSet *commandSet = TheControlBar->findCommandSet( obj->getCommandSetString() );
+	const CommandSet *commandSet = TheCommandStore->findCommandSet( obj->getCommandSetString() );
 	if( commandSet == NULL )
 		return FALSE;
 
@@ -4182,7 +4182,7 @@ Object *AIGroup::getCommandButtonSourceObject( GUICommandType type )
 			continue;
 		}
 
-		const CommandSet *commandSet = TheControlBar->findCommandSet( object->getCommandSetString() );
+		const CommandSet *commandSet = TheCommandStore->findCommandSet( object->getCommandSetString() );
 		if (!commandSet) {
 			continue;
 		}

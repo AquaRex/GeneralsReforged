@@ -399,6 +399,7 @@ GameEngine/Include/Common/CDManager.h
 GameEngine/Include/Common/CRCDebug.h
 GameEngine/Include/Common/ClientUpdateModule.h
 GameEngine/Include/Common/CommandLine.h
+GameEngine/Include/Common/CommandStore.h
 GameEngine/Include/Common/ControlServer.h
 GameEngine/Include/Common/CopyProtection.h
 GameEngine/Include/Common/CrashHandler.h
@@ -1062,6 +1063,7 @@ GameEngine/Source/Common/System/ArchiveFileSystem.cpp
 GameEngine/Source/Common/System/AsciiString.cpp
 GameEngine/Source/Common/System/BuildAssistant.cpp
 GameEngine/Source/Common/System/CDManager.cpp
+GameEngine/Source/Common/System/CommandStore.cpp
 GameEngine/Source/Common/System/Compression.cpp
 GameEngine/Source/Common/System/ControlServer.cpp
 GameEngine/Source/Common/System/CopyProtection.cpp

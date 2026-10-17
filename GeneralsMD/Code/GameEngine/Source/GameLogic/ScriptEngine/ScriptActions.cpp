@@ -2074,7 +2074,7 @@ void ScriptActions::doTeamHuntWithCommandButton(const AsciiString& teamName, con
 	}
 
 
-	const CommandButton *commandButton = TheControlBar->findCommandButton( ability );
+	const CommandButton *commandButton = TheCommandStore->findCommandButton( ability );
 	if( !commandButton )
 	{
 		return;
@@ -2157,7 +2157,7 @@ void ScriptActions::doTeamHuntWithCommandButton(const AsciiString& teamName, con
 			continue;
 		}
 		Bool foundCommand = false;
-		const CommandSet *commandSet = TheControlBar->findCommandSet( obj->getCommandSetString( ) );
+		const CommandSet *commandSet = TheCommandStore->findCommandSet( obj->getCommandSetString( ) );
 		if( commandSet )
 		{
 			for( int i = 0; i < MAX_COMMANDS_PER_SET; i++ )
@@ -2672,7 +2672,7 @@ void ScriptActions::doCameoFlash(const AsciiString& name, Int timeInSeconds)
 	const CommandButton *button;
 
 	//sanity
-	button = TheControlBar->findCommandButton( name );
+	button = TheCommandStore->findCommandButton( name );
 	if( button == NULL )
 	{
 		DEBUG_CRASH(( "ScriptActions::doCameoFlash can't find AsciiString cameoflash" ));
@@ -2685,8 +2685,8 @@ void ScriptActions::doCameoFlash(const AsciiString& name, Int timeInSeconds)
 	if( count % 2 == 1 )
 		count++;
 
-	button->setFlashCount(count);
-	TheControlBar->setFlash( TRUE );
+	// the flash count is the client's field on the button; both wait for the sync point
+	ControlBar::callFromLogic( [button, count]{ button->setFlashCount(count); TheControlBar->setFlash( TRUE ); } );
 
 }
 
@@ -3258,7 +3258,7 @@ void ScriptActions::doDisableInput()
 		TheInGameUI->deselectAllDrawables();
 		TheInGameUI->clearAttackMoveToMode();
 		TheInGameUI->setWaypointMode( FALSE );
-		TheControlBar->deleteBuildTooltipLayout();
+		ControlBar::callFromLogic( []{ TheControlBar->deleteBuildTooltipLayout(); } );
 		TheLookAtTranslator->resetModes();
 	}
 }
@@ -4314,7 +4314,7 @@ void ScriptActions::doNamedUseCommandButtonAbility( const AsciiString& unit, con
 		return;
 	}
 
-	const CommandSet *commandSet = TheControlBar->findCommandSet( theObj->getCommandSetString() );
+	const CommandSet *commandSet = TheCommandStore->findCommandSet( theObj->getCommandSetString() );
 	if( commandSet )
 	{
 		for( Int i = 0; i < MAX_COMMANDS_PER_SET; i++ )
@@ -4348,7 +4348,7 @@ void ScriptActions::doNamedUseCommandButtonAbilityOnNamed( const AsciiString& un
 		return;
 	}
 
-	const CommandSet *commandSet = TheControlBar->findCommandSet( theObj->getCommandSetString() );
+	const CommandSet *commandSet = TheCommandStore->findCommandSet( theObj->getCommandSetString() );
 	if( commandSet )
 	{
 		for( Int i = 0; i < MAX_COMMANDS_PER_SET; i++ )
@@ -4382,7 +4382,7 @@ void ScriptActions::doNamedUseCommandButtonAbilityAtWaypoint( const AsciiString&
 		return;
 	}
 
-	const CommandSet *commandSet = TheControlBar->findCommandSet( theObj->getCommandSetString() );
+	const CommandSet *commandSet = TheCommandStore->findCommandSet( theObj->getCommandSetString() );
 	if( commandSet )
 	{
 		for( Int i = 0; i < MAX_COMMANDS_PER_SET; i++ )
@@ -4421,7 +4421,7 @@ void ScriptActions::doNamedUseCommandButtonAbilityUsingWaypointPath( const Ascii
 		return;
 	}
 
-	const CommandSet *commandSet = TheControlBar->findCommandSet( theObj->getCommandSetString() );
+	const CommandSet *commandSet = TheCommandStore->findCommandSet( theObj->getCommandSetString() );
 	if( commandSet )
 	{
 		for( Int i = 0; i < MAX_COMMANDS_PER_SET; i++ )
@@ -4454,7 +4454,7 @@ void ScriptActions::doTeamUseCommandButtonAbility( const AsciiString& team, cons
 		return;
 	}
 
-	const CommandButton *commandButton = TheControlBar->findCommandButton( ability );
+	const CommandButton *commandButton = TheCommandStore->findCommandButton( ability );
 	if( !commandButton )
 	{
 		return;
@@ -4489,7 +4489,7 @@ void ScriptActions::doTeamUseCommandButtonAbilityOnNamed( const AsciiString& tea
 		return;
 	}
 
-	const CommandButton *commandButton = TheControlBar->findCommandButton( ability );
+	const CommandButton *commandButton = TheCommandStore->findCommandButton( ability );
 	if( !commandButton )
 	{
 		return;
@@ -4524,7 +4524,7 @@ void ScriptActions::doTeamUseCommandButtonAbilityAtWaypoint( const AsciiString& 
 		return;
 	}
 
-	const CommandButton *commandButton = TheControlBar->findCommandButton( ability );
+	const CommandButton *commandButton = TheCommandStore->findCommandButton( ability );
 	if( !commandButton )
 	{
 		return;
@@ -5451,7 +5451,7 @@ void ScriptActions::doSkirmishCommandButtonOnMostValuable( const AsciiString& te
 	if (!player)
 		return;
 
-	const CommandButton *commandButton = TheControlBar->findCommandButton( ability );
+	const CommandButton *commandButton = TheCommandStore->findCommandButton( ability );
 	if( !commandButton ) {
 		return;
 	}
@@ -5510,7 +5510,7 @@ void ScriptActions::doTeamUseCommandButtonOnNamed( const AsciiString& teamName, 
 	AIGroup *theGroup = TheAI->createGroup();
 	team->getTeamAsAIGroup(theGroup);
 
-	const CommandButton *commandButton = TheControlBar->findCommandButton(commandAbility);
+	const CommandButton *commandButton = TheCommandStore->findCommandButton(commandAbility);
 	if(!commandButton) {
 		return;
 	}
@@ -5549,7 +5549,7 @@ void ScriptActions::doTeamUseCommandButtonOnNearestEnemy( const AsciiString& tea
 	AIGroup *theGroup = TheAI->createGroup();
 	team->getTeamAsAIGroup(theGroup);
 
-	const CommandButton *commandButton = TheControlBar->findCommandButton(commandAbility);
+	const CommandButton *commandButton = TheCommandStore->findCommandButton(commandAbility);
 	if(!commandButton) {
 		return;
 	}
@@ -5595,7 +5595,7 @@ void ScriptActions::doTeamUseCommandButtonOnNearestGarrisonedBuilding( const Asc
 	AIGroup *theGroup = TheAI->createGroup();
 	team->getTeamAsAIGroup(theGroup);
 
-	const CommandButton *commandButton = TheControlBar->findCommandButton(commandAbility);
+	const CommandButton *commandButton = TheCommandStore->findCommandButton(commandAbility);
 	if(!commandButton) {
 		return;
 	}
@@ -5645,7 +5645,7 @@ void ScriptActions::doTeamUseCommandButtonOnNearestKindof( const AsciiString& te
 	AIGroup *theGroup = TheAI->createGroup();
 	team->getTeamAsAIGroup(theGroup);
 
-	const CommandButton *commandButton = TheControlBar->findCommandButton(commandAbility);
+	const CommandButton *commandButton = TheCommandStore->findCommandButton(commandAbility);
 	if (!commandButton) {
 		return;
 	}
@@ -5692,7 +5692,7 @@ void ScriptActions::doTeamUseCommandButtonOnNearestBuilding( const AsciiString& 
 	AIGroup *theGroup = TheAI->createGroup();
 	team->getTeamAsAIGroup(theGroup);
 
-	const CommandButton *commandButton = TheControlBar->findCommandButton(commandAbility);
+	const CommandButton *commandButton = TheCommandStore->findCommandButton(commandAbility);
 	if (!commandButton) {
 		return;
 	}
@@ -5739,7 +5739,7 @@ void ScriptActions::doTeamUseCommandButtonOnNearestBuildingClass( const AsciiStr
 	AIGroup *theGroup = TheAI->createGroup();
 	team->getTeamAsAIGroup(theGroup);
 
-	const CommandButton *commandButton = TheControlBar->findCommandButton(commandAbility);
+	const CommandButton *commandButton = TheCommandStore->findCommandButton(commandAbility);
 	if (!commandButton) {
 		return;
 	}
@@ -5787,7 +5787,7 @@ void ScriptActions::doTeamUseCommandButtonOnNearestObjectType( const AsciiString
 	AIGroup *theGroup = TheAI->createGroup();
 	team->getTeamAsAIGroup(theGroup);
 
-	const CommandButton *commandButton = TheControlBar->findCommandButton(commandAbility);
+	const CommandButton *commandButton = TheCommandStore->findCommandButton(commandAbility);
 	if (!commandButton) {
 		return;
 	}
@@ -5875,7 +5875,7 @@ void ScriptActions::doTeamPartialUseCommandButton( Real percentage, const AsciiS
 		return;
 	}
 
-	const CommandButton *commandButton = TheControlBar->findCommandButton(commandAbility);
+	const CommandButton *commandButton = TheCommandStore->findCommandButton(commandAbility);
 	if (!commandButton) {
 		return;
 	}
@@ -6336,7 +6336,7 @@ void ScriptActions::doRemoveCommandBarButton(const AsciiString& buttonName, cons
 	if (!templ) {
 		return;
 	}
-	const CommandSet *cs = TheControlBar->findCommandSet(templ->friend_getCommandSetString());
+	const CommandSet *cs = TheCommandStore->findCommandSet(templ->friend_getCommandSetString());
 	if (!cs) {
 		return;
 	}
@@ -6365,7 +6365,7 @@ void ScriptActions::doAddCommandBarButton(const AsciiString& buttonName, const A
 		return;
 	}
 
-	const CommandButton *commandButton = TheControlBar->findCommandButton( buttonName );
+	const CommandButton *commandButton = TheCommandStore->findCommandButton( buttonName );
 	if (commandButton == NULL)
 	{
 		// not here. use doRemoveCommandBarButton to remove one.

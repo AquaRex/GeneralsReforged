@@ -7294,7 +7294,7 @@ void AIUpdateInterface::privateCommandButton( const CommandButton *commandButton
 		if( ai )
 		{
 			//Make sure the owner has the same command button.
-			const CommandSet *commandSet = TheControlBar->findCommandSet( owner->getCommandSetString() );
+			const CommandSet *commandSet = TheCommandStore->findCommandSet( owner->getCommandSetString() );
 			if( commandSet )
 			{
 				for( int i = 0; i < MAX_COMMANDS_PER_SET; i++ )
@@ -7349,7 +7349,7 @@ void AIUpdateInterface::privateCommandButtonPosition( const CommandButton *comma
 		if( ai )
 		{
 			//Make sure the owner has the same command button.
-			const CommandSet *commandSet = TheControlBar->findCommandSet( owner->getCommandSetString() );
+			const CommandSet *commandSet = TheCommandStore->findCommandSet( owner->getCommandSetString() );
 			if( commandSet )
 			{
 				for( int i = 0; i < MAX_COMMANDS_PER_SET; i++ )
@@ -7401,7 +7401,7 @@ void AIUpdateInterface::privateCommandButtonObject( const CommandButton *command
 	{
 		AIUpdateInterface *ai = owner->getAI();
 		//Make sure the owner has the same command button.
-		const CommandSet *commandSet = TheControlBar->findCommandSet( owner->getCommandSetString() );
+		const CommandSet *commandSet = TheCommandStore->findCommandSet( owner->getCommandSetString() );
 		if( commandSet )
 		{
 			for( int i = 0; i < MAX_COMMANDS_PER_SET; i++ )

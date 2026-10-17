@@ -63,6 +63,7 @@ namespace LogicThread
 		CENSUS_DISPLAY,					///< TheDisplay shroud levels
 		CENSUS_JOBS,						///< JobSystem::parallel_for
 		CENSUS_ON_DEMAND_FLUSH,	///< Drawable::getDrawModulesFlushed applying deferred work inside the tick
+		CENSUS_OBSERVER_LOOKAT,	///< ControlBar::getObserverLookAtPlayer, a logic read of client state (M7)
 		CENSUS_COUNT
 	};
 

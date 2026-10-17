@@ -42,6 +42,7 @@
 #include "Common/ActionManager.h"
 #include "Common/AudioAffect.h"
 #include "Common/BuildAssistant.h"
+#include "Common/CommandStore.h"
 #include "Common/CRCDebug.h"
 #include "Common/crc.h"
 #include "Common/Radar.h"
@@ -1239,6 +1240,10 @@ void GameEngine::init( int argc, char *argv[] )
 		initFactionSubsystem(TheUpgradeCenter,"TheUpgradeCenter", MSGNEW("GameEngineSubsystem") UpgradeCenter, &xferCRC, "Data\\INI\\Default\\Upgrade.ini", "Data\\INI\\Upgrade.ini");
 		// An upgrade parsed again is edited in place, so this file names only what changes
 		ini.load( AsciiString( "Data\\INI\\UpgradeReforged.ini" ), INI_LOAD_MULTIFILE, &xferCRC );
+		/* Command buttons and sets, which the AI, the scripts and the build checks read: logic's, so
+			 before the client and the logic (LOGIC-THREAD.md phase 2, M2).  A button names objects,
+			 upgrades and special powers, so after them; the INI CRC takes the files at the end. */
+		initSubsystem(TheCommandStore,"TheCommandStore", MSGNEW("GameEngineSubsystem") CommandStore, NULL);
 		initSubsystem(TheGameClient,"TheGameClient", createGameClient(), NULL);
 
 
@@ -1311,7 +1316,7 @@ void GameEngine::init( int argc, char *argv[] )
 	#endif/////////////////////////////////////////////////////////////////////////////////////////////
 
 
-		// the control bar parses these without the checksum, and the AI builds and hunts from them
+		// TheCommandStore parses these without the checksum, and the AI builds and hunts from them
 		checksumFileContents( xferCRC, "Data\\INI\\Default\\CommandButton.ini" );
 		checksumFactionFile( xferCRC, "Data\\INI\\CommandButton.ini" );
 		checksumFactionFile( xferCRC, "Data\\INI\\CommandSet.ini" );

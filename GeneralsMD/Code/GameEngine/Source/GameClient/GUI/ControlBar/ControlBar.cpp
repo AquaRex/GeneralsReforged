@@ -600,9 +600,45 @@ void ControlBar::pressCommandButton( Int place )
 
 }  // end pressCommandButton
 
+/* LOGIC-THREAD.md phase 2, M2: what the tick asks of the bar waits here for LogicThread::runTick to
+	 call flushLogicCalls on the main thread.  Keyed on isInGameLogicUpdate rather than on the thread, so
+	 -logicthread 0 and 1 run one path, as the drawables' deferred work does. */
+static Bool s_logicMarkedUIDirty = FALSE;
+static std::vector< std::function<void()> > s_logicCalls;
+
+//-------------------------------------------------------------------------------------------------
+void ControlBar::callFromLogic( const std::function<void()>& call )
+{
+	if( TheGameLogic->isInGameLogicUpdate() )
+		s_logicCalls.push_back( call );
+	else
+		call();
+}
+
+//-------------------------------------------------------------------------------------------------
+void ControlBar::flushLogicCalls( void )
+{
+	// a call may queue nothing more: none of them runs inside a tick
+	for( size_t i = 0; i < s_logicCalls.size(); ++i )
+		s_logicCalls[ i ]();
+	s_logicCalls.clear();
+
+	if( s_logicMarkedUIDirty )
+	{
+		s_logicMarkedUIDirty = FALSE;
+		TheControlBar->markUIDirty();
+	}
+}
+
 /// mark the UI as dirty so the context of everything is re-evaluated
 void ControlBar::markUIDirty( void )
 {
+	if( TheGameLogic->isInGameLogicUpdate() )
+	{
+		s_logicMarkedUIDirty = TRUE;
+		return;
+	}
+
 	LOGIC_CENSUS( CENSUS_CONTROLBAR );
   m_UIDirty = TRUE;
 
@@ -1425,7 +1461,7 @@ void CommandSet::parseCommandButton( INI* ini, void *instance, void *store, cons
 	const char *token = ini->getNextToken();
 
 	// get find the command button from this name
-	const CommandButton *commandButton = TheControlBar->findCommandButton( AsciiString( token ) );
+	const CommandButton *commandButton = TheCommandStore->findCommandButton( AsciiString( token ) );
 	// get the index to store the command at, and the command array itself
 	const CommandButton **buttonArray = (const CommandButton **)store;
 	Int buttonIndex = (Int)(intptr_t)userData;
@@ -1506,8 +1542,6 @@ CommandSet::~CommandSet( void )
 ControlBar::ControlBar( void )
 {
 	Int i;
-	m_commandButtons = NULL;
-	m_commandSets = NULL;
 	m_controlBarSchemeManager = NULL;
 	m_isObserverCommandBar = FALSE;
 	m_observerLookAtPlayer = NULL;
@@ -1647,26 +1681,6 @@ ControlBar::~ControlBar( void )
 	if( m_controlBarSchemeManager )
 		delete m_controlBarSchemeManager;
 	m_controlBarSchemeManager = NULL;
-
-	// destroy all the command set definitions
-	CommandSet *set;
-	while( m_commandSets )
-	{
-		set = m_commandSets->friend_getNext();
-		m_commandSets->deleteInstance();
-		m_commandSets = set;
-
-	}  // end while
-
-	// destroy all our command button definitions
-	CommandButton *button;
-	while( m_commandButtons )
-	{
-		button = m_commandButtons->friend_getNext();
-		m_commandButtons->deleteInstance();
-		m_commandButtons = button;
-
-	}  // end while
 
 }  // end ~ControlBar
 void ControlBarPopupDescriptionUpdateFunc( WindowLayout *layout, void *param );
@@ -2162,6 +2176,7 @@ static const std::vector<UnsignedByte> &plateMask( const ControlBarPlate *plate 
 //-------------------------------------------------------------------------------------------------
 void ControlBar::triggerRadarAttackGlow( void )
 {
+	LOGIC_CENSUS( CENSUS_CONTROLBAR );
 	if( m_radarAttackGlowWindow == NULL )
 		return;
 	m_remainingRadarAttackGlowFrames = ConvertRetailFrames( 150 );
@@ -2515,22 +2530,9 @@ void ControlBar::layoutPanels( void )
 //-------------------------------------------------------------------------------------------------
 void ControlBar::init( void )
 {
-	INI ini;
 	m_sideSelectAnimateDown = FALSE;
-	// load the command buttons
-	ini.load( AsciiString( "Data\\INI\\Default\\CommandButton.ini" ), INI_LOAD_OVERWRITE, NULL );
-	ini.load( AsciiString( "Data\\INI\\CommandButton.ini" ), INI_LOAD_OVERWRITE, NULL );
 
-	// load the command sets
-	ini.load( AsciiString( "Data\\INI\\CommandSet.ini" ), INI_LOAD_OVERWRITE, NULL );
-	// -modfactions: each mod's buttons and sets after retail's, under its names
-	INI::loadModPasses( "Data\\INI\\CommandButton.ini", NULL );
-	INI::loadModPasses( "Data\\INI\\CommandSet.ini", NULL );
-
-	// the fork's corrections to EA's buttons and sets, edited in place; GameEngine::init checksums it
-	ini.load( AsciiString( "Data\\INI\\CommandSetReforged.ini" ), INI_LOAD_MULTIFILE, NULL );
-
-	// post process step after loading the command buttons and command sets
+	// TheCommandStore loaded the buttons and sets before the game logic existed; their images are ours
 	postProcessCommands();
 
 	// Init the scheme manager, this will call it's won INI init funciton.
@@ -2931,41 +2933,10 @@ void ControlBar::reset( void )
 		m_animateDownWindow = NULL;		
 	}
 
-	// Remove any overridden sets.
-	CommandSet *set, *nextSet;
-	set = m_commandSets;
-	while (set) {
-		Bool possibleAdjustment = FALSE;
-		nextSet = set->friend_getNext();
-		if (set == m_commandSets) {
-			possibleAdjustment = TRUE;
-		}
+	// the map's overrides go in TheCommandStore's reset; what the tick asked of the old match goes here
+	s_logicCalls.clear();
+	s_logicMarkedUIDirty = FALSE;
 
-		Overridable *stillValid = set->deleteOverrides();
-		if (stillValid == NULL && possibleAdjustment) {
-			m_commandSets = nextSet;
-		}
-
-		set = nextSet;
-	}
-
-	// Remove any overridden command buttons.
-	CommandButton *button, *nextButton;
-	button = m_commandButtons;
-	while (button) {
-		Bool possibleAdjustment = FALSE;
-		nextButton = button->friend_getNext();
-		if (button == m_commandButtons) {
-			possibleAdjustment = TRUE;
-		}
-
-		Overridable *stillValid = button->deleteOverrides();
-		if (stillValid == NULL && possibleAdjustment) {
-			m_commandButtons = nextButton;
-		}
-
-		button = nextButton;
-	}
 	if(TheTransitionHandler)
 		TheTransitionHandler->remove("ControlBarArrow");
 	m_genArrow = NULL;
@@ -3383,6 +3354,7 @@ const Image *ControlBar::getStarImage(void )
 //-------------------------------------------------------------------------------------------------
 void ControlBar::onPlayerRankChanged(const Player *p)
 {
+	LOGIC_CENSUS( CENSUS_CONTROLBAR );
 	if (!p->isLocalPlayer())
 		return;
 
@@ -3401,6 +3373,7 @@ void ControlBar::onPlayerRankChanged(const Player *p)
 //-------------------------------------------------------------------------------------------------
 void ControlBar::onPlayerSciencePurchasePointsChanged(const Player *p)
 {
+	LOGIC_CENSUS( CENSUS_CONTROLBAR );
 	if (!p->isLocalPlayer())
 		return;
 	if(!(m_lastFlashedAtPointValue > ThePlayerList->getLocalPlayer()->getSciencePurchasePoints()))
@@ -3635,209 +3608,20 @@ void ControlBar::evaluateContextUI( void )
 }  // end evaluateContextUI
 
 //-------------------------------------------------------------------------------------------------
-/** Find a command button of the given name if present */
-//-------------------------------------------------------------------------------------------------
-CommandButton *ControlBar::findNonConstCommandButton( const AsciiString& name )
-{
-	
-	for( const CommandButton *command = m_commandButtons; command; command = command->getNext() )
-		if( command->getName() == name )
-			return const_cast<CommandButton*>((const CommandButton*)command->getFinalOverride());
-
-	AsciiString retailName;
-	if( TheModNamespace.findRetailName( name, MODNAME_COMMANDBUTTON, &retailName ) )
-		return findNonConstCommandButton( retailName );
-	return NULL;  // not found
-
-}  // end findCommandButton
-
-//-------------------------------------------------------------------------------------------------
-/** Allocate a new command button, assign name, and tie to list */
-//-------------------------------------------------------------------------------------------------
-CommandButton *ControlBar::newCommandButton( const AsciiString& name )
-{
-	CommandButton *newButton;
-
-	// allocate new button
-	newButton = newInstance(CommandButton);
-
-	// assign name
-	newButton->setName(name);
-
-	// link to list
-	newButton->friend_addToList(&m_commandButtons);
-
-	// return the new button
-	return newButton;
-
-}  // end newCommandButton
-
-//-------------------------------------------------------------------------------------------------
-//-------------------------------------------------------------------------------------------------
-CommandButton *ControlBar::newCommandButtonOverride( CommandButton *buttonToOverride )
-{
-	if (!buttonToOverride) {
-		return NULL;
-	}
-
-	CommandButton *newOverride;
-
-	// allocate new button
-	newOverride = newInstance(CommandButton);
-
-	*newOverride = *buttonToOverride;
-
-	newOverride->markAsOverride();
-	buttonToOverride->setNextOverride(newOverride);
-
-	return newOverride;
-}
-
-//-------------------------------------------------------------------------------------------------
-/** Parse a command set */
-//-------------------------------------------------------------------------------------------------
-/*static*/ void ControlBar::parseCommandSetDefinition( INI *ini )
-{
-	AsciiString name;
-	CommandSet *commandSet;
-
-	// read the name
-	const char* c = ini->getNextToken();
-	name.set( c );	
-
-	// find existing item if present
-	commandSet = TheControlBar->findNonConstCommandSet( name );
-	if( commandSet == NULL )
-	{
-
-		// allocate a new item
-		commandSet = TheControlBar->newCommandSet( name );
-		if (ini->getLoadType() == INI_LOAD_CREATE_OVERRIDES) {
-			commandSet->markAsOverride();
-		}
-	}  // end if
-	else if( ini->getLoadType() == INI_LOAD_MULTIFILE )
-	{
-		// a patch file's set replaces the set whole, in place, so every pointer to it stays good
-		commandSet->friend_clearCommands();
-	}
-	else if( ini->getLoadType() == INI_LOAD_OVERWRITE )
-	{
-		// two mods under -modfactions can both name a set "CommandSet GLA" once their Side names are
-		// stripped; the later one wins, as a patch file's does, instead of refusing the whole load
-		DEBUG_LOG(( "[LINE: %d in '%s'] commandset %s defined again, the later one replaces it\n",
-			ini->getLineNum(), ini->getFilename().str(), name.str() ));
-		commandSet->friend_clearCommands();
-	}
-	else if( ini->getLoadType() != INI_LOAD_CREATE_OVERRIDES )
-	{
-		//Holy crap, this sucks to debug!!!
-		//If you have two different command sets, the previous
-		//code would simply allow you to define multiple command set
-		//with the same name, and just nuke the old button with the new one.
-		//So, I (KM) have added this assert to notify in case of two same-name
-		//command set.
-		DEBUG_CRASH(( "[LINE: %d in '%s'] Duplicate commandset %s found!", ini->getLineNum(), ini->getFilename().str(), name.str() ));
-		throw INI_INVALID_DATA;
-
-		//@todo SUPPORT OVERRIDES -- JM
-	} else {
-		commandSet = TheControlBar->newCommandSetOverride(commandSet);
-	}
-
-	// sanity
-	DEBUG_ASSERTCRASH( commandSet, ("parseCommandSetDefinition: Unable to allocate set '%s'\n", name.str()) );
-
-	// parse the ini definition
-	ini->initFromINI( commandSet, commandSet->friend_getFieldParse() );
-
-}  // end parseCommandSetDefinition
-
-//-------------------------------------------------------------------------------------------------
-/** Find existing command set by name */
-//-------------------------------------------------------------------------------------------------
-CommandSet* ControlBar::findNonConstCommandSet( const AsciiString& name )
-{
-	CommandSet* set;
-
-	for( set = m_commandSets; set != NULL; set = set->friend_getNext() )
-		if( set->getName() == name )
-			return const_cast<CommandSet*>((const CommandSet *) set);
-
-	AsciiString retailName;
-	if( TheModNamespace.findRetailName( name, MODNAME_COMMANDSET, &retailName ) )
-		return findNonConstCommandSet( retailName );
-	return NULL;  // set not found
-
-}
-//-------------------------------------------------------------------------------------------------
-/** find existing command button if present	*/
+/** The client's way to TheCommandStore.  The census hook stays, so a logic site still asking the
+	bar shows up from the tick. */
 //-------------------------------------------------------------------------------------------------
 const CommandButton *ControlBar::findCommandButton( const AsciiString& name )
 {
 	LOGIC_CENSUS( CENSUS_CONTROLBAR );
-	CommandButton *btn =  findNonConstCommandButton(name); 
-	if( btn )
-	{
-		btn = (CommandButton *)btn->friend_getFinalOverride();
-	}
-	return btn; 
+	return TheCommandStore->findCommandButton( name );
 }
 
-//-------------------------------------------------------------------------------------------------
-/** Find existing command set by name */
 //-------------------------------------------------------------------------------------------------
 const CommandSet *ControlBar::findCommandSet( const AsciiString& name )
 {
 	LOGIC_CENSUS( CENSUS_CONTROLBAR );
-	CommandSet *set = findNonConstCommandSet(name); 
-	if (set)
-		set = (CommandSet*)set->friend_getFinalOverride();
-	return set; 
-}
-
-//-------------------------------------------------------------------------------------------------
-/** Allocate a new command set, link to list, initialize to default, and return it */
-//-------------------------------------------------------------------------------------------------
-CommandSet *ControlBar::newCommandSet( const AsciiString& name )
-{
-	// allocate a new set
-	CommandSet* set = newInstance(CommandSet)(name);
-	// add it to the list.
-	set->friend_addToList(&m_commandSets);
-	// return the newly created set
-	return set;
-
-}  // end newCommandSet
-
-//-------------------------------------------------------------------------------------------------
-/** Create an overridden command set. */
-//-------------------------------------------------------------------------------------------------
-CommandSet *ControlBar::newCommandSetOverride( CommandSet *setToOverride )
-{
-	if (!setToOverride) {
-		return NULL;
-	}
-
-	/* Hang the override off the end of the chain.  findNonConstCommandSet hands back the base set (the
-		 button lookup hands back the final override), so a set map.ini and solo.ini both edit, or one
-		 file edits twice, copied the base, next-override pointer and all, and hung the copy off the
-		 base: the chain ran base, second, first, the final override was the first edit and the second
-		 never showed. */
-	setToOverride = (CommandSet *)setToOverride->friend_getFinalOverride();
-
-	// allocate a new set
-	CommandSet* set = newInstance(CommandSet)(setToOverride->getName());
-
-	// it's an override; DON'T add it to the main list.
-	// !!! DO NOT DO THIS !!! -- > set->friend_addToList(&m_commandSets); <-- !!! DO NOT DO THIS !!!
-
-	*set = *setToOverride;
-	set->markAsOverride();
-
-	setToOverride->setNextOverride(set);
-
-	return set;
+	return TheCommandStore->findCommandSet( name );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4673,7 +4457,8 @@ void CommandButton::cacheButtonImage()
 //-------------------------------------------------------------------------------------------------
 void ControlBar::postProcessCommands( void )
 {
-	for ( CommandButton *button = m_commandButtons; button; button = button->friend_getNext() )
+	LOGIC_CENSUS( CENSUS_CONTROLBAR );
+	for ( CommandButton *button = TheCommandStore->friend_getCommandButtons(); button; button = button->friend_getNext() )
 	{
 		// a map.ini's edit of a button is an override hanging off it, not a button in this list
 		for ( Overridable *o = button; o; o = o->friend_getNextOverride() )
@@ -4925,6 +4710,7 @@ void ControlBar::showRallyPoint( const Coord3D *loc )
 // ------------------------------------------------------------------------------------------------
 void ControlBar::setControlBarSchemeByPlayer(Player *p)
 {
+	LOGIC_CENSUS( CENSUS_CONTROLBAR );
 	if(m_controlBarSchemeManager)
 		m_controlBarSchemeManager->setControlBarSchemeByPlayer(p);
 
@@ -4977,6 +4763,7 @@ void ControlBar::restoreStageAfterScheme( void )
 
 void ControlBar::setControlBarSchemeByPlayerTemplate( const PlayerTemplate *pt)
 {
+	LOGIC_CENSUS( CENSUS_CONTROLBAR );
 	if(m_controlBarSchemeManager)
 		m_controlBarSchemeManager->setControlBarSchemeByPlayerTemplate(pt);
 
@@ -5098,6 +4885,7 @@ void ControlBar::updateCommanBarBorderColors(Color build, Color action, Color up
 // hides the communicator button
 void ControlBar::hideCommunicator( Bool b )
 {
+	LOGIC_CENSUS( CENSUS_CONTROLBAR );
 	//sanity
 	if( m_communicatorButton != NULL )
 		m_communicatorButton->winHide( b );
@@ -5156,6 +4944,7 @@ void ControlBar::showPurchaseScience( void )
 
 void ControlBar::hidePurchaseScience( void )
 {
+	LOGIC_CENSUS( CENSUS_CONTROLBAR );
 	clearPurchaseScienceColumn();
 
 	const Bool wasOpen = m_purchaseScienceOpen;
@@ -5527,19 +5316,20 @@ void ControlBar::updateSlotExitImage( const Image *image )
 	//for neutral buildings which can have a different empty inventory icon based
 	//on the faction player.
 
-	CommandButton *cmdButton = findNonConstCommandButton( "Command_StructureExit" );
+	// the button image is the client's field on a logic-owned button
+	CommandButton *cmdButton = TheCommandStore->findNonConstCommandButton( "Command_StructureExit" );
 	if(cmdButton)
 		cmdButton->setButtonImage(image);
 
-	cmdButton = findNonConstCommandButton( "Command_TransportExit" );
+	cmdButton = TheCommandStore->findNonConstCommandButton( "Command_TransportExit" );
 	if(cmdButton)
 		cmdButton->setButtonImage(image);
 
-	cmdButton = findNonConstCommandButton( "Command_BunkerExit" );
+	cmdButton = TheCommandStore->findNonConstCommandButton( "Command_BunkerExit" );
 	if(cmdButton)
 		cmdButton->setButtonImage(image);
 
-	cmdButton = findNonConstCommandButton( "Command_FireBaseExit" );
+	cmdButton = TheCommandStore->findNonConstCommandButton( "Command_FireBaseExit" );
 	if(cmdButton)
 		cmdButton->setButtonImage(image);
 
@@ -5602,6 +5392,7 @@ void ControlBar::drawTransitionHandler( void )
 }
 void ControlBar::initSpecialPowershortcutBar( Player *player)
 {
+	LOGIC_CENSUS( CENSUS_CONTROLBAR );
 
 	// Second loop further down reuses this i under VC6 for-scope.
 	Int i;
@@ -6241,6 +6032,7 @@ void ControlBar::showSpecialPowerShortcut( void )
 
 void ControlBar::hideSpecialPowerShortcut( void )
 {
+	LOGIC_CENSUS( CENSUS_CONTROLBAR );
 	if(!m_specialPowerShortcutParent)
 		return;
 	

@@ -2302,7 +2302,7 @@ Bool ScriptConditions::evaluateSkirmishCommandButtonIsReady( Parameter * /* pSki
 		return false;
 	}
 
-	const CommandButton *commandButton = TheControlBar->findCommandButton( pCommandButtonParm->getString() );
+	const CommandButton *commandButton = TheCommandStore->findCommandButton( pCommandButtonParm->getString() );
 	if( !commandButton ) {
 		return false;
 	}

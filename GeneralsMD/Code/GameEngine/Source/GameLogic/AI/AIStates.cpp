@@ -192,7 +192,7 @@ void AICommandParmsStorage::doXfer(Xfer *xfer)
 	}
 	xfer->xferAsciiString(&cmdName);
 	if (cmdName.isNotEmpty() && m_commandButton==NULL) {
-		m_commandButton = TheControlBar->findCommandButton(cmdName);
+		m_commandButton = TheCommandStore->findCommandButton(cmdName);
 	}
 
 	Bool hasPath = m_path!=NULL;
