@@ -461,13 +461,17 @@ AudioHandle AudioManager::addAudioEvent(const AudioEventRTS *eventToAdd)
 
 	// A list played in order steps on from the index the caller's event holds; the build writes the
 	// step into its own copy, so the caller's event takes it here.  A random list remembers its last
-	// pick to avoid playing it twice running, and that pick is made after the tick, too late for the
-	// caller's event: a looping random sound logic restarts can repeat a variant now.
+	// pick to avoid playing it twice running, and that pick is made after the tick: the caller is held
+	// until then, so the pick reads its memory as it stands and leaves the new pick in it.
 	const AudioEventInfo *info = eventToAdd->getAudioEventInfo();
-	if (info->m_soundType != AT_Music && info->m_soundType != AT_Streaming
-		&& !info->m_sounds.empty() && !BitTest(info->m_control, AC_RANDOM)) {
-		AudioEventRTS *caller = const_cast<AudioEventRTS*>(eventToAdd);
-		caller->setPlayingAudioIndex(caller->getPlayingAudioIndex() + 1);
+	AudioEventRTS *caller = const_cast<AudioEventRTS*>(eventToAdd);
+	Int callerSlot = -1;
+	if (info->m_soundType != AT_Music && info->m_soundType != AT_Streaming && !info->m_sounds.empty()) {
+		if (BitTest(info->m_control, AC_RANDOM)) {
+			callerSlot = AudioEventRTS::holdCallerForPick(caller);
+		} else {
+			caller->setPlayingAudioIndex(caller->getPlayingAudioIndex() + 1);
+		}
 	}
 
 	// A scripted sound picks its file from the logic seed without moving it; pin the seed it would
@@ -478,7 +482,7 @@ AudioHandle AudioManager::addAudioEvent(const AudioEventRTS *eventToAdd)
 		CopyGameLogicSeed(seed.data());
 	}
 
-	LogicThread::callAfterTick([this, copy, handle, logical, seed]() mutable {
+	LogicThread::callAfterTick([this, copy, handle, logical, seed, callerSlot]() mutable {
 		std::vector<AudioHandle>::iterator queued = std::find(m_handlesQueuedFromTick.begin(), m_handlesQueuedFromTick.end(), handle);
 		if (queued != m_handlesQueuedFromTick.end()) {
 			m_handlesQueuedFromTick.erase(queued);
@@ -486,7 +490,14 @@ AudioHandle AudioManager::addAudioEvent(const AudioEventRTS *eventToAdd)
 		if (logical) {
 			PinGameLogicSeedForUnchanged(seed.data());
 		}
+		AudioEventRTS *liveCaller = AudioEventRTS::heldCaller(callerSlot);
+		if (liveCaller) {
+			copy.setPlayingAudioIndex(liveCaller->getPlayingAudioIndex());
+		}
 		addAudioEventNow(&copy, handle);
+		if (liveCaller) {
+			liveCaller->setPlayingAudioIndex(copy.getPlayingAudioIndex());
+		}
 		if (logical) {
 			PinGameLogicSeedForUnchanged(NULL);
 		}

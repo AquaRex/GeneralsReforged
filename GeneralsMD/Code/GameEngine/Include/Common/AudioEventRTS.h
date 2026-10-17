@@ -152,6 +152,16 @@ public:
 	void setUninterruptable( Bool uninterruptable ) { m_uninterruptable = uninterruptable; }
 	void setSkipAttack( Bool skipAttack ) { m_skipAttack = skipAttack; }	///< start on the loop itself, for a loop picked up again mid-way
 
+	/** LOGIC-THREAD.md M5.  A random list remembers its last pick in the caller's event so it does not
+		* play one variant twice running, and a sound a tick asks for picks after the tick.  The caller is
+		* held here until then: the pick reads its memory and writes the new pick back, as an immediate
+		* add did, unless the caller died first.  holdCallerForPick returns a slot, or -1 when the table is
+		* full; heldCaller answers NULL for a slot whose event was destroyed.  forgetHeldCallers runs once
+		* the tick's effects ran or were dropped. */
+	static Int holdCallerForPick( AudioEventRTS *caller );
+	static AudioEventRTS *heldCaller( Int slot );
+	static void forgetHeldCallers( void );
+
 
 	// This will retrieve the appropriate position based on type.	
 	const Coord3D *getCurrentPosition( void );	

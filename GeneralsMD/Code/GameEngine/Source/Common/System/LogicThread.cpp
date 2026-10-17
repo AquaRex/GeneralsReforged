@@ -23,6 +23,7 @@
 
 #include "PreRTS.h"
 #include "Common/LogicThread.h"
+#include "Common/AudioEventRTS.h"
 #include "Common/EarlyCommandLine.h"
 #include "Common/MessageStream.h"
 #include "GameClient/ControlBar.h"
@@ -100,6 +101,7 @@ namespace
 		for( size_t i = 0; i < s_effects.size(); ++i )
 			s_effects[ i ]();
 		s_effects.clear();
+		AudioEventRTS::forgetHeldCallers();
 		TheGameClient->flushDestroyedDrawables();
 		ControlBar::flushLogicCalls();
 	}
@@ -295,6 +297,7 @@ void LogicThread::callAfterTick( const std::function<void()>& call )
 void LogicThread::discardEffects( void )
 {
 	s_effects.clear();
+	AudioEventRTS::forgetHeldCallers();
 }
 
 //-------------------------------------------------------------------------------------------------
