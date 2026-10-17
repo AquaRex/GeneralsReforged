@@ -1114,8 +1114,9 @@ void GameClient::flushDestroyedDrawables( void )
 	for( size_t i = 0; i < m_destroyedInTick.size(); ++i )
 	{
 		LOGIC_CENSUS( CENSUS_DESTROY_DRAWABLE );
-		// the move the tick deferred, as the immediate path above: a model's last place before it goes
-		m_destroyedInTick[ i ]->flushPendingTransform( FALSE );
+		// what the tick deferred on it before it died, which flushPendingClientWork no longer finds by ID:
+		// the last mine's detonation FX, and the model's last place as on the immediate path above
+		m_destroyedInTick[ i ]->doPendingClientWork( FALSE );
 		m_destroyedInTick[ i ]->deleteInstance();
 	}
 	m_destroyedInTick.clear();

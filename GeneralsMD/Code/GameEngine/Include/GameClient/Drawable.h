@@ -453,6 +453,7 @@ public:
 		client's list and lookup after the tick too (GameClient::linkDrawablesOfTick). */
 	static Bool tickDefersLifetime();
 	void flushPendingTransform( Bool onDemand );	///< tells the draw modules of a transform the tick deferred; GameClient::destroyDrawable
+	void doPendingClientWork( Bool onDemand );	///< everything the tick deferred on this drawable; flushDestroyedDrawables for one the tick also destroyed
 	/** Where a doClientWork goes among the model condition states the tick has not applied yet. */
 	enum ClientWorkOrder
 	{
@@ -876,7 +877,6 @@ private:
 	void recordConditionStep() const;
 	void deferModelConditionFlush() const;
 	void flushModelCondition( Bool onDemand ) const;
-	void doPendingClientWork( Bool onDemand );
 	void markModelDirty();
 
 	//*******************************************
