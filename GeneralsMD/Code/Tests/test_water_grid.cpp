@@ -84,14 +84,15 @@ struct MovedEngine
 	std::vector<Point> points;
 	Bool moving;
 	int callsPerFrame;
-	MovedEngine( int calls = 1 ) : points( water_grid::POINTS_X * water_grid::POINTS_Y ), moving( FALSE ), callsPerFrame( calls ) {}
+	UnsignedInt lastFrame;
+	MovedEngine( int calls = 1 ) : points( water_grid::POINTS_X * water_grid::POINTS_Y ), moving( FALSE ), callsPerFrame( calls ), lastFrame( 0 ) {}
 	Point *mesh( void ) { return &points[0]; }
 	Bool &inMotion( void ) { return moving; }
 	void clientPass( UnsignedInt ) {}
 	void logicFrameTop( UnsignedInt frame )
 	{
 		for (int i = 0; i < callsPerFrame; ++i)
-			WaterGridMotion::updateForLogicFrame( frame, TRUE, moving, &points[0], water_grid::CELLS_X, water_grid::CELLS_Y );
+			WaterGridMotion::updateForLogicFrame( frame, lastFrame, TRUE, moving, &points[0], water_grid::CELLS_X, water_grid::CELLS_Y );
 	}
 };
 

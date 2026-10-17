@@ -32,10 +32,9 @@
 #include "GameLogic/WaterGridMotion.h"
 
 // ------------------------------------------------------------------------------------------------
-void WaterGridMotion::updateForLogicFrame( UnsignedInt currLogicFrame, Bool doWaterGrid, Bool &meshInMotion,
+void WaterGridMotion::updateForLogicFrame( UnsignedInt currLogicFrame, UnsignedInt &lastLogicFrame, Bool doWaterGrid, Bool &meshInMotion,
 	MeshPoint *meshData, Int gridCellsX, Int gridCellsY )
 {
-	static UnsignedInt lastLogicFrame = 0;
 	if( lastLogicFrame != currLogicFrame )
 	{
 		// for vertex animated water we need to update the vector field
@@ -133,6 +132,7 @@ WaterGrid::WaterGrid( void )
 	m_meshData = NULL;
 	m_meshDataSize = 0;
 	m_meshGeneration = 0;
+	m_lastStepFrame = 0;
 	m_meshInMotion = FALSE;
 	m_doWaterGrid = FALSE;
 	m_heightsEnabled = FALSE;
@@ -168,6 +168,9 @@ WaterGrid::~WaterGrid( void )
 // ------------------------------------------------------------------------------------------------
 void WaterGrid::reset( void )
 {
+
+	// a new game, or a load, steps on its first frame whatever frame the last game stopped on
+	m_lastStepFrame = 0;
 
 	// for vertex animated water mesh reset the values
 	if( m_meshData)
@@ -237,7 +240,7 @@ void WaterGrid::disableMotion( void )
 // ------------------------------------------------------------------------------------------------
 void WaterGrid::update( UnsignedInt logicFrame )
 {
-	WaterGridMotion::updateForLogicFrame( logicFrame, m_doWaterGrid, m_meshInMotion, m_meshData, m_gridCellsX, m_gridCellsY );
+	WaterGridMotion::updateForLogicFrame( logicFrame, m_lastStepFrame, m_doWaterGrid, m_meshInMotion, m_meshData, m_gridCellsX, m_gridCellsY );
 }
 
 // ------------------------------------------------------------------------------------------------

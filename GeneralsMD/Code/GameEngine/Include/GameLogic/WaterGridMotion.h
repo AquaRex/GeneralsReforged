@@ -76,8 +76,9 @@ public:
 
 	/** Moves every point in motion one step, the first time it is called for a given logic frame; a
 		* second call for the same frame does nothing.  meshData holds (gridCellsX+1+2)*(gridCellsY+1+2)
-		* points, a border of one around the grid. */
-	static void updateForLogicFrame( UnsignedInt currLogicFrame, Bool doWaterGrid, Bool &meshInMotion,
+		* points, a border of one around the grid.  lastLogicFrame is the gate, EA's function static: the
+		* caller owns it, so a new game or a load starts from a gate of its own. */
+	static void updateForLogicFrame( UnsignedInt currLogicFrame, UnsignedInt &lastLogicFrame, Bool doWaterGrid, Bool &meshInMotion,
 		MeshPoint *meshData, Int gridCellsX, Int gridCellsY );
 
 };
@@ -137,6 +138,7 @@ private:
 	MeshPoint *m_meshData;					///< heightmap data for 3D Mesh based water
 	UnsignedInt m_meshDataSize;			///< size of m_meshData
 	UnsignedInt m_meshGeneration;		///< count of allocations, so the renderer knows to rebuild its buffers
+	UnsignedInt m_lastStepFrame;		///< the logic frame the motion last stepped on; 0 after a reset
 	Bool m_meshInMotion;						///< TRUE once we've messed with velocities and are in motion
 	Bool m_doWaterGrid;							///< the render object's flag: motion and pushes
 	Bool m_heightsEnabled;					///< W3DTerrainVisual's m_isWaterGridRenderingEnabled: heights
