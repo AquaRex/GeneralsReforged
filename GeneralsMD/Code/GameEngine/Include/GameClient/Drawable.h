@@ -454,6 +454,7 @@ public:
 	static Bool tickDefersLifetime();
 	void flushPendingTransform( Bool onDemand );	///< tells the draw modules of a transform the tick deferred; GameClient::destroyDrawable
 	void doPendingClientWork( Bool onDemand );	///< everything the tick deferred on this drawable; flushDestroyedDrawables for one the tick also destroyed
+	Bool isRenderPending( void ) const { return m_renderPending; }	///< made in a tick and its render objects not built yet
 	/** Where a doClientWork goes among the model condition states the tick has not applied yet. */
 	enum ClientWorkOrder
 	{

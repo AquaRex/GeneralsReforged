@@ -1115,9 +1115,15 @@ void GameClient::flushDestroyedDrawables( void )
 	{
 		LOGIC_CENSUS( CENSUS_DESTROY_DRAWABLE );
 		// what the tick deferred on it before it died, which flushPendingClientWork no longer finds by ID:
-		// the last mine's detonation FX, and the model's last place as on the immediate path above
-		m_destroyedInTick[ i ]->doPendingClientWork( FALSE );
-		m_destroyedInTick[ i ]->deleteInstance();
+		// the last mine's detonation FX, and the model's last place as on the immediate path above.  One
+		// the same tick made was never drawn, and building its render objects only to delete them is not
+		// worth the effect: it keeps the transform alone, as before
+		Drawable *draw = m_destroyedInTick[ i ];
+		if( draw->isRenderPending() )
+			draw->flushPendingTransform( FALSE );
+		else
+			draw->doPendingClientWork( FALSE );
+		draw->deleteInstance();
 	}
 	m_destroyedInTick.clear();
 }
