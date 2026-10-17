@@ -62,6 +62,25 @@ static UnsignedInt theGameClientSeed[6] =
     0xf22d0e56L, 0x883126e9L, 0xc624dd2fL, 0x702c49cL, 0x9e353f7dL, 0x6fdf3b64L
 };
 
+/* LOGIC-THREAD.md phase 2, M8.  The client draws a tick makes (a burning bone picked, a scorch
+	 picked, a building's shudder, a floating number's jitter) come from a stream of their own, so the
+	 tick never moves the seed the client draws from beside it.  These draws only place effects; no
+	 machine has to agree on them and nothing in logic reads them. */
+static UnsignedInt theTickClientSeed[6] =
+{
+    0xf22d0e56L, 0x883126e9L, 0xc624dd2fL, 0x702c49cL, 0x9e353f7dL, 0x6fdf3b64L
+};
+
+/** The tick's own stream inside a tick, the client's everywhere else; the census counts a tick draw
+	* that still reaches the client's. */
+static UnsignedInt *clientSeed( void )
+{
+	if( LogicThread::defersEffects() )
+		return theTickClientSeed;
+	LOGIC_CENSUS( CENSUS_CLIENT_RANDOM );
+	return theGameClientSeed;
+}
+
 static UnsignedInt theGameAudioSeed[6] =
 {
     0xf22d0e56L, 0x883126e9L, 0xc624dd2fL, 0x702c49cL, 0x9e353f7dL, 0x6fdf3b64L
@@ -178,6 +197,7 @@ void InitRandom( void )
 #ifdef DETERMINISTIC
 	// needs to be the same every time
 	seedRandom(0, theGameClientSeed);
+	seedRandom(0, theTickClientSeed);
 	seedRandom(0, theGameAudioSeed);
 	seedRandom(0, theGameLogicSeed);
 	theGameLogicBaseSeed = 0;
@@ -186,6 +206,7 @@ void InitRandom( void )
 
 	seedRandom(seconds, theGameAudioSeed);
 	seedRandom(seconds, theGameClientSeed);
+	seedRandom(seconds, theTickClientSeed);
 	seedRandom(seconds, theGameLogicSeed);
 	theGameLogicBaseSeed = seconds;
 #endif
@@ -204,6 +225,7 @@ void InitRandom( UnsignedInt seed )
 {
 	seedRandom(seed, theGameAudioSeed);
 	seedRandom(seed, theGameClientSeed);
+	seedRandom(seed, theTickClientSeed);
 	seedRandom(seed, theGameLogicSeed);
 	theGameLogicBaseSeed = seed;
 #ifdef DEBUG_RANDOM_LOGIC
@@ -309,14 +331,13 @@ Real GetGameLogicRandomValueRealUnchanged( Real lo, Real hi )
 //
 Int GetGameClientRandomValue( int lo, int hi, char *file, int line )
 {
-	LOGIC_CENSUS( CENSUS_CLIENT_RANDOM );
 	UnsignedInt delta = hi - lo + 1;
 	Int rval;
 
 	if (delta == 0)
 		return hi;
 
-	rval = ((Int)(randomValue(theGameClientSeed) % delta)) + lo;
+	rval = ((Int)(randomValue(clientSeed()) % delta)) + lo;
 
 /**/
 #ifdef DEBUG_RANDOM_CLIENT
@@ -380,14 +401,13 @@ DEBUG_LOG(( "%d: GetGameLogicRandomValueReal = %f, %s line %d\n",
 //
 Real GetGameClientRandomValueReal( Real lo, Real hi, char *file, int line )
 {
-	LOGIC_CENSUS( CENSUS_CLIENT_RANDOM );
 	Real delta = hi - lo;
 	Real rval;
 
 	if (delta <= 0.0f)
 		return hi;
 
-	rval = ((Real)(randomValue(theGameClientSeed)) * theMultFactor ) * delta + lo;
+	rval = ((Real)(randomValue(clientSeed())) * theMultFactor ) * delta + lo;
 
 	DEBUG_ASSERTCRASH( rval >= lo && rval <= hi, ("Bad random val"));
 /**/
