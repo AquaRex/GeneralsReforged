@@ -180,7 +180,8 @@ public:
 	void endRecording( void ) { m_recording = NULL; }
 	Bool isRecording( void ) const { return m_recording != NULL; }
 	void record( std::function<void()> call ) { m_recording->push_back( std::move( call ) ); }
-	static void replay( DrawCalls &calls ) { for( size_t i = 0; i < calls.size(); ++i ) calls[ i ](); calls.clear(); }
+	/// kept for another replay: LOGIC-THREAD.md phase 4 draws the same pass's picture again; the next recording clears it
+	static void replay( DrawCalls &calls ) { for( size_t i = 0; i < calls.size(); ++i ) calls[ i ](); }
 	void deferFree( DisplayString *string ) { m_deferredFrees.push_back( string ); }
 	void freeDeferred( void );
 

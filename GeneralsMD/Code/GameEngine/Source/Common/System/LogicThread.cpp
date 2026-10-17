@@ -108,6 +108,7 @@ namespace
 	Real				s_overlapWaitMS = 0.0f;
 	Int					s_overlappedTicks = 0;
 	Real				s_overlapWaitTotalMS = 0.0f;
+	Int					s_extraPictures = 0;		///< phase 4: pictures drawn again while a tick ran on (closeOrDrawAgain)
 	// the wait in tenths of a millisecond up to 50, the last bucket everything past it
 	const Int		WAIT_BUCKETS = 501;
 	Int					s_waitHistogram[ WAIT_BUCKETS ] = { 0 };
@@ -346,6 +347,29 @@ void LogicThread::OverlapWindow::open( Bool mayOverlap )
 	m_open = TRUE;
 	++s_windows;
 	g_windowOpen.store( 1, std::memory_order_relaxed );
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool LogicThread::OverlapWindow::closeOrDrawAgain( void )
+{
+	if( m_open && s_overlapRunning )
+	{
+		Bool running;
+		{
+			std::lock_guard<std::mutex> lock( s_lock );
+			running = !s_tickDone;
+		}
+		// the plan's rule: wait only once the next tick is due, where the serial game falls behind too.
+		// ponytail: a picture started just before it is due holds the next tick up by up to its own
+		// length; weigh the remaining time against the last picture's if catch-up ticks show it
+		if( running && TheGameEngine->msUntilNextTickDue() > 0.0f )
+		{
+			++s_extraPictures;
+			return TRUE;
+		}
+	}
+	close();
+	return FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -621,9 +645,9 @@ void LogicThread::report( void )
 				waitP99 = i;
 			seen += s_waitHistogram[ i ];
 		}
-		DEBUG_LOG(( "HEADLESS LOGICTHREAD OVERLAP: %d ticks beside the render | wait %.2f/%.1f/%.1f ms mean/p50/p99\n",
+		DEBUG_LOG(( "HEADLESS LOGICTHREAD OVERLAP: %d ticks beside the render | wait %.2f/%.1f/%.1f ms mean/p50/p99 | %d pictures drawn again while one ran\n",
 			s_overlappedTicks, s_overlappedTicks ? s_overlapWaitTotalMS / s_overlappedTicks : 0.0f,
-			waitP50 / 10.0f, waitP99 / 10.0f ));
+			waitP50 / 10.0f, waitP99 / 10.0f, s_extraPictures ));
 	}
 
 	char line[ 1024 ];

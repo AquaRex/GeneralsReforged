@@ -141,6 +141,11 @@ namespace LogicThread
 		~OverlapWindow( void ) { close(); }
 		void open( Bool mayOverlap );
 		void close( void );
+		/** Phase 4, at the end of a picture: TRUE while the tick handed over at the opening still runs and
+			* the pacer does not owe the next one yet (a paced single-player pass).  The window stays open and
+			* the draw presents the same state again with only the camera moved.  FALSE closes it as close()
+			* does, waiting for the tick. */
+		Bool closeOrDrawAgain( void );
 	private:
 		Bool m_open;
 	};

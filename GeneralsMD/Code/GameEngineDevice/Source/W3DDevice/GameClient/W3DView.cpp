@@ -183,17 +183,25 @@ static void normAngle(Real &angle)
 }
 
 #define TERRAIN_SAMPLE_SIZE 40.0f
+/* What W3DTerrainLogic::getGroundHeight answers, asked of the terrain object directly: the camera of a
+	 picture drawn beside a tick (LOGIC-THREAD.md phase 4) builds inside the overlap window, where the
+	 object reads the drawn map, and the logic accessor would count it as a read of logic's heights. */
+static Real cameraGroundHeight(Real x, Real y)
+{
+	return TheTerrainRenderObject ? TheTerrainRenderObject->getHeightMapHeight(x, y, NULL) : 0.0f;
+}
+
 static Real getHeightAroundPos(Real x, Real y)
 {
 	// terrain height + desired height offset == cameraOffset * actual zoom
-	Real terrainHeight = TheTerrainLogic->getGroundHeight(x, y);
+	Real terrainHeight = cameraGroundHeight(x, y);
 
 	// find best approximation of max terrain height we can see
 	Real terrainHeightMax = terrainHeight;
-	terrainHeightMax = max(terrainHeightMax, TheTerrainLogic->getGroundHeight(x+TERRAIN_SAMPLE_SIZE, y-TERRAIN_SAMPLE_SIZE));
-	terrainHeightMax = max(terrainHeightMax, TheTerrainLogic->getGroundHeight(x-TERRAIN_SAMPLE_SIZE, y-TERRAIN_SAMPLE_SIZE));
-	terrainHeightMax = max(terrainHeightMax, TheTerrainLogic->getGroundHeight(x+TERRAIN_SAMPLE_SIZE, y+TERRAIN_SAMPLE_SIZE));
-	terrainHeightMax = max(terrainHeightMax, TheTerrainLogic->getGroundHeight(x-TERRAIN_SAMPLE_SIZE, y+TERRAIN_SAMPLE_SIZE));
+	terrainHeightMax = max(terrainHeightMax, cameraGroundHeight(x+TERRAIN_SAMPLE_SIZE, y-TERRAIN_SAMPLE_SIZE));
+	terrainHeightMax = max(terrainHeightMax, cameraGroundHeight(x-TERRAIN_SAMPLE_SIZE, y-TERRAIN_SAMPLE_SIZE));
+	terrainHeightMax = max(terrainHeightMax, cameraGroundHeight(x+TERRAIN_SAMPLE_SIZE, y+TERRAIN_SAMPLE_SIZE));
+	terrainHeightMax = max(terrainHeightMax, cameraGroundHeight(x-TERRAIN_SAMPLE_SIZE, y+TERRAIN_SAMPLE_SIZE));
 
 	return terrainHeightMax;
 }
@@ -1254,6 +1262,8 @@ const Coord3D& W3DView::get3DCameraPosition() const
 void W3DView::reset( void )
 {
 	View::reset();
+	// the recording outlives its replays now (Display::replay); its strings go with Display::reset
+	m_postDraw.clear();
 
 	// a match that ends in the freecam leaves it there; the next one starts on the player's camera
 	if (m_freeCamera)
@@ -1668,6 +1678,14 @@ Bool W3DView::updateCameraMovements()
 void W3DView::updateView(void)
 {
 	UPDATE();
+}
+
+void W3DView::updateCameraBesideTick( void )
+{
+	// a slaved camera (the 3DS Max playback) looks its unit up through the script engine as it builds
+	if (m_recalcCamera && !m_freeCamera && !m_isCameraSlaved)
+		setCameraTransform();
+	m_recalcCamera = false;
 }
 
 DECLARE_PERF_TIMER(W3DView_updateView)

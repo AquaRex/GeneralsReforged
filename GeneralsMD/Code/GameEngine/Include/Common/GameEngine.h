@@ -59,6 +59,11 @@ Int GameEngine_logicCatchupMaxFrames( Int logicFps );
 void GameEngine_noteLogicTickDone( Int logicFps, Bool fastMode );
 Real GameEngine_logicTickFraction( void );
 
+/** LOGIC-THREAD.md phase 4: a picture presented while the pass's tick still runs beside the render,
+	with another to follow in the same pass.  The frame-time histograms count each picture as a pass of
+	its own, the first with the tick, from the pass's start or the last picture to now. */
+void GameEngine_noteExtraPicture( void );
+
 /** -video and -directorrecord: whether the logic frame is one a range records.  -recordfps draws
 	GameEngine_videoPictures() pictures of each of those, and the logic runs after the last; the coming
 	draw is picture GameEngine_videoPicture() of them, 0 first.  1 and 0 outside a range, and at LOGICFRAMES_PER_SECOND.
@@ -162,6 +167,11 @@ public:
 		* -logicthread 1 and 2: in a single-player game it runs this pass's message stream and asks the
 		* pacer here, and answers whether this pass's first tick is due and may run beside the render. */
 	Bool planOverlappedTick( void );
+
+	/** LOGIC-THREAD.md phase 4.  How long until the pacer owes the next tick, asked while this pass's
+		* first tick runs beside the render: the draw shows another picture while it waits only if one fits.
+		* 0 outside a paced single-player pass that planOverlappedTick planned (fast mode, a network game). */
+	Real msUntilNextTickDue( void );
 
 	/** What the pacer decided for one pass, see planLogicPass. */
 	struct LogicPassPlan

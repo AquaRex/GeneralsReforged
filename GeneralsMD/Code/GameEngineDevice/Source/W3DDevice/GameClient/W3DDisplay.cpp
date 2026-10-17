@@ -54,6 +54,7 @@ static void drawFramerateBar(void);
 #include "Common/ThingFactory.h"
 #include "Common/LogicThread.h"
 #include "Common/GameEngine.h"
+#include "GameClient/LookAtXlat.h"
 #include "Common/GlobalData.h"
 #include "Common/Monitors.h"
 #include "Common/OptionsCatalog.h"
@@ -2561,13 +2562,16 @@ AGAIN:
 	} 
 
 
+	// the span a logic thread could run beside, marked for LOGIC-THREAD.md phase 3's count of logic reads
+	// made inside it; opened each time round below and closed after End_Render, or after the loop when
+	// a continue skips that.  Phase 4: while the tick handed over at its opening runs on and another
+	// picture fits before the next tick is due, it stays open and the loop draws the same state again
+	LogicThread::OverlapWindow overlapWindow;
+	Bool drawAgain = FALSE;
 	do {
 #ifdef DEBUG_LOGGING
 		Int64 tOverlapStart = 0;		// the part a logic thread could run beside, TheOverlapWindowMS
 #endif
-		// the same span, marked for LOGIC-THREAD.md phase 3's count of logic reads made inside it;
-		// closed below after End_Render, or here at the end of the pass when a continue skips that
-		LogicThread::OverlapWindow overlapWindow;
 
 		{
 			if(TheGlobalData->m_loadScreenRender != TRUE)
@@ -2594,47 +2598,63 @@ AGAIN:
 		if (DX8Wrapper::_Get_D3D_Device() && (DX8Wrapper::_Get_D3D_Device()->TestCooperativeLevel()) == D3D_OK)
 		{	//Checking if we have the device before updating views because the heightmap crashes otherwise while
 			//trying to refresh the visible terrain geometry.
-			smoothMotionBegin();
-//			if(TheGlobalData->m_loadScreenRender != TRUE)
-				updateViews();
+			if (drawAgain)
+			{
+				// Phase 4: the last tick's state again, with only the scroll the input holds applied to the
+				// camera.  No view update, particle update or sync point, which read logic, and W3D's clock
+				// stands still, so nothing that steps on the frame time steps twice
+				WW3D::Sync( syncTime );
+				now = Clock_Milliseconds();		// the letterbox's fade runs on it
+				TheLookAtTranslator->scrollView();
+				primaryW3DView->updateCameraBesideTick();
 #ifdef DEBUG_LOGGING
-			Int64 tParticleStart, tParticleEnd;
-			tParticleStart = Clock_Ticks();
+				tOverlapStart = Clock_Ticks();
 #endif
-     		TheParticleSystemManager->update();//LORENZEN AND WILCZYNSKI MOVED THIS FROM ITS NATIVE POSITION, ABOVE
-                                           //FOR THE PURPOSE OF LETTING THE PARTICLE SYSTEM LOOK UP THE RENDER OBJECT"S
-                                           //TRANSFORM MATRIX, WHILE IT IS STILL VALID (HAVING DONE ITS CLIENT TRANSFORMS
-                                           //BUT NOT YET RESETTING TOT HE LOGICAL TRANSFORM)
-                                           //THE RESULT IS THAT PARTICLESYSTEMS LINKED TO BONES IN DRAWABLES.OBJECTS
-                                           //MOVE WITH THE CLIENT TRANSFORMS, NOW.
-                                           //REVOLUTIONARY!
-                                           //-LORENZEN
+			}
+			else
+			{
+				smoothMotionBegin();
+//				if(TheGlobalData->m_loadScreenRender != TRUE)
+					updateViews();
+#ifdef DEBUG_LOGGING
+				Int64 tParticleStart, tParticleEnd;
+				tParticleStart = Clock_Ticks();
+#endif
+	     		TheParticleSystemManager->update();//LORENZEN AND WILCZYNSKI MOVED THIS FROM ITS NATIVE POSITION, ABOVE
+	                                           //FOR THE PURPOSE OF LETTING THE PARTICLE SYSTEM LOOK UP THE RENDER OBJECT"S
+	                                           //TRANSFORM MATRIX, WHILE IT IS STILL VALID (HAVING DONE ITS CLIENT TRANSFORMS
+	                                           //BUT NOT YET RESETTING TOT HE LOGICAL TRANSFORM)
+	                                           //THE RESULT IS THAT PARTICLESYSTEMS LINKED TO BONES IN DRAWABLES.OBJECTS
+	                                           //MOVE WITH THE CLIENT TRANSFORMS, NOW.
+	                                           //REVOLUTIONARY!
+	                                           //-LORENZEN
 
 #ifdef DEBUG_LOGGING
-			tParticleEnd = Clock_Ticks();
-			TheParticleUpdateMS = w3dElapsedMS( tParticleStart, tParticleEnd );
+				tParticleEnd = Clock_Ticks();
+				TheParticleUpdateMS = w3dElapsedMS( tParticleStart, tParticleEnd );
 #endif
-			takeReadsForRender( rendersThisPass() );
+				takeReadsForRender( rendersThisPass() );
 #ifdef DEBUG_LOGGING
-			tOverlapStart = Clock_Ticks();
+				tOverlapStart = Clock_Ticks();
 #endif
-			// a draw from inside a tick (the load screen the map start paints) is the tick's own.  The
-			// tick runs beside a render that reads logic only through the sync point's copies, which
-			// rules out the scripted camera's loop of renders, the debug overlays and displays that walk
-			// the objects live, -cinema's own interface, smooth motion's restore and the load screen.
-			if( !TheGameLogic->isInGameLogicUpdate() )
-			{
-				Bool mayOverlap = !loopForCameraMovement && rendersThisPass() && !TheSmoothMotionActive
-					&& m_debugDisplayCallback == NULL && !TheGlobalData->m_loadScreenRender
-					&& !TheGlobalData->m_showLanes && !CinemaDirector_hidesHud()
-					&& TheObserverCamera.getDrawnPaneCount() <= 1;
+				// a draw from inside a tick (the load screen the map start paints) is the tick's own.  The
+				// tick runs beside a render that reads logic only through the sync point's copies, which
+				// rules out the scripted camera's loop of renders, the debug overlays and displays that walk
+				// the objects live, -cinema's own interface, smooth motion's restore and the load screen.
+				if( !TheGameLogic->isInGameLogicUpdate() )
+				{
+					Bool mayOverlap = !loopForCameraMovement && rendersThisPass() && !TheSmoothMotionActive
+						&& m_debugDisplayCallback == NULL && !TheGlobalData->m_loadScreenRender
+						&& !TheGlobalData->m_showLanes && !CinemaDirector_hidesHud()
+						&& TheObserverCamera.getDrawnPaneCount() <= 1;
 #if defined(_DEBUG) || defined(_INTERNAL)
-				mayOverlap = mayOverlap && !TheGlobalData->m_debugAI && !TheGlobalData->m_debugCamera
-					&& !TheGlobalData->m_showAudioLocations;
+					mayOverlap = mayOverlap && !TheGlobalData->m_debugAI && !TheGlobalData->m_debugCamera
+						&& !TheGlobalData->m_showAudioLocations;
 #else
-				mayOverlap = mayOverlap && !TheGlobalData->m_debugAI;
+					mayOverlap = mayOverlap && !TheGlobalData->m_debugAI;
 #endif
-				overlapWindow.open( mayOverlap );
+					overlapWindow.open( mayOverlap );
+				}
 			}
 
 			// R1: after the particles read the logic bones (Lorenzen's note above), before anything renders.
@@ -2666,8 +2686,10 @@ AGAIN:
 			// Above it runs right after updateViews on purpose (see Lorenzen's note), so the systems
 			// read the client transform while it is still valid.  There is no updateViews here and
 			// nothing to draw the result of, so a frame's worth of stale transforms costs nothing.
+			// Not beside a tick (phase 4's pictures drawn again), which may be making systems.
 			//
-			TheParticleSystemManager->update();
+			if (!drawAgain)
+				TheParticleSystemManager->update();
 		}
 
 		Debug_Statistics::End_Statistics();	//record number of polygons rendered in RenderTargetTextures.
@@ -2689,7 +2711,9 @@ AGAIN:
 					TheInGameUI->draw();
 					if( TheMouse )
 						TheMouse->draw();	//keep applying the current cursor style so it remains hidden if needed.
-					WW3D::End_Render();	
+					WW3D::End_Render();
+					overlapWindow.close();
+					drawAgain = FALSE;
 					continue;
 				}
 				couldRender = true;
@@ -2775,7 +2799,9 @@ AGAIN:
 						width = ( TheDisplay->getWidth() - displayString->getWidth() ) / 2;
 					displayString->draw( width, height, color, backColor );
 
-					m_cinematicTextFrames--;
+					// counted in passes; a picture drawn again beside a tick is not one
+					if (!drawAgain)
+						m_cinematicTextFrames--;
 				}
 
 				if ( m_debugDisplayCallback )
@@ -2880,7 +2906,12 @@ AGAIN:
 		if (tOverlapStart)
 			TheOverlapWindowMS += w3dElapsedMS( tOverlapStart, Clock_Ticks() );
 #endif
-		overlapWindow.close();
+		drawAgain = overlapWindow.closeOrDrawAgain();
+		if (drawAgain)
+		{
+			GameEngine_noteExtraPicture();
+			continue;
+		}
 
 		if (TheScriptEngine->isTimeFrozenDebug() || TheScriptEngine->isTimeFrozenScript() || TheGameLogic->isGamePaused())
 		{
@@ -2892,7 +2923,8 @@ AGAIN:
 		if (loopForCameraMovement)
 			TheGameEngine->serviceWindowsOS();
 
-	} while (loopForCameraMovement && !TheTacticalView->isCameraMovementFinished());
+	} while (drawAgain || (loopForCameraMovement && !TheTacticalView->isCameraMovementFinished()));
+	overlapWindow.close();
 
 	// R1: the logic transforms back on every model, before picking (the message stream) and the logic.
 	smoothMotionRestore();

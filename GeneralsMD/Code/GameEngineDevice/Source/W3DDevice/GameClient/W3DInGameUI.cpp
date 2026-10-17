@@ -399,6 +399,10 @@ void W3DInGameUI::reset( void )
 
 	// call base
 	InGameUI::reset();
+	// the recordings outlive their replays now (Display::replay); their strings go with Display::reset
+	m_overWorldDraw.clear();
+	m_postDrawCalls.clear();
+	m_hudOverlayDraw.clear();
 
 }  // end reset
 

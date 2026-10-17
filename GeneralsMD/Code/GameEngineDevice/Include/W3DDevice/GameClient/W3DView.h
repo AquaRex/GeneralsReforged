@@ -148,6 +148,9 @@ public:
 
 	virtual void draw( );  ///< draw this view
 	void recordPostDraw( void );	///< the post draw over the world, recorded at the sync point for draw to replay
+	/** LOGIC-THREAD.md phase 4: the camera of a picture drawn again while a tick runs on, built from what the
+		* scroll moved; the lock, the scripted moves, the shake and the height settle wait for the next update. */
+	void updateCameraBesideTick( void );
 	virtual void update( );	///<called once per frame to determine the final camera and object transforms
 
 	virtual Drawable *pickDrawable( const ICoord2D *screen, Bool forceAttack, PickType pickType );  ///< pick drawable given the screen pixel coords.  If force attack, picks bridges.

@@ -1898,6 +1898,23 @@ static Real thePassLogicMS = 0.0f;
 static Int thePassLogicTicks = 0;
 static FrameTimeHistogram theTickPass, theTickSync, theTickRender, theTickLogic;
 static FrameTimeHistogram theRenderPass, theRenderSync, theRenderRender, theOverlapped;
+static Int64 thePassStart = 0;			///< execute's pass start, moved on by every extra picture
+static Int thePassPictures = 0;			///< the extra pictures this pass presented before its last
+
+void GameEngine_noteFrameTime( Real ms, UnsignedInt logicFrame );
+
+void GameEngine_noteExtraPicture( void )
+{
+	Int64 now;
+	now = Clock_Ticks();
+	// the pass's first picture is the one its tick ran beside; a later one ran beside the rest of it
+	thePassLogicMS = 0.0f;
+	thePassLogicTicks = thePassPictures == 0 ? 1 : 0;
+	GameEngine_noteFrameTime( engineElapsedMS( thePassStart, now ), TheGameClient->getFrame() );
+	++thePassPictures;
+	thePassStart = now;
+	TheOverlapWindowMS = 0.0f;
+}
 
 void GameEngine_noteFrameTime( Real ms, UnsignedInt logicFrame )
 {
@@ -2791,6 +2808,7 @@ static Real s_logicAccumMs = 0.0f;
 static Bool s_passPlanned = FALSE;
 static GameEngine::LogicPassPlan s_passPlan;
 static UnsignedInt s_frameBeforeOverlap = 0;
+static UnsignedInt s_planTimeMs = 0;		///< when the pacer last spent the time since the one before
 
 void GameEngine::planLogicPass( LogicPassPlan &plan )
 {
@@ -2837,6 +2855,7 @@ void GameEngine::planLogicPass( LogicPassPlan &plan )
 	UnsignedInt now = Clock_Milliseconds();
 	Real elapsedMs = (Real)(now - prevLogicTime);
 	prevLogicTime = now;
+	s_planTimeMs = now;
 
 	const Bool logicMayRun =
 			((TheNetwork == NULL && !TheGameLogic->isGamePaused()) || (TheNetwork && TheNetwork->isFrameDataReady()));
@@ -2909,6 +2928,15 @@ Bool GameEngine::planOverlappedTick( void )
 	s_passPlanned = TRUE;
 	s_frameBeforeOverlap = TheGameLogic->getFrame();
 	return s_passPlan.mayRun && s_passPlan.due;
+}
+
+/* The pacer's next tick is due once its debt and the time since it last looked make a whole tick:
+	 GameEngine_isLogicFrameDue, asked without spending anything. */
+Real GameEngine::msUntilNextTickDue( void )
+{
+	if (!s_passPlanned || s_passPlan.fastMode || s_passPlan.networkPaced || m_maxFPS <= 0)
+		return 0.0f;
+	return 1000.0f / m_maxFPS - s_logicAccumMs - (Real)( Clock_Milliseconds() - s_planTimeMs );
 }
 
 void GameEngine::update( void )
@@ -3110,7 +3138,8 @@ void GameEngine::update( void )
 
 #ifdef DEBUG_LOGGING
 		thePassLogicMS = logicMS;
-		thePassLogicTicks = logicTicks;
+		// the overlapped tick was charged to the pass's first picture when there were more
+		thePassLogicTicks = thePassPictures > 0 && overlapped ? logicTicks - 1 : logicTicks;
 		if( logicTicks == 0 )
 		{
 			fpsNoTickPasses++;
@@ -3279,6 +3308,8 @@ void GameEngine::execute( void )
 					 QueryPerformanceCounter reads a frame, which is why this is not behind a switch. */
 				Int64 tFrameStart, tFrameEnd;
 				tFrameStart = Clock_Ticks();
+				thePassStart = tFrameStart;
+				thePassPictures = 0;
 				try
 				{
 					// compute a frame
@@ -3306,7 +3337,8 @@ void GameEngine::execute( void )
 					RELEASE_CRASH(("Uncaught Exception in GameEngine::update"));
 				}	// catch
 				tFrameEnd = Clock_Ticks();
-				thisFrameMS = engineElapsedMS( tFrameStart, tFrameEnd );
+				// from the last picture an earlier part of the pass presented, if it presented any
+				thisFrameMS = engineElapsedMS( thePassStart, tFrameEnd );
 				GameEngine_noteFrameTime( thisFrameMS,
 																	TheGameLogic ? TheGameLogic->getFrame() : 0 );
 			}	// perf
