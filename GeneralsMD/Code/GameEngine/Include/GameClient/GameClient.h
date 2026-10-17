@@ -149,6 +149,7 @@ public:
 
 	virtual Drawable *friend_createDrawable( const ThingTemplate *thing, DrawableStatus statusBits = DRAWABLE_STATUS_NONE ) = 0;
 	virtual void destroyDrawable( Drawable *draw );											///< Destroy the given drawable
+	void flushDestroyedDrawables( void );		///< delete what destroyDrawable left for after the tick (Drawable::tickDefersLifetime)
 
 	virtual void setTimeOfDay( TimeOfDay tod );													///< Tell all the drawables what time of day it is now
 
@@ -187,6 +188,7 @@ protected:
 	Drawable *m_drawableList;																		///< All of the drawables in the world
 //	DrawablePtrHash m_drawableHash;															///< Used for DrawableID lookups
 	DrawablePtrVector m_drawableVector;
+	std::vector<Drawable*> m_destroyedInTick;										///< out of the list and the lookup, deleted by flushDestroyedDrawables
 
 	DrawableID m_nextDrawableID;																///< For allocating drawable id's
 	DrawableID allocDrawableID( void );													///< Returns a new unique drawable id

@@ -56,7 +56,7 @@ namespace LogicThread
 		CENSUS_PARTICLES,				///< ParticleSystemManager create, find, destroy
 		CENSUS_GAMECLIENT,			///< TheGameClient destroyDrawable, findDrawableByID, addScorch, setFrame
 		CENSUS_EVA,							///< TheEva setShouldPlay
-		CENSUS_NEW_DRAWABLE,		///< ThingFactory::newDrawable
+		CENSUS_NEW_DRAWABLE,		///< Drawable::buildRenderObjects, a drawable's render objects built (M4: after the tick for one logic made)
 		CENSUS_CLIENT_RANDOM,		///< GameClientRandomValue draws
 		CENSUS_GHOST,						///< GhostObjectManager add/remove
 		CENSUS_MESSAGESTREAM,		///< MessageStream::appendMessage
@@ -65,6 +65,7 @@ namespace LogicThread
 		CENSUS_ON_DEMAND_FLUSH,	///< Drawable::getDrawModulesFlushed applying deferred work inside the tick
 		CENSUS_OBSERVER_LOOKAT,	///< ControlBar::getObserverLookAtPlayer, a logic read of client state (M7)
 		CENSUS_DRAWABLE_PUSH,		///< Drawable::doClientWork run inside the tick: hidden, colour, decal, shadows, sub-objects, ambient sound, caption
+		CENSUS_DESTROY_DRAWABLE,	///< a drawable deleted: draw modules, render objects, shadows (M4: after the tick for one logic destroyed)
 		CENSUS_COUNT
 	};
 

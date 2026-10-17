@@ -367,6 +367,7 @@ public:
 	DrawableID getID( void ) const;																			///< return this drawable's unique ID
 
 	void friend_bindToObject( Object *obj ); ///< bind this drawable to an object ID. for use ONLY by GameLogic!
+	void friend_forgetObject( void ) { m_object = NULL; }	///< GameClient::destroyDrawable, for a deletion that waits for the flush
 	void setIndicatorColor(Color color);
 	void refreshIndicatorColor( void );			///< re-apply the last colour asked for, under whatever scheme is on now
 	
@@ -445,6 +446,10 @@ public:
 	DrawModule const** getDrawModules() const;
 	DrawModule** getDrawModulesFlushed();		///< applies what the tick deferred now, for a caller that needs the render object as it stands
 	static void flushPendingClientWork();		///< after each tick, on the main thread: the transforms and model conditions the tick deferred
+	/** LOGIC-THREAD.md phase 2, M4: inside a tick, past the map load, a new drawable is a shell (ID,
+		Thing, condition bits and its modules, everything logic reads) whose render objects are built
+		after the tick, and a destroyed one leaves the client at once but is deleted after the tick. */
+	static Bool tickDefersLifetime();
 	void flushPendingTransform( Bool onDemand );	///< tells the draw modules of a transform the tick deferred; GameClient::destroyDrawable
 	/** Where a doClientWork goes among the model condition states the tick has not applied yet. */
 	enum ClientWorkOrder
@@ -841,6 +846,7 @@ private:
 #endif
 	mutable Bool m_clientWorkQueued;		///< this drawable's ID is in the list flushPendingClientWork walks
 	Bool m_transformPending;						///< the tick moved it; the draw modules have not been told
+	Bool m_renderPending;								///< made in a tick: the draw modules have not built their render objects
 	struct PendingStep
 	{
 		ModelConditionFlags condition;		///< a state an in-tick flush would have applied, when work is empty
@@ -850,6 +856,7 @@ private:
 	mutable std::vector<PendingStep> m_pendingSteps;	///< what the tick deferred, in the order it happened
 
 	void queueClientWork() const;
+	void buildRenderObjects();
 	void recordConditionStep() const;
 	void deferModelConditionFlush() const;
 	void flushModelCondition( Bool onDemand ) const;

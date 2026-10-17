@@ -271,6 +271,11 @@ W3DLaserDraw::W3DLaserDraw( Thing *thing, const ModuleData* moduleData ) :
 	m_textureAspectRatio(1.0f),
 	m_selfDirty(TRUE)
 {
+}
+
+//-------------------------------------------------------------------------------------------------
+void W3DLaserDraw::buildRenderObjects( Bool madeInTick )
+{
 	Vector3 dummyPos1( 0.0f, 0.0f, 0.0f );
 	Vector3 dummyPos2( 1.0f, 1.0f, 1.0f );
 	Int i;
@@ -373,7 +378,7 @@ W3DLaserDraw::W3DLaserDraw( Thing *thing, const ModuleData* moduleData ) :
 
 	} //end segment loop
 
-	if( beamGlows( thing ) )
+	if( beamGlows( getDrawable() ) )
 	{
 		TextureClass *glowTexture = acquireGlowTexture();
 
@@ -402,7 +407,8 @@ W3DLaserDraw::~W3DLaserDraw( void )
 {
 	const W3DLaserDrawModuleData *data = getW3DLaserDrawModuleData();
 
-	for( int i = 0; i < data->m_numBeams * data->m_segments; i++ )
+	// a beam logic made and destroyed in one tick never built its lines
+	for( int i = 0; m_line3D && i < data->m_numBeams * data->m_segments; i++ )
 	{
 
 		// remove line from scene

@@ -548,7 +548,7 @@ Real Drawable::getEffectiveOpacity() const
  * graphical side of a logical object, whereas GameLogic objects encapsulate
  * behaviors and physics.  */
 //-------------------------------------------------------------------------------------------------
-Drawable::Drawable( const ThingTemplate *thingTemplate, DrawableStatus statusBits ) 
+Drawable::Drawable( const ThingTemplate *thingTemplate, DrawableStatus statusBits )
 				: Thing( thingTemplate )
 {
 
@@ -556,7 +556,8 @@ Drawable::Drawable( const ThingTemplate *thingTemplate, DrawableStatus statusBit
 	m_status = statusBits;
 	m_clientWorkQueued = FALSE;
 	m_transformPending = FALSE;
-	
+	m_renderPending = FALSE;
+
 	// Added By Sadullah Nader
 	// Initialization missing and needed
 	m_nextDrawable = NULL;
@@ -592,13 +593,7 @@ Drawable::Drawable( const ThingTemplate *thingTemplate, DrawableStatus statusBit
 	m_lastSupplyCashDisplayed = -1;
 	m_productionTimeDisplayString = NULL;
 	m_chargeTimeDisplayString = NULL;
-	
-	//Added By Sadullah Nader
-	//Fix for the building percent
-	m_constructDisplayString = TheDisplayStringManager->newDisplayString();
-	m_constructDisplayString->setFont(TheFontLibrary->getFont(TheInGameUI->getDrawableCaptionFontName(),
-																TheGlobalLanguageData->adjustFontSize(TheInGameUI->getDrawableCaptionPointSize()),
-																TheInGameUI->isDrawableCaptionBold() ));
+	m_constructDisplayString = NULL;	// buildRenderObjects
 
 	m_ambientSound = NULL;
   m_ambientSoundEnabled = true;
@@ -723,9 +718,20 @@ Drawable::Drawable( const ThingTemplate *thingTemplate, DrawableStatus statusBit
 	m_selectionFlashEnvelope = NULL;	// lazily allocate!
 	m_colorTintEnvelope = NULL;				// lazily allocate!
 
-	initStaticImages(); 
+	initStaticImages();
 
-  // If we are inside GameLogic::startNewGame(), then starting the ambient sound 
+	// a drawable logic makes in a tick is a shell until the flush after it: its modules exist, so
+	// everything logic asks of them (bones, barrels, launch points, the laser's client update) is
+	// answered, and only the render objects wait
+	if (tickDefersLifetime())
+	{
+		m_renderPending = TRUE;
+		queueClientWork();
+	}
+	else
+		buildRenderObjects();
+
+  // If we are inside GameLogic::startNewGame(), then starting the ambient sound
   // will be taken care of by Drawable::onLevelStart(). It's important that we 
   // wait until Drawable::onLevelStart(), because we may have a customized ambient
   // sound which we'll only learn about after the constructor is finished. The
@@ -5161,6 +5167,36 @@ void Drawable::queueClientWork() const
 }
 
 //-------------------------------------------------------------------------------------------------
+/** The map load makes, places and throws away the batched trees and props in one go, and builds
+	its loading screen and every render object of the map on the main thread anyway (LogicThread's
+	tickNeedsMainThread), so it keeps the drawable lifetime it always had. */
+Bool Drawable::tickDefersLifetime()
+{
+	return TheGameLogic != NULL && TheGameLogic->isInGameLogicUpdate() && !TheGameLogic->isLoadingMap();
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The second half of the constructor: what the draw modules make on the device, the asset manager
+	and the scene, and the construction percent's string.  The census counts it from the logic
+	thread, where only an on-demand flush of a shell inside the tick can run it. */
+void Drawable::buildRenderObjects()
+{
+	LOGIC_CENSUS( CENSUS_NEW_DRAWABLE );
+	const Bool madeInTick = m_renderPending;
+	m_renderPending = FALSE;
+
+	//Added By Sadullah Nader
+	//Fix for the building percent
+	m_constructDisplayString = TheDisplayStringManager->newDisplayString();
+	m_constructDisplayString->setFont(TheFontLibrary->getFont(TheInGameUI->getDrawableCaptionFontName(),
+																TheGlobalLanguageData->adjustFontSize(TheInGameUI->getDrawableCaptionPointSize()),
+																TheInGameUI->isDrawableCaptionBold() ));
+
+	for (DrawModule** dm = getDrawModulesNonDirty(); *dm; ++dm)
+		(*dm)->buildRenderObjects( madeInTick );
+}
+
+//-------------------------------------------------------------------------------------------------
 /** The state the drawable holds now, as the next step, unless the last state step already is it. */
 void Drawable::recordConditionStep() const
 {
@@ -5207,6 +5243,10 @@ void Drawable::flushModelCondition( Bool onDemand ) const
 		m_isModelDirty = false;
 		return;
 	}
+	// a shell another drawable's work reaches before its own turn in the flush: the render objects
+	// come first, as they did in the constructor
+	if (m_renderPending)
+		const_cast<Drawable*>(this)->buildRenderObjects();
 	LogicThread::census( onDemand ? LogicThread::CENSUS_ON_DEMAND_FLUSH : LogicThread::CENSUS_MODEL_CONDITION );
 	if (s_modelLockCount > 0)
 	{
@@ -5259,6 +5299,8 @@ void Drawable::flushModelCondition( Bool onDemand ) const
 //-------------------------------------------------------------------------------------------------
 void Drawable::doPendingClientWork( Bool onDemand )
 {
+	if (m_renderPending)
+		buildRenderObjects();
 	if (m_isModelDirty || !m_pendingSteps.empty())
 		flushModelCondition( onDemand );
 	flushPendingTransform( onDemand );
@@ -5338,6 +5380,8 @@ void Drawable::flushPendingClientWork()
 		draw->doPendingClientWork( FALSE );
 	}
 	s_clientWorkQueue.clear();
+	// last, so a work above that holds a drawable the tick destroyed runs before it is deleted
+	TheGameClient->flushDestroyedDrawables();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5521,11 +5565,11 @@ void Drawable::friend_bindToObject( Object *obj ) ///< bind this drawable to an 
 		}
 	}
 
-	for (DrawModule** dm = getDrawModules(); *dm; ++dm)
-	{
-		(*dm)->onDrawableBoundToObject();
-	}
-}					
+	doClientWork( [this]() {
+		for (DrawModule** dm = getDrawModulesNonDirty(); *dm; ++dm)
+			(*dm)->onDrawableBoundToObject();
+	}, WORK_AFTER_FLUSH );
+}
 //-------------------------------------------------------------------------------------------------
 	// when our Object changes teams, it calls us to let us know, so
 	// we can update our model, etc., if necessary. NOTE, we don't guarantee
@@ -5604,6 +5648,12 @@ Bool Drawable::handleWeaponFireFX(WeaponSlotType wslot, Int specificBarrelToUse,
 			m_locoInfo->m_accelerationRollRate += recoilAmount * Sin(recoilAngle);
 		}
 	}
+
+	// a drawable made this tick has no render object yet to take an FX bone or a muzzle flash from:
+	// the weapon plays the FX at the drawable, as it does for a model with no FX bone (the jet
+	// crash's impact and fire objects fire in the tick that makes them)
+	if (m_renderPending)
+		return false;
 
 	// the barrels, muzzle flash and FX bones of the state the shot set, where the tick left the drawable
 	for (DrawModule** dm = getDrawModulesFlushed(); *dm; ++dm)

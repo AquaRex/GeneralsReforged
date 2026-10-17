@@ -40,6 +40,7 @@
 #include "Common/CRCDebug.h"
 #include "Common/GameState.h"
 #include "Common/GlobalData.h"
+#include "Common/LatchRestore.h"
 #include "Common/PerfTimer.h"
 #include "Common/RandomValue.h"
 #include "Common/ThingTemplate.h"
@@ -98,10 +99,14 @@ static Bool s_headlightDrawn = FALSE;
 #endif
 
 //-------------------------------------------------------------------------------------------------
+/** W3DModelDraw::buildRenderObjects of a drawable logic made in a tick, run after it. */
+static Bool s_fillingLogicCaches = FALSE;
+
+//-------------------------------------------------------------------------------------------------
 static inline Bool isValidTimeToCalcLogicStuff()
 {
 	return (TheGameLogic && TheGameLogic->isInGameLogicUpdate()) ||
-		(TheGameState && TheGameState->isInLoadGame());
+		(TheGameState && TheGameState->isInLoadGame()) || s_fillingLogicCaches;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1782,11 +1787,6 @@ W3DModelDraw::W3DModelDraw(Thing *thing, const ModuleData* moduleData) : DrawMod
 	m_groundMotionAngle = 0.0f;
 	m_groundMotionFrame = 0;
 
-	// only validate the current time-of-day and weather conditions by default.
-	getW3DModelDrawModuleData()->validateStuffForTimeAndWeather(getDrawable(), 
-											TheGlobalData->m_timeOfDay == TIME_OF_DAY_NIGHT, 
-											TheGlobalData->m_weather == WEATHER_SNOWY);
-
 	ModelConditionFlags emptyFlags;
 	const ModelConditionInfo* info = findBestInfo(emptyFlags);
 	if (!info)
@@ -1817,8 +1817,26 @@ W3DModelDraw::W3DModelDraw(Thing *thing, const ModuleData* moduleData) : DrawMod
 		  DEBUG_LOG(("setReceivesDynamicLights = FALSE: %s\n", draw->getTemplate()->getName().str()));
     }
   }
+}
 
-	setModelState(info);
+//-------------------------------------------------------------------------------------------------
+/** The pristine bone, turret and barrel caches are logic's, and filling them loads every state's
+	model.  A drawable logic makes in a tick fills them here, after the tick, in a window where the
+	caches count as logic's (isValidTimeToCalcLogicStuff), so they take the same values from the same
+	unanimated models as they did in the constructor.  Without that, the first fill could come from
+	an on-demand setModelState inside a later tick with this machine's live render object. */
+void W3DModelDraw::buildRenderObjects( Bool madeInTick )
+{
+	{
+		LatchRestore<Bool> forLogic( s_fillingLogicCaches, s_fillingLogicCaches || madeInTick );
+		// only validate the current time-of-day and weather conditions by default.
+		getW3DModelDrawModuleData()->validateStuffForTimeAndWeather(getDrawable(),
+												TheGlobalData->m_timeOfDay == TIME_OF_DAY_NIGHT,
+												TheGlobalData->m_weather == WEATHER_SNOWY);
+	}
+
+	ModelConditionFlags emptyFlags;
+	setModelState(findBestInfo(emptyFlags));
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4269,7 +4287,9 @@ void W3DModelDraw::reactToTransformChange( const Matrix3D* oldMtx,
 		Object *obj = getDrawable()->getObject();
 		const Coord3D* pos = getDrawable()->getPosition();
 
-		if ( m_fullyObscuredByShroud || obj->testStatus( OBJECT_STATUS_STEALTHED ) == TRUE )
+		// no object for a tank the tick destroyed: its last move reaches the track after the tick, as a
+		// cap, since whether it was stealthed is gone with the object
+		if ( m_fullyObscuredByShroud || obj == NULL || obj->testStatus( OBJECT_STATUS_STEALTHED ) == TRUE )
 		{
 				m_trackRenderObject->addCapEdgeToTrack(pos->x, pos->y);
 		}

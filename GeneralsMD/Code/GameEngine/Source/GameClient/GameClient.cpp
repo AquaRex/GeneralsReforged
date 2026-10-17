@@ -239,6 +239,7 @@ GameClient::~GameClient()
 		destroyDrawable( draw );
 	}
 	m_drawableList = NULL;
+	flushDestroyedDrawables();
 
 	// delete the ray effects
 	delete TheRayEffects;
@@ -560,6 +561,9 @@ void GameClient::reset( void )
 		destroyDrawable( draw );
 	}
 	m_drawableList = NULL;
+	// the clear-game tick resets from inside the tick, and what it and the ticks before left goes
+	// before the scene does
+	flushDestroyedDrawables();
 
 	TheDisplay->reset();
 	TheTerrainVisual->reset();
@@ -1020,8 +1024,6 @@ void GameClient::updateFakeDrawables(void)
  */
 void GameClient::destroyDrawable( Drawable *draw )
 {
-	LOGIC_CENSUS( CENSUS_GAMECLIENT );
-
 	// remove any notion of the Drawable in the in-game user interface
 	TheInGameUI->disregardDrawable( draw );
 
@@ -1042,6 +1044,20 @@ void GameClient::destroyDrawable( Drawable *draw )
 
 	}  // end if
 
+	/* LOGIC-THREAD.md phase 2, M4.  Inside a tick the drawable leaves the selection, the list and the
+		 lookup at once, so nothing finds it, and forgets its object, which the tick may delete before
+		 the flush.  Its draw modules, render objects, shadows and sounds go after the tick, in
+		 flushDestroyedDrawables, once the flush has run the work other drawables deferred. */
+	if( Drawable::tickDefersLifetime() )
+	{
+		removeDrawableFromLookupTable( draw );
+		draw->friend_forgetObject();
+		m_destroyedInTick.push_back( draw );
+		return;
+	}
+
+	LOGIC_CENSUS( CENSUS_DESTROY_DRAWABLE );
+
 	// what the tick deferred on it happens now or never: the batched trees and props are made, placed
 	// and destroyed in one go by startNewGame, and placing them is what hands them to the terrain
 	draw->flushPendingTransform( TRUE );
@@ -1052,6 +1068,19 @@ void GameClient::destroyDrawable( Drawable *draw )
 	// free storage
 	draw->deleteInstance();
 
+}
+
+//-------------------------------------------------------------------------------------------------
+void GameClient::flushDestroyedDrawables( void )
+{
+	for( size_t i = 0; i < m_destroyedInTick.size(); ++i )
+	{
+		LOGIC_CENSUS( CENSUS_DESTROY_DRAWABLE );
+		// the move the tick deferred, as the immediate path above: a model's last place before it goes
+		m_destroyedInTick[ i ]->flushPendingTransform( FALSE );
+		m_destroyedInTick[ i ]->deleteInstance();
+	}
+	m_destroyedInTick.clear();
 }
 
 // ------------------------------------------------------------------------------------------------
