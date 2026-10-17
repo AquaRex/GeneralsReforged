@@ -110,14 +110,15 @@ LaserUpdate::~LaserUpdate( void )
 }
 
 //-------------------------------------------------------------------------------------------------
-void LaserUpdate::updateStartPos()
+void LaserUpdate::updateStartPos( const Drawable *parentDrawable )
 {
 	Coord3D oldStartPos = m_startPos;
 
 	if( m_parentID == INVALID_DRAWABLE_ID )
 		return;// Can't update if not told to update
 
-	const Drawable *parentDrawable = TheGameClient->findDrawableByID(m_parentID);
+	if( parentDrawable == NULL )
+		parentDrawable = TheGameClient->findDrawableByID(m_parentID);
 	if( parentDrawable == NULL )
 		return;// Can't update if no one to ask
 		
@@ -284,7 +285,9 @@ void LaserUpdate::initLaser( const Object *parent, const Object *target, const C
 		if( parent->getDrawable() )
 			m_parentID = parent->getDrawable()->getID();
 
-		updateStartPos();
+		// the parent's drawable as the object holds it: initLaser runs in the tick, which does not look
+		// drawables up in the client's table (LOGIC-THREAD.md M8)
+		updateStartPos( parent->getDrawable() );
 	}
 	else if( startPos )
 	{

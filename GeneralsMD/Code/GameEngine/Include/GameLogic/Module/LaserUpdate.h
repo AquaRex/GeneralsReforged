@@ -92,7 +92,7 @@ public:
 
 protected:
 
-	void updateStartPos(); ///< figures out and sets startPos
+	void updateStartPos( const Drawable *parentDrawable = NULL ); ///< figures out and sets startPos; NULL looks the parent up by m_parentID
 	void updateEndPos(); ///< figures out and sets endPos
 	Real computeWidthScalar( UnsignedInt frame ) const; ///< the width on that logic frame, from the frames alone
 

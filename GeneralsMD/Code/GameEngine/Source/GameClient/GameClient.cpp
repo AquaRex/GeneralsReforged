@@ -1426,8 +1426,12 @@ void GameClient::preloadAssets( TimeOfDay timeOfDay )
 	{
 		++considered;
 
-		// if this isn't one of the objects that can be preloaded ignore it
-		if( tTemplate->isKindOf( KINDOF_PRELOAD ) == FALSE && !TheGlobalData->m_preloadEverything )
+		// if this isn't one of the objects that can be preloaded ignore it.  A parachute and what hangs
+		// under it (a Supply Drop Zone crate) are made in the tick and asked for their bones in the same
+		// tick (ParachuteContain), before their flush; made here first, their module data has the bones
+		// already and the tick loads no model (LOGIC-THREAD.md M8)
+		if( tTemplate->isKindOf( KINDOF_PRELOAD ) == FALSE && tTemplate->isKindOf( KINDOF_PARACHUTE ) == FALSE
+				&& tTemplate->isKindOf( KINDOF_PARACHUTABLE ) == FALSE && !TheGlobalData->m_preloadEverything )
 			continue;
 
 		// create the drawable and do the preloading

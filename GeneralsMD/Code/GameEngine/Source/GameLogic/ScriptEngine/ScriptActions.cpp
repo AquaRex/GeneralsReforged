@@ -3301,7 +3301,10 @@ void ScriptActions::doDisableInput()
 	if (!TheGlobalData->m_disableScriptedInputDisabling)
 #endif
 	{
-		// all of it is the client's: after the tick (LOGIC-THREAD.md M6)
+		// all of it is the client's: after the tick (LOGIC-THREAD.md M6); the selection the tick reads
+		// back empties now, as the immediate call emptied it (M7's block)
+		if( LogicThread::defersEffects() )
+			LogicThread::noteSelectionCleared();
 		LogicThread::callAfterTick( []{
 			TheInGameUI->setInputEnabled(false);
 			TheMouse->setVisibility(false);
