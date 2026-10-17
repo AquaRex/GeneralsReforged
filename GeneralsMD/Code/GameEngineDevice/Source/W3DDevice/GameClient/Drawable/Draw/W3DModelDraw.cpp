@@ -4596,17 +4596,10 @@ void W3DModelDraw::updateProjectileClipStatus( UnsignedInt shotsRemaining, Unsig
 }
 
 //-------------------------------------------------------------------------------------------------
-void W3DModelDraw::updateDrawModuleSupplyStatus( Int , Int currentSupply )
+void W3DModelDraw::updateDrawModuleSupplyStatus( Int , Int )
 {
-	// This level only cares if you have anything or not
-	if( currentSupply > 0 )
-	{
-		getDrawable()->setModelConditionState( MODELCONDITION_CARRYING );
-	}
-	else
-	{
-		getDrawable()->clearModelConditionState( MODELCONDITION_CARRYING );
-	}
+	// This level only cares if you have anything or not: the CARRYING condition, which
+	// Drawable::updateDrawableSupplyStatus sets at the call so that a logic tick sees it at once
 }
 
 //-------------------------------------------------------------------------------------------------

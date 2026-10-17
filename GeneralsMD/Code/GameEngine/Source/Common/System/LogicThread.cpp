@@ -79,7 +79,8 @@ namespace
 	{
 		"drawable", "modelcondition", "audio", "ingameui", "controlbar", "tacticalview", "radar",
 		"fxlist", "terrainvisual", "particles", "gameclient", "eva", "newdrawable", "clientrandom",
-		"ghost", "messagestream", "display", "jobs", "ondemandflush", "observerlookat"
+		"ghost", "messagestream", "display", "jobs", "ondemandflush", "observerlookat",
+		"drawablepush"
 	};
 
 	Real elapsedMS( LogicClock::time_point a, LogicClock::time_point b )

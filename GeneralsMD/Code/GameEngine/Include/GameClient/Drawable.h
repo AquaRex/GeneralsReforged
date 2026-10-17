@@ -43,6 +43,8 @@
 #include "WWMath/matrix3d.h"
 #include "GameClient/DrawableInfo.h"
 
+#include <functional>
+
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
 class PositionalSound;
 class ThingTemplate;
@@ -444,6 +446,19 @@ public:
 	DrawModule** getDrawModulesFlushed();		///< applies what the tick deferred now, for a caller that needs the render object as it stands
 	static void flushPendingClientWork();		///< after each tick, on the main thread: the transforms and model conditions the tick deferred
 	void flushPendingTransform( Bool onDemand );	///< tells the draw modules of a transform the tick deferred; GameClient::destroyDrawable
+	/** Where a doClientWork goes among the model condition states the tick has not applied yet. */
+	enum ClientWorkOrder
+	{
+		WORK_AFTER_FLUSH,				///< on the state the drawable holds at the call, as getDrawModules did
+		WORK_AFTER_APPLIED,			///< on the state last flushed, as getDrawModulesNonDirty did before M1
+		WORK_BEFORE_STATES			///< on the render object as it stands, in front of every state still pending
+	};
+	/** Work on the draw modules, render objects or audio that a call from logic causes.  Inside a
+		tick it waits for flushPendingClientWork and runs there in order with the model condition
+		states; anywhere else it runs now.  movesBones marks work a bone or barrel read needs done
+		first (animation timing, a model rebuild), which an on-demand flush inside the tick runs; the
+		rest an on-demand flush leaves for after the tick. */
+	void doClientWork( const std::function<void()>& work, ClientWorkOrder order, Bool movesBones = FALSE );
 
 	//---------------------------------------------------------------------------
 	void setDrawableStatus( DrawableStatus bit )  { BitSet( m_status, bit ); }
@@ -826,9 +841,16 @@ private:
 #endif
 	mutable Bool m_clientWorkQueued;		///< this drawable's ID is in the list flushPendingClientWork walks
 	Bool m_transformPending;						///< the tick moved it; the draw modules have not been told
-	mutable std::vector<ModelConditionFlags> m_conditionSteps;	///< states an in-tick flush would have applied, in order
+	struct PendingStep
+	{
+		ModelConditionFlags condition;		///< a state an in-tick flush would have applied, when work is empty
+		std::function<void()> work;				///< else a doClientWork the tick deferred
+		Bool movesBones;										///< an on-demand flush inside the tick runs this work too
+	};
+	mutable std::vector<PendingStep> m_pendingSteps;	///< what the tick deferred, in the order it happened
 
 	void queueClientWork() const;
+	void recordConditionStep() const;
 	void deferModelConditionFlush() const;
 	void flushModelCondition( Bool onDemand ) const;
 	void doPendingClientWork( Bool onDemand );

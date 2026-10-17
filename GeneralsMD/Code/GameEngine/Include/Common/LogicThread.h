@@ -64,6 +64,7 @@ namespace LogicThread
 		CENSUS_JOBS,						///< JobSystem::parallel_for
 		CENSUS_ON_DEMAND_FLUSH,	///< Drawable::getDrawModulesFlushed applying deferred work inside the tick
 		CENSUS_OBSERVER_LOOKAT,	///< ControlBar::getObserverLookAtPlayer, a logic read of client state (M7)
+		CENSUS_DRAWABLE_PUSH,		///< Drawable::doClientWork run inside the tick: hidden, colour, decal, shadows, sub-objects, ambient sound, caption
 		CENSUS_COUNT
 	};
 

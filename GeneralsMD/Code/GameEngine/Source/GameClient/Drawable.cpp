@@ -34,6 +34,7 @@
 
 #include "Common/AudioEventInfo.h"
 #include "Common/LogicThread.h"
+#include "Common/LatchRestore.h"
 #include "Common/DynamicAudioEventInfo.h"
 #include "Common/AudioSettings.h"
 #include "Common/BitFlagsIO.h"
@@ -783,7 +784,9 @@ Drawable::~Drawable()
 		m_modules[i] = NULL;
 	}
 
-	stopAmbientSound();
+	// now, even inside a tick: nothing is left to stop it after the flush
+	if (m_ambientSound)
+		TheAudio->removeAudioEvent(m_ambientSound->m_event.getPlayingHandle());
 	if (m_ambientSound)
 	{
 		m_ambientSound->deleteInstance();
@@ -917,59 +920,68 @@ Bool Drawable::getProjectileLaunchOffset(WeaponSlotType wslot, Int specificBarre
 //-------------------------------------------------------------------------------------------------
 void Drawable::setAnimationLoopDuration(UnsignedInt numFrames)
 {
-	for (DrawModule** dm = getDrawModulesFlushed(); *dm; ++dm)
-	{
-		ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
-		if (di)
-			di->setAnimationLoopDuration(numFrames);
-	}
+	// on the state the tick's condition flush builds, which the step list puts in front of it
+	doClientWork( [this, numFrames]() {
+		for (DrawModule** dm = getDrawModulesNonDirty(); *dm; ++dm)
+		{
+			ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
+			if (di)
+				di->setAnimationLoopDuration(numFrames);
+		}
+	}, WORK_AFTER_FLUSH, TRUE );
 }
 
 //-------------------------------------------------------------------------------------------------
 void Drawable::setAnimationCompletionTime(UnsignedInt numFrames)
 {
-	for (DrawModule** dm = getDrawModulesFlushed(); *dm; ++dm)
-	{
-		ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
-		if (di)
-			di->setAnimationCompletionTime(numFrames);
-	}
+	doClientWork( [this, numFrames]() {
+		for (DrawModule** dm = getDrawModulesNonDirty(); *dm; ++dm)
+		{
+			ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
+			if (di)
+				di->setAnimationCompletionTime(numFrames);
+		}
+	}, WORK_AFTER_FLUSH, TRUE );
 }
 
 //Kris: Manually set a drawable's current animation to specific frame.
 //-------------------------------------------------------------------------------------------------
 void Drawable::setAnimationFrame( int frame )
 {
-	for (DrawModule** dm = getDrawModulesFlushed(); *dm; ++dm)
-	{
-		ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
-		if (di)
-			di->setAnimationFrame( frame );
-	}
+	doClientWork( [this, frame]() {
+		for (DrawModule** dm = getDrawModulesNonDirty(); *dm; ++dm)
+		{
+			ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
+			if (di)
+				di->setAnimationFrame( frame );
+		}
+	}, WORK_AFTER_FLUSH, TRUE );
 }
 
 //-------------------------------------------------------------------------------------------------
 void Drawable::updateSubObjects()
 {
-	for (DrawModule** dm = getDrawModules(); *dm; ++dm)
-	{
-		ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
-		if (di)
-			di->updateSubObjects();
-	}
+	doClientWork( [this]() {
+		for (DrawModule** dm = getDrawModulesNonDirty(); *dm; ++dm)
+		{
+			ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
+			if (di)
+				di->updateSubObjects();
+		}
+	}, WORK_AFTER_FLUSH );
 }
 
 //-------------------------------------------------------------------------------------------------
 void Drawable::showSubObject( const AsciiString& name, Bool show )
 {
-	for (DrawModule** dm = getDrawModules(); *dm; ++dm)
-	{
-		ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
-		if (di)
+	doClientWork( [this, name, show]() {
+		for (DrawModule** dm = getDrawModulesNonDirty(); *dm; ++dm)
 		{
-			di->showSubObject( name, show );
+			ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
+			if (di)
+				di->showSubObject( name, show );
 		}
-	}
+	}, WORK_AFTER_FLUSH );
 }
 
 #ifdef ALLOW_ANIM_INQUIRIES
@@ -1075,23 +1087,27 @@ void Drawable::setTerrainDecal(TerrainDecalType type)
 
 	m_terrainDecalType=type;
 
-	DrawModule** dm = getDrawModules();
+	doClientWork( [this, type]() {
+		DrawModule** dm = getDrawModulesNonDirty();
 
-	//Only the first draw module gets a decal to prevent stacking.
-	//Should be okay as long as we keep the primary object in the
-	//first module.
-	if (*dm)
-		(*dm)->setTerrainDecal(type);
+		//Only the first draw module gets a decal to prevent stacking.
+		//Should be okay as long as we keep the primary object in the
+		//first module.
+		if (*dm)
+			(*dm)->setTerrainDecal(type);
+	}, WORK_AFTER_FLUSH );
 
 }
 
 //-------------------------------------------------------------------------------------------------
 void Drawable::setTerrainDecalSize(Real x, Real y)
 {
-	DrawModule** dm = getDrawModules();
+	doClientWork( [this, x, y]() {
+		DrawModule** dm = getDrawModulesNonDirty();
 
-	if (*dm)
-		(*dm)->setTerrainDecalSize(x,y);
+		if (*dm)
+			(*dm)->setTerrainDecalSize(x,y);
+	}, WORK_AFTER_FLUSH );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1116,10 +1132,12 @@ void Drawable::setShadowsEnabled(Bool enable)
 	else
 		clearDrawableStatus( DRAWABLE_STATUS_SHADOWS );
 
-	for (DrawModule** dm = getDrawModules(); *dm; ++dm)
-	{
-		(*dm)->setShadowsEnabled(enable);
-	}
+	doClientWork( [this, enable]() {
+		for (DrawModule** dm = getDrawModulesNonDirty(); *dm; ++dm)
+		{
+			(*dm)->setShadowsEnabled(enable);
+		}
+	}, WORK_AFTER_FLUSH );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1150,10 +1168,12 @@ void Drawable::setFullyObscuredByShroud(Bool fullyObscured)
 	// or its snapshot is taken or freed
 	if (m_drawableFullyObscuredByShroud != fullyObscured || fullyObscured)
 	{
-		for (DrawModule** dm = getDrawModules(); *dm; ++dm)
-		{
-			(*dm)->setFullyObscuredByShroud(fullyObscured);
-		}
+		doClientWork( [this, fullyObscured]() {
+			for (DrawModule** dm = getDrawModulesNonDirty(); *dm; ++dm)
+			{
+				(*dm)->setFullyObscuredByShroud(fullyObscured);
+			}
+		}, WORK_AFTER_FLUSH );
 		m_drawableFullyObscuredByShroud = fullyObscured;
 	}
 }
@@ -3426,27 +3446,34 @@ DrawableIconInfo* Drawable::getIconInfo()
 //------------------------------------------------------------------------------------------------
 void Drawable::clearEmoticon()
 {
-	if (!hasIconInfo())
-		return;
+	// in order with setEmoticon's work
+	doClientWork( [this]() {
+		if (!hasIconInfo())
+			return;
 
-	killIcon(ICON_EMOTICON);
+		killIcon(ICON_EMOTICON);
+	}, WORK_AFTER_APPLIED );
 }
 
 //------------------------------------------------------------------------------------------------
 void Drawable::setEmoticon( const AsciiString &name, Int duration )
 {
 	//A duration of -1 means FOREVER
-	clearEmoticon();
-	Anim2DTemplate *animTemplate = TheAnim2DCollection->findTemplate( name );
-	if( animTemplate )
-	{
-		DEBUG_ASSERTCRASH( getIconInfo()->m_icon[ ICON_EMOTICON ] == NULL, ("Drawable::setEmoticon - Emoticon isn't empty, need to refuse to set or destroy the old one in favor of the new one\n") );
-		if( getIconInfo()->m_icon[ ICON_EMOTICON ] == NULL )
+	// an Anim2D in the client's collection, made after the tick; the frame it keeps till is the call's
+	const UnsignedInt keepTill = duration >= 0 ? TheGameLogic->getFrame() + duration : FOREVER;
+	doClientWork( [this, name, keepTill]() {
+		clearEmoticon();
+		Anim2DTemplate *animTemplate = TheAnim2DCollection->findTemplate( name );
+		if( animTemplate )
 		{
-			getIconInfo()->m_icon[ ICON_EMOTICON ] = newInstance(Anim2D)( animTemplate, TheAnim2DCollection );
-			getIconInfo()->m_keepTillFrame[ ICON_EMOTICON ] = duration >= 0 ? TheGameLogic->getFrame() + duration : FOREVER;
+			DEBUG_ASSERTCRASH( getIconInfo()->m_icon[ ICON_EMOTICON ] == NULL, ("Drawable::setEmoticon - Emoticon isn't empty, need to refuse to set or destroy the old one in favor of the new one\n") );
+			if( getIconInfo()->m_icon[ ICON_EMOTICON ] == NULL )
+			{
+				getIconInfo()->m_icon[ ICON_EMOTICON ] = newInstance(Anim2D)( animTemplate, TheAnim2DCollection );
+				getIconInfo()->m_keepTillFrame[ ICON_EMOTICON ] = keepTill;
+			}
 		}
-	}
+	}, WORK_AFTER_APPLIED );
 }
 
 //------------------------------------------------------------------------------------------------
@@ -5134,21 +5161,52 @@ void Drawable::queueClientWork() const
 }
 
 //-------------------------------------------------------------------------------------------------
+/** The state the drawable holds now, as the next step, unless the last state step already is it. */
+void Drawable::recordConditionStep() const
+{
+	for (size_t i = m_pendingSteps.size(); i-- > 0; )
+	{
+		if (m_pendingSteps[i].work)
+			continue;
+		if (m_pendingSteps[i].condition == m_conditionState)
+			return;
+		break;
+	}
+	PendingStep step;
+	step.condition = m_conditionState;
+	step.movesBones = FALSE;
+	m_pendingSteps.push_back( step );
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Where a flush used to run inside the tick, the state it would have applied is kept, so the flush
 	after the tick walks the same states in the same order and W3DModelDraw picks the same transition
 	animations (a door, a deploy, an unpack set A then B in one tick) as an immediate flush did. */
 void Drawable::deferModelConditionFlush() const
 {
-	if (m_conditionSteps.empty() || m_conditionSteps.back() != m_conditionState)
-		m_conditionSteps.push_back( m_conditionState );
+	recordConditionStep();
 	queueClientWork();
 }
 
 //-------------------------------------------------------------------------------------------------
-/** The model condition flush.  The census counts it from the logic thread: on its own channel when a
-	caller asked for it on demand, under modelcondition when anything else made it run there. */
+/** The drawable whose step's work is running: a doClientWork it calls on itself in turn is already
+	in its place in the order and runs at once. */
+static const Drawable* s_clientWorkOwner = NULL;
+
+//-------------------------------------------------------------------------------------------------
+/** The model condition flush, and phase 2 M3's deferred client work in its place between the states.
+	The census counts it from the logic thread: on its own channel when a caller asked for it on
+	demand, under modelcondition when anything else made it run there. */
 void Drawable::flushModelCondition( Bool onDemand ) const
 {
+	// a work that sets a condition and then reaches getDrawModules: the state goes to the end of
+	// the walk below rather than ahead of the older steps still in it
+	if (s_clientWorkOwner == this)
+	{
+		recordConditionStep();
+		m_isModelDirty = false;
+		return;
+	}
 	LogicThread::census( onDemand ? LogicThread::CENSUS_ON_DEMAND_FLUSH : LogicThread::CENSUS_MODEL_CONDITION );
 	if (s_modelLockCount > 0)
 	{
@@ -5159,28 +5217,90 @@ void Drawable::flushModelCondition( Bool onDemand ) const
 		return;
 	}
 	// the states a flush inside the tick would have applied first, then the one the tick ended on
-	if (m_conditionSteps.empty() || m_conditionSteps.back() != m_conditionState)
-		m_conditionSteps.push_back( m_conditionState );
+	if (m_isModelDirty)
+		recordConditionStep();
+	m_isModelDirty = false;
+	// a caller inside the tick that reads bones or barrels needs the states and the work that moves
+	// bones; everything else stays for after the tick, in its order, on the newest state
+	const Bool keepForLater = onDemand && TheGameLogic->isInGameLogicUpdate();
+	std::vector<PendingStep> kept;
 	// yeah, yeah, yeah... I know (srj)
-	for (size_t i = 0; i < m_conditionSteps.size(); ++i)
+	while (!m_pendingSteps.empty())
 	{
-		for (DrawModule** dm = (DrawModule**)getModuleList(MODULETYPE_DRAW); *dm; ++dm)
+		std::vector<PendingStep> steps;
+		steps.swap( m_pendingSteps );
+		for (size_t i = 0; i < steps.size(); ++i)
 		{
-			ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
-			if (di)
-				di->replaceModelConditionState( m_conditionSteps[i] );
+			if (steps[i].work && keepForLater && !steps[i].movesBones)
+			{
+				kept.push_back( steps[i] );
+				continue;
+			}
+			if (steps[i].work)
+			{
+				// client work on the logic thread: a bone read inside the tick needed it, which is the
+				// on-demand flush's count, or it ran there for no reader, which is a push
+				LogicThread::census( onDemand ? LogicThread::CENSUS_ON_DEMAND_FLUSH : LogicThread::CENSUS_DRAWABLE_PUSH );
+				LatchRestore<const Drawable*> inWork( s_clientWorkOwner, this );
+				steps[i].work();
+				continue;
+			}
+			for (DrawModule** dm = (DrawModule**)getModuleList(MODULETYPE_DRAW); *dm; ++dm)
+			{
+				ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
+				if (di)
+					di->replaceModelConditionState( steps[i].condition );
+			}
 		}
 	}
-	m_conditionSteps.clear();
-	m_isModelDirty = false;
+	m_pendingSteps.swap( kept );
 }
 
 //-------------------------------------------------------------------------------------------------
 void Drawable::doPendingClientWork( Bool onDemand )
 {
-	if (m_isModelDirty)
+	if (m_isModelDirty || !m_pendingSteps.empty())
 		flushModelCondition( onDemand );
 	flushPendingTransform( onDemand );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** LOGIC-THREAD.md phase 2, M3.  What logic tells a drawable keeps landing in the drawable's own
+	fields at once, so a read from logic sees it; what that does to the draw modules, the render
+	objects, the selection and the audio goes into the step list where the order puts it, and runs
+	after the tick.  The census counts a work that runs on the logic thread all the same. */
+void Drawable::doClientWork( const std::function<void()>& work, ClientWorkOrder order, Bool movesBones )
+{
+	if (s_clientWorkOwner == this)
+	{
+		work();
+		return;
+	}
+	if (TheGameLogic->isInGameLogicUpdate())
+	{
+		PendingStep step;
+		step.work = work;
+		step.movesBones = movesBones;
+		if (order == WORK_BEFORE_STATES)
+		{
+			size_t at = 0;
+			while (at < m_pendingSteps.size() && m_pendingSteps[at].work)
+				++at;
+			m_pendingSteps.insert( m_pendingSteps.begin() + at, step );
+		}
+		else
+		{
+			if (order == WORK_AFTER_FLUSH && m_isModelDirty)
+				recordConditionStep();
+			m_pendingSteps.push_back( step );
+		}
+		queueClientWork();
+		return;
+	}
+	LOGIC_CENSUS( CENSUS_DRAWABLE_PUSH );
+	if (order == WORK_AFTER_FLUSH)
+		getDrawModules();
+	work();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5269,13 +5389,14 @@ void Drawable::replaceModelConditionFlags( const ModelConditionFlags &flags, Boo
 	// when forcing a replace we won't use dirty flags, we will immediately do an update now
 	if( forceReplace == TRUE )
 	{
+		if (!m_pendingSteps.empty())
+			flushModelCondition( FALSE );
 		for (DrawModule** dm = getDrawModules(); *dm; ++dm)
 		{
 			ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
 			if (di)
 				di->replaceModelConditionState( m_conditionState );
 		}
-		m_conditionSteps.clear();
 		m_isModelDirty = false;
 	}
 	else
@@ -5301,12 +5422,16 @@ void Drawable::setIndicatorColor(Color color)
 	m_indicatorColorAsked = color;
 	color = clientColor( color );
 
-	for (DrawModule** dm = getDrawModules(); *dm; ++dm)
-	{
-		ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
-		if (di)
-			di->replaceIndicatorColor(color);
-	}
+	// in front of the tick's condition states, as since 1f213c44: replaceIndicatorColor rebuilds the
+	// current state and drops a transition the states have started
+	doClientWork( [this, color]() {
+		for (DrawModule** dm = getDrawModulesNonDirty(); *dm; ++dm)
+		{
+			ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
+			if (di)
+				di->replaceIndicatorColor(color);
+		}
+	}, WORK_BEFORE_STATES, TRUE );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5583,35 +5708,40 @@ void Drawable::setCaptionText( const UnicodeString& captionText )
 		return;
 	}
 
-	UnicodeString sanitizedString = captionText;
-	TheLanguageFilter->filterLine(sanitizedString);
+	// a display string and a font: a beacon's text arrives in the tick's message dispatch
+	doClientWork( [this, captionText]() {
+		UnicodeString sanitizedString = captionText;
+		TheLanguageFilter->filterLine(sanitizedString);
 
-	if( m_captionDisplayString == NULL )
-	{
-		m_captionDisplayString = TheDisplayStringManager->newDisplayString();
-		GameFont *font = TheFontLibrary->getFont(
-			TheInGameUI->getDrawableCaptionFontName(),
-			TheGlobalLanguageData->adjustFontSize(TheInGameUI->getDrawableCaptionPointSize()),
-			TheInGameUI->isDrawableCaptionBold() );
-		m_captionDisplayString->setFont( font );
-		m_captionDisplayString->setText( sanitizedString );
-	}
-	else
-	{
-		// set the string if the value has changed
-		if( m_captionDisplayString->getText().compare(sanitizedString) != 0 )
+		if( m_captionDisplayString == NULL )
 		{
+			m_captionDisplayString = TheDisplayStringManager->newDisplayString();
+			GameFont *font = TheFontLibrary->getFont(
+				TheInGameUI->getDrawableCaptionFontName(),
+				TheGlobalLanguageData->adjustFontSize(TheInGameUI->getDrawableCaptionPointSize()),
+				TheInGameUI->isDrawableCaptionBold() );
+			m_captionDisplayString->setFont( font );
 			m_captionDisplayString->setText( sanitizedString );
 		}
-	}
+		else
+		{
+			// set the string if the value has changed
+			if( m_captionDisplayString->getText().compare(sanitizedString) != 0 )
+			{
+				m_captionDisplayString->setText( sanitizedString );
+			}
+		}
+	}, WORK_AFTER_APPLIED );
 }
 
 //-------------------------------------------------------------------------------------------------
 void Drawable::clearCaptionText( void )
 {
-	if (m_captionDisplayString)
-		TheDisplayStringManager->freeDisplayString(m_captionDisplayString);
-	m_captionDisplayString = NULL;
+	doClientWork( [this]() {
+		if (m_captionDisplayString)
+			TheDisplayStringManager->freeDisplayString(m_captionDisplayString);
+		m_captionDisplayString = NULL;
+	}, WORK_AFTER_APPLIED );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5721,6 +5851,9 @@ void Drawable::clearCustomSoundAmbient( bool restartSound )
 //-------------------------------------------------------------------------------------------------
 void Drawable::startAmbientSound(BodyDamageType dt, TimeOfDay tod, Bool onlyIfPermanent)
 {
+	// where the drawable stood at the call: one made in the tick is still at the origin here
+	const Coord3D callPos = *getPosition();
+	doClientWork( [this, dt, tod, onlyIfPermanent, callPos]() {
 	stopAmbientSound();
 
   Bool trySound = FALSE;
@@ -5786,7 +5919,7 @@ void Drawable::startAmbientSound(BodyDamageType dt, TimeOfDay tod, Bool onlyIfPe
 			  else
 			  {
 				  //Check if it's close enough to try playing (optimization)
-				  Coord3D vector = *getPosition();
+				  Coord3D vector = callPos;
 				  vector.sub( TheAudio->getListenerPosition() );
 				  Real distSqr = vector.lengthSqr();
 				  if( distSqr < sqr( info->m_maxDistance ) )
@@ -5805,6 +5938,7 @@ void Drawable::startAmbientSound(BodyDamageType dt, TimeOfDay tod, Bool onlyIfPe
 			m_ambientSound = NULL;
 		}
 	}
+	}, WORK_AFTER_APPLIED );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5831,10 +5965,12 @@ void Drawable::startAmbientSound( Bool onlyIfPermanent )
 //-------------------------------------------------------------------------------------------------
 void	Drawable::stopAmbientSound( void )
 {
+	doClientWork( [this]() {
 	if (m_ambientSound)
   {
 		TheAudio->removeAudioEvent(m_ambientSound->m_event.getPlayingHandle());
   }
+	}, WORK_AFTER_APPLIED );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5914,22 +6050,23 @@ void Drawable::removeFromList(Drawable **pListHead)
 void Drawable::updateHiddenStatus()
 {
 	Bool hidden = m_hidden || m_hiddenByStealth;
-	if( hidden )
-	{
-		if( isSelected() )
-			TheInGameUI->holdSelectionThroughTunnel( this );
-		TheInGameUI->deselectDrawable( this );
-	}
-	else
-		TheInGameUI->restoreSelectionAfterTunnel( this );
+	doClientWork( [this, hidden]() {
+		if( hidden )
+		{
+			if( isSelected() )
+				TheInGameUI->holdSelectionThroughTunnel( this );
+			TheInGameUI->deselectDrawable( this );
+		}
+		else
+			TheInGameUI->restoreSelectionAfterTunnel( this );
 
-	for (DrawModule** dm = getDrawModules(); *dm; ++dm)
-	{
-		ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
-		if (di)
-			di->setHidden(hidden != 0);
-	}
-	
+		for (DrawModule** dm = getDrawModulesNonDirty(); *dm; ++dm)
+		{
+			ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
+			if (di)
+				di->setHidden(hidden != 0);
+		}
+	}, WORK_AFTER_FLUSH );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5947,23 +6084,41 @@ void Drawable::setDrawableHidden( Bool hidden )
 //-------------------------------------------------------------------------------------------------
 void Drawable::updateDrawableClipStatus( UnsignedInt shotsRemaining, UnsignedInt maxShots, WeaponSlotType slot )
 {
-	for (DrawModule** dm = getDrawModulesNonDirty(); *dm; ++dm)
-	{
-		ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
-		if (di)
-			di->updateProjectileClipStatus(shotsRemaining, maxShots, slot);
-	}
+	doClientWork( [this, shotsRemaining, maxShots, slot]() {
+		for (DrawModule** dm = getDrawModulesNonDirty(); *dm; ++dm)
+		{
+			ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
+			if (di)
+				di->updateProjectileClipStatus(shotsRemaining, maxShots, slot);
+		}
+	}, WORK_AFTER_APPLIED );
 }
 
 //-------------------------------------------------------------------------------------------------
 void Drawable::updateDrawableSupplyStatus( Int maxSupply, Int currentSupply )
 {
+	// a model draw answers with the CARRYING condition, a condition like any other and so set here at
+	// once, after the flush the call made, rather than by the draw module when the work runs after the
+	// tick; the work (W3DSupplyDraw's bones) follows that flush and no new state, as it did in retail
+	Bool modelDraw = FALSE;
 	for (DrawModule** dm = getDrawModules(); *dm; ++dm)
+		modelDraw = modelDraw || (*dm)->getObjectDrawInterface() != NULL;
+	if( modelDraw )
 	{
-		ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
-		if (di)
-			di->updateDrawModuleSupplyStatus( maxSupply, currentSupply );
+		if( currentSupply > 0 )
+			setModelConditionState( MODELCONDITION_CARRYING );
+		else
+			clearModelConditionState( MODELCONDITION_CARRYING );
 	}
+
+	doClientWork( [this, maxSupply, currentSupply]() {
+		for (DrawModule** dm = getDrawModulesNonDirty(); *dm; ++dm)
+		{
+			ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
+			if (di)
+				di->updateDrawModuleSupplyStatus( maxSupply, currentSupply );
+		}
+	}, WORK_AFTER_APPLIED );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5982,17 +6137,19 @@ void Drawable::notifyDrawableDependencyCleared()
 //-------------------------------------------------------------------------------------------------
 void Drawable::setSelectable( Bool selectable )
 {
-	// unselct drawable if it is no longer selectable.
-	if( !selectable )
-		TheInGameUI->deselectDrawable( this );
-
 	// onto the render object the tick's model condition builds; setModelState takes it from the template
-	for (DrawModule** dm = getDrawModulesFlushed(); *dm; ++dm)
-	{
-		ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
-		if (di)
-			di->setSelectable(selectable);
-	}
+	doClientWork( [this, selectable]() {
+		// unselct drawable if it is no longer selectable.
+		if( !selectable )
+			TheInGameUI->deselectDrawable( this );
+
+		for (DrawModule** dm = getDrawModulesNonDirty(); *dm; ++dm)
+		{
+			ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
+			if (di)
+				di->setSelectable(selectable);
+		}
+	}, WORK_AFTER_FLUSH );
 }
 
 //-------------------------------------------------------------------------------------------------
