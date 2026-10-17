@@ -222,16 +222,18 @@ static Waypoint * findNamedWaypoint(AsciiString name)
 	 test can call it without linking the whole of GameLogic. */
 
 
+thread_local Bool GameLogic::s_isInUpdate = FALSE;
+
 // ------------------------------------------------------------------------------------------------
 /** GameLogic class constructor */
 // ------------------------------------------------------------------------------------------------
 GameLogic::GameLogic( void )
 {
 	//Added By Sadullah Nader
-	//Initializations missing and necessary 
+	//Initializations missing and necessary
 	m_background = NULL;
 	m_CRC = 0;
-	m_isInUpdate = FALSE;
+	s_isInUpdate = FALSE;
 
 	m_rankPointsToAddAtGameStart = 0;
 
@@ -439,8 +441,8 @@ void GameLogic::init( void )
 	m_drawIconUI = TRUE;
 	m_showDynamicLOD = TRUE;
 	m_scriptHulkMaxLifetimeOverride = -1;
-	
-	m_isInUpdate = FALSE;
+
+	s_isInUpdate = FALSE;
 
 	m_rankPointsToAddAtGameStart = 0;
 }
@@ -4606,7 +4608,7 @@ void GameLogic::update( void )
 	USE_PERF_TIMER(GameLogic_update)
 
 
-	LatchRestore<Bool> inUpdateLatch(m_isInUpdate, TRUE);
+	LatchRestore<Bool> inUpdateLatch(s_isInUpdate, TRUE);
 #ifdef DO_UNIT_TIMINGS
 	unitTimings();
 #endif

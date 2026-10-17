@@ -157,7 +157,9 @@ public:
 	void setHeight( Real height );									///< Sets the height of the world
 	Real getHeight( void );													///< Returns the height of the world
 
-	Bool isInGameLogicUpdate( void ) const { return m_isInUpdate; }
+	/** TRUE on the thread running GameLogic::update, inside it.  Per thread (LOGIC-THREAD.md phase 3): once
+		* the render runs beside the tick, the main thread is not inside it and its client work runs at once. */
+	Bool isInGameLogicUpdate( void ) const { return s_isInUpdate; }
 	Bool isNewGamePending( void ) const { return m_startNewGame; }	///< the next update starts a map (LogicThread keeps that tick on the main thread)
 	UnsignedInt getFrame( void );										///< Returns the current simulation frame number
 	UnsignedInt getFrameForClient( void ) const { return m_frameForClient; }	///< the frame the last tick ran, for the client's clock (LogicThread::runTick)
@@ -377,7 +379,7 @@ private:
 	Bool m_loadingWithoutScreen;
 	Bool m_clearingGameData;
 
-	Bool m_isInUpdate;
+	static thread_local Bool s_isInUpdate;
 
 	Int m_rankPointsToAddAtGameStart;
 
