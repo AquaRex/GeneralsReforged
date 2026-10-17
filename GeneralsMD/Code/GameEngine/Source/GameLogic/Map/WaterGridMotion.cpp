@@ -506,13 +506,16 @@ void WaterGrid::crc( Xfer *xfer )
 // ------------------------------------------------------------------------------------------------
 /** Xfer, WaterRenderObjClass's bytes, which W3DTerrainVisual::xfer still writes in its block
 	* Version Info:
-	* 1: Initial version */
+	* 1: Initial version
+	* 2: The motion flag and the grid's height.  EA's version 1 dropped both, so a loaded grid stood
+	*    still until the next WaveGuide push and sat at GameData's height whatever a script had raised
+	*    it to, and logic's isUnderwater read those heights. */
 // ------------------------------------------------------------------------------------------------
 void WaterGrid::xfer( Xfer *xfer )
 {
 
 	// version
-	XferVersion currentVersion = 1;
+	XferVersion currentVersion = 2;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -555,6 +558,19 @@ void WaterGrid::xfer( Xfer *xfer )
 		xfer->xferUnsignedByte( &m_meshData[ i ].preferredHeight );
 
 	}  // end for, i
+
+	if( version >= 2 )
+	{
+
+		// still settling: the step skips the whole mesh while this is FALSE
+		xfer->xferBool( &m_meshInMotion );
+
+		// the grid's height, which a script's water height moves (TerrainLogic::setWaterHeight)
+		Real z = m_transform.Get_Z_Translation();
+		xfer->xferReal( &z );
+		m_transform.Set_Z_Translation( z );
+
+	}  // end if
 
 }  // end xfer
 

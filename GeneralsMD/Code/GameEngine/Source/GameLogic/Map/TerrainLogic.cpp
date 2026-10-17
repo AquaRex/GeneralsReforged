@@ -72,6 +72,7 @@ TerrainLogic *TheTerrainLogic = NULL;
 
 // STATIC /////////////////////////////////////////////////////////////////////////////////////////
 WaterHandle TerrainLogic::m_gridWaterHandle;
+static const Int GRID_WATER_TRIGGER_ID = -1;	///< the save's trigger ID for the grid, which has no polygon; map IDs start at 0
 
 // Waypoint ///////////////////////////////////////////////////////////////////////////////////////
 
@@ -3047,8 +3048,10 @@ void TerrainLogic::xfer( Xfer *xfer )
 			if( xfer->getXferMode() == XFER_SAVE )
 			{
 
-				// write ID of polygon trigger that this water handle is representing
-				Int triggerID = m_waterToUpdate[ i ].waterTable->m_polygon->getID();
+				// write ID of polygon trigger that this water handle is representing; the water grid
+				// has no polygon, and EA's save read through its NULL here, so it writes GRID_WATER_TRIGGER_ID
+				Int triggerID = m_waterToUpdate[ i ].waterTable == &m_gridWaterHandle ? GRID_WATER_TRIGGER_ID
+																		: m_waterToUpdate[ i ].waterTable->m_polygon->getID();
 				xfer->xferInt( &triggerID );
 
 			}  // end if, save
@@ -3058,31 +3061,37 @@ void TerrainLogic::xfer( Xfer *xfer )
 				// read trigger id
 				Int triggerID;
 				xfer->xferInt( &triggerID );
-
-				// find polygon trigger
-				PolygonTrigger *poly = PolygonTrigger::getPolygonTriggerByID( triggerID );
-
-				// sanity
-				if( poly == NULL )
-				{
-				
-					DEBUG_CRASH(( "TerrainLogic::xfer - Unable to find polygon trigger for water table with trigger ID '%d'\n",
-												triggerID ));
-					throw SC_INVALID_DATA;
-
-				}  // end if
-
-				// set water handle
-				m_waterToUpdate[ i ].waterTable = poly->getWaterHandle();
-
-				// sanity
-				if( m_waterToUpdate[ i ].waterTable == NULL )
+				if( triggerID == GRID_WATER_TRIGGER_ID )
+					m_waterToUpdate[ i ].waterTable = &m_gridWaterHandle;
+				else
 				{
 
-					DEBUG_CRASH(( "TerrainLogic::xfer - Polygon trigger to use for water handle has no water handle!\n" ));
-					throw SC_INVALID_DATA;
+					// find polygon trigger
+					PolygonTrigger *poly = PolygonTrigger::getPolygonTriggerByID( triggerID );
 
-				}  // end if
+					// sanity
+					if( poly == NULL )
+					{
+
+						DEBUG_CRASH(( "TerrainLogic::xfer - Unable to find polygon trigger for water table with trigger ID '%d'\n",
+													triggerID ));
+						throw SC_INVALID_DATA;
+
+					}  // end if
+
+					// set water handle
+					m_waterToUpdate[ i ].waterTable = poly->getWaterHandle();
+
+					// sanity
+					if( m_waterToUpdate[ i ].waterTable == NULL )
+					{
+
+						DEBUG_CRASH(( "TerrainLogic::xfer - Polygon trigger to use for water handle has no water handle!\n" ));
+						throw SC_INVALID_DATA;
+
+					}  // end if
+
+				}  // end else
 
 			}  // end else, load
 
