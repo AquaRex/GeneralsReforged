@@ -31,6 +31,7 @@
 
 // SYSTEM INCLUDES ////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
+#include <algorithm>
 #include "Platform/SleepMilliseconds.h"
 #include "Lib/Clock.h"
 #include "GameClient/GameClient.h"
@@ -560,6 +561,13 @@ void GameClient::reset( void )
 		nextDraw = draw->getNextDrawable();
 		destroyDrawable( draw );
 	}
+	// the clear-game tick resets from inside the tick: what it made before that was never linked
+	for( size_t i = 0; i < m_madeInTick.size(); ++i )
+	{
+		if( std::find( m_destroyedInTick.begin(), m_destroyedInTick.end(), m_madeInTick[ i ] ) == m_destroyedInTick.end() )
+			destroyDrawable( m_madeInTick[ i ] );
+	}
+	m_madeInTick.clear();
 	m_drawableList = NULL;
 	// the clear-game tick resets from inside the tick, and what it and the ticks before left goes
 	// before the scene does
@@ -592,11 +600,17 @@ DrawableID GameClient::allocDrawableID( void )
 /** -----------------------------------------------------------------------------------------------
  * Given a drawable, register it with the GameClient and give it a unique ID.
  */
-void GameClient::registerDrawable( Drawable *draw ) 
+void GameClient::registerDrawable( Drawable *draw )
 {
 
 	// assign this drawable a unique ID, this will add it to the fast lookup table too
 	draw->setID( allocDrawableID() );
+
+	// LOGIC-THREAD.md phase 3: the list and the lookup do not change inside a tick, which the render
+	// will run beside.  What a tick makes waits in m_madeInTick (addDrawableToLookupTable put it there)
+	// for linkDrawablesOfTick, and only the tick's own lookups find it before that.
+	if( Drawable::tickDefersLifetime() )
+		return;
 
 	// add the drawable to the master list
 	draw->prependToList( &m_drawableList );
@@ -1027,9 +1041,6 @@ void GameClient::destroyDrawable( Drawable *draw )
 	// remove any notion of the Drawable in the in-game user interface
 	TheInGameUI->disregardDrawable( draw );
 
-	// remove from the master list
-	draw->removeFromList(&m_drawableList);
-
 	//
 	// because drawables and objects are tightly coupled, not only MUST we maintain
 	// our links in all instances, but it is NECESSARY for the client to actually
@@ -1044,17 +1055,21 @@ void GameClient::destroyDrawable( Drawable *draw )
 
 	}  // end if
 
-	/* LOGIC-THREAD.md phase 2, M4.  Inside a tick the drawable leaves the selection, the list and the
-		 lookup at once, so nothing finds it, and forgets its object, which the tick may delete before
-		 the flush.  Its draw modules, render objects, shadows and sounds go after the tick, in
-		 flushDestroyedDrawables, once the flush has run the work other drawables deferred. */
+	/* LOGIC-THREAD.md phase 2, M4.  Inside a tick the drawable forgets its object, which the tick may
+		 delete before the flush, and leaves the selection after the tick (disregardDrawable queues it).
+		 Phase 3: it stays in the list and the lookup, which the render walks beside the tick, and only
+		 the tick's own lookups stop finding it; linkDrawablesOfTick takes it out after the tick.  Its draw
+		 modules, render objects, shadows and sounds go in flushDestroyedDrawables, once the flush has run
+		 the work other drawables deferred. */
 	if( Drawable::tickDefersLifetime() )
 	{
-		removeDrawableFromLookupTable( draw );
 		draw->friend_forgetObject();
 		m_destroyedInTick.push_back( draw );
 		return;
 	}
+
+	// remove from the master list
+	draw->removeFromList(&m_drawableList);
 
 	LOGIC_CENSUS( CENSUS_DESTROY_DRAWABLE );
 
@@ -1083,6 +1098,63 @@ void GameClient::flushDestroyedDrawables( void )
 	m_destroyedInTick.clear();
 }
 
+//-------------------------------------------------------------------------------------------------
+/** LOGIC-THREAD.md phase 3: the list and the lookup take the tick's changes here, at the sync point,
+	in the order the tick made them, so the list ends up as it did when they were made at the call.
+	First of the flush: the drawables' deferred work and the effects look drawables up. */
+void GameClient::linkDrawablesOfTick( void )
+{
+	for( size_t i = 0; i < m_destroyedInTick.size(); ++i )
+	{
+		Drawable *draw = m_destroyedInTick[ i ];
+		// one the same tick made was never linked
+		if( draw->getID() < m_drawableVector.size() && m_drawableVector[ draw->getID() ] == draw )
+		{
+			draw->removeFromList( &m_drawableList );
+			removeDrawableFromLookupTable( draw );
+		}
+	}
+	for( size_t i = 0; i < m_madeInTick.size(); ++i )
+	{
+		Drawable *draw = m_madeInTick[ i ];
+		// ponytail: a linear search per drawable made, a few dozen a tick; a flag on the drawable if it ever shows
+		if( std::find( m_destroyedInTick.begin(), m_destroyedInTick.end(), draw ) != m_destroyedInTick.end() )
+			continue;
+		addDrawableToLookupTable( draw );
+		draw->prependToList( &m_drawableList );
+	}
+	m_madeInTick.clear();
+}
+
+/** -----------------------------------------------------------------------------------------------
+ * Given an object id, return the associated object.
+ * This method is the primary interface for accessing objects, and should be used
+ * instead of pointers to "attach" objects to each other.
+ */
+Drawable* GameClient::findDrawableByID( const DrawableID id )
+{
+	LOGIC_CENSUS( CENSUS_GAMECLIENT );
+	if( id == INVALID_DRAWABLE_ID )
+		return NULL;
+
+	Drawable *draw = (Int)id < m_drawableVector.size() ? m_drawableVector[(Int)id] : NULL;
+
+	// inside the tick the table has not taken the tick's changes yet (linkDrawablesOfTick): the tick
+	// still finds what it made and no longer what it destroyed, as when the table changed at the call
+	if( Drawable::tickDefersLifetime() )
+	{
+		if( draw == NULL )
+		{
+			for( size_t i = 0; i < m_madeInTick.size(); ++i )
+				if( m_madeInTick[ i ]->getID() == id )
+					draw = m_madeInTick[ i ];
+		}
+		if( draw && std::find( m_destroyedInTick.begin(), m_destroyedInTick.end(), draw ) != m_destroyedInTick.end() )
+			return NULL;
+	}
+	return draw;
+}
+
 // ------------------------------------------------------------------------------------------------
 /** Add drawable to lookup table for fast id searching */
 // ------------------------------------------------------------------------------------------------
@@ -1092,6 +1164,13 @@ void GameClient::addDrawableToLookupTable(Drawable *draw )
 	// sanity
 	if( draw == NULL )
 		return;
+
+	// made inside a tick: linkDrawablesOfTick adds it (registerDrawable)
+	if( Drawable::tickDefersLifetime() )
+	{
+		m_madeInTick.push_back( draw );
+		return;
+	}
 
 	// add to lookup
 //	m_drawableHash[ draw->getID() ] = draw;

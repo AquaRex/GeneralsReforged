@@ -150,6 +150,7 @@ public:
 	virtual Drawable *friend_createDrawable( const ThingTemplate *thing, DrawableStatus statusBits = DRAWABLE_STATUS_NONE ) = 0;
 	virtual void destroyDrawable( Drawable *draw );											///< Destroy the given drawable
 	void flushDestroyedDrawables( void );		///< delete what destroyDrawable left for after the tick (Drawable::tickDefersLifetime)
+	void linkDrawablesOfTick( void );				///< after the tick: what it destroyed leaves the list and the lookup, what it made joins them
 
 	virtual void setTimeOfDay( TimeOfDay tod );													///< Tell all the drawables what time of day it is now
 
@@ -188,7 +189,8 @@ protected:
 	Drawable *m_drawableList;																		///< All of the drawables in the world
 //	DrawablePtrHash m_drawableHash;															///< Used for DrawableID lookups
 	DrawablePtrVector m_drawableVector;
-	std::vector<Drawable*> m_destroyedInTick;										///< out of the list and the lookup, deleted by flushDestroyedDrawables
+	std::vector<Drawable*> m_destroyedInTick;										///< destroyed inside a tick: unlinked by linkDrawablesOfTick, deleted by flushDestroyedDrawables
+	std::vector<Drawable*> m_madeInTick;												///< made inside a tick: neither in the list nor in the lookup until linkDrawablesOfTick
 
 	DrawableID m_nextDrawableID;																///< For allocating drawable id's
 	DrawableID allocDrawableID( void );													///< Returns a new unique drawable id
@@ -269,30 +271,6 @@ private:
 		} \
 	} while (0);
 
-/** -----------------------------------------------------------------------------------------------
- * Given an object id, return the associated object.
- * This method is the primary interface for accessing objects, and should be used
- * instead of pointers to "attach" objects to each other.
- */
-inline Drawable* GameClient::findDrawableByID( const DrawableID id )
-{
-	LOGIC_CENSUS( CENSUS_GAMECLIENT );
-	if( id == INVALID_DRAWABLE_ID )
-		return NULL;
-
-//	DrawablePtrHashIt it = m_drawableHash.find(id);
-//	if (it == m_drawableHash.end()) {
-//		// no such drawable	
-//		return NULL;
-//	}
-//
-//	return (*it).second;
-
-	if( (Int)id < m_drawableVector.size() )
-		return m_drawableVector[(Int)id];
-
-	return NULL;
-}
 
 
 // the singleton

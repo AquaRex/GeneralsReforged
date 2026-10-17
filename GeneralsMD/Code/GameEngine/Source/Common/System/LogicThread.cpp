@@ -139,6 +139,9 @@ namespace
 		// M7: the frame the tick ran, which it used to hand the client itself; a tick that started a map
 		// ran frame 0 after the load, one that cleared the game left 0
 		TheGameClient->setFrame( TheGameLogic->getFrameForClient() );
+		// phase 3: the client's list and lookup take what the tick made and destroyed, before anything
+		// below looks a drawable up
+		TheGameClient->linkDrawablesOfTick();
 		Drawable::flushPendingClientWork();
 		runViewCalls();
 		// an effect queues nothing more: none of them runs inside a tick
