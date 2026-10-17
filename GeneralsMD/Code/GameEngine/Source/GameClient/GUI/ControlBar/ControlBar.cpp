@@ -4403,24 +4403,10 @@ void ControlBar::setControlCommand( GameWindow *button, const CommandButton *com
 	// wears it in its top left corner.
 	if( TheHotKeyManager )
 	{
-		// Force Attack wears the BEGIN_FORCEATTACK hold from MetaMap (Ctrl until the player
-		// rebinds it on the launcher's Command bar tab).  Showing H or F on the cameo would
-		// steal that letter and lie about the key.  Do not addHotKey it: the hold is already
-		// MSG_META_BEGIN_FORCEATTACK, and binding the button to that key would toggle on every press.
-		const Bool forceAttack = commandButton->getCommandType() == GUI_COMMAND_FORCE_ATTACK;
-		const WideChar letter = forceAttack ? 0 : HotKeyManager::playerButtonKey( commandButton->getName(),
+		const WideChar letter = HotKeyManager::playerButtonKey( commandButton->getName(),
 			TheGameText ? TheGameText->fetchEnglishHotKey( commandButton->getTextLabel() ) : 0,
 			commandButton->getCommandType() );
-		if( forceAttack )
-		{
-			const UnicodeString chord = MetaMap_chordLabel( GameMessage::MSG_META_BEGIN_FORCEATTACK );
-			GadgetButtonSetText( button, chord );
-			if( chord.isEmpty() )
-				button->winClearStatus( WIN_STATUS_SHORTCUT_BUTTON );
-			else
-				button->winSetStatus( WIN_STATUS_SHORTCUT_BUTTON );
-		}
-		else if( letter != 0 )
+		if( letter != 0 )
 		{
 			TheHotKeyManager->addHotKey( button, HotKeyManager::nameOf( letter ) );
 			const WideChar text[ 2 ] = { letter, 0 };
