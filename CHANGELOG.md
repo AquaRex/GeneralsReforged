@@ -12,6 +12,7 @@ found and fixed â€” EA's own, not port damage.**
 
 - Picking USA, GLA or China now opens a list of that campaign's missions, every one of them open. Pick a mission, then the difficulty, and it starts with its briefing and movie as it always did; win it and the campaign carries on to the next one. Every campaign mission starts at the same rank however you reach it, so starting at the fourth is the same game as playing through to it.
 - The "Mission Start" saves the campaign makes after each victory load again, from the original game and from every earlier version of Reforged. They hold only the campaign, the mission and the difficulty, none of which the 60-step battle changed. A game saved in the middle of a mission on an earlier version still does not load, and the message that refuses it now says which saves do.
+- A mission with moving water (China's third, GLA's first, America's sixth) loads from a save with its water still running and at the height the mission had raised it to. A load used to freeze the water until the next wave came through and drop it back to the level the map started at, and saving while a script was raising it tore the game down.
 
 ## Health bars you can read at a glance
 
