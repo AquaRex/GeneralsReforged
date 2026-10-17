@@ -2764,6 +2764,7 @@ Bool ScriptConditions::evaluateCondition( Condition *pCondition )
 			// multiplayer or skirmish session it counts as finished at once on every machine.
 			if (TheGameEngine->isMultiplayerSession())
 				return TRUE;
+			LogicThread::readViewFromTick();
 			return TheTacticalView->isCameraMovementFinished();
 		case Condition::TEAM_STATE_IS: 
 			return evaluateTeamStateIs(pCondition->getParameter(0), pCondition->getParameter(1));

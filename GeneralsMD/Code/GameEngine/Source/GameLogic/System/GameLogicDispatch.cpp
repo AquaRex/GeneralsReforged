@@ -37,6 +37,7 @@
 #include "Common/CRCDebug.h"
 #include "Common/DrawnPath.h"
 #include "Common/GameAudio.h"
+#include "Common/LogicThread.h"
 #include "Common/GameEngine.h"
 #include "Common/GlobalData.h"
 #include "Common/NameKeyGenerator.h"
@@ -341,6 +342,8 @@ static Object * getSingleObjectFromSelection(const AIGroup *currentlySelectedGro
 // ------------------------------------------------------------------------------------------------
 void GameLogic::closeWindows( void )
 {
+	// every window here is the client's: a tick's call waits for its end (LOGIC-THREAD.md M6)
+	LOGIC_AFTER_TICK( [this]() { closeWindows(); } );
 	HideDiplomacy();
 	ResetDiplomacy();
 	if( TheGameConsole )
@@ -655,8 +658,11 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, AIGroup *orderedGroup 
 				if (maxFPS < 1 || maxFPS > 1000)
 					maxFPS = TheGlobalData->m_framesPerSecondLimit;
 				DEBUG_LOG(("Setting max FPS limit to %d FPS\n", maxFPS));
-				TheGameEngine->setFramesPerSecondLimit(maxFPS);
-				TheWritableGlobalData->m_useFpsLimit = true;
+				// the engine's pacing (LOGIC-THREAD.md hazard 24): after the tick
+				LogicThread::callAfterTick( [maxFPS]() {
+					TheGameEngine->setFramesPerSecondLimit(maxFPS);
+					TheWritableGlobalData->m_useFpsLimit = true;
+				} );
 			}
 
 			/* Seed again from the number the start was seeded with.  Every start seeds when it appends

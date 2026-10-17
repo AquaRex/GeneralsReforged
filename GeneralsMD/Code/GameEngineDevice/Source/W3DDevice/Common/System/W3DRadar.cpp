@@ -1262,6 +1262,8 @@ void W3DRadar::buildTerrainTexture( TerrainLogic *terrain )
 //-------------------------------------------------------------------------------------------------
 void W3DRadar::clearShroud()
 {
+	LOGIC_AFTER_TICK( [this]() { clearShroud(); } );
+	LOGIC_CENSUS( CENSUS_RADAR );
 #if defined(_DEBUG) || defined(_INTERNAL)
 	if (!TheGlobalData->m_shroudOn)
 		return;
@@ -1275,6 +1277,7 @@ void W3DRadar::clearShroud()
 //-------------------------------------------------------------------------------------------------
 void W3DRadar::setShroudLevel(Int shroudX, Int shroudY, CellShroudStatus setting)
 {
+	LOGIC_AFTER_TICK( [this, shroudX, shroudY, setting]() { setShroudLevel( shroudX, shroudY, setting ); } );
 	LOGIC_CENSUS( CENSUS_RADAR );
 #if defined(_DEBUG) || defined(_INTERNAL)
 	if (!TheGlobalData->m_shroudOn)
@@ -1451,6 +1454,7 @@ void W3DRadar::draw( Int pixelX, Int pixelY, Int width, Int height )
 // ------------------------------------------------------------------------------------------------
 void W3DRadar::refreshTerrain( TerrainLogic *terrain )
 {
+	LOGIC_AFTER_TICK( [this, terrain]() { refreshTerrain( terrain ); } );
 
 	// extend base class
 	Radar::refreshTerrain( terrain );

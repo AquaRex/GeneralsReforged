@@ -83,20 +83,34 @@ namespace
 		"drawable", "modelcondition", "audio", "ingameui", "controlbar", "tacticalview", "radar",
 		"fxlist", "terrainvisual", "particles", "gameclient", "eva", "newdrawable", "clientrandom",
 		"ghost", "messagestream", "display", "jobs", "ondemandflush", "observerlookat",
-		"drawablepush", "destroydrawable", "audioread"
+		"drawablepush", "destroydrawable", "audioread", "clientread"
 	};
 
 	// M5: what the tick asked of the audio, the FX lists and the particle systems, in call order.
 	// Filled inside the tick, run and emptied by flushAfterTick; one thread touches it at a time.
 	std::vector< std::function<void()> > s_effects;
 
+	// M6: the camera calls of the tick, see callViewAfterTick
+	std::vector< std::function<void()> > s_viewCalls;
+
+	void runViewCalls( void )
+	{
+		// swapped out first: a call that queues another (none does today) waits for the next run
+		std::vector< std::function<void()> > calls;
+		calls.swap( s_viewCalls );
+		for( size_t i = 0; i < calls.size(); ++i )
+			calls[ i ]();
+	}
+
 	/* Everything a tick left for the main thread, in the order it has to run: the drawables' work first
-		 (M1, M3, M4 builds the render objects of the drawables the tick made), then the effects, which
-		 attach to those drawables and read their bones, then the deletion of the drawables the tick
-		 destroyed, whose bones a death effect may still have read, then the control bar (M2). */
+		 (M1, M3, M4 builds the render objects of the drawables the tick made), the camera (M6), then the
+		 effects (M5, and M6's interface, radar, EVA, display and terrain pushes), which attach to those
+		 drawables and read their bones, then the deletion of the drawables the tick destroyed, whose
+		 bones a death effect may still have read, then the control bar (M2). */
 	void flushAfterTick( void )
 	{
 		Drawable::flushPendingClientWork();
+		runViewCalls();
 		// an effect queues nothing more: none of them runs inside a tick
 		for( size_t i = 0; i < s_effects.size(); ++i )
 			s_effects[ i ]();
@@ -294,9 +308,44 @@ void LogicThread::callAfterTick( const std::function<void()>& call )
 }
 
 //-------------------------------------------------------------------------------------------------
+// TRUE while readViewFromTick runs the queue inside the tick: a queued call runs its body then
+static Bool s_runningViewNow = FALSE;
+
+Bool LogicThread::defersView( void )
+{
+	return defersEffects() && !s_runningViewNow;
+}
+
+//-------------------------------------------------------------------------------------------------
+void LogicThread::callViewAfterTick( const std::function<void()>& call )
+{
+	if( defersView() )
+		s_viewCalls.push_back( call );
+	else
+		call();
+}
+
+//-------------------------------------------------------------------------------------------------
+void LogicThread::readViewFromTick( void )
+{
+	census( CENSUS_CLIENT_READ );
+	if( s_viewCalls.empty() )
+		return;
+	census( CENSUS_ON_DEMAND_FLUSH );
+	// the camera's own hooks would count this as the tick's tacticalview work; it is counted above
+	const Bool onLogicThread = t_isLogicThread;
+	t_isLogicThread = FALSE;
+	s_runningViewNow = TRUE;
+	runViewCalls();
+	s_runningViewNow = FALSE;
+	t_isLogicThread = onLogicThread;
+}
+
+//-------------------------------------------------------------------------------------------------
 void LogicThread::discardEffects( void )
 {
 	s_effects.clear();
+	s_viewCalls.clear();
 	AudioEventRTS::forgetHeldCallers();
 }
 

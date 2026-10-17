@@ -543,6 +543,7 @@ public:  // ********************************************************************
 
 	virtual void hideObjectSuperweaponDisplayByScript(const Object *obj);
 	virtual void showObjectSuperweaponDisplayByScript(const Object *obj);
+	void setObjectSuperweaponHiddenByScript( ObjectID objID, Bool hidden );	///< both of the above, after the tick when a tick asks
 
 	void addNamedTimer( const AsciiString& timerName, const UnicodeString& text, Bool isCountdown );
 	void removeNamedTimer( const AsciiString& timerName );
@@ -1075,7 +1076,7 @@ public:  // ********************************************************************
 	virtual void buildRegion( const ICoord2D *anchor, const ICoord2D *dest, IRegion2D *region );  ///< builds a region around the specified coordinates
 
 	virtual Bool getDisplayedMaxWarning( void ) { return m_displayedMaxWarning; }
-	virtual void setDisplayedMaxWarning( Bool selected ) { m_displayedMaxWarning = selected; }
+	virtual void setDisplayedMaxWarning( Bool selected );
 
 	// Floating Test Methods
 	/// the text it added, for a caller that wants to hold it longer; NULL while icons are not drawn
@@ -1162,6 +1163,7 @@ public:  // ********************************************************************
 	void resetCamera();
 
 	virtual void addIdleWorker( Object *obj );
+	void addIdleWorkerFor( Object *obj, Int playerIndex );	///< addIdleWorker with the owner read at the call
 	virtual void removeIdleWorker( Object *obj, Int playerNumber );
 	virtual Object *selectNextIdleWorker( void );	///< what it selected, NULL with no idle worker; never moves the camera
 	void selectNextIdleUnit( KindOfMaskType mustBeSet, KindOfMaskType mustBeClear );	///< the same cycle for fighting units of those kinds standing with no order

@@ -4709,6 +4709,8 @@ void GameLogic::update( void )
 		 once per frozen pass: in a multiplayer or skirmish session a machine whose camera took longer
 		 counted its script timers down further.  There the camera freezes nothing, as the camera
 		 condition in ScriptConditions already reports every move finished. */
+	if( !TheGameEngine->isMultiplayerSession() )
+		LogicThread::readViewFromTick();
 	Bool freezeTime = !TheGameEngine->isMultiplayerSession()
 										&& TheTacticalView->isTimeFrozen() && !TheTacticalView->isCameraMovementFinished();
 	freezeTime = freezeTime || TheScriptEngine->isTimeFrozenDebug() || TheScriptEngine->isTimeFrozenScript();

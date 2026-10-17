@@ -3817,7 +3817,7 @@ void W3DView::resetCamera(const Coord3D *location, Int milliseconds, Real easeIn
 // ------------------------------------------------------------------------------------------------
 Bool W3DView::isCameraMovementFinished(void)
 {
-	LOGIC_CENSUS( CENSUS_TACTICALVIEW );
+	LOGIC_CENSUS( CENSUS_CLIENT_READ );
 	if (m_viewFilter == FT_VIEW_MOTION_BLUR_FILTER) {
 		// Several of the motion blur effects are similar to camera movements.
 		if (m_viewFilterMode == FM_VIEW_MB_IN_AND_OUT_ALPHA ||

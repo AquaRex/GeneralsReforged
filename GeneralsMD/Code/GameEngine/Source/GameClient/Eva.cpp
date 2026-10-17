@@ -388,6 +388,8 @@ const EvaCheckInfo *Eva::getEvaCheckInfo(AsciiString name)
 //-------------------------------------------------------------------------------------------------
 void Eva::setShouldPlay(EvaMessage messageToPlay)
 {
+	// LOGIC-THREAD.md M6: a tick's request waits for the end of it
+	LOGIC_AFTER_TICK( [=]() { setShouldPlay( messageToPlay ); } );
 	LOGIC_CENSUS( CENSUS_EVA );
 	m_shouldPlay[messageToPlay] = TRUE;
   
@@ -397,6 +399,8 @@ void Eva::setShouldPlay(EvaMessage messageToPlay)
 //-------------------------------------------------------------------------------------------------
 void Eva::setEvaEnabled(Bool enabled)
 {
+	LOGIC_AFTER_TICK( [=]() { setEvaEnabled( enabled ); } );
+	LOGIC_CENSUS( CENSUS_EVA );
 	// clear out any waiting messages.
 	for (Int i = EVA_FIRST; i < EVA_COUNT; ++i) {
 		m_shouldPlay[i] = FALSE;

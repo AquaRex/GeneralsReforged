@@ -384,7 +384,8 @@ void W3DTerrainVisual::addSeismicSimulation( const SeismicSimulationNode& sim )
     // HERE WOULD BE A GREAT PLACE FOR AN IDIOT TEST:
   // REJECT SIMULATION NODES THAT ARE OFF SCREEN!!!!!!!!!!
 
-
+	LOGIC_AFTER_TICK( [this, sim]() { addSeismicSimulation( sim ); } );
+	LOGIC_CENSUS( CENSUS_TERRAINVISUAL );
   m_seismicSimulationList.push_back( sim );
 }
 
@@ -918,7 +919,7 @@ void W3DTerrainVisual::changeWaterHeight( Real x, Real y, Real delta )
 void W3DTerrainVisual::addWaterVelocity( Real worldX, Real worldY, 
 																				 Real velocity, Real preferredHeight )
 {
-
+	LOGIC_CENSUS( CENSUS_CLIENT_READ );	// the water grid's motion, as updateWaterGrid
 	if( m_waterRenderObject )
 		m_waterRenderObject->addVelocity( worldX, worldY, velocity, preferredHeight );
 
@@ -928,7 +929,10 @@ void W3DTerrainVisual::addWaterVelocity( Real worldX, Real worldY,
 // ------------------------------------------------------------------------------------------------
 void W3DTerrainVisual::updateWaterGrid( UnsignedInt logicFrame )
 {
-	LOGIC_CENSUS( CENSUS_TERRAINVISUAL );
+	/* The water grid's motion is simulation: logic steps it here and reads it back through
+		 getWaterGridHeight, so it cannot wait for the tick's end.  It lives in the render object,
+		 which makes it client state logic reads (M7 moves the grid into TerrainLogic). */
+	LOGIC_CENSUS( CENSUS_CLIENT_READ );
 	// whether or not the grid is drawn: the simulation reads it either way, as update() stepped it
 	if( m_waterRenderObject )
 		m_waterRenderObject->updateMeshMotion( logicFrame );
@@ -938,7 +942,7 @@ void W3DTerrainVisual::updateWaterGrid( UnsignedInt logicFrame )
 // ------------------------------------------------------------------------------------------------
 Bool W3DTerrainVisual::getWaterGridHeight( Real worldX, Real worldY, Real *height)
 {
-	LOGIC_CENSUS( CENSUS_TERRAINVISUAL );
+	LOGIC_CENSUS( CENSUS_CLIENT_READ );
 	Real gridX, gridY;
 
 	if (m_isWaterGridRenderingEnabled && m_waterRenderObject &&
@@ -954,8 +958,7 @@ Bool W3DTerrainVisual::getWaterGridHeight( Real worldX, Real worldY, Real *heigh
 // ------------------------------------------------------------------------------------------------
 void W3DTerrainVisual::setRawMapHeight(const ICoord2D *gridPos, Int height)
 {
-	LOGIC_CENSUS( CENSUS_TERRAINVISUAL );
-  // This method writes to the m_logicHeightMap member, 
+  // This method writes to the m_logicHeightMap member,
   // since m_logicHeightMap is the true, golden standard to which m_clientHeightMap
   // interpolates during or after its Seismic simulation displaces it..
   // THIS IS TRUE ONLY WHEN DO_SEISMIC_SIMULATIONS is defined M Lorenzen, 8/23/03
@@ -967,22 +970,23 @@ void W3DTerrainVisual::setRawMapHeight(const ICoord2D *gridPos, Int height)
  		//if (m_logicHeightMap->getHeight(x,y) != height) //ML changed to prevent scissoring with roads
  		if (m_logicHeightMap->getHeight(x,y) > height) 
 		{
+			// logic's own height, read back by getGroundHeight, so now; the drawn terrain after the tick
 			m_logicHeightMap->setRawHeight(x, y, height);
-			/* This used to be staticLightingChanged(), which rebuilds and re-lights every drawn
-				 vertex on the map - 61 ms, measured, a visible stutter - because one cell moved.  EA
-				 had noticed: "OOH! this could benefit from the new Seismic update code".  It gets a
-				 partial rebuild of the cell's neighbourhood instead. */
-			m_terrainRenderObject->terrainHeightChanged(x, y);
+			LogicThread::callAfterTick( [this, x, y, height]() {
+				/* This used to be staticLightingChanged(), which rebuilds and re-lights every drawn
+					 vertex on the map - 61 ms, measured, a visible stutter - because one cell moved.  EA
+					 had noticed: "OOH! this could benefit from the new Seismic update code".  It gets a
+					 partial rebuild of the cell's neighbourhood instead. */
+				m_terrainRenderObject->terrainHeightChanged(x, y);
 
-
-#ifdef DO_SEISMIC_SIMULATIONS 
-      if ( m_clientHeightMap )
-      {
-        if ( height < m_clientHeightMap->getHeight( x,y ) )
-          m_clientHeightMap->setRawHeight( x, y, height ); // if the client map is heigher than this height, it will fall down to it anyway!
-      }
+#ifdef DO_SEISMIC_SIMULATIONS
+				if ( m_clientHeightMap )
+				{
+					if ( height < m_clientHeightMap->getHeight( x,y ) )
+						m_clientHeightMap->setRawHeight( x, y, height ); // if the client map is heigher than this height, it will fall down to it anyway!
+				}
 #endif
-
+			} );
 		}
 	}
 }
@@ -1048,6 +1052,18 @@ void W3DTerrainVisual::addFactionBibDrawable(Drawable *factionBuilding, Bool hig
 // ------------------------------------------------------------------------------------------------
 void W3DTerrainVisual::addFactionBib(Object *factionBuilding, Bool highlight, Real extra)
 {
+	if( LogicThread::defersEffects() )
+	{
+		// the AI's placement tests: by ID, since the tick may destroy the building first
+		const ObjectID id = factionBuilding->getID();
+		LogicThread::callAfterTick( [this, id, highlight, extra]() {
+			Object *live = TheGameLogic->findObjectByID( id );
+			if( live )
+				addFactionBib( live, highlight, extra );
+		} );
+		return;
+	}
+	LOGIC_CENSUS( CENSUS_TERRAINVISUAL );
 #ifdef DO_SEISMIC_SIMULATIONS
 	if (m_clientHeightMap) 
 #else
@@ -1108,6 +1124,7 @@ void W3DTerrainVisual::removeFactionBib(Object *factionBuilding)
 // ------------------------------------------------------------------------------------------------
 void W3DTerrainVisual::removeAllBibs(void)
 {
+	LOGIC_AFTER_TICK( [this]() { removeAllBibs(); } );
 	LOGIC_CENSUS( CENSUS_TERRAINVISUAL );
 	if (m_terrainRenderObject) {
 		m_terrainRenderObject->removeAllTerrainBibs();
@@ -1129,6 +1146,13 @@ void W3DTerrainVisual::removeTreesAndPropsForConstruction(const Coord3D* pos,
 																				const GeometryInfo& geom,
 																				Real angle)
 {
+	if( LogicThread::defersEffects() )
+	{
+		const Coord3D at = *pos;
+		LogicThread::callAfterTick( [this, at, geom, angle]() { removeTreesAndPropsForConstruction( &at, geom, angle ); } );
+		return;
+	}
+	LOGIC_CENSUS( CENSUS_TERRAINVISUAL );
 	if (m_terrainRenderObject) {
 		m_terrainRenderObject->removeTreesAndPropsForConstruction(pos, geom, angle);
 	}

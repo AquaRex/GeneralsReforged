@@ -710,6 +710,7 @@ SuperweaponInfo* InGameUI::findSWInfo(Int playerIndex, const AsciiString& powerN
 // ------------------------------------------------------------------------------------------------
 void InGameUI::addSuperweapon(Int playerIndex, const AsciiString& powerName, ObjectID id, const SpecialPowerTemplate *powerTemplate)
 {
+	LOGIC_AFTER_TICK( [=]() { addSuperweapon( playerIndex, powerName, id, powerTemplate ); } );
 	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	if (powerTemplate == NULL)
 		return;
@@ -751,6 +752,12 @@ void InGameUI::addSuperweapon(Int playerIndex, const AsciiString& powerName, Obj
 // ------------------------------------------------------------------------------------------------
 Bool InGameUI::removeSuperweapon(Int playerIndex, const AsciiString& powerName, ObjectID id, const SpecialPowerTemplate *powerTemplate)
 {
+	// logic never reads the answer, which after the tick is not known yet
+	if( LogicThread::defersEffects() )
+	{
+		LogicThread::callAfterTick( [=]() { removeSuperweapon( playerIndex, powerName, id, powerTemplate ); } );
+		return FALSE;
+	}
 	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	DEBUG_LOG(("Removing superweapon UI timer\n"));
 	SuperweaponMap::iterator mapIt = m_superweapons[playerIndex].find(powerName);
@@ -780,6 +787,18 @@ Bool InGameUI::removeSuperweapon(Int playerIndex, const AsciiString& powerName, 
 // ------------------------------------------------------------------------------------------------
 void InGameUI::objectChangedTeam(const Object *obj, Int oldPlayerIndex, Int newPlayerIndex)
 {
+	if( LogicThread::defersEffects() )
+	{
+		// by ID: the tick may destroy it before its end, and a dead object's timers went with it
+		const ObjectID id = obj->getID();
+		LogicThread::callAfterTick( [=]() {
+			const Object *live = TheGameLogic->findObjectByID( id );
+			if( live )
+				objectChangedTeam( live, oldPlayerIndex, newPlayerIndex );
+		} );
+		return;
+	}
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	// if we already had it listed, remove and re-add it
 	if (obj && oldPlayerIndex >= 0 && newPlayerIndex >= 0)
 	{
@@ -823,27 +842,22 @@ void InGameUI::objectChangedTeam(const Object *obj, Int oldPlayerIndex, Int newP
 // ------------------------------------------------------------------------------------------------
 void InGameUI::hideObjectSuperweaponDisplayByScript(const Object *obj)
 {
-	ObjectID objID = obj->getID();
-	for (Int playerIndex = 0; playerIndex < MAX_PLAYER_COUNT; ++playerIndex)
-	{
-		for (SuperweaponMap::iterator mapIt = m_superweapons[playerIndex].begin(); mapIt != m_superweapons[playerIndex].end(); ++mapIt)
-		{
-			for (SuperweaponList::iterator listIt = mapIt->second.begin(); listIt != mapIt->second.end(); ++listIt)
-			{
-				if ((*listIt)->m_id == objID)
-				{
-					(*listIt)->m_hiddenByScript = TRUE;
-				}
-			}
-		}
-	}
+	setObjectSuperweaponHiddenByScript( obj->getID(), TRUE );
 }
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
 void InGameUI::showObjectSuperweaponDisplayByScript(const Object *obj)
 {
-	ObjectID objID = obj->getID();
+	setObjectSuperweaponHiddenByScript( obj->getID(), FALSE );
+}
+
+// ------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------
+void InGameUI::setObjectSuperweaponHiddenByScript( ObjectID objID, Bool hidden )
+{
+	LOGIC_AFTER_TICK( [=]() { setObjectSuperweaponHiddenByScript( objID, hidden ); } );
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	for (Int playerIndex = 0; playerIndex < MAX_PLAYER_COUNT; ++playerIndex)
 	{
 		for (SuperweaponMap::iterator mapIt = m_superweapons[playerIndex].begin(); mapIt != m_superweapons[playerIndex].end(); ++mapIt)
@@ -852,7 +866,7 @@ void InGameUI::showObjectSuperweaponDisplayByScript(const Object *obj)
 			{
 				if ((*listIt)->m_id == objID)
 				{
-					(*listIt)->m_hiddenByScript = FALSE;
+					(*listIt)->m_hiddenByScript = hidden;
 				}
 			}
 		}
@@ -863,6 +877,8 @@ void InGameUI::showObjectSuperweaponDisplayByScript(const Object *obj)
 // ------------------------------------------------------------------------------------------------
 void InGameUI::setSuperweaponDisplayEnabledByScript(Bool enable)
 {
+	LOGIC_AFTER_TICK( [=]() { setSuperweaponDisplayEnabledByScript( enable ); } );
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	m_superweaponHiddenByScript = !enable;
 }
 
@@ -879,6 +895,8 @@ Bool InGameUI::getSuperweaponDisplayEnabledByScript(void) const
 // ------------------------------------------------------------------------------------------------
 void InGameUI::addNamedTimer( const AsciiString& timerName, const UnicodeString& text, Bool isCountdown )
 {
+	LOGIC_AFTER_TICK( [=]() { addNamedTimer( timerName, text, isCountdown ); } );
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	NamedTimerInfo *info = newInstance( NamedTimerInfo );	
 	info->m_timerName = timerName;
 	info->color = m_namedTimerNormalColor;
@@ -901,6 +919,8 @@ void InGameUI::addNamedTimer( const AsciiString& timerName, const UnicodeString&
 // ------------------------------------------------------------------------------------------------
 void InGameUI::removeNamedTimer( const AsciiString& timerName )
 {
+	LOGIC_AFTER_TICK( [=]() { removeNamedTimer( timerName ); } );
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	NamedTimerMapIt mapIt = m_namedTimers.find(timerName);
 	if (mapIt != m_namedTimers.end())
 	{
@@ -915,6 +935,8 @@ void InGameUI::removeNamedTimer( const AsciiString& timerName )
 // ------------------------------------------------------------------------------------------------
 void InGameUI::showNamedTimerDisplay( Bool show )
 {
+	LOGIC_AFTER_TICK( [=]() { showNamedTimerDisplay( show ); } );
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	m_showNamedTimers = show;
 }
 
@@ -2798,6 +2820,15 @@ void InGameUI::freeClassicMessages( void )
 //-------------------------------------------------------------------------------------------------
 void InGameUI::addClassicMessage( const UnicodeString &text, const Color *color )
 {
+	// a tick's line (message, playerMessage, chatMessage) is formatted at the call and added after it
+	if( LogicThread::defersEffects() )
+	{
+		const Bool hasColor = color != NULL;
+		const Color colorValue = hasColor ? *color : 0;
+		LogicThread::callAfterTick( [=]() { addClassicMessage( text, hasColor ? &colorValue : NULL ); } );
+		return;
+	}
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	const Color color1 = color ? ( *color | GameMakeColor( 0, 0, 0, 255 ) ) : m_messageColor1;
 	const Color color2 = color ? ( *color | GameMakeColor( 0, 0, 0, 255 ) ) : m_messageColor2;
 
@@ -2930,7 +2961,6 @@ void InGameUI::drawClassicSuperweapon( SuperweaponInfo *info, const AsciiString 
 // srj sez: passing as const-ref screws up varargs for some reason. dunno why. just pass by value.
 void InGameUI::message( AsciiString stringManagerLabel, ... )
 {
-	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	UnicodeString stringManagerString;
 	UnicodeString formattedMessage;
 
@@ -2962,7 +2992,6 @@ void InGameUI::message( AsciiString stringManagerLabel, ... )
 // srj sez: passing as const-ref screws up varargs for some reason. dunno why. just pass by value.
 void InGameUI::message( UnicodeString format, ... )
 {
-	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	UnicodeString formattedMessage;
 
 	// construct the final text after formatting
@@ -6002,6 +6031,8 @@ Bool InGameUI::rotatePendingPlacement( Int steps )
 //-------------------------------------------------------------------------------------------------
 void InGameUI::selectDrawable( Drawable *draw )
 {
+	// a drawable the tick destroys leaves the selection in this queue too, before it is deleted
+	LOGIC_AFTER_TICK( [=]() { selectDrawable( draw ); } );
 	LOGIC_CENSUS( CENSUS_INGAMEUI );
 
 	if( draw->isSelected() == FALSE )
@@ -6029,10 +6060,20 @@ void InGameUI::selectDrawable( Drawable *draw )
 }  // end selectDrawable
 
 //-------------------------------------------------------------------------------------------------
+void InGameUI::setDisplayedMaxWarning( Bool selected )
+{
+	// in order with the selectDrawable the tick queued before it
+	LOGIC_AFTER_TICK( [=]() { setDisplayedMaxWarning( selected ); } );
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
+	m_displayedMaxWarning = selected;
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Clear "selected" status of Drawable. */
 //-------------------------------------------------------------------------------------------------
 void InGameUI::deselectDrawable( Drawable *draw )
 {
+	LOGIC_AFTER_TICK( [=]() { deselectDrawable( draw ); } );
 	LOGIC_CENSUS( CENSUS_INGAMEUI );
 
 	if( draw->isSelected() )
@@ -6072,6 +6113,7 @@ void InGameUI::deselectDrawable( Drawable *draw )
 //-------------------------------------------------------------------------------------------------
 void InGameUI::deselectAllDrawables( void )
 {
+	LOGIC_AFTER_TICK( [=]() { deselectAllDrawables(); } );
 	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	const DrawableList *selected = TheInGameUI->getAllSelectedDrawables();
 	const Bool hadSelectedDrawables = !selected->empty();
@@ -6116,7 +6158,7 @@ void InGameUI::deselectAllDrawables( void )
 //-------------------------------------------------------------------------------------------------
 const DrawableList *InGameUI::getAllSelectedDrawables( void ) const
 {
-	LOGIC_CENSUS( CENSUS_INGAMEUI );
+	LOGIC_CENSUS( CENSUS_CLIENT_READ );
 	return &m_selectedDrawables;
 }
 
@@ -6176,7 +6218,7 @@ const DrawableList *InGameUI::getAllSelectedLocalDrawables( void )
 //-------------------------------------------------------------------------------------------------
 Drawable *InGameUI::getFirstSelectedDrawable( void )
 {
-	LOGIC_CENSUS( CENSUS_INGAMEUI );
+	LOGIC_CENSUS( CENSUS_CLIENT_READ );
 
 	// sanity
 	if( m_selectedDrawables.empty() )
@@ -6257,6 +6299,8 @@ Bool InGameUI::isAllSelectedKindOf( KindOfType kindOf ) const
 //-------------------------------------------------------------------------------------------------
 void InGameUI::setInputEnabled( Bool enable )
 {
+	LOGIC_AFTER_TICK( [=]() { setInputEnabled( enable ); } );
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	if(!enable)
 		setSelecting( FALSE );
 	
@@ -6666,6 +6710,8 @@ void InGameUI::createReplayControl( void )
 // ------------------------------------------------------------------------------------------------
 void InGameUI::playMovie( const AsciiString& movieName )
 {
+	LOGIC_AFTER_TICK( [=]() { playMovie( movieName ); } );
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 
 	stopMovie();
 
@@ -6841,6 +6887,8 @@ void InGameUI::displayCantBuildMessage( LegalBuildCode lbc )
 // ------------------------------------------------------------------------------------------------
 void InGameUI::militarySubtitle( const AsciiString& label, Int duration )
 {
+	LOGIC_AFTER_TICK( [=]() { militarySubtitle( label, duration ); } );
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	// make sure we don't already have a subtitle up there
 	removeMilitarySubtitle();
 
@@ -7760,6 +7808,13 @@ void InGameUI::buildRegion( const ICoord2D *anchor, const ICoord2D *dest, IRegio
 //-------------------------------------------------------------------------------------------------
 FloatingTextData *InGameUI::addFloatingText(const UnicodeString& text,const Coord3D *pos, Color color)
 {
+	// nobody in logic keeps the answer
+	if( LogicThread::defersEffects() )
+	{
+		const Coord3D at = *pos;
+		LogicThread::callAfterTick( [=]() { addFloatingText( text, &at, color ); } );
+		return NULL;
+	}
 	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	if( !TheGameLogic->getDrawIconUI() )
 		return NULL;
@@ -7807,6 +7862,8 @@ enum
 //-------------------------------------------------------------------------------------------------
 void InGameUI::addSignalMark( SignalKind kind, const Coord3D &pos, Color color, ParticleSystemID smoke )
 {
+	LOGIC_AFTER_TICK( [=]() { addSignalMark( kind, pos, color, smoke ); } );
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	// No decal manager without a renderer (headless, or off Windows until the D track): no mark.
 	// GameLogicDispatch calls this for every signal a player sends, replays included.
 	if( TheProjectedShadowManager == NULL )
@@ -7897,6 +7954,13 @@ inline Bool isClose(const Coord3D& a, const Coord3D& b)
 }
 void InGameUI::DEBUG_addFloatingText(const AsciiString& text, const Coord3D * pos, Color color)
 {
+	if( LogicThread::defersEffects() )
+	{
+		const Coord3D at = *pos;
+		LogicThread::callAfterTick( [=]() { DEBUG_addFloatingText( text, &at, color ); } );
+		return;
+	}
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	const Int POINTSIZE = 8;
 	const Int LEADING = 0;
 
@@ -9775,6 +9839,9 @@ void InGameUI::popupMessage( const AsciiString& message, Int x, Int y, Int width
 //-------------------------------------------------------------------------------------------------
 void InGameUI::popupMessage( const AsciiString& identifier, Int x, Int y, Int width, Color textColor, Bool pause, Bool pauseMusic)
 {
+	// the pause it may ask for stops the next tick either way
+	LOGIC_AFTER_TICK( [=]() { popupMessage( identifier, x, y, width, textColor, pause, pauseMusic ); } );
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	if(m_popupMessageData)
 		clearPopupMessageData();
 
@@ -9818,6 +9885,8 @@ void InGameUI::popupMessage( const AsciiString& identifier, Int x, Int y, Int wi
 //-------------------------------------------------------------------------------------------------
 void InGameUI::clearPopupMessageData( void )
 {
+	LOGIC_AFTER_TICK( [=]() { clearPopupMessageData(); } );
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	if(!m_popupMessageData)
 		return;
 	if(m_popupMessageData->layout)
@@ -9892,6 +9961,12 @@ void InGameUI::addWorldAnimation( Anim2DTemplate *animTemplate,
 																	Real durationInSeconds,
 																	Real zRisePerSecond )
 {
+	if( LogicThread::defersEffects() && pos != NULL )
+	{
+		const Coord3D at = *pos;
+		LogicThread::callAfterTick( [=]() { addWorldAnimation( animTemplate, &at, options, durationInSeconds, zRisePerSecond ); } );
+		return;
+	}
 	LOGIC_CENSUS( CENSUS_INGAMEUI );
 
 	// sanity
@@ -10078,22 +10153,30 @@ Object *InGameUI::findIdleWorker( Object *obj)
 
 void InGameUI::addIdleWorker( Object *obj )
 {
-	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	if(!obj)
 		return;
+	addIdleWorkerFor( obj, obj->getControllingPlayer()->getPlayerIndex() );
+}
 
-	if(findIdleWorker(obj))
+/* The list keeps the pointer and never reads through it here, so after a tick it may name an object
+	 that tick destroyed: the destroy queued its removeIdleWorker behind this add. */
+void InGameUI::addIdleWorkerFor( Object *obj, Int index )
+{
+	LOGIC_AFTER_TICK( [=]() { addIdleWorkerFor( obj, index ); } );
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
+	if( std::find( m_idleWorkers[index].begin(), m_idleWorkers[index].end(), obj ) != m_idleWorkers[index].end() )
 		return;
 
-	Int index = obj->getControllingPlayer()->getPlayerIndex();
 	m_idleWorkers[index].push_back(obj);
 }
 
 void InGameUI::removeIdleWorker( Object *obj, Int playerNumber )
 {
-	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	if(!obj)
 		return;
+	// compares the pointer only, so the object may be gone by the time this runs
+	LOGIC_AFTER_TICK( [=]() { removeIdleWorker( obj, playerNumber ); } );
+	LOGIC_CENSUS( CENSUS_INGAMEUI );
 	if(playerNumber < 0 || playerNumber >= MAX_PLAYER_COUNT)  // we're leaving the game, so this is all screwed
 		return;
 	

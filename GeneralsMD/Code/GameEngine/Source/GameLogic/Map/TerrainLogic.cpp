@@ -2669,9 +2669,12 @@ void TerrainLogic::setActiveBoundary(Int newActiveBoundary)
 	ThePartitionManager->init();
 	// newMap resets the radar, and a reset stops forcing it on: a replay, an observer or a beaten
 	// player lost the minimap for the rest of the match the moment a script moved the border
-	const Bool radarForced = TheRadar->isRadarForced();
-	TheRadar->newMap(TheTerrainLogic);
-	TheRadar->forceOn(radarForced);
+	// after the tick, between the radar removes queued above and the adds and shroud queued below
+	LogicThread::callAfterTick( []() {
+		const Bool radarForced = TheRadar->isRadarForced();
+		TheRadar->newMap(TheTerrainLogic);
+		TheRadar->forceOn(radarForced);
+	} );
 
 	ThePartitionManager->restoreFoggedCells(partitionStore, FALSE);
 

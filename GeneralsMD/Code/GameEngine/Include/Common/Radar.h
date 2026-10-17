@@ -112,6 +112,12 @@ public:
 
 	Bool isTemporarilyHidden() const;
 
+	/** The object's radar priority when it went on the list.  The insert walks the list by it rather
+		* than through the objects, because after a tick (LOGIC-THREAD.md M6) the list can still hold
+		* the entry of an object that tick destroyed, its removal queued behind the insert. */
+	inline void friend_setPriority( Int priority ) { m_priority = priority; }
+	inline Int friend_getPriority( void ) const { return m_priority; }
+
 protected:
 
 	// snapshot methods
@@ -122,6 +128,7 @@ protected:
 	Object *m_object;				///< the object
 	RadarObject *m_next;		///< next radar object
 	Color m_color;					///< color to draw for this object on the radar
+	Int m_priority;					///< RadarPriorityType at the add, see friend_getPriority
 
 };
 
@@ -239,6 +246,7 @@ protected:
 
 	void deleteListResources( void );			///< delete list radar resources used
 	Bool deleteFromList( Object *obj, RadarObject **list );	///< try to remove object from specific list
+	Bool unlinkEntry( RadarObject *entry, RadarObject **list );	///< take an entry off a list by its address
 
 	inline Real getTerrainAverageZ() const { return m_terrainAverageZ; }
 	inline Real getWaterAverageZ() const { return m_waterAverageZ; }

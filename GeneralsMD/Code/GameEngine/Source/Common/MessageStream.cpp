@@ -903,9 +903,19 @@ void MessageStream::update( void )
  */
 GameMessage *MessageStream::appendMessage( GameMessage::Type type )
 {
-	LOGIC_CENSUS( CENSUS_MESSAGESTREAM );
 	GameMessage *msg = newInstance(GameMessage)( type );
 
+	/* LOGIC-THREAD.md phase 2, M6.  A message the tick appends (its CRC, a selection it changes) is
+		 made and handed back at once, so the caller can fill in its arguments, and joins the stream after
+		 the tick, in order with everything else the tick queued; propagateMessages comes later either way,
+		 in the client pass or between network catch-up ticks. */
+	if( LogicThread::defersEffects() )
+	{
+		LogicThread::callAfterTick( [this, msg]() { GameMessageList::appendMessage( msg ); } );
+		return msg;
+	}
+
+	LOGIC_CENSUS( CENSUS_MESSAGESTREAM );
 	// add message to list
 	GameMessageList::appendMessage( msg );
 

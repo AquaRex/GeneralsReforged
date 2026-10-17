@@ -3806,6 +3806,8 @@ void W3DDisplay::clearShroud()
 //=============================================================================
 void W3DDisplay::setBorderShroudLevel(UnsignedByte level)
 {
+	// LOGIC-THREAD.md M6: what a tick pushes here waits for the end of it, in order
+	LOGIC_AFTER_TICK( [=]() { setBorderShroudLevel( level ); } );
 	LOGIC_CENSUS( CENSUS_DISPLAY );
 	if (TheTerrainRenderObject && TheTerrainRenderObject->getShroud())
 	{
@@ -3816,6 +3818,7 @@ void W3DDisplay::setBorderShroudLevel(UnsignedByte level)
 //=============================================================================
 void W3DDisplay::setShroudLevel( Int x, Int y, CellShroudStatus setting )
 {
+	LOGIC_AFTER_TICK( [=]() { setShroudLevel( x, y, setting ); } );
 	LOGIC_CENSUS( CENSUS_DISPLAY );
 	if (TheTerrainRenderObject && TheTerrainRenderObject->getShroud())
 	{

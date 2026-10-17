@@ -69,6 +69,7 @@ namespace LogicThread
 		CENSUS_DRAWABLE_PUSH,		///< Drawable::doClientWork run inside the tick: hidden, colour, decal, shadows, sub-objects, ambient sound, caption
 		CENSUS_DESTROY_DRAWABLE,	///< a drawable deleted: draw modules, render objects, shadows (M4: after the tick for one logic destroyed)
 		CENSUS_AUDIO_READ,			///< a logic read of the audio device: sound lengths, a track done, a handle still playing (hazard 4, M7)
+		CENSUS_CLIENT_READ,			///< a logic read of other client state: selection, input enabled, camera, the water grid (hazard 4, M7)
 		CENSUS_COUNT
 	};
 
@@ -110,11 +111,28 @@ namespace LogicThread
 	/** Inside a tick, queue `call` for after it; anywhere else, run it now. */
 	void callAfterTick( const std::function<void()>& call );
 
+	/** LOGIC-THREAD.md phase 2, M6.  The camera calls a tick's scripts make (moves, filters, letterbox,
+		* fades, the time freeze) wait in a queue of their own, run first after the tick.  Their own queue,
+		* because a script asks the camera back in the same tick whether its move is finished and whether
+		* time is frozen: readViewFromTick runs what is queued before such a read, so the answer is the
+		* one an immediate call gave.  That run counts as ondemandflush, not tacticalview; the read itself
+		* counts as clientread, which M7's captured block replaces. */
+	void callViewAfterTick( const std::function<void()>& call );
+	void readViewFromTick( void );
+	/** defersEffects, except while readViewFromTick runs the queue: then a camera call runs its body. */
+	Bool defersView( void );
+
 	/** The tick cleared the game: what it queued has no game left to play in.  GameEngine::reset. */
 	void discardEffects( void );
 
 }  // namespace LogicThread
 
 #define LOGIC_CENSUS( channel ) LogicThread::census( LogicThread::channel )
+
+/** LOGIC-THREAD.md phase 2, M6.  First line of a client entry point logic calls: inside a tick the
+	* call queues itself (a lambda calling the function again with copies of its arguments) and returns;
+	* after the tick the copy runs the body on the main thread.  A void function only. */
+#define LOGIC_AFTER_TICK( ... ) \
+	if( LogicThread::defersEffects() ) { LogicThread::callAfterTick( __VA_ARGS__ ); return; }
 
 #endif // __LOGICTHREAD_H__
