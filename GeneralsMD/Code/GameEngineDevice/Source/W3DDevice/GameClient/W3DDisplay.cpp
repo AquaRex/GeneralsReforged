@@ -2519,6 +2519,9 @@ AGAIN:
 #ifdef DEBUG_LOGGING
 		Int64 tOverlapStart = 0;		// the part a logic thread could run beside, TheOverlapWindowMS
 #endif
+		// the same span, marked for LOGIC-THREAD.md phase 3's count of logic reads made inside it;
+		// closed below after End_Render, or here at the end of the pass when a continue skips that
+		LogicThread::OverlapWindow overlapWindow;
 
 		{
 			if(TheGlobalData->m_loadScreenRender != TRUE)
@@ -2566,6 +2569,7 @@ AGAIN:
 			TheParticleUpdateMS = w3dElapsedMS( tParticleStart, tParticleEnd );
 			tOverlapStart = tParticleEnd;
 #endif
+			overlapWindow.open();
 
 			// R1: after the particles read the logic bones (Lorenzen's note above), before anything renders.
 			smoothMotionApply();
@@ -2814,6 +2818,7 @@ AGAIN:
 		if (tOverlapStart)
 			TheOverlapWindowMS += w3dElapsedMS( tOverlapStart, Clock_Ticks() );
 #endif
+		overlapWindow.close();
 
 		if (TheScriptEngine->isTimeFrozenDebug() || TheScriptEngine->isTimeFrozenScript() || TheGameLogic->isGamePaused())
 		{

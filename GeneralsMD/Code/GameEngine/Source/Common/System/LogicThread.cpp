@@ -24,6 +24,7 @@
 #include "PreRTS.h"
 #include "Common/LogicThread.h"
 #include "Common/AudioEventRTS.h"
+#include "Common/CriticalSection.h"
 #include "Common/EarlyCommandLine.h"
 #include "Common/GameAudio.h"
 #include "Common/MessageStream.h"
@@ -41,6 +42,7 @@
 #include <condition_variable>
 #include <exception>
 #include <mutex>
+#include <random>
 #include <thread>
 #include <vector>
 #if defined(_WIN32)
@@ -48,6 +50,7 @@
 #endif
 
 thread_local Bool LogicThread::t_isLogicThread = FALSE;
+std::atomic<Int> LogicThread::g_windowOpen( 0 );
 
 namespace
 {
@@ -82,6 +85,26 @@ namespace
 	// The handoff in microseconds, one bucket each up to a millisecond; the last bucket is everything past it.
 	const Int		HANDOFF_BUCKETS = 1001;
 	Int					s_handoffHistogram[ HANDOFF_BUCKETS ] = { 0 };
+
+	// phase 3 step 2: reads of logic state from inside the overlap window, and how many windows there were
+	std::atomic<Int64>	s_windowReads[ LogicThread::WINDOW_COUNT ];
+	Int64				s_windows = 0;
+	const char *const WINDOW_NAMES[ LogicThread::WINDOW_COUNT ] =
+	{
+		"drawableobject", "findobject", "objectlist", "logicframe", "thing", "shroud", "partition",
+		"terrain", "player", "radarobject"
+	};
+
+	// -logicthread 2: 1 with a jitter on both sides of the handoff, so the races step 3 must not have
+	// meet more orders.  A generator per thread and of its own: nothing here may touch a game stream.
+	Int					s_mode = 0;
+	void jitter( void )
+	{
+		if( s_mode < 2 )
+			return;
+		static thread_local std::minstd_rand random( (unsigned)LogicClock::now().time_since_epoch().count() );
+		std::this_thread::sleep_for( std::chrono::microseconds( random() % 2000 ) );
+	}
 
 	const char *const CHANNEL_NAMES[ LogicThread::CENSUS_COUNT ] =
 	{
@@ -183,6 +206,7 @@ namespace
 					break;
 				s_tickPending = FALSE;
 			}
+			jitter();
 
 			const LogicClock::time_point t0 = LogicClock::now();
 			std::exception_ptr error;
@@ -239,6 +263,29 @@ void LogicThread::noteCensus( Channel channel )
 }
 
 //-------------------------------------------------------------------------------------------------
+void LogicThread::noteWindow( WindowRead read )
+{
+	s_windowReads[ read ].fetch_add( 1, std::memory_order_relaxed );
+}
+
+//-------------------------------------------------------------------------------------------------
+void LogicThread::OverlapWindow::open( void )
+{
+	m_open = TRUE;
+	++s_windows;
+	g_windowOpen.store( 1, std::memory_order_relaxed );
+}
+
+//-------------------------------------------------------------------------------------------------
+void LogicThread::OverlapWindow::close( void )
+{
+	if( !m_open )
+		return;
+	m_open = FALSE;
+	g_windowOpen.store( 0, std::memory_order_relaxed );
+}
+
+//-------------------------------------------------------------------------------------------------
 void LogicThread::init( void )
 {
 	char value[ 32 ];
@@ -246,6 +293,7 @@ void LogicThread::init( void )
 		return;
 
 	s_enabled = TRUE;
+	s_mode = atoi( value );
 #if defined(_WIN32)
 	// there is no getter: setting returns the one before, which goes straight back
 	s_seTranslator = _set_se_translator( NULL );
@@ -304,6 +352,7 @@ void LogicThread::runTick( void )
 		tickMS = s_tickMS;
 	}
 	const LogicClock::time_point t1 = LogicClock::now();
+	jitter();
 
 	// The inline tick left this thread's FPU in setFPMode's state; keep the main thread as it was at 0.
 	setFPMode();
@@ -452,4 +501,13 @@ void LogicThread::report( void )
 	for( Int i = 0; i < CENSUS_COUNT; ++i )
 		used += snprintf( line + used, sizeof(line) - used, "%s%s %lld", i ? " | " : "", CHANNEL_NAMES[ i ], (long long)s_census[ i ] );
 	DEBUG_LOG(( "HEADLESS LOGICTHREAD CENSUS: %s\n", line ));
+	used = 0;
+	for( Int i = 0; i < WINDOW_COUNT; ++i )
+		used += snprintf( line + used, sizeof(line) - used, " | %s %lld", WINDOW_NAMES[ i ], (long long)s_windowReads[ i ].load() );
+	DEBUG_LOG(( "HEADLESS LOGICTHREAD WINDOW: %lld windows%s\n", (long long)s_windows, line ));
+
+	// hazard 13: the pools' one lock, and the dynamic allocator's in front of global new
+	DEBUG_LOG(( "HEADLESS LOGICTHREAD LOCKS: memory pool %llu contended enters, dma %llu\n",
+		TheMemoryPoolCriticalSection ? TheMemoryPoolCriticalSection->getContendedCount() : 0ull,
+		TheDmaCriticalSection ? TheDmaCriticalSection->getContendedCount() : 0ull ));
 }

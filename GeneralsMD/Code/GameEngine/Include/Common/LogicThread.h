@@ -30,6 +30,7 @@
 #include "Lib/BaseType.h"
 #include "Common/GameType.h"
 
+#include <atomic>
 #include <functional>
 #include <vector>
 
@@ -90,6 +91,49 @@ namespace LogicThread
 		if( t_isLogicThread )
 			noteCensus( channel );
 	}
+
+	/** LOGIC-THREAD.md phase 3, step 2.  The overlap window is the part of the main thread's pass that
+		* will run beside the tick: W3DDisplay::draw from after the particle update to after End_Render
+		* (phase 0's "render").  It is marked at every setting, and these accessors of state logic owns
+		* count a call made from inside it, one count each, into HEADLESS LOGICTHREAD WINDOW.  Every count
+		* is a read the render has to take from a copy made at the sync point before the tick may run
+		* beside it.  A call from any other thread or place costs an atomic flag's load. */
+	enum WindowRead
+	{
+		WINDOW_DRAWABLE_OBJECT,	///< Drawable::getObject: the render's way into an Object
+		WINDOW_FIND_OBJECT,			///< GameLogic::findObjectByID
+		WINDOW_OBJECT_LIST,			///< GameLogic::getFirstObject, a walk of logic's object list
+		WINDOW_LOGIC_FRAME,			///< GameLogic::getFrame, which the tick advances
+		WINDOW_THING,						///< Thing::getPosition and getTransformMatrix: an Object's, or a Drawable's the tick writes at once
+		WINDOW_SHROUD,					///< PartitionData::getShroudedStatus, a cache it fills
+		WINDOW_PARTITION,				///< PartitionManager's cell shroud reads
+		WINDOW_TERRAIN,					///< TerrainLogic's heights and water
+		WINDOW_PLAYER,					///< PlayerList::getNthPlayer
+		WINDOW_RADAR_OBJECT,		///< RadarObject::friend_getObject, the radar's list of Objects
+		WINDOW_COUNT
+	};
+
+	/** TRUE while the main thread is inside the window; read first, so every other caller pays this load. */
+	extern std::atomic<Int> g_windowOpen;
+	void noteWindow( WindowRead read );
+
+	inline void windowRead( WindowRead read )
+	{
+		if( g_windowOpen.load( std::memory_order_relaxed ) && !t_isLogicThread )
+			noteWindow( read );
+	}
+
+	/** The window's span on the main thread, closed when it goes out of scope (a continue included). */
+	class OverlapWindow
+	{
+	public:
+		OverlapWindow( void ) : m_open( FALSE ) {}
+		~OverlapWindow( void ) { close(); }
+		void open( void );
+		void close( void );
+	private:
+		Bool m_open;
+	};
 
 	/** Read -logicthread and start the thread if it asks for one.  Called once, from GameEngine::init. */
 	void init( void );
@@ -177,6 +221,7 @@ namespace LogicThread
 }  // namespace LogicThread
 
 #define LOGIC_CENSUS( channel ) LogicThread::census( LogicThread::channel )
+#define LOGIC_WINDOW_READ( read ) LogicThread::windowRead( LogicThread::read )
 
 /** LOGIC-THREAD.md phase 2, M6.  First line of a client entry point logic calls: inside a tick the
 	* call queues itself (a lambda calling the function again with copies of its arguments) and returns;

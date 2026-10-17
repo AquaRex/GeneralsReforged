@@ -36,6 +36,7 @@
 
 #include "Common/GameCommon.h"	// ensure we get DUMP_PERF_STATS, or not
 #include "Common/GameType.h"
+#include "Common/LogicThread.h"
 #include "Common/Snapshot.h"
 #include "Common/STLTypedefs.h"
 #include "Common/ObjectStatusTypes.h"
@@ -493,7 +494,7 @@ inline void GameLogic::setWidth( Real width ) { m_width = width; }
 inline Real GameLogic::getWidth( void ) { return m_width; }
 inline void GameLogic::setHeight( Real height ) { m_height = height; }
 inline Real GameLogic::getHeight( void ) { return m_height; }
-inline UnsignedInt GameLogic::getFrame( void ) { return m_frame; }
+inline UnsignedInt GameLogic::getFrame( void ) { LOGIC_WINDOW_READ( WINDOW_LOGIC_FRAME ); return m_frame; }
 
 inline Bool GameLogic::isInGame( void ) { return !(m_gameMode == GAME_NONE); }
 
@@ -521,6 +522,7 @@ inline UnsignedShort GameLogic::getSuperweaponRestriction() const { return m_sup
 
 inline Object* GameLogic::findObjectByID( ObjectID id )
 {
+	LOGIC_WINDOW_READ( WINDOW_FIND_OBJECT );
 	if( id == INVALID_ID )
 		return NULL;
 

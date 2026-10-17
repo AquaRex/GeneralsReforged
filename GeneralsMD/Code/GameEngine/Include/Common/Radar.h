@@ -38,6 +38,7 @@
 #include "Lib/BaseType.h"
 #include "Common/SubsystemInterface.h"
 #include "Common/GameMemory.h"
+#include "Common/LogicThread.h"
 #include "GameClient/Display.h"	// for ShroudLevel
 #include "GameClient/Color.h"
 
@@ -103,8 +104,8 @@ public:
 	inline Color getColor( void ) const { return m_color; }
 
 	inline void friend_setObject( Object *obj ) { m_object = obj; }
-	inline Object *friend_getObject( void ) { return m_object; }
-	inline const Object *friend_getObject( void ) const { return m_object; }
+	inline Object *friend_getObject( void ) { LOGIC_WINDOW_READ( WINDOW_RADAR_OBJECT ); return m_object; }
+	inline const Object *friend_getObject( void ) const { LOGIC_WINDOW_READ( WINDOW_RADAR_OBJECT ); return m_object; }
 
 	inline void friend_setNext( RadarObject *next ) { m_next = next; }
 	inline RadarObject *friend_getNext( void ) { return m_next; }

@@ -2216,6 +2216,7 @@ Coord3D TerrainLogic::findFarthestEdgePoint( const Coord3D *farthestFrom ) const
 //-------------------------------------------------------------------------------------------------
 Bool TerrainLogic::isUnderwater( Real x, Real y, Real *waterZ, Real *terrainZ )
 {
+	LOGIC_WINDOW_READ( WINDOW_TERRAIN );
 
 	// get the water handle at this location
 	const WaterHandle *waterHandle = getWaterHandle( x, y );

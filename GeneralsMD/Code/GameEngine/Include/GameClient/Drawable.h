@@ -385,8 +385,8 @@ public:
 	void setTerrainDecalSize(Real x, Real y);
 	void setTerrainDecalFadeTarget(Real target, Real rate = ConvertRetailPerFrameRate(0.1f));	///< rate is opacity per logic frame
 
-	inline Object *getObject( void ) { return m_object; }								///< return object ID bound to this drawble
-	inline const Object *getObject( void ) const { return m_object; }		///< return object ID bound to this drawble
+	inline Object *getObject( void ) { LOGIC_WINDOW_READ( WINDOW_DRAWABLE_OBJECT ); return m_object; }								///< return object ID bound to this drawble
+	inline const Object *getObject( void ) const { LOGIC_WINDOW_READ( WINDOW_DRAWABLE_OBJECT ); return m_object; }		///< return object ID bound to this drawble
 
 	inline DrawableInfo *getDrawableInfo(void) {return &m_drawableInfo;}
 

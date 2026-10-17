@@ -5063,6 +5063,7 @@ void GameLogic::update( void )
 // ------------------------------------------------------------------------------------------------
 Object *GameLogic::getFirstObject( void )
 {
+	LOGIC_WINDOW_READ( WINDOW_OBJECT_LIST );
 	return m_objList;
 }
 

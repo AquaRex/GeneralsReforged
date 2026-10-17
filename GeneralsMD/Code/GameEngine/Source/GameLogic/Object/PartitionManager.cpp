@@ -1746,6 +1746,7 @@ void PartitionData::friend_setShroudednessPrevious(Int playerIndex, ObjectShroud
 //-----------------------------------------------------------------------------
 ObjectShroudStatus PartitionData::getShroudedStatus(Int playerIndex)
 {
+	LOGIC_WINDOW_READ( WINDOW_SHROUD );
 	// sanity
 	DEBUG_ASSERTCRASH( playerIndex >= 0 && playerIndex < MAX_PLAYER_COUNT, 
 										 ("PartitionData::getShroudedStatus - Invalid player index '%d'\n", playerIndex) );
@@ -3262,6 +3263,7 @@ void PartitionManager::refreshShroudForLocalPlayer()
 //-----------------------------------------------------------------------------
 CellShroudStatus PartitionManager::getShroudStatusForPlayer(Int playerIndex, Int x, Int y) const
 {
+	LOGIC_WINDOW_READ( WINDOW_PARTITION );
 	if( playerIndex < 0 )
 		return CELLSHROUD_SHROUDED;// Safety.  There are no Negative players, but PlayerIndex is typedef'd to Int, not UnsignedInt
 
