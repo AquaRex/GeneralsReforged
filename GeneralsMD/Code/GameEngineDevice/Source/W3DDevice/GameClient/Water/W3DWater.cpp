@@ -407,6 +407,12 @@ WaterRenderObjClass::WaterRenderObjClass(void)
 	m_dwWavePixelShader=NULL;
 	m_dwWaveVertexShader=NULL;
 	m_meshGeneration = 0;
+	m_drawnCellsX = 0;
+	m_drawnCellsY = 0;
+	m_drawnCellSize = 0.0f;
+	m_drawnMotionEnabled = FALSE;
+	m_drawnPushed = FALSE;
+	m_drawnTransform.Make_Identity();
 
 	Int i=NUM_BUMP_FRAMES;
 	while (i--)
@@ -1303,10 +1309,29 @@ void WaterRenderObjClass::enableWaterGrid(Bool state)
 // ------------------------------------------------------------------------------------------------
 void WaterRenderObjClass::syncGridTransform(void)
 {
-	Matrix3D gridTransform;
-	TheTerrainLogic->getWaterGrid()->getTransform(&gridTransform);
-	if (memcmp(&gridTransform, &Transform, sizeof(Matrix3D)) != 0)
-		Set_Transform(gridTransform);
+	if (memcmp(&m_drawnTransform, &Transform, sizeof(Matrix3D)) != 0)
+		Set_Transform(m_drawnTransform);
+}
+
+// ------------------------------------------------------------------------------------------------
+/** LOGIC-THREAD.md phase 3: the grid as the draw will read it, taken from TerrainLogic at the sync
+	* point (update(), from the client's pass ahead of the draw), so the tick that steps the grid beside
+	* the draw writes nothing the draw reads.  A mesh only while it moves, as only then is it drawn. */
+// ------------------------------------------------------------------------------------------------
+void WaterRenderObjClass::takeGridForDraw(void)
+{
+	WaterGrid *grid = TheTerrainLogic->getWaterGrid();
+	grid->getTransform(&m_drawnTransform);
+	m_drawnMotionEnabled = grid->isMotionEnabled();
+	m_drawnPushed = grid->wasPushed();
+	m_drawnCellsX = grid->getCellsX();
+	m_drawnCellsY = grid->getCellsY();
+	m_drawnCellSize = grid->getCellSize();
+	if (m_drawnMotionEnabled && grid->getMeshData())
+	{
+		const WaterMeshData *mesh = grid->getMeshData();
+		m_drawnMesh.assign(mesh, mesh + (m_drawnCellsX+1+2)*(m_drawnCellsY+1+2));
+	}
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1315,6 +1340,9 @@ void WaterRenderObjClass::syncGridTransform(void)
 // ------------------------------------------------------------------------------------------------
 void WaterRenderObjClass::update( void )
 {
+	// the client's pass, ahead of the draw and with no tick running: the grid the draw will read
+	takeGridForDraw();
+
 	//
 	// The river scroll and the bump flipbook used to advance once per call, which is once per
 	// RENDER frame. That was fine when the loop was capped and wrong now that it is not, and
@@ -1724,7 +1752,7 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 		case WATER_TYPE_3_GRIDMESH:
 			//Draw the water surface as a bunch of alpha blended tiles covering areas where water is visible
 			renderWater();
-			if (!m_drawingRiver || TheTerrainLogic->getWaterGrid()->wasPushed()) {
+			if (!m_drawingRiver || m_drawnPushed) {
 				renderWaterMesh();	//Draw water surface as 3D deforming mesh if it's enabled on this map.
 			}
 			break;
@@ -2388,9 +2416,8 @@ void WaterRenderObjClass::renderSkyBody(Matrix3D *mat)
 void WaterRenderObjClass::renderWaterMesh(void)
 {
 
-	// the grid is TerrainLogic's, read here as it stands (see W3DWater.h)
-	WaterGrid *grid = TheTerrainLogic->getWaterGrid();
-	if (!grid->isMotionEnabled())
+	// the grid is TerrainLogic's, read here from the copy takeGridForDraw made at the sync point
+	if (!m_drawnMotionEnabled || m_drawnMesh.empty())
 		return;	//the water grid is disabled.
 
  	//According to Nvidia there's a D3D bug that happens if you don't start with a
@@ -2400,13 +2427,13 @@ void WaterRenderObjClass::renderWaterMesh(void)
 	Setting *setting=&m_settings[m_tod];
 
 	WaterMeshData *pData;
-	WaterMeshData *meshData=grid->getMeshData();
-	Int	mx=grid->getCellsX()+1;
-	Int my=grid->getCellsY()+1;
+	WaterMeshData *meshData=&m_drawnMesh[0];
+	Int	mx=m_drawnCellsX+1;
+	Int my=m_drawnCellsY+1;
 	Int i,j;
 
-	Real cellSizeX=grid->getCellSize();
-	Real cellSizeY=grid->getCellSize();
+	Real cellSizeX=m_drawnCellSize;
+	Real cellSizeY=m_drawnCellSize;
 //	Real	uScale2=5.0f*setting->waterRepeatCount/(128.0f)*cellSizeX/10.0f;
 //	Real	vScale2=5.0f*setting->waterRepeatCount/(128.0f)*cellSizeY/10.0f;
 
@@ -2688,7 +2715,7 @@ void WaterRenderObjClass::drawRiverWater(PolygonTrigger *pTrig)
 	Real bumpFactor = 5;
 	static Bool doWobble = true;
 
-	if (TheTerrainLogic->getWaterGrid()->wasPushed()) return;
+	if (m_drawnPushed) return;
 	m_drawingRiver = true;
 
 	//allocate 2 triangles per side with 3 indices per triangle

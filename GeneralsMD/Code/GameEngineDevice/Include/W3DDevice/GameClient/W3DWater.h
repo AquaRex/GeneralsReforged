@@ -45,6 +45,8 @@
 #include "GameLogic/WaterGridMotion.h"
 #include "Platform/RenderTypes.h"
 
+#include <vector>
+
 #define INVALID_WATER_HEIGHT 0.0f	///water height guaranteed to be below all terrain.
 
 #define NUM_BUMP_FRAMES 32	///number of animation frames in bump map
@@ -172,13 +174,21 @@ protected:
 	RenderObjClass	*m_skyBox;		///<box around level
 	WaterTracksRenderSystem *m_waterTrackSystem;	///<object responsible for rendering water wakes
 
-	/* The grid mesh and its settings are TerrainLogic's WaterGrid (LOGIC-THREAD M7), read here at
-		 draw time: the mesh, its size and the transform, which syncGridTransform copies into this
-		 object's own.  Nothing keeps a tick from writing the grid while it is read; that is a later
-		 phase's, with the rest of the overlap. */
+	/* The grid mesh and its settings are TerrainLogic's WaterGrid (LOGIC-THREAD M7).  The draw reads a
+		 copy of it, taken in update() at the sync point (phase 3), so a tick stepping the grid beside the
+		 draw changes nothing the draw is reading: the mesh, its size, the two flags and the transform,
+		 which syncGridTransform copies into this object's own. */
 	typedef WaterGridMotion::MeshPoint WaterMeshData;	///< moved, unchanged, with the step that moves it (T1c)
 	UnsignedInt m_meshGeneration;	///< the grid allocation the mesh buffers were built for
 	void syncGridTransform(void);	///< take the grid's transform, as the grid setters once set ours
+	void takeGridForDraw(void);		///< the copy below, from TerrainLogic's grid
+	std::vector<WaterMeshData> m_drawnMesh;
+	Int m_drawnCellsX;
+	Int m_drawnCellsY;
+	Real m_drawnCellSize;
+	Bool m_drawnMotionEnabled;
+	Bool m_drawnPushed;
+	Matrix3D m_drawnTransform;
 
 	Real m_riverVOrigin;
 	TextureClass *m_riverTexture;
