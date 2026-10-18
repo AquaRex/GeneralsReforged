@@ -2644,6 +2644,11 @@ if(Python3_Interpreter_FOUND)
   add_test(NAME peacetime_selfcheck
            COMMAND ${Python3_EXECUTABLE}
                    ${CMAKE_CURRENT_SOURCE_DIR}/Tools/peacetime_layout.py selfcheck)
+  # The money column on the Tab screen, the same agreement: Diplomacy.cpp names the four controls of
+  # each row, Data/Window/Diplomacy.wnd has to carry them, Patch.str their captions and messages.
+  add_test(NAME diplomacy_selfcheck
+           COMMAND ${Python3_EXECUTABLE}
+                   ${CMAKE_CURRENT_SOURCE_DIR}/Tools/diplomacy_layout.py selfcheck)
 
   # The campaign mission panel is the same agreement across four files: MainMenu.cpp names the
   # mission buttons, Data/Window/Menus/MainMenu.wnd has to carry them, the groups in
