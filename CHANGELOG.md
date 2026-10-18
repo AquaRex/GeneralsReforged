@@ -11,7 +11,7 @@ found and fixed â€” EA's own, not port damage.**
 ## Turbo mode instead of a speed dropdown
 
 - Every match plays at normal speed. The skirmish lobby's game speed dropdown is gone, and with it x0.5 and x0.75.
-- Turbo mode is the one choice left: a box in the skirmish, LAN and online lobbies that plays the match twice as fast. Two seconds of battle go by in every second. The battle itself is the same one, step for step, only more of its steps run each second; the screen still draws as often as it did.
+- Turbo mode is the one choice left: a box in the skirmish, LAN and online lobbies, off unless you tick it, that plays the match twice as fast. It is the old "skirmish at 60 fps". The original game moved the battle one 1/30 s step per frame, so a skirmish run at 60 fps played at double speed. Since the battle moved to 60 steps a second, normal play already runs at 60, and Turbo gives back that double speed: two seconds of battle in every second. The battle itself is the same one, step for step, only more of its steps run each second; the screen still draws as often as it did.
 - In a network game the host ticks the box and every machine in the room plays at that speed, so nobody falls out of step. A recorded stats game online plays at normal speed. A replay plays back at the speed its match had, and its speed buttons still work from there.
 - Campaign and Generals' Challenge missions have the box in Options, under Interface: Turbo Mode in Missions. Ticked in the middle of a mission, it speeds that mission up at once.
 - A skirmish lobby or a saved game left on x0.5 or x0.75 comes back at normal speed. A map script can no longer change how fast a match runs, and the speed console command picks between normal and turbo.
