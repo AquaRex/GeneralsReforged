@@ -16032,3 +16032,27 @@ END
 GUI:HotkeysCommandSIGNAL_ATTENTION
 "İşaret: buraya bak"
 END
+
+GUI:MoneyTransferTitle
+"Para gönder"
+END
+
+GUI:MoneyTransferSend
+"Gönder"
+END
+
+GUI:MoneyTransferAmount
+"$%d"
+END
+
+GUI:MoneyTransferSent
+"Gönderdiğin $%d, %ls oyuncusuna ulaştı."
+END
+
+GUI:MoneyTransferReceived
+"%ls sana $%d gönderdi."
+END
+
+TOOLTIP:MoneyTransfer
+"Miktarı tekerlekle ya da - ve + ile seç: adım 100, Ctrl ile 1.000, Shift ile 10.000, ikisiyle 100.000. Gönder parayı oyuncuya verir."
+END
