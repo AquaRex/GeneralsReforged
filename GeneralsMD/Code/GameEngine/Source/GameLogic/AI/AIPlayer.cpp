@@ -78,6 +78,7 @@
 #include "Common/ActionManager.h"				// canCaptureBuilding, for the tech buildings
 #include "GameLogic/Module/SpecialPowerModule.h"	// ... and the module that does it
 #include "GameLogic/Module/SpecialAbilityUpdate.h"	// ending a raider's bomb run
+#include "GameLogic/Module/StealthUpdate.h"	// a unit that goes invisible from the factory
 #include "GameLogic/Module/CollideModule.h"	// ... and the collide that takes a vehicle by touching it
 #include "GameLogic/Module/ContainModule.h"
 #include "GameLogic/Module/OpenContain.h"			// a seat's own shoot-out flag, asked before a rider exists
@@ -1246,7 +1247,7 @@ Object *AIPlayer::buildStructureWithDozer(const ThingTemplate *bldgPlan, BuildLi
 	// Check available funds, and with a Hard AI whether the money is saved for something better.
 	Money *money = m_player->getMoney();
 	const Int cost = bldgPlan->calcCostToBuild(m_player);
-	if (!purchaseAllowed(bldgPlan->getTemplateID(), cost, purchaseKindOf(bldgPlan), TRUE, bldgPlan->getName())) {
+	if (!purchaseAllowed(bldgPlan->getTemplateID(), cost, purchaseKindOf(bldgPlan), TRUE, bldgPlan->getName(), favouredFactoryScore(bldgPlan))) {
 		return NULL;
 	}
 	if ((Int)money->countMoney()<cost) {
@@ -3117,25 +3118,53 @@ static AITeamCapability teamCapability( const TeamPrototype *proto, const Player
 	return cap;
 }
 
-/** A template that can go invisible: it carries a StealthUpdate. */
+/** A template that goes invisible from the factory: an innate StealthUpdate.  Most of a side carries one
+	* that only an upgrade or a scrambler switches on, and those are not a stealthy army. */
 static Bool templateCanStealth( const ThingTemplate *tmpl )
 {
 	const ModuleInfo &modules = tmpl->getBehaviorModuleInfo();
 	for( Int m = 0; m < modules.getCount(); ++m )
 		if( modules.getNthName( m ).compareNoCase( "StealthUpdate" ) == 0 )
-			return TRUE;
+			return ( (const StealthUpdateModuleData *)modules.getNthData( m ) )->m_innateStealth;
+	return FALSE;
+}
+
+/** Some unit that goes invisible from the factory waits on this science: the USA's Pathfinder. */
+static Bool unlocksStealthUnit( ScienceType science )
+{
+	for( const ThingTemplate *tmpl = TheThingFactory->firstTemplate(); tmpl; tmpl = tmpl->friend_getNextTemplate() )
+	{
+		if( !templateCanStealth( tmpl ) )
+			continue;
+		for( Int p = 0; p < tmpl->getPrereqCount(); ++p )
+		{
+			const ScienceVec &sciences = tmpl->getNthPrereq( p )->getSciencePrereqs();
+			for( ScienceVec::const_iterator s = sciences.begin(); s != sciences.end(); ++s )
+				if( *s == science )
+					return TRUE;
+		}
+	}
 	return FALSE;
 }
 
 static Int personaFavouredKind( const AIPersonaWeights &taste );
 
-/** The share of aircraft an Air AI wants among the units it has built, by rung, before the scripts'
-	* teams without any are built again. */
-static const Real AIR_SHARE_TARGET[ AISKILL_COUNT ] = { 0.25f, 0.35f, 0.45f };
+/** The kinds a personality's share is counted in: personaFavouredKind's three, then units that can go
+	* invisible (a Sneaky AI's) and a GLA Air AI's rockets and anti-air (isAirAnalogue). */
+enum { SHARE_VEHICLE, SHARE_INFANTRY, SHARE_AIR, SHARE_STEALTH, SHARE_AIR_ANALOGUE, SHARE_KINDS };
 
-/** Of the units this player built that fly, walk or drive, the share that flies, by count as the
-	* HEADLESS PERSONA summary counts it. */
-static Real builtAircraftShare( Player *player )
+/** The share of its kind among the units it has built that an Air, Infantry, Armor or Sneaky AI wants,
+	* by rung, before the scripts' teams short of that kind are built again.  A team under half its cost
+	* of the kind is short of it: an infantry team riding a Humvee is still infantry. */
+static const Real PERSONA_SHARE_TARGET[ SHARE_KINDS ][ AISKILL_COUNT ] = {
+	{ 0.50f, 0.65f, 0.75f }, { 0.65f, 0.75f, 0.85f }, { 0.35f, 0.50f, 0.60f }, { 0.30f, 0.40f, 0.50f }, { 0.35f, 0.50f, 0.60f } };
+static const Real PERSONA_TEAM_KIND_SHARE = 0.5f;
+
+static Bool isAirAnalogue( const ThingTemplate *tmpl );
+
+/** Of the units this player built that fly, walk or drive, the share of one kind (SHARE_*), by count as
+	* the HEADLESS PERSONA summary counts it. */
+static Real builtKindShare( Player *player, Int kind )
 {
 	ScoreKeeper *score = player->getScoreKeeper();
 	const KindOfMaskType none = KINDOFMASK_NONE;
@@ -3148,9 +3177,17 @@ static Real builtAircraftShare( Player *player )
 	KindOfMaskType notVehicle = air;
 	notVehicle.set( KINDOF_HARVESTER );
 	notVehicle.set( KINDOF_DOZER );
-	const Int aircraft = score->getTotalUnitsBuilt( air, none );
-	const Int total = aircraft + score->getTotalUnitsBuilt( ground, air ) + score->getTotalUnitsBuilt( vehicle, notVehicle );
-	return total > 0 ? INT_TO_REAL( aircraft ) / INT_TO_REAL( total ) : 0.0f;
+	Int built[ SHARE_KINDS ];
+	built[ SHARE_VEHICLE ] = score->getTotalUnitsBuilt( vehicle, notVehicle );
+	built[ SHARE_INFANTRY ] = score->getTotalUnitsBuilt( ground, air );
+	built[ SHARE_AIR ] = score->getTotalUnitsBuilt( air, none );
+	const Int total = built[ SHARE_VEHICLE ] + built[ SHARE_INFANTRY ] + built[ SHARE_AIR ];
+	if( kind == SHARE_STEALTH )
+		built[ kind ] = score->getTotalUnitsBuilt( ground, air, templateCanStealth ) + score->getTotalUnitsBuilt( vehicle, notVehicle, templateCanStealth ) +
+			score->getTotalUnitsBuilt( air, none, templateCanStealth );
+	else if( kind == SHARE_AIR_ANALOGUE )
+		built[ kind ] = score->getTotalUnitsBuilt( vehicle, notVehicle, isAirAnalogue );
+	return total > 0 ? INT_TO_REAL( built[ kind ] ) / INT_TO_REAL( total ) : 0.0f;
 }
 
 /** What a team prototype is made of, by cost: the shares that fly, walk, drive and can go invisible,
@@ -3395,11 +3432,15 @@ Bool AIPlayer::selectTeamToBuild( void )
 	// share of the enemy's known guns that can shoot up
 	const Bool persona = skirmish && m_persona != AIPERSONA_NORMAL;
 	const AIPersonaWeights taste = persona ? personaTaste() : aiPersonaWeights( AIPERSONA_NORMAL );
-	// an Air AI under its rung's share of aircraft built skips the scripts' teams with no aircraft in
-	// them: the taste on the score moved nothing, and every soldier they trained thinned the share
-	Real aircraftShare = 0.0f;
-	const Bool skipGround = persona && m_persona == AIPERSONA_AIR && personaFavouredKind( taste ) == 2 &&
-		( aircraftShare = builtAircraftShare( m_player ) ) < AIR_SHARE_TARGET[ m_skillLevel ];
+	// an Air, Infantry or Armor AI under its rung's share of its kind built skips the scripts' teams
+	// short of that kind (not a Sneaky one: a side has one to three units that go invisible, two of them
+	// heroes, and skipping for them left it no army at all): the taste on the score moved nothing, and every soldier they trained
+	// thinned an Air AI's share, every tank an Infantry AI's
+	const Bool kindPersona = persona && ( m_persona == AIPERSONA_AIR || m_persona == AIPERSONA_INFANTRY || m_persona == AIPERSONA_ARMOR );
+	const Int favoured = kindPersona ? personaShareKind() : -1;
+	Real favouredShare = 0.0f;
+	const Bool skipOthers = favoured >= 0 &&
+		( favouredShare = builtKindShare( m_player, favoured ) ) < PERSONA_SHARE_TARGET[ favoured ][ m_skillLevel ];
 	Int skipped = 0;
 
 	Player::PlayerTeamList candidateList;
@@ -3423,7 +3464,11 @@ Bool AIPlayer::selectTeamToBuild( void )
 		{
 			Real air, infantry, vehicle, stealth;
 			teamKindShares( *t, m_player, &air, &infantry, &vehicle, &stealth );
-			if( skipGround && !isDefenceTeam && air <= 0.0f )
+			// a GLA Air AI's rockets and anti-air are vehicles to a team's cost
+			const Real teamShare = favoured == SHARE_AIR ? air : favoured == SHARE_INFANTRY ? infantry : favoured == SHARE_STEALTH ? stealth : vehicle;
+			// the base guards too: a China Air AI's were half its infantry, and the emergency trainer
+			// (defendHome) still answers anything that walks in
+			if( skipOthers && teamShare < PERSONA_TEAM_KIND_SHARE )
 			{
 				++skipped;
 				continue;
@@ -3448,9 +3493,9 @@ Bool AIPlayer::selectTeamToBuild( void )
 	}
 
 	if( skipped > 0 )
-		DEBUG_LOG(("AI PERSONA frame %d player %d skips %d teams with no aircraft, %.2f of what it built flies, %d teams left\n",
-			TheGameLogic->getFrame(), m_player->getPlayerIndex(), skipped, aircraftShare, count));
-	if( skipGround && count == 0 )
+		DEBUG_LOG(("AI PERSONA frame %d player %d skips %d teams short of its kind, %.2f of what it built is, %d teams left\n",
+			TheGameLogic->getFrame(), m_player->getPlayerIndex(), skipped, favouredShare, count));
+	if( skipOthers && count == 0 )
 		return false;
 
 	// pick a random team from the hi-priority set
@@ -5036,6 +5081,14 @@ void AIPlayer::doUpgradesAndSkills( void )
 			case 4: skillset = &sideInfo->m_skillSet5; break;
 		}
 		const Bool saves = isSkirmishAI() && getSkillProfile()->m_savesSciencePoints;
+		// a Sneaky AI's points go first on whatever unlocks a unit that goes invisible
+		if (m_persona == AIPERSONA_SNEAKY) {
+			for (Int s = 0; s < skillset->m_numSkills; ++s) {
+				const ScienceType science = skillset->m_skills[s];
+				if (unlocksStealthUnit(science) && m_player->isCapableOfPurchasingScience(science))
+					m_player->attemptToPurchaseScience(science);
+			}
+		}
 		Int i;
 		for (i=0; i<skillset->m_numSkills; i++) {
 			ScienceType science = skillset->m_skills[i];
@@ -5670,7 +5723,7 @@ static const Real TURTLE_CHOKE_GUARD = 500.0f;
 /** Chokes fortified, the share of Turtle's own defence allowance it stands, the guns at a choke that
 	* buy the mine upgrade and the demo traps laid in front of the line, by rung. */
 static const Int TURTLE_CHOKES[ AISKILL_COUNT ] = { 1, 2, 3 };
-static const Real TURTLE_DEFENSE_SCALE[ AISKILL_COUNT ] = { 0.6f, 0.8f, 1.0f };
+static const Real TURTLE_DEFENSE_SCALE[ AISKILL_COUNT ] = { 0.4f, 0.7f, 1.0f };
 static const Int TURTLE_MINED_GUNS[ AISKILL_COUNT ] = { 2, 4, 8 };
 static const Int TURTLE_DEMO_TRAPS[ AISKILL_COUNT ] = { 2, 4, 6 };
 /** Where the chokes are looked for, in base radii from the base by the ground, and never past this
@@ -6308,6 +6361,17 @@ static Real unitTaste( const AIPersonaWeights &taste, const ThingTemplate *tmpl 
 	* disliked one waits behind the base defences and an upgrade. */
 static const Int PERSONA_LIKED_SCORE = 10;
 static const Int PERSONA_DISLIKED_SCORE = -25;
+/** A favoured factory goes ahead of the power, dozers and gatherers: an Air AI's second airfield sat on
+	* the list from 3.3 minutes to 15, held behind whatever the queue was saving for. */
+static const Int PERSONA_FAVOURED_FACTORY_SCORE = 25;
+
+Int AIPlayer::favouredFactoryScore( const ThingTemplate *tmpl ) const
+{
+	if( m_persona == AIPERSONA_NORMAL )
+		return 0;
+	const Int favoured = personaFavouredKind( personaKindTaste() );
+	return favoured >= 0 && tmpl->isKindOf( PRODUCTION_KIND[ favoured ] ) ? PERSONA_FAVOURED_FACTORY_SCORE : 0;
+}
 
 static void countFactoryLoad( Object *obj, void *userData )
 {
@@ -6335,13 +6399,14 @@ static FactoryLoad readFactoryLoad( Player *player, KindOfType kind )
 	return load;
 }
 
-/** Factories of this kind the build list has yet to put up, which go up before any extra one. */
-static Int plannedOfKind( Player *player, KindOfType kind )
+/** Factories of this kind the build list has yet to put up, which go up before any extra one; with
+	* askedOnly, only the ones the AI asked for itself (a priority entry). */
+static Int plannedOfKind( Player *player, KindOfType kind, Bool askedOnly = FALSE )
 {
 	Int planned = 0;
 	for( BuildListInfo *info = player->getBuildList(); info; info = info->getNext() )
 	{
-		if( info->getObjectID() != INVALID_ID || !info->isBuildable() )
+		if( info->getObjectID() != INVALID_ID || !info->isBuildable() || ( askedOnly && !info->isPriorityBuild() ) )
 			continue;
 		const ThingTemplate *tmpl = TheThingFactory->findTemplate( info->getTemplateName(), FALSE );
 		if( tmpl && tmpl->isKindOf( kind ) )
@@ -6763,6 +6828,9 @@ void AIPlayer::doEconomy( void )
 	{
 		if( m_player->getEnergy()->hasSufficientPower() )
 			buyEarlyIncome();
+		// the Turtle's line is its point on every rung, and the rungs below Hard buy no defences here otherwise
+		if( m_persona == AIPERSONA_TURTLE )
+			queueTurtleLine();
 		return;
 	}
 
@@ -6799,14 +6867,8 @@ void AIPlayer::doEconomy( void )
 
 	buyEarlyIncome();
 
-	// the Turtle's line goes up before the hoard, unless the base is already being hit
-	if( m_persona == AIPERSONA_TURTLE && m_player->getCanBuildBase() && m_baseCenterSet && !isBaseUnderAttack() )
-	{
-		Object *dozer = NULL;
-		m_player->iterateObjects( findAnyDozer, &dozer );
-		if( dozer )
-			queueBaseDefenses( dozer );
-	}
+	if( m_persona == AIPERSONA_TURTLE )
+		queueTurtleLine();
 
 	// hackers and the buildings that pay out on a timer earn their price back, so they only wait for
 	// the hoard threshold, and each of them is bought on every pass the bank allows one ...
@@ -6880,6 +6942,17 @@ void AIPlayer::doEconomy( void )
 	* The Turtle's do not wait for the hoard: its line is what it spends on first, and the purchase
 	* queue saves for each gun. */
 //----------------------------------------------------------------------------------------------------------
+void AIPlayer::queueTurtleLine( void )
+{
+	// before the hoard, unless the base is already being hit
+	if( !m_player->getCanBuildBase() || !m_baseCenterSet || isBaseUnderAttack() )
+		return;
+	Object *dozer = NULL;
+	m_player->iterateObjects( findAnyDozer, &dozer );
+	if( dozer )
+		queueBaseDefenses( dozer );
+}
+
 void AIPlayer::queueBaseDefenses( Object *dozer )
 {
 	const BaseTally tally = tallyBase( m_player );
@@ -7367,7 +7440,7 @@ Bool AIPlayer::buyUnit( ProductionUpdateInterface *pu, const ThingTemplate *unit
 	Int offset = 0;
 	if( m_persona != AIPERSONA_NORMAL && kind == AIBUY_ARMY )
 	{
-		const Real taste = unitTaste( personaWeights(), unit );
+		const Real taste = unitTaste( personaKindTaste(), unit );
 		offset = taste > 0.0f ? PERSONA_LIKED_SCORE : taste < 0.0f ? PERSONA_DISLIKED_SCORE : 0;
 	}
 	if( !purchaseAllowed( unit->getTemplateID(), cost, kind, pu->getProductionCount() == 0, unit->getName(), offset ) )
@@ -7447,9 +7520,10 @@ void AIPlayer::buyMoneyUnits( void )
 Bool AIPlayer::queueExtraFactory( Object *dozer, KindOfType kind )
 {
 	const ThingTemplate *tmpl = buildableOfKind( dozer, GUI_COMMAND_DOZER_CONSTRUCT, kind );
-	if( tmpl == NULL || plannedOfKind( m_player, kind ) > 0 )
+	if( tmpl == NULL )
 		return FALSE;
-	// a personality's favoured factory goes up to the rung's count without waiting for a backlog, one at a time
+	// a personality's favoured factory goes up to the rung's count without waiting for a backlog, one at a
+	// time, and without waiting for the build list's own, which the scripts reach at eight minutes
 	Bool favoured = FALSE;
 	if( m_persona != AIPERSONA_NORMAL )
 	{
@@ -7460,7 +7534,7 @@ Bool AIPlayer::queueExtraFactory( Object *dozer, KindOfType kind )
 			favoured = load.constructing == 0 && load.finished < PERSONA_FAVOURED_FACTORIES[ m_skillLevel ];
 		}
 	}
-	if( !favoured && holdsExtraFactory( tmpl ) )
+	if( favoured ? plannedOfKind( m_player, kind, TRUE ) > 0 : plannedOfKind( m_player, kind ) > 0 || holdsExtraFactory( tmpl ) )
 		return FALSE;
 
 	const Object *warehouse = TheGameLogic->findObjectByID( m_curWarehouseID );
@@ -7485,6 +7559,10 @@ Bool AIPlayer::holdsExtraFactory( const ThingTemplate *tmpl )
 		if( !tmpl->isKindOf( PRODUCTION_KIND[ k ] ) )
 			continue;
 		const FactoryLoad load = readFactoryLoad( m_player, PRODUCTION_KIND[ k ] );
+		// a personality's favoured kind goes up to the rung's count one at a time, backlog or not: an Air
+		// AI's plan airfield waited here from 3.3 minutes to 15
+		if( favouredFactoryScore( tmpl ) > 0 )
+			return load.constructing > 0 || load.finished >= PERSONA_FAVOURED_FACTORIES[ m_skillLevel ];
 		const UnsignedInt since = m_factoryBackedUpSince[ k ];
 		return !aiWantsAnotherFactory( load.finished, load.constructing, load.shallowest,
 			since == 0 ? 0 : TheGameLogic->getFrame() - since );
@@ -8299,11 +8377,29 @@ static Real armyMatchup( const ThingTemplate *tmpl, const Player *owner, const s
 	*
 	* With a personality's taste, a unit of a kind it likes comes before every other, and an Air one
 	* takes jets as well. */
+/** How far the enemy's anti-air may cut an Air AI's taste for aircraft, as a share of it: below this it
+	* stopped building air at all, and the owner wants an air force against anti-air too, of the aircraft
+	* that trade best with it (the counter pick does that) and with more escorts. */
+static const Real AIR_TASTE_FLOOR = 0.5f;
+
 /** The personality's row, an Air one's taste for aircraft cut by the share of the enemy's known guns
-	* that shoot up (aiPersonaAirBias). */
-AIPersonaWeights AIPlayer::personaTaste( void ) const
+	* that shoot up (aiPersonaAirBias), never below AIR_TASTE_FLOOR of it.  An Air AI whose side has no
+	* airfield, the GLA, likes vehicles instead, and its favoured units are its rockets and its anti-air
+	* (trainFavoured, isAirAnalogue). */
+AIPersonaWeights AIPlayer::personaKindTaste( void ) const
 {
 	AIPersonaWeights taste = personaWeights();
+	if( taste.m_air > 0.0f && !sideFlies() )
+	{
+		taste.m_vehicle = taste.m_air;
+		taste.m_air = 0.0f;
+	}
+	return taste;
+}
+
+AIPersonaWeights AIPlayer::personaTaste( void ) const
+{
+	AIPersonaWeights taste = personaKindTaste();
 	if( taste.m_air > 0.0f )
 	{
 		std::vector<AIKnownGun> guns;
@@ -8312,9 +8408,69 @@ AIPersonaWeights AIPlayer::personaTaste( void ) const
 		for( size_t g = 0; g < guns.size(); ++g )
 			if( guns[ g ].m_airReach > 0.0f )
 				++antiAir;
-		taste.m_air = aiPersonaAirBias( taste.m_air, guns.empty() ? 0.0f : INT_TO_REAL( antiAir ) / INT_TO_REAL( (Int)guns.size() ) );
+		const Real cut = aiPersonaAirBias( taste.m_air, guns.empty() ? 0.0f : INT_TO_REAL( antiAir ) / INT_TO_REAL( (Int)guns.size() ) );
+		taste.m_air = max( cut, AIR_TASTE_FLOOR * taste.m_air );
 	}
 	return taste;
+}
+
+Int AIPlayer::personaShareKind( void ) const
+{
+	if( m_persona == AIPERSONA_NORMAL )
+		return -1;
+	if( m_persona == AIPERSONA_SNEAKY )
+		return SHARE_STEALTH;
+	if( m_persona == AIPERSONA_AIR && !sideFlies() )
+		return SHARE_AIR_ANALOGUE;
+	return personaFavouredKind( personaKindTaste() );
+}
+
+Bool AIPlayer::superweaponIsPlan( void ) const
+{
+	return m_persona == AIPERSONA_TECH || ( m_persona == AIPERSONA_AIR && !sideFlies() );
+}
+
+static Bool airfieldOnButtons( const Object *builder )
+{
+	const CommandSet *commandSet = TheCommandStore->findCommandSet( builder->getCommandSetString() );
+	for( Int i = 0; commandSet && i < MAX_COMMANDS_PER_SET; ++i )
+	{
+		const CommandButton *button = commandSet->getCommandButton( i );
+		if( button && button->getCommandType() == GUI_COMMAND_DOZER_CONSTRUCT && button->getThingTemplate() &&
+				button->getThingTemplate()->isKindOf( KINDOF_FS_AIRFIELD ) )
+			return TRUE;
+	}
+	return FALSE;
+}
+
+//----------------------------------------------------------------------------------------------------------
+/** Whether this side builds airfields at all, off a dozer's buttons, whatever their prerequisites; TRUE
+	* with no dozer to ask, which keeps what the side was doing. */
+//----------------------------------------------------------------------------------------------------------
+Bool AIPlayer::sideFlies( void ) const
+{
+	Object *dozer = NULL;
+	m_player->iterateObjects( findAnyDozer, &dozer );
+	return dozer == NULL || airfieldOnButtons( dozer );
+}
+
+/** What stands in for an aircraft in a GLA Air AI's army: a vehicle with a gun that shoots up (a Quad
+	* Cannon) or one that reaches like artillery (a Rocket Buggy, a SCUD Launcher), off its own weapons, so
+	* every general's variant counts. */
+static const Real AIR_ANALOGUE_REACH = 300.0f;
+
+static Bool isAirAnalogue( const ThingTemplate *tmpl )
+{
+	if( !tmpl->isKindOf( KINDOF_VEHICLE ) || tmpl->isKindOf( KINDOF_AIRCRAFT ) )
+		return FALSE;
+	const WeaponTemplateSet *set = tmpl->getWeaponTemplateSets().empty() ? NULL : tmpl->findWeaponTemplateSet( WeaponSetFlags() );
+	for( Int slot = 0; set && slot < WEAPONSLOT_COUNT; ++slot )
+	{
+		const WeaponTemplate *weapon = set->getNth( (WeaponSlotType)slot );
+		if( weapon && ( ( weapon->getAntiMask() & WEAPON_ANTI_AIRBORNE_VEHICLE ) != 0 || weapon->getUnmodifiedAttackRange() >= AIR_ANALOGUE_REACH ) )
+			return TRUE;
+	}
+	return FALSE;
 }
 
 static const ThingTemplate *surplusUnit( Object *factory, const Player *owner, const std::vector<AIVisibleEnemy> &army, Real weight,
@@ -8444,6 +8600,9 @@ void AIPlayer::doSpending( void )
 	* at the building with the shortest queue that offers it, through the purchase queue like everything
 	* else. */
 //----------------------------------------------------------------------------------------------------------
+static const Real PERSONA_UPGRADE_LIKED = 2.0f;
+static const Real PERSONA_UPGRADE_DISLIKED = 0.5f;
+
 void AIPlayer::buyUpgradesForArmy( Bool overTarget )
 {
 	const AIDifficultyProfile *profile = getSkillProfile();
@@ -8498,6 +8657,8 @@ void AIPlayer::buyUpgradesForArmy( Bool overTarget )
 	std::vector<Object *> owned;
 	m_player->iterateObjects( collectOwned, &owned );
 	std::vector<Real> covered( upgrades.size(), 0.0f );
+	const Bool tasted = m_persona != AIPERSONA_NORMAL;
+	const AIPersonaWeights taste = tasted ? personaKindTaste() : aiPersonaWeights( AIPERSONA_NORMAL );
 	std::vector<const ThingTemplate *> fitTemplate;		// the fit by template, worked out once a pass
 	std::vector<Real> fitValue;
 	for( std::vector<Object *>::const_iterator o = owned.begin(); o != owned.end(); ++o )
@@ -8520,7 +8681,14 @@ void AIPlayer::buyUpgradesForArmy( Bool overTarget )
 			}
 			fit = fitValue[ t ];
 		}
-		const Real value = aiUpgradeWeight( fights, fit, profile->m_upgradeNonCombatWeight ) * INT_TO_REAL( tmpl->calcCostToBuild( m_player ) );
+		Real value = aiUpgradeWeight( fights, fit, profile->m_upgradeNonCombatWeight ) * INT_TO_REAL( tmpl->calcCostToBuild( m_player ) );
+		// a personality's upgrades are its kind's: what improves the units it likes counts double, the
+		// ones it does not half, so its infantry, armour or air upgrades come first
+		if( tasted && fights )
+		{
+			const Real liking = unitTaste( taste, tmpl );
+			value *= liking > 0.0f ? PERSONA_UPGRADE_LIKED : liking < 0.0f ? PERSONA_UPGRADE_DISLIKED : 1.0f;
+		}
 		for( size_t u = 0; u < upgrades.size(); ++u )
 			if( obj->affectedByUpgrade( upgrades[ u ] ) )
 				covered[ u ] += value;
@@ -8656,12 +8824,16 @@ void AIPlayer::trainSurplus( Int budget )
 
 /** How deep a personality with a unit taste keeps its favoured factories' queues, below the bank target, by rung. */
 static const Int PERSONA_FAVOURED_DEPTH[ AISKILL_COUNT ] = { 1, 2, 2 };
-/** The same for the Air AI's airfields: an aircraft costs three to six soldiers, so by count its share
-	* only climbs with more of them on order. */
-static const Int AIR_FAVOURED_DEPTH[ AISKILL_COUNT ] = { 1, 3, 3 };
+/** The same for the Air, Infantry and Armor AIs, whose kind is their whole army now that the scripts'
+	* teams short of it are skipped (selectTeamToBuild): an aircraft costs three to six soldiers, so by
+	* count its share only climbs with more of them on order, and a barracks that trained one soldier at
+	* a time could not field a horde. */
+static const Int KIND_FAVOURED_DEPTH[ AISKILL_COUNT ] = { 1, 3, 3 };
+static const Int INFANTRY_FAVOURED_DEPTH[ AISKILL_COUNT ] = { 2, 3, 4 };
 
-/** The cheapest armed ground vehicle off this factory's buttons it can make now, the first of two
-	* alike: a Technical, a Humvee, a Scorpion, the quick ones a Raider sends.  Not a worker or a gatherer. */
+/** The cheapest armed ground unit of a kind off this factory's buttons it can make now, the first of
+	* two alike: a Technical, a Humvee, a Scorpion, the quick ones a Raider sends; a Red Guard, a Rebel,
+	* a Ranger, the horde an Infantry AI fills its ranks with.  Not a worker or a gatherer. */
 static Bool hasPrimaryWeapon( const ThingTemplate *tmpl )
 {
 	// a Demo radar van carries only its suicide charge, in the tertiary slot: "can have a weapon" let it
@@ -8670,7 +8842,7 @@ static Bool hasPrimaryWeapon( const ThingTemplate *tmpl )
 	return set && set->getNth( PRIMARY_WEAPON ) != NULL;
 }
 
-static const ThingTemplate *cheapestVehicle( Object *factory, const Player *owner )
+static const ThingTemplate *cheapestArmed( Object *factory, const Player *owner, KindOfType kind )
 {
 	const CommandSet *commandSet = TheCommandStore->findCommandSet( factory->getCommandSetString() );
 	const ThingTemplate *best = NULL;
@@ -8681,12 +8853,37 @@ static const ThingTemplate *cheapestVehicle( Object *factory, const Player *owne
 		if( button == NULL || button->getCommandType() != GUI_COMMAND_UNIT_BUILD )
 			continue;
 		const ThingTemplate *tmpl = button->getThingTemplate();
-		if( tmpl == NULL || !hasPrimaryWeapon( tmpl ) || !tmpl->isKindOf( KINDOF_VEHICLE ) || tmpl->isKindOf( KINDOF_AIRCRAFT ) ||
+		if( tmpl == NULL || !hasPrimaryWeapon( tmpl ) || !tmpl->isKindOf( kind ) || tmpl->isKindOf( KINDOF_AIRCRAFT ) ||
 				tmpl->isKindOf( KINDOF_DOZER ) || tmpl->isKindOf( KINDOF_HARVESTER ) || tmpl->isKindOf( KINDOF_MONEY_HACKER ) ||
 				TheBuildAssistant->canMakeUnit( factory, tmpl ) != CANMAKE_OK )
 			continue;
 		const Int cost = tmpl->calcCostToBuild( owner );
 		if( best == NULL || cost < bestCost )
+		{
+			best = tmpl;
+			bestCost = cost;
+		}
+	}
+	return best;
+}
+
+/** An armed unit this factory can make now that accept takes (a GLA Air AI's isAirAnalogue, a Sneaky
+	* AI's templateCanStealth), the cheapest or the dearest, the first of two alike; NULL when it makes none. */
+static const ThingTemplate *favouredUnitOf( Object *factory, const Player *owner, Bool (*accept)( const ThingTemplate * ), Bool dearest )
+{
+	const CommandSet *commandSet = TheCommandStore->findCommandSet( factory->getCommandSetString() );
+	const ThingTemplate *best = NULL;
+	Int bestCost = 0;
+	for( Int i = 0; commandSet && i < MAX_COMMANDS_PER_SET; ++i )
+	{
+		const CommandButton *button = commandSet->getCommandButton( i );
+		if( button == NULL || button->getCommandType() != GUI_COMMAND_UNIT_BUILD )
+			continue;
+		const ThingTemplate *tmpl = button->getThingTemplate();
+		if( tmpl == NULL || !hasPrimaryWeapon( tmpl ) || !accept( tmpl ) || TheBuildAssistant->canMakeUnit( factory, tmpl ) != CANMAKE_OK )
+			continue;
+		const Int cost = tmpl->calcCostToBuild( owner );
+		if( best == NULL || ( dearest ? cost > bestCost : cost < bestCost ) )
 		{
 			best = tmpl;
 			bestCost = cost;
@@ -8719,16 +8916,19 @@ static void countOfTemplate( Object *obj, void *userData )
 void AIPlayer::trainFavoured( void )
 {
 	// the opening's economy first; a Raider's raiders a minute before its first sortie
-	// and an Air AI's from its first airfield: behind the drop-zone wait its first jet came at six minutes
+	// and an Air, Infantry or Armor AI's from its first factory of the kind: behind the drop-zone wait its
+	// first jet came at six minutes, and the scripts' teams it skips are the rest of its army
 	const Bool raider = m_persona == AIPERSONA_RAIDER;
-	const Bool air = m_persona == AIPERSONA_AIR;
+	const Bool sneaky = m_persona == AIPERSONA_SNEAKY;
+	const Bool ofItsKind = m_persona == AIPERSONA_AIR || m_persona == AIPERSONA_INFANTRY || m_persona == AIPERSONA_ARMOR || sneaky;
 	if( raider ? TheGameLogic->getFrame() < (UnsignedInt)( ( RAID_START_SECONDS[ m_skillLevel ] - 60 ) * LOGICFRAMES_PER_SECOND )
-						 : !air && !readyToPush() )
+						 : !ofItsKind && !readyToPush() )
 		return;
 	const AIPersonaWeights taste = personaTaste();
 	const Int favoured = personaFavouredKind( taste );
 	if( favoured < 0 )
-		return;		// an Air AI against heavy anti-air plays without its taste
+		return;
+	const Bool groundedAir = m_persona == AIPERSONA_AIR && favoured == 0;
 	const KindOfType kind = PRODUCTION_KIND[ favoured ];
 	std::vector<AIVisibleEnemy> army;
 	rememberedArmy( &army );
@@ -8741,10 +8941,20 @@ void AIPlayer::trainFavoured( void )
 			continue;
 		++ofKind;
 		ProductionUpdateInterface *pu = (*f)->getProductionUpdateInterface();
-		if( (Int)pu->getProductionCount() >= ( air ? AIR_FAVOURED_DEPTH : PERSONA_FAVOURED_DEPTH )[ m_skillLevel ] )
+		const Int *depth = m_persona == AIPERSONA_INFANTRY ? INFANTRY_FAVOURED_DEPTH : ofItsKind ? KIND_FAVOURED_DEPTH : PERSONA_FAVOURED_DEPTH;
+		if( (Int)pu->getProductionCount() >= depth[ m_skillLevel ] )
 			continue;
-		const ThingTemplate *unit = raider ? cheapestVehicle( *f, m_player )
-																			 : surplusUnit( *f, m_player, army, getSkillProfile()->m_counterCompositionWeight, &taste );
+		// an Infantry AI's every other soldier is the cheapest one, the horde round the counter picks
+		// and a GLA Air AI's its rockets and anti-air, the cheap and the dear ones by turns; a Sneaky AI's
+		// whatever goes invisible there, and the counter's pick once that runs out (one Jarmen Kell)
+		const Bool turn = ( TheGameLogic->getFrame() / ECONOMY_CHECK_RATE + ofKind ) % 2 == 0;
+		const ThingTemplate *unit = raider ? cheapestArmed( *f, m_player, KINDOF_VEHICLE )
+															: groundedAir ? favouredUnitOf( *f, m_player, isAirAnalogue, turn )
+															: sneaky ? favouredUnitOf( *f, m_player, templateCanStealth, turn )
+															: m_persona == AIPERSONA_INFANTRY && turn ? cheapestArmed( *f, m_player, KINDOF_INFANTRY )
+																			: NULL;
+		if( unit == NULL && !raider && !groundedAir )
+			unit = surplusUnit( *f, m_player, army, getSkillProfile()->m_counterCompositionWeight, &taste );
 		if( unit == NULL || unitTaste( taste, unit ) <= 0.0f )
 			continue;
 		// a Raider keeps two sorties' worth of its raider, and the rest of the money for the army
@@ -9511,6 +9721,8 @@ void AIPlayer::doWaves( void )
 		defendAlly();
 	if( m_persona == AIPERSONA_RAIDER )
 		doPersonaRaids();
+	if( ( m_persona == AIPERSONA_ATTACKER || m_persona == AIPERSONA_RUSHER ) && isSkirmishAI() && !getSkillProfile()->m_massBeforeAttacking )
+		personaSortie();
 	sendIdleAttackTeams();
 	sendIdleUnitsHunting();
 	keepSiegeBehind();
@@ -10507,6 +10719,83 @@ void AIPlayer::sendIdleAttackTeams( void )
 			sendWave( group, chooseApproachLabel( &from, center, pathSuffix ), pathSuffix, 1, power, 0, "calledup" );
 		}
 	}
+}
+
+/** How often an Attacker on a rung that does not mass its waves sends what stands idle at home, by
+	* rung; Hard masses, and its waves are the Attacker's knobs already. */
+static const Int PERSONA_SORTIE_SECONDS[ AISKILL_COUNT ] = { 120, 75, 0 };
+
+//----------------------------------------------------------------------------------------------------------
+/** Easy and Medium do not mass their attack teams, so the Attacker's and the Rusher's wave knobs moved
+	* nothing there: a Medium Attacker sent one wave a match to its Normal opponent's three, and a Medium
+	* Rusher's rush went at seven and a half minutes with one team of a third of its army.  So on those
+	* rungs the Rusher sends every fighter at home at its rush time, as one wave, and the Attacker (and the
+	* Rusher after its rush) sends what stands idle at home every PERSONA_SORTIE_SECONDS, once it is worth
+	* the rung's smallest attack.  The base guard teams stay, except for the rush. */
+//----------------------------------------------------------------------------------------------------------
+void AIPlayer::personaSortie( void )
+{
+	if( !m_baseCenterSet || isBaseUnderAttack() )
+		return;
+	Player *enemy = getAiEnemy();
+	if( enemy == NULL )
+		return;
+	const UnsignedInt now = TheGameLogic->getFrame();
+	const Bool rush = rushPending();
+	if( rush )
+	{
+		if( now < rushFrame() )
+			return;
+	}
+	else
+	{
+		const UnsignedInt every = (UnsignedInt)( PERSONA_SORTIE_SECONDS[ m_skillLevel ] * LOGICFRAMES_PER_SECOND );
+		// once a period, without a member for it: doWaves runs every WAVE_CHECK_RATE frames
+		if( every == 0 || now % every >= (UnsignedInt)WAVE_CHECK_RATE || !readyToPush() )
+			return;
+	}
+
+	std::vector<Object *> owned;
+	m_player->iterateObjects( collectOwned, &owned );
+	AIGroup *group = TheAI->createGroup();
+	Real power = 0.0f;
+	for( std::vector<Object *>::const_iterator o = owned.begin(); o != owned.end(); ++o )
+	{
+		Object *obj = *o;
+		if( obj->isEffectivelyDead() || obj->isKindOf( KINDOF_STRUCTURE ) || obj->isKindOf( KINDOF_IMMOBILE ) ||
+				obj->isKindOf( KINDOF_AIRCRAFT ) || obj->getAI() == NULL || obj->isContained() || !obj->isAbleToAttack() ||
+				!isAtHome( obj->getPosition() ) || !leavesToFinish( obj ) || isOutOnOrders( obj ) || isFallingBack( obj->getID() ) )
+			continue;
+		const StateID state = obj->getAI()->getCurrentStateID();
+		if( state != AI_IDLE && state != AI_GUARD && state != AI_GUARD_RETALIATE )
+			continue;
+		// the guard teams stay, except for the rush and a Medium Attacker's sorties: Medium's scripts keep
+		// most of its army in them, and a sortie without them was two units
+		const TeamTemplateInfo *info = obj->getTeam() ? obj->getTeam()->getPrototype()->getTemplateInfo() : NULL;
+		const Bool takesGuards = rush || ( m_persona == AIPERSONA_ATTACKER && m_skillLevel >= AISKILL_MEDIUM );
+		if( !takesGuards && info && ( info->m_isBaseDefense || info->m_isPerimeterDefense ) )
+			continue;
+		group->add( obj );
+		power += aiCombatPower( obj );
+	}
+	if( group->isEmpty() || ( !rush && power < getSkillProfile()->m_minAttackPower ) )
+	{
+		TheAI->destroyGroup( group );
+		return;
+	}
+
+	const Int pathSuffix = enemy->getMpStartIndex() + 1;
+	Coord3D from;
+	group->getCenter( &from );
+	const AsciiString approach = chooseApproachLabel( &from, AsciiString( SKIRMISH_CENTER ), pathSuffix );
+	if( m_personaWaves == 0 )
+		m_firstWaveFrame = now;
+	++m_personaWaves;
+	if( rush )
+		DEBUG_LOG(("AI PERSONA frame %d player %d rushes with %d units, %.0f power\n", now, m_player->getPlayerIndex(), group->getCount(), power));
+	m_rushSent = TRUE;
+	personaChat( "Wave" );
+	sendWave( group, approach, pathSuffix, 0, power, 0, rush ? "rush" : "sortie" );
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -15703,11 +15992,14 @@ void AIPlayer::logPersonaSummary( void )
 	}
 	std::vector<Coord3D> traps;
 	m_player->iterateObjects( collectDemoTraps, &traps );
-	DEBUG_LOG(("HEADLESS PERSONA %d: %s waves %d defenses %d aircraftShare %.2f infantryShare %.2f vehicleShare %.2f gathererKills %d wouldShare %d superweapon %u firstWave %u chokeDefenses %d chokeDist %.0f chokeMined %d demoTraps %d\n",
+	// the share of the kind the personality is about, -1 for one with none (and Normal)
+	const Int shareKind = personaShareKind();
+	DEBUG_LOG(("HEADLESS PERSONA %d: %s waves %d defenses %d aircraftShare %.2f infantryShare %.2f vehicleShare %.2f gathererKills %d wouldShare %d superweapon %u firstWave %u chokeDefenses %d chokeDist %.0f chokeMined %d demoTraps %d favouredShare %.2f stealthShare %.2f\n",
 		m_player->getPlayerIndex(), aiPersonalityName( m_persona ), m_personaWaves, tallyBase( m_player ).defenses,
 		INT_TO_REAL( aircraft ) * per, INT_TO_REAL( soldiers ) * per, INT_TO_REAL( vehicles ) * per, gathererKills,
 		m_personaShared, m_superweaponFrame, m_firstWaveFrame, chokeDefenses,
-		measured > 0 ? chokeDistance / INT_TO_REAL( measured ) : 0.0f, chokeMined, (Int)traps.size()));
+		measured > 0 ? chokeDistance / INT_TO_REAL( measured ) : 0.0f, chokeMined, (Int)traps.size(),
+		shareKind >= 0 ? builtKindShare( m_player, shareKind ) : -1.0f, builtKindShare( m_player, SHARE_STEALTH )));
 }
 
 

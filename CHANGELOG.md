@@ -13,14 +13,14 @@ found and fixed â€” EA's own, not port damage.**
 - Every computer seat in the skirmish, LAN and online lobbies has a new Personality box beside its team. It says how that player plays, and the difficulty still says how well, so a Hard Turtle and an Easy Turtle play the same way at different strengths.
 - Normal is the computer player you know, unchanged. The others:
   - **Attacker** goes out early and often with smaller waves and spends everything it earns.
-  - **Turtle** builds defences first, holds its army back for a few big late waves and pulls out of fights it is losing.
+  - **Turtle** finds the narrow stretch of each road into its base and packs its defences there so they cover each other, rather than ringing its command centre. China mines the guns on that line, GLA lays demo traps in front of it and America leans on Fire Bases. It holds its army back for a few big late waves and pulls out of fights it is losing.
   - **Economist** puts income and upgrades first and keeps a fatter bank before it spends on the army.
-  - **Air Force** leans on aircraft, and builds fewer of them when it runs into heavy anti-air.
+  - **Air Force** puts up several airfields early and fights mostly from the air, switching aircraft rather than giving up when it meets heavy anti-air. GLA has no airfield, so a GLA Air Force fields rockets instead: Quad Cannons, Rocket Buggies, Scud Launchers and an early Scud Storm.
   - **Rusher** throws everything into one attack in the first four minutes, then keeps pressing.
   - **Raider** sends its fastest vehicles after supply trucks, workers and depots the enemy has left unguarded.
   - **Tech** goes for its tech, general powers and superweapon, and defends until they stand.
-  - **Infantry** fields cheap infantry in numbers and fills buildings with it.
-  - **Armor** builds tanks and comes at you in big slow waves.
+  - **Infantry** fields a crowd of foot soldiers from two to four barracks, cheap ones mixed with whatever beats the army it has seen, and fills buildings with them.
+  - **Armor** builds tanks from several war factories and comes at you in big slow waves.
   - **Sneaky** prefers stealth units and comes in by the back door or the flank.
   - **Opportunist** goes for the weakest enemy, and for whoever is already busy fighting someone else.
   - **Supporter** attacks what its ally attacks and sends its army home to its ally when the ally's base is hit.

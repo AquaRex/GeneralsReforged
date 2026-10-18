@@ -262,6 +262,7 @@ public:
 		* from the logic random stream here, and only then. */
 	void setAIPersonality(AIPersonality persona);
 	AIPersonality getAIPersonality(void) const {return m_persona;}
+	Bool superweaponIsPlan(void) const;	///< a Tech AI, or a GLA Air AI whose SCUD Storm stands in for the air force: its first superweapon is rushed
 	/// HEADLESS PERSONA: one line of what this seat's personality did over the match, for ai-batch
 	void logPersonaSummary(void);
 
@@ -406,6 +407,7 @@ protected:
 	const std::vector<Coord3D> &turtleChokes(void);	///< the narrowest place on the road in from each start an enemy may be at, nearest first, cached until the base or the starts change
 	Int guardedChokes(void);	///< how many of turtleChokes this rung fortifies
 	Real nearestChokeDistance(const Coord3D *pos);	///< straight-line distance to the nearest guarded choke, negative when there is none
+	void queueTurtleLine(void);	///< the Turtle's defence pass, on every rung, before the hoard and not while the base is hit
 	void queueBaseDefenses(Object *dozer);	///< the next defences the allowance has room for, off this dozer's buttons, each on its best spot
 	void fortifyChokes(Object *dozer);	///< a Turtle's mines on the guns at its chokes and demo traps in front of them
 	const std::vector<UnsignedShort> &groundFromBase(void);	///< AIGroundFlood distance of every pathfind cell from the base center, cached until the center moves
@@ -543,7 +545,11 @@ protected:
 
 	// the personality (AIPersonality) and what it keeps; nothing here is read on a Normal seat
 	const AIPersonaWeights &personaWeights(void) const;	///< its row, the Attacker's for a Rusher whose rush is out
-	AIPersonaWeights personaTaste(void) const;		///< ... with an Air one's taste cut by the enemy's known anti-air
+	AIPersonaWeights personaTaste(void) const;		///< ... with an Air one's taste cut by the enemy's known anti-air, or turned to vehicles on a side with no airfield
+	Int personaShareKind(void) const;	///< the kind (SHARE_* in AIPlayer.cpp) whose share of what it builds this personality is about, -1 for none
+	AIPersonaWeights personaKindTaste(void) const;	///< the row, turned to vehicles for an Air AI on a side with no airfield
+	Bool sideFlies(void) const;									///< this side's dozers can put up an airfield at all
+	Int favouredFactoryScore(const ThingTemplate *tmpl) const;	///< what a personality adds to the purchase score of a factory of its favoured kind, 0 for any other building
 	Real wavePower(void) const;										///< what a parked wave waits for
 	UnsignedInt waveMaxHoldFrames(void) const;		///< ... and for how long at most
 	Bool rushPending(void) const;									///< a Rusher whose one big attack has not gone yet
@@ -552,6 +558,7 @@ protected:
 	void notePersonaProgress(void);								///< the summary's superweapon frame and the chat's beaten enemies
 	void doPersonaRaids(void);										///< Raider: fast units at the enemy's gatherers, workers and depots
 	void huntGatherers(void);										///< raiders out of the base turn on the nearest known gatherer near them
+	void personaSortie(void);										///< Attacker and Rusher on a rung that does not mass: the rush and the regular sorties of what idles at home
 	void defendAlly(void);												///< Supporter: idle units at home go to an ally's base when it is hit
 	void shareSurplusWithAllies(Int bank, Int target);	///< Economist: who gets what out of the bank (the hook only)
 	AsciiString sneakyLane(const Coord3D *from, const AsciiString &requested, Int pathSuffix);	///< Sneaky: the back door or the flank

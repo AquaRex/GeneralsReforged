@@ -129,9 +129,10 @@ void AISkirmishPlayer::processBaseBuilding( void )
 		const ThingTemplate *bldgPlan=NULL;
 		BuildListInfo	*bldgInfo = NULL;
 		Bool isPriority = false;
-		// and a Tech AI from Medium up, whose whole plan is the tree and the superweapon at its top
+		// and a Tech AI from Medium up, whose whole plan is the tree and the superweapon at its top, and a
+		// GLA Air one, whose SCUD Storm stands in for the air force it cannot build
 		const Bool rushBigGuns = getSkillProfile()->m_economyBuildings ||
-			(m_persona == AIPERSONA_TECH && m_skillLevel >= AISKILL_MEDIUM);
+			(m_persona != AIPERSONA_NORMAL && m_skillLevel >= AISKILL_MEDIUM && superweaponIsPlan());
 		Bool rushTaken = false;
 		// With the purchase queue the priority entries are taken by its score, the first of the best in
 		// list order, so an early drop zone does not wait behind the scripts' bunkers.
@@ -258,7 +259,7 @@ void AISkirmishPlayer::processBaseBuilding( void )
 				(powerThin && curPlan->isKindOf(KINDOF_FS_POWER) && !curPlan->isKindOf(KINDOF_CASH_GENERATOR)));
 			const AIPurchaseKind planKind = purchaseKindOf(curPlan);
 			const Int planScore = byScore ? aiPurchaseScore(planKind, earlyGame) +
-				(m_persona != AIPERSONA_NORMAL ? personaWeights().m_buy[planKind] : 0) : 0;
+				(m_persona != AIPERSONA_NORMAL ? personaWeights().m_buy[planKind] + favouredFactoryScore(curPlan) : 0) : 0;
 			const Bool couldBePriority = info->isPriorityBuild() &&
 				(!isPriority || (rushThis && !rushTaken) || planScore > bldgScore) && m_player->canBuild(curPlan);
 			const Bool couldBePower = powerPlan==NULL && curPlan->isKindOf(KINDOF_FS_POWER) &&

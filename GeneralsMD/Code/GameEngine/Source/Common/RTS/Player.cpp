@@ -3540,9 +3540,10 @@ Bool Player::canBuildMoreOfType( const ThingTemplate *whatToBuild, Int unitsPerO
   {
     SuperweaponDefenseCount count = { 0, 0 };
     iterateObjects( countSuperweaponDefenses, &count );
-    // a Tech computer's first superweapon is its plan, and waits for a few guns rather than twelve, Easy the most
+    // a Tech computer's first superweapon is its plan, and a GLA Air one's SCUD Storm, and waits for a few
+    // guns rather than twelve, Easy the most
     static const Int TECH_FIRST_DEFENSES[ AISKILL_COUNT ] = { 8, 6, 4 };
-    const Bool techFirst = count.superweapons == 0 && getAIPersonality() == AIPERSONA_TECH &&
+    const Bool techFirst = count.superweapons == 0 && m_ai && m_ai->superweaponIsPlan() &&
       count.defenses >= TECH_FIRST_DEFENSES[ getAISkillLevel() ];
     if ( !techFirst && SuperweaponDefenseCapRefuses( count.defenses, count.superweapons ) )
       return false;
