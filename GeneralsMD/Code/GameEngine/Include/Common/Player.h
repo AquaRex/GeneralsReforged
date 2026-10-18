@@ -934,6 +934,8 @@ public:
 		* have to ask.  Both answer their neutral value for a human seat. */
 	AISkillLevel getAISkillLevel(void) const;
 	AIRole getAIRole(void) const;
+	AIPersonality getAIPersonality(void) const;
+	void logAIPersonaSummary(void);		///< HEADLESS PERSONA for a computer seat, nothing for a human one
 
 protected:
 

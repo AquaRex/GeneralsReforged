@@ -1601,6 +1601,9 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
 						d.setInt(TheKey_skirmishAISkill, AISKILL_BRUTAL); break;
 					default: break;	 // no setting.
 				}
+				// absent for Normal, so a Normal seat's dict is the one it always was
+				if (slot->getAIPersonality() != AIPERSONA_NORMAL)
+					d.setInt(TheKey_skirmishAIPersonality, slot->getAIPersonality());
 			}
 
 			// by index: the name went through an ASCII translate and back, which no name with a

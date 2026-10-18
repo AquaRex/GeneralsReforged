@@ -769,7 +769,10 @@ GlobalData::GlobalData()
 		m_autoSkirmishSide[ slot ].clear(); // every faction still comes out of the seed unless -side names one
 		m_autoSkirmishTeam[ slot ] = AUTO_SKIRMISH_TEAM_UNSET; // and every team out of -teams unless -team names one
 		m_autoSkirmishSeatName[ slot ].clear(); // and every computer seat is called by its difficulty unless -seatname names it
+		m_autoSkirmishPersona[ slot ] = -1; // and plays the personality -aipersonaall or -aipersona2 gives it
 	}
+	m_autoSkirmishPersonaOdd = -1;
+	m_autoSkirmishPersonaAll = 0; // AIPERSONA_NORMAL, the AI as it always was
 	m_netGameHosts.clear(); // no network game from the command line
 	m_netGameStarted = FALSE;
 	m_netGameLocalSlot = 0;

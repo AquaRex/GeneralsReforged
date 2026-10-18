@@ -16032,3 +16032,282 @@ END
 GUI:HotkeysCommandSIGNAL_ATTENTION
 "İşaret: buraya bak"
 END
+
+// Bilgisayar oyuncusu kişilikleri, lobide koltuk başına seçilir (AIPersonality)
+GUI:AIPersonaNormal
+"Normal"
+END
+
+GUI:AIPersonaAttacker
+"Saldırgan"
+END
+
+GUI:AIPersonaTurtle
+"Kaplumbağa"
+END
+
+GUI:AIPersonaEconomist
+"Ekonomist"
+END
+
+GUI:AIPersonaAir
+"Hava Kuvvetleri"
+END
+
+GUI:AIPersonaRusher
+"Baskıncı"
+END
+
+GUI:AIPersonaRaider
+"Akıncı"
+END
+
+GUI:AIPersonaTech
+"Teknoloji"
+END
+
+GUI:AIPersonaInfantry
+"Piyade"
+END
+
+GUI:AIPersonaArmor
+"Zırhlı"
+END
+
+GUI:AIPersonaSneaky
+"Sinsi"
+END
+
+GUI:AIPersonaOpportunist
+"Fırsatçı"
+END
+
+GUI:AIPersonaSupporter
+"Destekçi"
+END
+
+GUI:AIPersonaCounter
+"Karşı Hamle"
+END
+
+GUI:AIPersonaRandom
+"Rastgele"
+END
+
+GUI:AIPersonaTooltip
+"Zorluğu ne olursa olsun bu bilgisayar oyuncusunun nasıl oynadığı"
+END
+
+GUI:AIPersona
+"Kişilik"
+END
+
+// Kişilikli bir bilgisayar oyuncusunun sohbete yazdıkları: bir dalga çıkarken (iki satır), üssü
+// vurulunca ve bir düşman silinince (AIPlayer::personaChat)
+GUI:AIChatAttackerWave1
+"Geliyoruz. Yine."
+END
+
+GUI:AIChatAttackerWave2
+"Bugün sana dinlenmek yok."
+END
+
+GUI:AIChatAttackerHit1
+"Karşılık mı veriyorsun? Ne tatlı."
+END
+
+GUI:AIChatAttackerWin1
+"Sıradaki!"
+END
+
+GUI:AIChatTurtleWave1
+"Surlar bitti. Şimdi yürüyoruz."
+END
+
+GUI:AIChatTurtleWave2
+"Yavaş ama emin adımlarla geliyoruz."
+END
+
+GUI:AIChatTurtleHit1
+"Kapıyı istediğin kadar çal, açan olmaz."
+END
+
+GUI:AIChatTurtleWin1
+"Sabreden kazanır."
+END
+
+GUI:AIChatEconomistWave1
+"Bunu bir yatırım say."
+END
+
+GUI:AIChatEconomistWave2
+"Parası peşin ödendi, teslimat geliyor."
+END
+
+GUI:AIChatEconomistHit1
+"O binanın kaça mal olduğunu biliyor musun?"
+END
+
+GUI:AIChatEconomistWin1
+"İflas. Hesap kapatıldı."
+END
+
+GUI:AIChatAirWave1
+"Yukarı bak."
+END
+
+GUI:AIChatAirWave2
+"Tekerlekler yerden kesildi, silahlar hazır."
+END
+
+GUI:AIChatAirHit1
+"Kara birlikleri mi? Ne kadar eski moda."
+END
+
+GUI:AIChatAirWin1
+"Hava hakimiyeti bizde."
+END
+
+GUI:AIChatRusherWave1
+"Neyim varsa, hemen şimdi!"
+END
+
+GUI:AIChatRusherWave2
+"Daha hızlı, daha hızlı!"
+END
+
+GUI:AIChatRusherHit1
+"Sen şimdiye kadar çoktan bitmiş olmalıydın."
+END
+
+GUI:AIChatRusherWin1
+"Çok yavaştın."
+END
+
+GUI:AIChatRaiderWave1
+"Kamyonların pek yalnız görünüyor."
+END
+
+GUI:AIChatRaiderWave2
+"Vur ve kaybol."
+END
+
+GUI:AIChatRaiderHit1
+"Demek sen de benim üssümün yolunu buldun."
+END
+
+GUI:AIChatRaiderWin1
+"Erzak yoksa ordu da yok."
+END
+
+GUI:AIChatTechWave1
+"Saha testi, gerçek hedeflerle."
+END
+
+GUI:AIChatTechWave2
+"Prototipler hazır."
+END
+
+GUI:AIChatTechHit1
+"Laboratuvara dikkat, o cihazlar pahalı."
+END
+
+GUI:AIChatTechWin1
+"Deney tamamlandı."
+END
+
+GUI:AIChatInfantryWave1
+"Piyade sahada!"
+END
+
+GUI:AIChatInfantryWave2
+"Her sokak, her pencere."
+END
+
+GUI:AIChatInfantryHit1
+"Binalara girin, hattı tutun!"
+END
+
+GUI:AIChatInfantryWin1
+"Şehir artık bizim."
+END
+
+GUI:AIChatArmorWave1
+"Çelik yürüyor."
+END
+
+GUI:AIChatArmorWave2
+"Paletleri duyuyor musun? Biziz."
+END
+
+GUI:AIChatArmorHit1
+"Boyamı çizdin."
+END
+
+GUI:AIChatArmorWin1
+"Ezildi."
+END
+
+GUI:AIChatSneakyWave1
+"Bunun geldiğini görmedin."
+END
+
+GUI:AIChatSneakyWave2
+"Arkana bak."
+END
+
+GUI:AIChatSneakyHit1
+"Beni buldun mu? Şans eseri."
+END
+
+GUI:AIChatSneakyWin1
+"İz bile kalmadı."
+END
+
+GUI:AIChatOpportunistWave1
+"Meşgul görünüyorsun. Güzel."
+END
+
+GUI:AIChatOpportunistWave2
+"Zayıf nokta bulundu."
+END
+
+GUI:AIChatOpportunistHit1
+"Bana mı sataşıyorsun? Yanlış seçim."
+END
+
+GUI:AIChatOpportunistWin1
+"Onu benim için yumuşattığın için sağ ol."
+END
+
+GUI:AIChatSupporterWave1
+"Hemen arkandayım, ortak."
+END
+
+GUI:AIChatSupporterWave2
+"Senin hedefin benim hedefim."
+END
+
+GUI:AIChatSupporterHit1
+"Koru beni, ateş altındayım!"
+END
+
+GUI:AIChatSupporterWin1
+"Güzel takım işi."
+END
+
+GUI:AIChatCounterWave1
+"Ordunu okudum. Cevabı bu."
+END
+
+GUI:AIChatCounterWave2
+"Özellikle senin için yapıldı."
+END
+
+GUI:AIChatCounterHit1
+"Tahmin edilebilir."
+END
+
+GUI:AIChatCounterWin1
+"Karşılık verildi."
+END

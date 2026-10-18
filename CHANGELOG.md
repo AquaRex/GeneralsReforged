@@ -8,6 +8,28 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
+## Computer players have personalities
+
+- Every computer seat in the skirmish, LAN and online lobbies has a new Personality box beside its team. It says how that player plays, and the difficulty still says how well, so a Hard Turtle and an Easy Turtle play the same way at different strengths.
+- Normal is the computer player you know, unchanged. The others:
+  - **Attacker** goes out early and often with smaller waves and spends everything it earns.
+  - **Turtle** builds defences first, holds its army back for a few big late waves and pulls out of fights it is losing.
+  - **Economist** puts income and upgrades first and keeps a fatter bank before it spends on the army.
+  - **Air Force** leans on aircraft, and builds fewer of them when it runs into heavy anti-air.
+  - **Rusher** throws everything into one attack in the first four minutes, then keeps pressing.
+  - **Raider** sends its fastest vehicles after supply trucks, workers and depots the enemy has left unguarded.
+  - **Tech** goes for its tech, general powers and superweapon, and defends until they stand.
+  - **Infantry** fields cheap infantry in numbers and fills buildings with it.
+  - **Armor** builds tanks and comes at you in big slow waves.
+  - **Sneaky** prefers stealth units and comes in by the back door or the flank.
+  - **Opportunist** goes for the weakest enemy, and for whoever is already busy fighting someone else.
+  - **Supporter** attacks what its ally attacks and sends its army home to its ally when the ally's base is hit.
+  - **Counter** studies what you field and builds the answer to it.
+  - **Random** picks one of the above when the match starts and does not tell you which.
+- A personality is a preference, never a bonus: no personality gets extra money, faster building or tougher units.
+- Computer players with a personality now and then say something in chat, in their own voice, at most once every two and a half minutes. Normal ones stay quiet.
+- The choice travels with the game to every player in a LAN or online match and into the replay. Replays and saves from earlier versions load with every computer player on Normal; a save made with this version does not load in an earlier one.
+
 ## Every campaign mission is open
 
 - Picking USA, GLA or China now opens a list of that campaign's missions, every one of them open. Pick a mission, then the difficulty, and it starts with its briefing and movie as it always did; win it and the campaign carries on to the next one. Every campaign mission starts at the same rank however you reach it, so starting at the fourth is the same game as playing through to it.

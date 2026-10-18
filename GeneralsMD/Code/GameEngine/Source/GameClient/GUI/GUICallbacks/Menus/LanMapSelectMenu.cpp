@@ -80,6 +80,7 @@ static const char *gadgetsToHide[] =
 	"StaticTextTeam",
 	"StaticTextFaction",
 	"StaticTextColor",
+	"StaticTextAIPersona",
 	"TextEntryMapDisplay",
 	"ButtonSelectMap",
 	"ButtonStart",
@@ -92,12 +93,15 @@ static const char *perPlayerGadgetsToHide[] =
 	"ComboBoxTeam",
 	"ComboBoxColor",
 	"ComboBoxPlayerTemplate",
+	"ComboBoxAIPersona",
 	NULL // keep this last
 };
 
 static void showLANGameOptionsUnderlyingGUIElements( Bool show )
 {
 	ShowUnderlyingGUIElements( show, layoutFilename, parentName, gadgetsToHide, perPlayerGadgetsToHide );
+	if (show)
+		lanUpdateSlotList();	// showing brought back every seat's personality box, a human's included
 	GameWindow *win	= TheWindowManager->winGetWindowFromId( NULL, TheNameKeyGenerator->nameToKey("LanGameOptionsMenu.wnd:ButtonBack") );
 	if(win)
 		win->winEnable( show );

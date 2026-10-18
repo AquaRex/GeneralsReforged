@@ -510,6 +510,15 @@ public:
 	AsciiString m_autoSkirmishSide[ MAX_PLAYER_COUNT ];	///< -side <slot> <faction>: name that slot's faction instead of drawing it from the seed
 	Int m_autoSkirmishTeam[ MAX_PLAYER_COUNT ];	///< -team <slot> <n>: that slot's team, -1 for none; AUTO_SKIRMISH_TEAM_UNSET leaves it to -teams
 	AsciiString m_autoSkirmishSeatName[ MAX_PLAYER_COUNT ];	///< -seatname <slot> <name>: what that seat is called instead of its difficulty
+	Int m_autoSkirmishPersona[ MAX_PLAYER_COUNT ];	///< -aipersona <slot> <name>: that AI seat's AIPersonality, -1 leaves it to the two below
+	Int m_autoSkirmishPersonaOdd;		///< -aipersona2 <name>: the odd seats' personality, -1 for the same as every seat's
+	Int m_autoSkirmishPersonaAll;		///< -aipersonaall <name>: every AI seat's personality (0, Normal, by default)
+	Int autoSkirmishPersona( Int slot ) const		///< what the three switches above give that seat
+	{
+		if (m_autoSkirmishPersona[ slot ] >= 0)
+			return m_autoSkirmishPersona[ slot ];
+		return ((slot & 1) && m_autoSkirmishPersonaOdd >= 0) ? m_autoSkirmishPersonaOdd : m_autoSkirmishPersonaAll;
+	}
 	AsciiString m_netGameHosts;				///< -netgame <ip>[,<ip>...]: the slot list of a LAN game started from the command line (empty = off)
 	Bool m_netGameStarted;						///< that -netgame passed its checks and StartAutomatedGame ran, so every seat has this command line
 	Int m_netGameLocalSlot;						///< -netslot <n>: which of those addresses this copy of the game is
