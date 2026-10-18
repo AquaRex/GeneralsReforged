@@ -263,6 +263,7 @@ public:
 	void setAIPersonality(AIPersonality persona);
 	AIPersonality getAIPersonality(void) const {return m_persona;}
 	Bool superweaponIsPlan(void) const;	///< a Tech AI, or a GLA Air AI whose SCUD Storm stands in for the air force: its first superweapon is rushed
+	void noteTeamRequest(AITeamRequestKind kind, Int from, Int enemy, const Coord3D *pos);	///< an ally asks (aiPostTeamRequest)
 	/// HEADLESS PERSONA: one line of what this seat's personality did over the match, for ai-batch
 	void logPersonaSummary(void);
 
@@ -564,6 +565,12 @@ protected:
 	void huntGatherers(void);										///< raiders out of the base turn on the nearest known gatherer near them
 	void personaSortie(void);										///< Attacker and Rusher on a rung that does not mass: the rush and the regular sorties of what idles at home
 	void defendAlly(void);												///< Supporter: idle units at home go to an ally's base when it is hit
+	void postTeamRequests(void);									///< what this AI asks of its allies, every wave tick
+	void answerTeamRequests(void);								///< Air, Attacker and Rusher answer an ally's call for help
+	const AITeamRequest *freshRequest(AITeamRequestKind kind, UnsignedInt within) const;	///< the request of that kind posted inside within frames, NULL for none
+	void coopChat(const char *trigger);					///< one line to the team when answering, GUI:AICoop<trigger>
+	AITeamRequest	m_inbox[ AIREQ_COUNT ];				///< the latest request of each kind from an ally; not saved
+	UnsignedInt		m_answeredFrame;							///< the frame of the last call answerTeamRequests answered
 	void shareSurplusWithAllies(Int bank, Int target);	///< Economist: who gets what out of the bank (the hook only)
 	AsciiString sneakyLane(const Coord3D *from, const AsciiString &requested, Int pathSuffix);	///< Sneaky: the back door or the flank
 

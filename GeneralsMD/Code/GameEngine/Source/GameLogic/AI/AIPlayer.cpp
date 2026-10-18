@@ -406,6 +406,14 @@ m_role(AIROLE_AGGRESSIVE)
 	for( Int r = 0; r < MAX_PERSONA_RAIDERS; ++r )
 		m_raider[ r ] = INVALID_ID;
 	m_shareFrame = 0;
+	for( Int k = 0; k < AIREQ_COUNT; ++k )
+	{
+		m_inbox[ k ].from = -1;
+		m_inbox[ k ].enemy = -1;
+		m_inbox[ k ].pos.zero();
+		m_inbox[ k ].frame = 0;
+	}
+	m_answeredFrame = 0;
 	m_chatFrame = 0;
 	m_beatenMask = 0;
 	m_personaWaves = 0;
@@ -2061,6 +2069,14 @@ void AIPlayer::noteSuperweaponAim( const Coord3D *pos )
  */
 Bool AIPlayer::computeSuperweaponTarget(const SpecialPowerTemplate *power, Coord3D *retPos, Int playerNdx, Real weaponRadius)
 {
+	// a Tech AI turns its powers on whoever is hitting an ally (the team board)
+	const AITeamRequest *call = m_persona == AIPERSONA_TECH ? freshRequest( AIREQ_HELP, AI_COOP_HELP_FRAMES ) : NULL;
+	if( call && call->enemy >= 0 && call->enemy != playerNdx )
+	{
+		DEBUG_LOG(("AI COOP frame %d player %d turns '%s' on player %d, who hits player %d\n", TheGameLogic->getFrame(),
+			m_player->getPlayerIndex(), power->getName().str(), call->enemy, call->from));
+		playerNdx = call->enemy;
+	}
 
   Bool success = FALSE;
 
@@ -9779,6 +9795,9 @@ void AIPlayer::doWaves( void )
 	updatePressure();
 	defendHome();
 	notePersonaProgress();
+	postTeamRequests();
+	if( m_persona != AIPERSONA_NORMAL )
+		answerTeamRequests();
 	if( m_persona == AIPERSONA_SUPPORTER )
 		defendAlly();
 	if( m_persona == AIPERSONA_RAIDER )
@@ -10703,6 +10722,18 @@ void AIPlayer::sendWave( AIGroup *wave, const AsciiString &approach, Int pathSuf
 	logEngage( cause, units );
 
 	computeShuttleFront( way, wave );
+	// the team board: this attack, for an ally to join (acquireEnemy)
+	Player *target = getAiEnemy();
+	if( target )
+	{
+		Region2D bounds;
+		getPlayerStructureBounds( &bounds, target->getPlayerIndex(), FALSE, m_player->getPlayerIndex() );
+		Coord3D aim;
+		aim.x = bounds.lo.x + bounds.width() / 2;
+		aim.y = bounds.lo.y + bounds.height() / 2;
+		aim.z = 0.0f;
+		aiPostTeamRequest( m_player, AIREQ_ATTACK, target->getPlayerIndex(), &aim );
+	}
 	if( m_persona == AIPERSONA_INFANTRY )
 		sendPersonaTransports( wave );
 	wave->groupFollowWaypointPathAsTeam( way, CMD_FROM_AI );
@@ -16095,14 +16126,171 @@ void AIPlayer::shareSurplusWithAllies( Int bank, Int target )
 		if( poorest == NULL || ally->getMoney()->countMoney() < poorest->getMoney()->countMoney() )
 			poorest = ally;
 	}
+	// an ally who asked for money (the board) goes before the poorest
+	const AITeamRequest *asked = freshRequest( AIREQ_MONEY, SHARE_EVERY_FRAMES );
+	if( asked )
+	{
+		Player *asker = ThePlayerList->getNthPlayer( asked->from );
+		if( asker->isPlayableSide() && asker->hasAnyObjects() && m_player->getRelationship( asker->getDefaultTeam() ) == ALLIES &&
+				asker->getRelationship( m_player->getDefaultTeam() ) == ALLIES )
+			poorest = asker;
+	}
 	if( poorest == NULL )
 		return;
 	m_shareFrame = now;
 	m_personaShared += amount;
-	// HOOK(ai-money-transfer): the transfer of amount from m_player to poorest goes here.  This decides
-	// who and how much, deterministically, and moves nothing yet.
-	DEBUG_LOG(("AI SHARE frame %d player %d would give %d to player %d (%d in its bank), %d in ours, bank target %d\n", now,
-		m_player->getPlayerIndex(), amount, poorest->getPlayerIndex(), poorest->getMoney()->countMoney(), bank, target));
+	// straight from bank to bank inside the logic, as MSG_TRANSFER_MONEY does: every machine runs this
+	// same decision, so nothing goes through the message stream
+	const UnsignedInt moved = m_player->getMoney()->withdraw( (UnsignedInt)amount );
+	poorest->getMoney()->deposit( moved );
+	if( asked && poorest->getPlayerIndex() == asked->from )
+		coopChat( "Money" );
+	DEBUG_LOG(("AI SHARE frame %d player %d gives %u to player %d (%d in its bank now)%s, %d in ours, bank target %d\n", now,
+		m_player->getPlayerIndex(), moved, poorest->getPlayerIndex(), poorest->getMoney()->countMoney(),
+		asked && poorest->getPlayerIndex() == asked->from ? ", asked for" : "", m_player->getMoney()->countMoney(), target));
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The team board.  A request lands in every computer ally's inbox, the latest of each kind kept; a
+	* personality answers, Normal never reads it, so Normal teams play as before. */
+//-------------------------------------------------------------------------------------------------
+static const Real COOP_ENEMY_REACH = 1000.0f;
+/** A computer player short of this much, three minutes in, asks its allies for money. */
+static const Int COOP_POOR_BANK = 300;
+static const UnsignedInt COOP_POOR_AFTER_FRAMES = 180 * LOGICFRAMES_PER_SECOND;
+
+void aiPostTeamRequest( Player *from, AITeamRequestKind kind, Int enemy, const Coord3D *pos )
+{
+	for( Int i = 0; i < ThePlayerList->getPlayerCount(); ++i )
+	{
+		Player *ally = ThePlayerList->getNthPlayer( i );
+		if( ally != from && ally->getRelationship( from->getDefaultTeam() ) == ALLIES && from->getRelationship( ally->getDefaultTeam() ) == ALLIES )
+			ally->noteTeamRequest( kind, from->getPlayerIndex(), enemy, pos );
+	}
+}
+
+Int aiEnemyNear( const Player *of, const Coord3D *pos )
+{
+	PartitionFilterAlive filterAlive;
+	PartitionFilterOnMap filterOnMap;
+	PartitionFilter *filters[] = { &filterAlive, &filterOnMap, NULL };
+	ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange( pos, COOP_ENEMY_REACH, FROM_CENTER_2D, filters, ITER_SORTED_NEAR_TO_FAR );
+	MemoryPoolObjectHolder hold( iter );
+	for( Object *obj = iter->first(); obj; obj = iter->next() )
+	{
+		const Player *owner = obj->getControllingPlayer();
+		if( owner && owner->isPlayableSide() && of->getRelationship( obj->getTeam() ) == ENEMIES )
+			return owner->getPlayerIndex();
+	}
+	return -1;
+}
+
+void AIPlayer::noteTeamRequest( AITeamRequestKind kind, Int from, Int enemy, const Coord3D *pos )
+{
+	AITeamRequest &slot = m_inbox[ kind ];
+	slot.from = from;
+	slot.enemy = enemy;
+	slot.pos = *pos;
+	slot.frame = TheGameLogic->getFrame();
+}
+
+const AITeamRequest *AIPlayer::freshRequest( AITeamRequestKind kind, UnsignedInt within ) const
+{
+	const AITeamRequest &slot = m_inbox[ kind ];
+	return slot.frame != 0 && TheGameLogic->getFrame() - slot.frame < within ? &slot : NULL;
+}
+
+void AIPlayer::coopChat( const char *trigger )
+{
+	const UnsignedInt now = TheGameLogic->getFrame();
+	if( !aiPersonaChatAllowed( now, m_chatFrame ) )
+		return;
+	AsciiString label;
+	label.format( "GUI:AICoop%s", trigger );
+	m_chatFrame = now;
+	DEBUG_LOG(("AI CHAT frame %d player %d %s\n", now, m_player->getPlayerIndex(), label.str()));
+	TheInGameUI->chatMessage( m_player, TheGameText->fetch( label ) );
+}
+
+/** A computer player's own requests: the armed enemy nearest the middle of its base while it is hit,
+	* by air or not, and its empty bank.  Its attacks are posted where they are sent (sendWave). */
+void AIPlayer::postTeamRequests( void )
+{
+	if( !m_baseCenterSet )
+		return;
+	const UnsignedInt now = TheGameLogic->getFrame();
+	if( isBaseUnderAttack() )
+	{
+		PartitionFilterAlive filterAlive;
+		PartitionFilterOnMap filterOnMap;
+		PartitionFilter *filters[] = { &filterAlive, &filterOnMap, NULL };
+		ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange( &m_baseCenter, 1.5f * m_baseRadius, FROM_CENTER_2D, filters, ITER_SORTED_NEAR_TO_FAR );
+		MemoryPoolObjectHolder hold( iter );
+		for( Object *obj = iter->first(); obj; obj = iter->next() )
+		{
+			if( obj->isKindOf( KINDOF_PROJECTILE ) || !obj->isAbleToAttack() || m_player->getRelationship( obj->getTeam() ) != ENEMIES )
+				continue;
+			const Int enemy = obj->getControllingPlayer()->getPlayerIndex();
+			aiPostTeamRequest( m_player, obj->isKindOf( KINDOF_AIRCRAFT ) ? AIREQ_AA : AIREQ_HELP, enemy, obj->getPosition() );
+			break;
+		}
+	}
+	if( now > COOP_POOR_AFTER_FRAMES && (Int)m_player->getMoney()->countMoney() < COOP_POOR_BANK )
+		aiPostTeamRequest( m_player, AIREQ_MONEY, -1, &m_baseCenter );
+}
+
+/** An ally's call for help, answered by the Air AI with its idle aircraft at the attacker (an air raid
+	* too) and by the Attacker and Rusher with a counter-attack of what idles at home on the attacker's
+	* own base.  The Supporter has defendAlly, the Tech AI its powers (computeSuperweaponTarget), the
+	* Economist the money (shareSurplusWithAllies).  Once a request: what went is not sent again. */
+void AIPlayer::answerTeamRequests( void )
+{
+	if( !m_baseCenterSet || isBaseUnderAttack() )
+		return;
+	const Bool air = m_persona == AIPERSONA_AIR;
+	const Bool counter = m_persona == AIPERSONA_ATTACKER || m_persona == AIPERSONA_RUSHER;
+	if( !air && !counter )
+		return;
+	const AITeamRequest *call = freshRequest( AIREQ_AA, AI_COOP_HELP_FRAMES );
+	if( call == NULL || !air )
+		call = freshRequest( AIREQ_HELP, AI_COOP_HELP_FRAMES );
+	if( call == NULL || call->frame == m_answeredFrame )
+		return;
+	m_answeredFrame = call->frame;
+
+	Coord3D goal = call->pos;
+	if( counter )
+	{
+		if( call->enemy < 0 )
+			return;
+		Region2D bounds;
+		getPlayerStructureBounds( &bounds, call->enemy, FALSE, m_player->getPlayerIndex() );
+		goal.x = bounds.lo.x + bounds.width() / 2;
+		goal.y = bounds.lo.y + bounds.height() / 2;
+		goal.z = TheTerrainLogic->getGroundHeight( goal.x, goal.y );
+	}
+	std::vector<Object *> owned;
+	m_player->iterateObjects( collectOwned, &owned );
+	Int sent = 0;
+	for( std::vector<Object *>::const_iterator o = owned.begin(); o != owned.end(); ++o )
+	{
+		Object *obj = *o;
+		if( obj->isEffectivelyDead() || obj->isContained() || obj->getAI() == NULL || obj->isKindOf( KINDOF_IMMOBILE ) ||
+				obj->isKindOf( KINDOF_STRUCTURE ) || !obj->isAbleToAttack() || ( !air && obj->isKindOf( KINDOF_AIRCRAFT ) ) ||
+				!isAtHome( obj->getPosition() ) || !leavesToFinish( obj ) || isOutOnOrders( obj ) )
+			continue;
+		const StateID state = obj->getAI()->getCurrentStateID();
+		if( state != AI_IDLE && state != AI_GUARD && state != AI_GUARD_RETALIATE )
+			continue;
+		obj->getAI()->aiAttackMoveToPosition( &goal, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI );
+		++sent;
+	}
+	if( sent == 0 )
+		return;
+	coopChat( "Help" );
+	DEBUG_LOG(("AI COOP frame %d player %d answers player %d's call (%s) with %d %s at (%.0f,%.0f)\n", TheGameLogic->getFrame(),
+		m_player->getPlayerIndex(), call->from, call == &m_inbox[ AIREQ_AA ] ? "aircraft" : "base", sent,
+		air ? "aircraft" : "units on his attacker's base", goal.x, goal.y));
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -1302,7 +1302,13 @@ Bool Player::computeSuperweaponTarget(const SpecialPowerTemplate *power, Coord3D
 //-------------------------------------------------------------------------------------------------
 Player  *Player::getCurrentEnemy( void )
 {
-	return m_ai?m_ai->getAiEnemy():NULL; 
+	return m_ai?m_ai->getAiEnemy():NULL;
+}
+
+void Player::noteTeamRequest( Int kind, Int from, Int enemy, const Coord3D *pos )
+{
+	if( m_ai )
+		m_ai->noteTeamRequest( (AITeamRequestKind)kind, from, enemy, pos );
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -1935,6 +1935,19 @@ GUI:AIChatCounterWin1
 "Countered."
 END
 
+// A computer ally answering the team board (AIPlayer::coopChat)
+GUI:AICoopHelp
+"Hold on, I am coming."
+END
+
+GUI:AICoopMoney
+"Here, take some money."
+END
+
+GUI:AICoopJoin
+"I am with you on that attack."
+END
+
 GUI:MoneyTransferTitle
 "Send money"
 END

@@ -822,6 +822,26 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, AIGroup *orderedGroup 
 		}
 
 		//---------------------------------------------------------------------------------------------
+		// A chat command to the computer allies (fork): (Int AITeamRequestKind, Location) from help /
+		// attack / money typed in chat.  It goes on the team board (aiPostTeamRequest); only a computer
+		// personality reads it.  The kind came over the network, so it is checked here.
+		case GameMessage::MSG_TEAM_REQUEST:
+		{
+			if( msg->getArgumentCount() < 2 || msg->getArgumentDataType( 0 ) != ARGUMENTDATATYPE_INTEGER
+					|| msg->getArgumentDataType( 1 ) != ARGUMENTDATATYPE_LOCATION )
+				break;
+			const Int kind = msg->getArgument( 0 )->integer;
+			if( kind < 0 || kind >= AIREQ_COUNT || !thisPlayer->isPlayableSide() || !thisPlayer->isPlayerActive() )
+				break;
+			const Coord3D pos = msg->getArgument( 1 )->location;
+			const Int enemy = aiEnemyNear( thisPlayer, &pos );
+			DEBUG_LOG(( "TEAM REQUEST: frame %d player %d asks %d, enemy %d at (%.0f,%.0f)\n", getFrame(),
+									thisPlayer->getPlayerIndex(), kind, enemy, pos.x, pos.y ));
+			aiPostTeamRequest( thisPlayer, (AITeamRequestKind)kind, enemy, &pos );
+			break;
+		}
+
+		//---------------------------------------------------------------------------------------------
 		// The stance key (fork): every selected unit of the sender's takes the stance.  The number came
 		// over the network, so only 0 and 1 mean anything
 		case GameMessage::MSG_SET_STANCE:
@@ -2301,6 +2321,8 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, AIGroup *orderedGroup 
 				Object *object = TheThingFactory->newObject( thing, thisPlayer->getDefaultTeam() );
 				object->setPosition( &pos );
 				object->setProducer(NULL);
+				// a beacon is an attack request to the computer allies (the team board, fork)
+				aiPostTeamRequest( thisPlayer, AIREQ_ATTACK, aiEnemyNear( thisPlayer, &pos ), &pos );
 
 				if (thisPlayer->getRelationship( ThePlayerList->getLocalPlayer()->getDefaultTeam() ) == ALLIES || ThePlayerList->getLocalPlayer()->isPlayerObserver())
 				{

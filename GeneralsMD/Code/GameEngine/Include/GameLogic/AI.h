@@ -638,6 +638,35 @@ Int aiPersonaShareAmount( Int bank, Int target, Int cap );
 static const UnsignedInt AI_CHAT_GAP_FRAMES = 150 * LOGICFRAMES_PER_SECOND;
 Bool aiPersonaChatAllowed( UnsignedInt now, UnsignedInt lastChat );
 
+/** What a player asks of his allies: his base is under attack, by aircraft, he is short of money, or
+	* he goes after an enemy.  A computer player posts these itself; a person by beacon or chat command
+	* (MSG_TEAM_REQUEST).  Only a personality answers: Normal reads nothing off the board. */
+enum AITeamRequestKind
+{
+	AIREQ_HELP = 0,
+	AIREQ_AA,
+	AIREQ_MONEY,
+	AIREQ_ATTACK,
+	AIREQ_COUNT
+};
+
+struct AITeamRequest
+{
+	Int from;							///< the asking player's index
+	Int enemy;						///< the player he is fighting, -1 for none known
+	Coord3D pos;					///< where: the attacker, or the attack's target
+	UnsignedInt frame;		///< when it was posted, 0 for never
+};
+
+/** How long a call for help stands, and a personality keeps to an ally's attack after he posted it. */
+static const UnsignedInt AI_COOP_HELP_FRAMES = 15 * LOGICFRAMES_PER_SECOND;
+static const UnsignedInt AI_COOP_JOIN_FRAMES = 120 * LOGICFRAMES_PER_SECOND;
+
+/** Post a request from this player to every computer ally of his (allied both ways). */
+void aiPostTeamRequest( Player *from, AITeamRequestKind kind, Int enemy, const Coord3D *pos );
+/** The enemy of this player's who owns what stands nearest pos, -1 for none within reach. */
+Int aiEnemyNear( const Player *of, const Coord3D *pos );
+
 /** A skirmish AI's purchase queue, on every rung with a bank target.  Every spender asks it before it pays, with a stable key (a
 	* template id), the price, its score and whether the thing could start right now (an idle factory,
 	* a dozer).  It remembers one request: the best one it could not afford.  That one has the money

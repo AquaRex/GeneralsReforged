@@ -26,6 +26,9 @@ found and fixed â€” EA's own, not port damage.**
   - **Supporter** attacks what its ally attacks and sends its army home to its ally when the ally's base is hit.
   - **Counter** studies what you field and builds the answer to it.
   - **Random** picks one of the above when the match starts and does not tell you which.
+- Computer allies with a personality answer their team. When an ally's base is hit, an Air Force strikes the attacker, a Supporter comes home to defend, an Attacker or Rusher hits back at the attacker's base and a Tech turns its powers on him. An Economist sends money to an ally who runs dry.
+- Allied computer players join the attack a teammate has started, so a team hits one enemy together.
+- You can call them too. A beacon you place asks your computer allies to attack there, and typing `help`, `attack` or `money` in chat (`yardim`, `saldir`, `para` in Turkish) asks for help where you are looking, an attack there, or cash.
 - A personality is a preference, never a bonus: no personality gets extra money, faster building or tougher units.
 - Computer players with a personality now and then say something in chat, in their own voice, at most once every two and a half minutes. Normal ones stay quiet.
 - The choice travels with the game to every player in a LAN or online match and into the replay. Replays and saves from earlier versions load with every computer player on Normal; a save made with this version does not load in an earlier one.

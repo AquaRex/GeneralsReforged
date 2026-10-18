@@ -609,6 +609,20 @@ void AISkirmishPlayer::acquireEnemy(void)
 	Player *bestEnemy = NULL;
 	Real bestDistanceSqr = HUGE_DIST*HUGE_DIST;
 
+	// a personality joins an ally's attack (the team board): his target is ours while it stands
+	if (m_persona != AIPERSONA_NORMAL && m_persona != AIPERSONA_OPPORTUNIST) {
+		const AITeamRequest *attack = freshRequest(AIREQ_ATTACK, AI_COOP_JOIN_FRAMES);
+		Player *target = attack && attack->enemy >= 0 ? ThePlayerList->getNthPlayer(attack->enemy) : NULL;
+		if (target && target != m_currentEnemy && m_player->getRelationship(target->getDefaultTeam()) == ENEMIES &&
+				target->hasAnyObjects()) {
+			DEBUG_LOG(("AI COOP frame %d player %d joins player %d's attack on player %d\n", TheGameLogic->getFrame(),
+				m_player->getPlayerIndex(), attack->from, attack->enemy));
+			m_currentEnemy = target;
+			coopChat("Join");
+			return;
+		}
+	}
+
 	// an Opportunist keeps looking for the weaker, busier enemy, and changes when one is clearly cheaper
 	const Bool opportunist = m_persona == AIPERSONA_OPPORTUNIST;
 	Real currentCost = HUGE_DIST*HUGE_DIST;

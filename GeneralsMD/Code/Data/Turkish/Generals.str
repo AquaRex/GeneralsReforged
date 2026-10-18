@@ -16332,6 +16332,19 @@ GUI:AIChatCounterWin1
 "Karşılık verildi."
 END
 
+// Takım panosuna cevap veren bilgisayar müttefiki (AIPlayer::coopChat)
+GUI:AICoopHelp
+"Dayan, geliyorum."
+END
+
+GUI:AICoopMoney
+"Al, biraz para gönderiyorum."
+END
+
+GUI:AICoopJoin
+"Bu saldırıda seninleyim."
+END
+
 GUI:MoneyTransferTitle
 "Para gönder"
 END

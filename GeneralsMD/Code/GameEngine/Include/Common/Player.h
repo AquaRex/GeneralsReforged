@@ -611,6 +611,7 @@ public:
 
 	/// Get the enemy an ai player is currently focused on.  NOTE - Can be NULL.
 	Player  *getCurrentEnemy( void );
+	void noteTeamRequest( Int kind, Int from, Int enemy, const Coord3D *pos );	///< an ally's request, for this player's AI if it has one (aiPostTeamRequest)
 
 	/// Is this player a skirmish ai player?
 	Bool isSkirmishAIPlayer( void );
