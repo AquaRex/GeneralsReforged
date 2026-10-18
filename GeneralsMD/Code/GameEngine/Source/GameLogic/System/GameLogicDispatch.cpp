@@ -778,6 +778,50 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, AIGroup *orderedGroup 
 		}
 
 		//---------------------------------------------------------------------------------------------
+		// A money transfer (fork): (Int player index, Int amount) from the Tab screen.  A player still in
+		// the match may give to an ally still in it, allied both ways, never to an enemy.  The arguments
+		// came over the network, so their shape and the two sides are checked here; withdraw clamps the
+		// amount to what the sender holds, so nobody goes below zero and the receiver gets only what left.
+		case GameMessage::MSG_TRANSFER_MONEY:
+		{
+			if( msg->getArgumentCount() < 2 || msg->getArgumentDataType( 0 ) != ARGUMENTDATATYPE_INTEGER
+					|| msg->getArgumentDataType( 1 ) != ARGUMENTDATATYPE_INTEGER )
+				break;
+			const Int targetIndex = msg->getArgument( 0 )->integer;
+			const Int amount = msg->getArgument( 1 )->integer;
+			if( amount <= 0 || targetIndex < 0 || targetIndex >= ThePlayerList->getPlayerCount() )
+				break;
+			Player *target = ThePlayerList->getNthPlayer( targetIndex );
+			if( target == thisPlayer || !thisPlayer->isPlayableSide() || !thisPlayer->isPlayerActive()
+					|| !target->isPlayableSide() || !target->isPlayerActive() )
+				break;
+			if( thisPlayer->getRelationship( target->getDefaultTeam() ) != ALLIES
+					|| target->getRelationship( thisPlayer->getDefaultTeam() ) != ALLIES )
+			{
+				DEBUG_LOG(( "MONEY TRANSFER: frame %d player %d refused, player %d is not an ally\n", getFrame(),
+										thisPlayer->getPlayerIndex(), targetIndex ));
+				break;
+			}
+
+			const UnsignedInt moved = thisPlayer->getMoney()->withdraw( (UnsignedInt)amount );
+			if( moved == 0 )
+				break;
+			target->getMoney()->deposit( moved );
+
+			DEBUG_LOG(( "MONEY TRANSFER: frame %d player %d gave %u to player %d, now %u and %u\n", getFrame(),
+									thisPlayer->getPlayerIndex(), moved, targetIndex,
+									thisPlayer->getMoney()->countMoney(), target->getMoney()->countMoney() ));
+			if( TheInGameUI )
+			{
+				if( thisPlayer == ThePlayerList->getLocalPlayer() )
+					TheInGameUI->message( "GUI:MoneyTransferSent", (Int)moved, target->getPlayerDisplayName().str() );
+				else if( target == ThePlayerList->getLocalPlayer() )
+					TheInGameUI->message( "GUI:MoneyTransferReceived", thisPlayer->getPlayerDisplayName().str(), (Int)moved );
+			}
+			break;
+		}
+
+		//---------------------------------------------------------------------------------------------
 		// The stance key (fork): every selected unit of the sender's takes the stance.  The number came
 		// over the network, so only 0 and 1 mean anything
 		case GameMessage::MSG_SET_STANCE:

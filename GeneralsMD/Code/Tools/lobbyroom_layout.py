@@ -119,7 +119,7 @@ GAMESPY_COLUMNS = [
 SKIRMISH_SETTINGS = [
     (96, 152, [("StartingCashLabel", "ComboBoxStartingCash"), ("LabelSuperweapons", "ComboBoxSuperweapons"),
                ("LabelIncomeSharing", "ComboBoxIncomeSharing"), ("LabelSupplyPileLimit", "ComboBoxSupplyPileLimit")]),
-    (88, 112, [("LabelGameSpeed", "ComboBoxGameSpeed"), ("CheckBoxUnitLimit",),
+    (88, 112, [("CheckBoxTurbo",), ("CheckBoxUnitLimit",),
                ("LabelTechRespawn", "ComboBoxTechRespawn")]),
 ]
 # The skirmish page is 108 high and the pile limit is its fourth row: 26 apart from 4 under the page
@@ -133,8 +133,13 @@ LAN_SETTINGS = [
                ("LabelTechRespawn", "ComboBoxTechRespawn")]),
     (96, 152, [("LabelPeaceTime", "ComboBoxPeaceTime"), ("LabelIncomeSharing", "ComboBoxIncomeSharing"),
                ("LabelSupplyPileLimit", "ComboBoxSupplyPileLimit")]),
-    (0, 128, [("CheckBoxProRules",), ("CheckBoxUnitLimit",)]),
+    (0, 128, [("CheckBoxProRules",), ("CheckBoxUnitLimit",), ("CheckBoxTurbo",)]),
 ]
+
+# Turbo mode replaced the skirmish room's game speed dropdown: a box cloned from the unit limit's,
+# which every room has, so it inherits that box's art and lettering.
+TURBO_BOX = ("CheckBoxTurbo", "GUI:TurboMode", "TOOLTIP:TurboMode")
+GAME_SPEED_DROPDOWN = ("LabelGameSpeed", "ComboBoxGameSpeed")
 LAN_SETTING_ROW_PITCH = 28
 LAN_SETTING_TOP_PADDING = 4
 
@@ -161,6 +166,26 @@ def need(layout, name):
     if window is None:
         raise KeyError("layout has no %s" % name)
     return window
+
+
+def add_turbo_box(layout):
+    """Clone the unit limit box into the turbo box beside it, once; a second run finds it there."""
+    name, text, tooltip = TURBO_BOX
+    if layout.find(name) is not None:
+        return
+    unit_limit = need(layout, "CheckBoxUnitLimit")
+    prefix = unit_limit.name.split(":")[0]
+    box = wndlayout.clone(unit_limit, "%s:%s" % (prefix, name))
+    box.put_prop("TEXT", '"%s"' % text)
+    box.put_prop("TOOLTIPTEXT", '"%s"' % tooltip)
+    layout.root.parent_of(unit_limit).children.append(box)
+
+
+def drop_game_speed_dropdown(layout):
+    for name in GAME_SPEED_DROPDOWN:
+        window = layout.find(name)
+        if window is not None:
+            layout.root.parent_of(window).children.remove(window)
 
 
 def left_align(window):
@@ -295,6 +320,8 @@ def build_skirmish(layout):
     page_height = PAGE_BOTTOM - PAGE_TOP
     for window in (info_frame, need(layout, "ListboxInfo"), need(layout, "PageLobbySettings")):
         window.place(INNER_LEFT, PAGE_TOP, SEAT_RIGHT - INNER_LEFT, page_height)
+    drop_game_speed_dropdown(layout)
+    add_turbo_box(layout)
     place_settings(layout, SKIRMISH_SETTINGS, INNER_LEFT, SEAT_RIGHT, PAGE_TOP, PAGE_BOTTOM,
                    SKIRMISH_SETTING_ROW_PITCH, SKIRMISH_SETTING_TOP_PADDING)
 
@@ -324,6 +351,7 @@ def build_lan(layout):
     need(layout, "PageLobbySettings").place(INNER_LEFT, PAGE_TOP, chat_width, listbox_height)
     need(layout, "TextEntryChat").place(INNER_LEFT, entry_top, chat_width - EMOTE_WIDTH - COLUMN_GAP, ROW_HEIGHT)
     need(layout, "ButtonEmote").place(INNER_RIGHT - EMOTE_WIDTH, entry_top, EMOTE_WIDTH, ROW_HEIGHT)
+    add_turbo_box(layout)
     place_settings(layout, LAN_SETTINGS, INNER_LEFT, INNER_RIGHT, PAGE_TOP, PAGE_TOP + listbox_height,
                    LAN_SETTING_ROW_PITCH, LAN_SETTING_TOP_PADDING)
     return layout

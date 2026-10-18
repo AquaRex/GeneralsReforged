@@ -37,6 +37,7 @@
 #include "Common/Debug.h"
 #include "Common/file.h"
 #include "Common/GameAudio.h"
+#include "Common/GameEngine.h"
 #include "Common/LocalFileSystem.h"
 #include "Common/Player.h"
 #include "Common/PlayerList.h"
@@ -1342,7 +1343,8 @@ void ConnectionManager::updateRunAhead(Int oldRunAhead, Int frameRate, Bool didS
 				 together oscillate: the band swallows a genuinely slow player for as long as the probe
 				 keeps the rate within 10 % of them, so a room held at 12 by one machine walked
 				 12-13-14-15-12 for ever.  One mechanism, not two. */
-			minFps = settleRoomFrameRate(minFps, TheGlobalData->m_framesPerSecondLimit);
+			// the ceiling is the match's speed, which turbo mode doubles on every machine alike
+			minFps = settleRoomFrameRate(minFps, getMatchFps());
 			DEBUG_LOG(("ConnectionManager::updateRunAhead - minFps after adjustment is %d\n", minFps));
 
 			/* The rate everybody is actually told to run at.  Deliberately a step above the slowest
@@ -1351,7 +1353,7 @@ void ConnectionManager::updateRunAhead(Int oldRunAhead, Int frameRate, Bool didS
 				 room for the rest of the match - see CushionMetrics.h.  The run-ahead below is sized
 				 on the settled rate rather than this one: it is the room's honest measured speed, and
 				 sizing a safety window on the rate we are hoping for is how the window comes up short. */
-			Int commandedFps = probeRoomFrameRate(minFps, TheGlobalData->m_framesPerSecondLimit);
+			Int commandedFps = probeRoomFrameRate(minFps, getMatchFps());
 			// the rate crosses the wire as an UnsignedByte, and -fps is in logic frames now (twice retail)
 			if (commandedFps > UCHAR_MAX)
 				commandedFps = UCHAR_MAX;
@@ -2025,6 +2027,9 @@ void ConnectionManager::parseUserList(const GameInfo *game)
 {
 	if (!game)
 		return;
+
+	// every machine reads the same game options, so every machine starts the room at the same speed
+	m_frameMetrics.setMatchFps(GameEngine_matchFramesPerSecond(game->getTurbo()));
 
 	Int i;
 	Int numUsers = 0;

@@ -95,7 +95,8 @@ protected:
 	HAnimClass		 *m_moveHintAnim[ MAX_MOVE_HINTS ];
 
 	// recordDraw's lists, replayed by draw
-	Display::DrawCalls m_overWorldDraw;		///< preDraw to the guard markers
+	Display::DrawCalls m_overWorldDraw;		///< preDraw to the guard markers, drawn where the world is
+	Display::DrawCalls m_dragBoxDraw;		///< the drag box, drawn where the pointer is
 	Display::DrawCalls m_postDrawCalls;		///< postDraw
 	Display::DrawCalls m_hudOverlayDraw;	///< drawHudOverlay
 

@@ -286,6 +286,11 @@ public:
   inline Int getSupplyPileLimit( void ) const;
   void setSupplyPileLimit( Int players );
 
+  // Turbo mode: the match runs twice as many logic frames a second, each one the same as at normal
+  // speed.  The host's choice, so every machine and the replay agree on it.
+  Bool getTurbo( void ) const { return m_turbo; }
+  void setTurbo( Bool turbo ) { m_turbo = turbo; }
+
   Bool hasAIPlayers( void ) const;									///< is any slot held by a computer player?
 
 protected:
@@ -315,6 +320,7 @@ protected:
   Int m_incomeSharing; // an IncomeSharing, INCOME_SHARING_OFF = the retail game
   Int m_techRespawn; // minutes before a destroyed tech building comes back, 0 = never
   Int m_supplyPileLimit; // players who may gather from one supply pile at once, 0 = any number
+  Bool m_turbo; // the lobby's turbo mode is on
 };
 
 extern GameInfo *TheGameInfo;

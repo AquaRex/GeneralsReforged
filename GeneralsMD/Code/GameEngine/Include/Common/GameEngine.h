@@ -53,6 +53,11 @@
 /** The above in logic frames, at a given game speed: 3 at the retail 30fps, 6 at 60. */
 Int GameEngine_logicCatchupMaxFrames( Int logicFps );
 
+/** The logic frames a second a match starts at: FramesPerSecondLimit (normal speed, or what -fps
+	asked for), twice that with turbo mode on.  Every start that sends MSG_NEW_GAME passes this, so a
+	replay plays back at the speed its match had. */
+Int GameEngine_matchFramesPerSecond( Bool turbo );
+
 /** R1, smooth motion: the renderer's blend reads how far into the next logic tick the wall clock is
 	(0 just after a tick, 1 a whole tick later or more; always 1 in fast mode or before the first tick).
 	The logic loop notes each pass's last tick with GameEngine_noteLogicTickDone. */

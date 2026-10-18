@@ -209,6 +209,7 @@ Data/Scenarios/exitmovebuild.txt
 Data/Scenarios/exitorders.txt
 Data/Scenarios/expansionbunker.txt
 Data/Scenarios/explreel.txt
+Data/Scenarios/givemoney.txt
 Data/Scenarios/glowbase.txt
 Data/Scenarios/glowfight.txt
 Data/Scenarios/glowmicrowave.txt
@@ -357,6 +358,7 @@ Data/Turkish/Generals.str
 Data/Window/ControlBar.wnd
 Data/Window/ControlBarPopupDescription.wnd
 Data/Window/ControlBarPro.txt
+Data/Window/Diplomacy.wnd
 Data/Window/GenPowersShortcutBarChina.wnd
 Data/Window/GenPowersShortcutBarGLA.wnd
 Data/Window/GenPowersShortcutBarUS.wnd
@@ -3847,6 +3849,7 @@ Tools/cheat_check.py
 Tools/china_beacon.py
 Tools/control_client.py
 Tools/d3d9posix_check.py
+Tools/diplomacy_layout.py
 Tools/ffmpeg-build-posix.sh
 Tools/ffmpeg-build.bat
 Tools/ffmpeg-build.sh

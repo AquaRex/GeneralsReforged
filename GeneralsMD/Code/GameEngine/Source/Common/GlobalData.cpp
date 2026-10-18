@@ -691,6 +691,7 @@ GlobalData::GlobalData()
 	m_useShadowDecals = FALSE;
 	m_shadowsForProjectiles = TRUE;	//on by default: the shipped INI has no entry for it
 	m_startAtMaxZoom = FALSE;		//off, a match opens at START_CAMERA_HEIGHT (View.cpp); on, as far out as the wheel goes
+	m_turboMode = FALSE;				//a mission runs at normal speed
 	m_shadowsForProps = TRUE;				//likewise: scenery with no shadow of its own gets one
 	m_shadowsForParticles = TRUE;	//on by default: the shipped INI has no entry for it
 	m_volumetricSmokeShadows = TRUE;
@@ -728,6 +729,7 @@ GlobalData::GlobalData()
 	m_incomeSharing = 0;						// INCOME_SHARING_OFF unless -incomesharing asks
 	m_techRespawn = 0;							// a destroyed tech building stays destroyed unless -techrespawn asks
 	m_supplyPileLimit = 0;					// a supply pile takes any number of players unless -supplypilelimit asks
+	m_turboMatch = FALSE;						// normal speed unless -turbomode asks
 	m_superweapons = 0;							// SUPERWEAPONS_ALLOW unless -superweapons asks
 	m_startingCash = 0;							// the INI's DefaultStartingCash unless -startingcash asks
 	m_autoSkirmishObserver = FALSE;

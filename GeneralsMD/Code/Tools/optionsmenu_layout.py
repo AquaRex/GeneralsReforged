@@ -219,6 +219,7 @@ NEW_CONTROLS = [
     (COMBO,  "ComboBoxHealthBarColors", None),
     (LABEL,  "LabelMenuTransitionSpeed", "GUI:MenuTransitionSpeed"),
     (SLIDER, "SliderMenuTransitionSpeed", None),
+    (CHECK,  "CheckTurboModeMissions", "GUI:TurboModeMissions"),
 ]
 
 # EA's check boxes that shipped HIDDEN off the panel's right edge with working code behind them in
@@ -393,6 +394,8 @@ GROUP_LAYOUT = [
             ("check", "CheckNetBox")]),
         ("GUI:OptionsGroupMenus", [
             setting("LabelMenuTransitionSpeed", "SliderMenuTransitionSpeed", "ValueMenuTransitionSpeed")]),
+        ("GUI:OptionsGroupSpeed", [
+            ("check", "CheckTurboModeMissions")]),
         ("GUI:OptionsGroupBattlefield", [
             setting("LabelHealthBars", "ComboBoxHealthBars"),
             setting("LabelHealthBarColors", "ComboBoxHealthBarColors"),

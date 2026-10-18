@@ -15417,6 +15417,22 @@ TOOLTIP:ProRules
 "Turnuva listesi. Süper Silah Generalinin tek topu dışında Parçacık Topu ya da SCUD Fırtınası yok. Nükleer Füze silosu kurulur ama asla ateşlemez. Aurora yok, Taktik Nükleer MiG yok; patlayıcılı motor, intihar bombası, Nötron Mermileri ya da Hayalet Comanche de yok; 3. rütbeden önce Halı Bombardımanı yok. Mikrodalga Tankı hâlâ inşa edilen bir binayı devre dışı bırakamaz, kimse bir düşman binasının 300 birim yakınına bina kuramaz ve kimse bir grup petrol kuyusunun çevresine ikiden fazla Patriot, Gatling Topu ya da Stinger Mevzii koyamaz."
 END
 
+GUI:TurboMode
+"Turbo Modu"
+END
+
+TOOLTIP:TurboMode
+"Maç iki kat hızlı oynanır: her saniyede oyunun iki saniyesi geçer, başka hiçbir şey değişmez. Ağ oyununda bunu herkes için kurucu seçer."
+END
+
+GUI:TurboModeMissions
+"Görevlerde Turbo Modu"
+END
+
+TOOLTIP:TurboModeMissions
+"Kampanya ve General Meydan Okuması görevleri iki kat hızlı oynanır; süren bir görev de hemen hızlanır. Çatışma ve çok oyunculu oyunların lobide kendi kutusu vardır."
+END
+
 GUI:CantBuildTooCloseToEnemy
 "Bir düşman binasına bu kadar yakın inşa edemezsiniz."
 END
@@ -15731,6 +15747,10 @@ END
 
 GUI:OptionsGroupMenus
 "Menüler"
+END
+
+GUI:OptionsGroupSpeed
+"Oyun Hızı"
 END
 
 GUI:OptionsGroupReplays
@@ -16310,4 +16330,28 @@ END
 
 GUI:AIChatCounterWin1
 "Karşılık verildi."
+END
+
+GUI:MoneyTransferTitle
+"Para gönder"
+END
+
+GUI:MoneyTransferSend
+"Gönder"
+END
+
+GUI:MoneyTransferAmount
+"$%d"
+END
+
+GUI:MoneyTransferSent
+"Gönderdiğin $%d, %ls oyuncusuna ulaştı."
+END
+
+GUI:MoneyTransferReceived
+"%ls sana $%d gönderdi."
+END
+
+TOOLTIP:MoneyTransfer
+"Miktarı tekerlekle ya da - ve + ile seç: adım 100, Ctrl ile 1.000, Shift ile 10.000, ikisiyle 100.000. Gönder parayı oyuncuya verir."
 END

@@ -1688,6 +1688,18 @@ void W3DView::updateCameraBesideTick( void )
 	m_recalcCamera = false;
 }
 
+ICoord2D W3DView::overlayShift( void )
+{
+	ICoord2D shift = { 0, 0 };
+	ICoord2D anchorNow;
+	if( m_postDrawAnchorProjected && worldToScreenTriReturn( &m_postDrawAnchor, &anchorNow ) != WTS_INVALID )
+	{
+		shift.x = anchorNow.x - m_postDrawAnchorAt.x;
+		shift.y = anchorNow.y - m_postDrawAnchorAt.y;
+	}
+	return shift;
+}
+
 DECLARE_PERF_TIMER(W3DView_updateView)
 void W3DView::update(void)
 {
@@ -2366,6 +2378,12 @@ void W3DView::recordPostDraw( void )
 	TheGameClient->iterateDrawablesInRegion( &axisAlignedRegion, drawablePostDraw, this );
 	TheGameClient->flushTextBearingDrawables();
 	TheDisplay->endRecording();
+
+	// a picture drawn again beside the tick (phase 4) moves this list with its camera, by how far
+	// the ground under the camera moved on the screen
+	getPosition( &m_postDrawAnchor );
+	m_postDrawAnchor.z = cameraGroundHeight( m_postDrawAnchor.x, m_postDrawAnchor.y );
+	m_postDrawAnchorProjected = worldToScreenTriReturn( &m_postDrawAnchor, &m_postDrawAnchorAt ) != WTS_INVALID;
 #ifdef DEBUG_LOGGING
 	TheIconDrawMS = viewElapsedMS( tIconStart, Clock_Ticks() );
 #endif
@@ -2723,8 +2741,13 @@ void W3DView::draw( void )
 	ThePostChainMS = viewElapsedMS( tPostChainStart, tPostChainEnd );
 #endif
 
-	// the health bars and the rest of the post draw, recorded at the sync point by recordPostDraw
-	Display::replay( m_postDraw );
+	// the health bars and the rest of the post draw, recorded at the sync point by recordPostDraw.  A
+	// picture drawn again beside the tick has a camera that scrolled since, so the list moves with
+	// the ground under the camera.  ponytail: one shift for the whole screen, so on a scroll a bar
+	// near the camera or far from it is off by the perspective difference for one picture, and a
+	// rotation or zoom keeps the sync point's layout; recording world anchors per entry fixes both
+	const ICoord2D shift = overlayShift();
+	TheDisplay->replayShifted( m_postDraw, shift.x, shift.y );
 
 	// Render 2D scene
 	W3DDisplay::m_2DScene->doRender( m_2DCamera );

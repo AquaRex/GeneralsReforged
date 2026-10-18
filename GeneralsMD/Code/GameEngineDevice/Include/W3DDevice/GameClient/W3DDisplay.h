@@ -123,6 +123,7 @@ public:
 	virtual void beginBatch2D( void );
 	virtual void endBatch2D( void );
 	virtual void flushBatch2D( void );
+	virtual void replayShifted( DrawCalls &calls, Int dx, Int dy );
 
 	virtual VideoBuffer*	createVideoBuffer( void ) ;							///< Create a video buffer that can be used for this display
 
