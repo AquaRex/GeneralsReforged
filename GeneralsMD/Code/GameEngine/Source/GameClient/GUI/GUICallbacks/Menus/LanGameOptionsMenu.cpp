@@ -163,6 +163,13 @@ static GameWindow *comboBoxPlayerTemplate[MAX_SLOTS] = {NULL,NULL,NULL,NULL,
 static GameWindow *comboBoxTeam[MAX_SLOTS] = {NULL,NULL,NULL,NULL,
 																								NULL,NULL,NULL,NULL };
 
+static GameWindow *comboBoxAIPersona[MAX_SLOTS] = {NULL,NULL,NULL,NULL,
+																								NULL,NULL,NULL,NULL };
+static NameKeyType comboBoxAIPersonaID[MAX_SLOTS] = { NAMEKEY_INVALID,NAMEKEY_INVALID,
+																										NAMEKEY_INVALID,NAMEKEY_INVALID,
+																										NAMEKEY_INVALID,NAMEKEY_INVALID,
+																										NAMEKEY_INVALID,NAMEKEY_INVALID };
+
 //static GameWindow *buttonStartPosition[MAX_SLOTS] = {NULL,NULL,NULL,NULL,
 //																								NULL,NULL,NULL,NULL };
 //
@@ -846,7 +853,8 @@ void lanUpdateSlotList( void )
 		return;
 	UpdateSlotList( TheLAN->GetMyGame(), comboBoxPlayer, comboBoxColor,
 		comboBoxPlayerTemplate, comboBoxTeam, buttonAccept, buttonStart, buttonMapStartPosition);
-	
+	UpdateAIPersonaComboBoxes( TheLAN->GetMyGame(), comboBoxAIPersona );
+
 	updateMapStartSpots(TheLAN->GetMyGame(), buttonMapStartPosition);
 }
 
@@ -1014,6 +1022,8 @@ void InitLanGameGadgets( void )
 	}
 	if( buttonAccept[0] )
 		GadgetButtonSetEnabledColor(buttonAccept[0], acceptTrueColor );
+
+	InitAIPersonaComboBoxes( parentLanGameOptions, "LanGameOptionsMenu.wnd", comboBoxAIPersona, comboBoxAIPersonaID );
 
 	// the settings page and the chat log share one rectangle; this opens on the chat log
 	InitLobbyTabs( parentLanGameOptions, "LanGameOptionsMenu.wnd", "TabChat", "ListboxChatWindowLanGame" );
@@ -1412,6 +1422,15 @@ WindowMsgHandledType LanGameOptionsMenuSystem( GameWindow *window, UnsignedInt m
         else if ( controlID == comboBoxSupplyPileLimitID )
         {
           handleSupplyPileLimitSelection();
+        }
+        else if ( HandleAIPersonaSelection( myGame, comboBoxAIPersona, comboBoxAIPersonaID, (NameKeyType)controlID ) )
+        {
+          if (!s_isIniting)
+          {
+            myGame->resetAccepted();
+            TheLAN->RequestGameOptions(GenerateGameOptionsString(), true);
+            lanUpdateSlotList();
+          }
         }
         else
         {

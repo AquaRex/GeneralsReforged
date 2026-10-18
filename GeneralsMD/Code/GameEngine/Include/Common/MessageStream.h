@@ -669,6 +669,7 @@ public:
 		MSG_VOTE_KICK,															///< (Int player index, Bool yes) a vote kick: opens one, or answers the open one (fork)
 		MSG_SET_REPEAT_UNIT,												///< (Int template ID, objectID producer, Bool on) the factory builds that unit on repeat, or stops (fork)
 		MSG_TRANSFER_MONEY,													///< (Int player index, Int amount) the sender hands that much of his money to another player (fork)
+		MSG_TEAM_REQUEST,														///< (Int AITeamRequestKind, Location) the sender asks his computer allies for help, money or to join his attack (fork)
 
 		MSG_BEGIN_DEBUG_NETWORK_MESSAGES = 1900,		///< network messages that exist only in debug/internal builds. all grouped separately.
 

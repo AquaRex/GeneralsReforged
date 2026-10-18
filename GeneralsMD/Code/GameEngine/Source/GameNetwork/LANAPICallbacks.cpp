@@ -264,6 +264,7 @@ Bool LANAPI::StartAutomatedGame( AsciiString mapName, Int seed, const UnsignedIn
 		else
 		{
 			slot.setState( (SlotState)TheGlobalData->m_autoSkirmishAIState );
+			slot.setAIPersonality( TheGlobalData->autoSkirmishPersona( i ) );
 		}
 		slot.setPlayerTemplate( PLAYERTEMPLATE_RANDOM );
 		slot.setColor( -1 );			// -1 is "random" to populateRandomSideAndColor

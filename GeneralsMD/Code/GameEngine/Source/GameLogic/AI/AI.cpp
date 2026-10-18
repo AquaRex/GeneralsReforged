@@ -1476,6 +1476,74 @@ Real aiFireSampleWeight( Real baseToThreat, Real sampleToThreat, Real reach, Boo
 }
 
 //-------------------------------------------------------------------------------------------------
+Int aiFindChoke( const UnsignedShort *fromBase, const UnsignedShort *fromThreat, Int width, Int cells, Int routeLength,
+								 Int minDistance, Int maxDistance, Int *roadCells )
+{
+	*roadCells = 0;
+	// whole bands only: a sliver at the far end holds few cells because it is thin, not narrow
+	const Int bands = ( maxDistance - minDistance + 1 ) / AI_CHOKE_BAND;
+	if( bands <= 0 )
+		return -1;
+	std::vector<Int> count( bands, 0 );
+	std::vector<Real> sumX( bands, 0.0f );
+	std::vector<Real> sumY( bands, 0.0f );
+	std::vector<Int> bandOf( cells, -1 );
+	for( Int i = 0; i < cells; ++i )
+	{
+		const Int b = fromBase[ i ];
+		const Int t = fromThreat[ i ];
+		if( b == AI_GROUND_UNREACHED || t == AI_GROUND_UNREACHED || b < minDistance || b > maxDistance || b > t )
+			continue;
+		if( ( b + t ) * 100 > routeLength * AI_CHOKE_SLACK_PERCENT )
+			continue;
+		const Int band = ( b - minDistance ) / AI_CHOKE_BAND;
+		if( band >= bands )
+			continue;
+		bandOf[ i ] = band;
+		++count[ band ];
+		sumX[ band ] += INT_TO_REAL( i % width );
+		sumY[ band ] += INT_TO_REAL( i / width );
+	}
+
+	Int best = -1;
+	Real bestNarrow = 0.0f;
+	for( Int band = 0; band < bands; ++band )
+	{
+		if( count[ band ] == 0 )
+			continue;
+		const Real middle = INT_TO_REAL( minDistance + band * AI_CHOKE_BAND + AI_CHOKE_BAND / 2 );
+		const Real open = sqrt( middle * ( INT_TO_REAL( routeLength ) - middle ) );
+		const Real narrow = INT_TO_REAL( count[ band ] ) / ( open > 1.0f ? open : 1.0f );
+		if( best < 0 || narrow < bestNarrow )
+		{
+			best = band;
+			bestNarrow = narrow;
+		}
+	}
+	if( best < 0 )
+		return -1;
+
+	// ponytail: two roads through one band meet in the middle; the road cell nearest it stands for both
+	const Real midX = sumX[ best ] / INT_TO_REAL( count[ best ] );
+	const Real midY = sumY[ best ] / INT_TO_REAL( count[ best ] );
+	Int choke = -1;
+	Real chokeSqr = 0.0f;
+	for( Int i = 0; i < cells; ++i )
+	{
+		if( bandOf[ i ] != best )
+			continue;
+		const Real d = sqr( INT_TO_REAL( i % width ) - midX ) + sqr( INT_TO_REAL( i / width ) - midY );
+		if( choke < 0 || d < chokeSqr )
+		{
+			choke = i;
+			chokeSqr = d;
+		}
+	}
+	*roadCells = count[ best ];
+	return choke;
+}
+
+//-------------------------------------------------------------------------------------------------
 AIGroundFlood::AIGroundFlood( Int width, Int height, WalkableFunc walkable, void *userData ) :
 	m_width( width ),
 	m_height( height ),
@@ -1619,6 +1687,102 @@ Real aiRoleMassFraction( AIRole role )
 		case AIROLE_STEAMROLLER:	return 1.8f;		// one push, and it had better land
 		default:									return 1.0f;
 	}
+}
+
+//-------------------------------------------------------------------------------------------------
+static const char *const s_personalityNames[ AIPERSONA_COUNT ] =
+{
+	"Normal", "Attacker", "Turtle", "Economist", "Air", "Rusher", "Raider", "Tech",
+	"Infantry", "Armor", "Sneaky", "Opportunist", "Supporter", "Counter", "Random"
+};
+
+const char *aiPersonalityName( AIPersonality persona )
+{
+	return (persona >= 0 && persona < AIPERSONA_COUNT) ? s_personalityNames[ persona ] : s_personalityNames[ 0 ];
+}
+
+AIPersonality aiPersonalityFromName( const char *name )
+{
+	for( Int i = 0; i < AIPERSONA_COUNT; ++i )
+		if( strcasecmp( name, s_personalityNames[ i ] ) == 0 )
+			return (AIPersonality)i;
+	return AIPERSONA_NORMAL;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The personalities, one row each in AIPersonality's order.  The buy columns are aiPurchaseScore's
+	* kinds: power, dozer, economy, base, superweapon, defence, army, upgrade, emergency.  The Rusher's
+	* row is the one it plays by until its rush is out; after that it plays the Attacker's. */
+//-------------------------------------------------------------------------------------------------
+//                                  role                push  atkP  wave  hold  bank  hoard surpl retr  cntr  +cntr def   upgr   defT   air    inf    veh    stlth    pow dz  eco base sw   def  army upg em
+static const AIPersonaWeights s_personaWeights[ AIPERSONA_COUNT ] =
+{
+	/* Normal      */ { -1,                 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f,   0.0f,  0.0f,  0.0f,  0.0f,  0.0f, { 0, 0,   0, 0,   0,   0,   0,   0, 0 } },
+	/* Attacker    */ { AIROLE_AGGRESSIVE,  0.6f, 0.5f, 0.5f, 0.5f, 0.35f,0.5f, 2.0f, 0.8f, 1.0f, 0.0f, 0.6f, 1.0f,  -5.0f,  0.0f,  0.0f,  0.0f,  0.0f, { 0, 0,   0, 0,   0, -15,  20,   0, 0 } },
+	/* Turtle      */ { AIROLE_DEFENSIVE,   1.6f, 1.5f, 1.8f, 1.6f, 1.0f, 1.0f, 1.0f, 1.6f, 1.0f, 0.0f, 1.8f, 1.0f,  15.0f,  0.0f,  0.0f,  0.0f,  0.0f, { 0, 0,   0, 0,   0,  40, -10,   0, 0 } },
+	/* Economist   */ { -1,                 1.2f, 1.1f, 1.2f, 1.0f, 1.2f, 0.7f, 0.8f, 1.2f, 1.0f, 0.0f, 1.1f, 0.6f,   0.0f,  0.0f,  0.0f,  0.0f,  0.0f, { 0, 0,  30, 0,   0,   0,  -5,  15, 0 } },
+	/* Air         */ { -1,                 1.0f, 1.0f, 1.0f, 1.0f, 0.6f, 1.0f, 1.5f, 1.0f, 1.0f, 0.0f, 0.6f, 1.0f,   0.0f, 25.0f, -5.0f, -5.0f,  0.0f, { 0, 0,   0, 10, -20, -15,  20,   0, 0 } },
+	/* Rusher      */ { AIROLE_AGGRESSIVE,  1.0f, 1.0f, 1.0f, 1.0f, 0.25f,0.3f, 3.0f, 0.5f, 1.0f, 0.0f, 0.3f, 3.0f, -15.0f,-10.0f,  5.0f,  5.0f,  0.0f, { 0, 0,   0, 0, -30, -40,  35, -20, 0 } },
+	/* Raider      */ { AIROLE_AGGRESSIVE,  0.9f, 0.8f, 0.8f, 0.8f, 0.8f, 1.0f, 1.2f, 1.2f, 1.0f, 0.0f, 0.8f, 1.0f,  -5.0f,  0.0f, -5.0f, 15.0f,  0.0f, { 0, 0,   0, 0,   0, -10,  10,   0, 0 } },
+	/* Tech        */ { AIROLE_DEFENSIVE,   1.4f, 1.2f, 1.3f, 1.2f, 1.0f, 1.0f, 1.0f, 1.2f, 1.0f, 0.0f, 1.4f, 0.5f,   5.0f,  0.0f,  0.0f,  0.0f,  0.0f, { 0, 0,   5, 0,  40,  10, -10,  15, 0 } },
+	/* Infantry    */ { -1,                 0.9f, 1.0f, 1.0f, 1.0f, 0.8f, 1.0f, 1.3f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f,   0.0f, -5.0f, 25.0f,-10.0f,  0.0f, { 0, 0,   0, 0,   0,   0,  10,   0, 0 } },
+	/* Armor       */ { -1,                 1.2f, 1.4f, 1.6f, 1.4f, 0.7f, 1.0f, 1.5f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f,   0.0f, -5.0f,-10.0f, 25.0f,  0.0f, { 0, 0,   0, 0,   0,   0,   5,   0, 0 } },
+	/* Sneaky      */ { -1,                 1.0f, 1.0f, 1.0f, 1.0f, 0.8f, 1.0f, 1.5f, 1.1f, 1.0f, 0.0f, 1.0f, 1.0f,   0.0f,  0.0f,  0.0f,  0.0f, 25.0f, { 0, 0,   0, 0,   0,   0,   0,   0, 0 } },
+	/* Opportunist */ { AIROLE_AGGRESSIVE,  0.9f, 0.9f, 0.8f, 0.8f, 0.9f, 1.0f, 1.0f, 1.2f, 1.0f, 0.0f, 1.0f, 1.0f,   0.0f,  0.0f,  0.0f,  0.0f,  0.0f, { 0, 0,   0, 0,   0,   0,   5,   0, 0 } },
+	/* Supporter   */ { AIROLE_SUPPORTIVE,  1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 1.2f, 1.0f,   5.0f,  0.0f,  0.0f,  0.0f,  0.0f, { 0, 0,   0, 0,   0,   5,   0,   0, 0 } },
+	/* Counter     */ { -1,                 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.6f, 0.3f, 1.0f, 1.0f,   0.0f,  0.0f,  0.0f,  0.0f,  0.0f, { 0, 0,   0, 0,   0,   0,   0,   0, 0 } },
+	/* Random      */ { -1,                 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f,   0.0f,  0.0f,  0.0f,  0.0f,  0.0f, { 0, 0,   0, 0,   0,   0,   0,   0, 0 } }
+};
+
+const AIPersonaWeights &aiPersonaWeights( AIPersonality persona )
+{
+	return s_personaWeights[ (persona >= 0 && persona < AIPERSONA_COUNT) ? persona : AIPERSONA_NORMAL ];
+}
+
+Real aiPersonaTeamBias( const AIPersonaWeights &weights, Bool defenceTeam, Real airShare, Real infantryShare,
+												Real vehicleShare, Real stealthShare )
+{
+	Real bias = weights.m_air * airShare + weights.m_infantry * infantryShare + weights.m_vehicle * vehicleShare +
+							weights.m_stealth * stealthShare;
+	if( defenceTeam )
+		bias += weights.m_defenceTeams;
+	return bias;
+}
+
+Real aiPersonaAirBias( Real airWeight, Real enemyAntiAirShare )
+{
+	Real taste = 1.0f - 1.5f * enemyAntiAirShare;
+	if( taste < -0.5f )
+		taste = -0.5f;
+	return airWeight * taste;
+}
+
+Real aiPersonaEnemyCost( AIPersonality persona, Real cost, Real economyShare, Bool fightingSomeoneElse )
+{
+	if( persona != AIPERSONA_OPPORTUNIST )
+		return cost;
+	if( economyShare < 0.0f ) economyShare = 0.0f;
+	if( economyShare > 1.0f ) economyShare = 1.0f;
+	cost *= 0.4f + economyShare;			// the thinnest in sight costs under half of the fattest
+	if( fightingSomeoneElse )
+		cost *= 0.5f;
+	return cost;
+}
+
+Int aiPersonaShareAmount( Int bank, Int target, Int cap )
+{
+	const Int over = bank - 2 * target;
+	if( over <= 0 )
+		return 0;
+	Int amount = (over / 2) / 100 * 100;
+	if( amount > cap )
+		amount = cap;
+	return amount < AI_SHARE_MIN ? 0 : amount;
+}
+
+Bool aiPersonaChatAllowed( UnsignedInt now, UnsignedInt lastChat )
+{
+	return lastChat == 0 || now - lastChat >= AI_CHAT_GAP_FRAMES;
 }
 
 //-------------------------------------------------------------------------------------------------

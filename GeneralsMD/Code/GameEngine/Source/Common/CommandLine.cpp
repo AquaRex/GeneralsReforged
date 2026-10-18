@@ -43,6 +43,7 @@
 #include "GameClient/ChromaKeyboard.h"
 #include "GameClient/GameConsole.h" // for -freecam
 #include "GameNetwork/GameInfo.h" // for the SlotState -autoskirmish hands the AI slots
+#include "GameLogic/AI.h" // for aiPersonalityFromName, which -aipersona reads its names with
 #include "GameNetwork/NetworkUtil.h" // for ResolveIP, which -lanip parses its address with
 #include "Common/FileSystem.h"
 #include "Common/RandomMapGenerator.h" // for -randommap
@@ -2157,6 +2158,38 @@ Int parseSeatName(char *args[], int num)
 	return 1;
 }
 
+/* -aipersona <slot> <name> gives one -autoskirmish (or -netai) AI seat a personality by its name in
+	 AIPersonality (Normal, Attacker, Turtle, ... Random); -aipersona2 <name> gives every odd seat one,
+	 the way -aidiff2 gives them a rung, and -aipersonaall <name> every seat.  An unknown name is Normal.
+	 It goes into the slot like a lobby's pick, so the replay header carries it. */
+Int parseAIPersona(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 2 && args[1] && args[2])
+	{
+		const Int slot = atoi(args[1]);
+		if (slot >= 0 && slot < MAX_SLOTS)
+			TheWritableGlobalData->m_autoSkirmishPersona[slot] = aiPersonalityFromName(args[2]);
+		else
+			DEBUG_LOG(("-aipersona: slot %d is outside 0..%d\n", slot, MAX_SLOTS - 1));
+		return 3;
+	}
+	return 1;
+}
+
+Int parseAIPersona2(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 1)
+		TheWritableGlobalData->m_autoSkirmishPersonaOdd = aiPersonalityFromName(args[1]);
+	return 2;
+}
+
+Int parseAIPersonaAll(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 1)
+		TheWritableGlobalData->m_autoSkirmishPersonaAll = aiPersonalityFromName(args[1]);
+	return 2;
+}
+
 /* -takeover empties every -autoskirmish seat instead of filling it with an AI.
 
 	 SLOT_TAKEOVER is an occupied seat with nothing behind it: startNewGame writes playerIsHuman for
@@ -2861,6 +2894,9 @@ static CommandLineParam params[] =
 	{ "-autoskirmish", parseAutoSkirmish },
 	{ "-aidiff", parseAIDifficulty },
 	{ "-aidiff2", parseAIDifficulty2 },
+	{ "-aipersona", parseAIPersona },
+	{ "-aipersona2", parseAIPersona2 },
+	{ "-aipersonaall", parseAIPersonaAll },
 	{ "-notactics", parseNoTactics },
 	{ "-aiknobsoff", parseAIKnobsOff },
 	{ "-observer", parseObserver },

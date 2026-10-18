@@ -745,6 +745,7 @@ static void startAutoSkirmish( Int numPlayersWanted )
 			if ((i & 1) && TheGlobalData->m_autoSkirmishAIStateOdd != 0)
 				state = TheGlobalData->m_autoSkirmishAIStateOdd;
 			slot.setState( (SlotState)state );
+			slot.setAIPersonality( TheGlobalData->autoSkirmishPersona( i ) );
 			if (TheGlobalData->m_autoSkirmishSeatName[ i ].isNotEmpty())
 			{
 				UnicodeString seatName;
@@ -2796,6 +2797,8 @@ static void updateHeadlessRun( void )
 		// spent counts buildings and upgrades and never a unit, and that sum read a Hard AI ending on
 		// under 2,000 as one sitting on 52,000
 		DEBUG_LOG(("HEADLESS BANK %d: %d in the bank\n", i, p->getMoney()->countMoney()));
+		if (p->isSkirmishAIPlayer())
+			p->logAIPersonaSummary();
 	}
 
 	if (scouting)

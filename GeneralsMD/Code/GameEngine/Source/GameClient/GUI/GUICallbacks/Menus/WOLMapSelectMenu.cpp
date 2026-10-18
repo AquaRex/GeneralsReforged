@@ -94,11 +94,12 @@ static const char *gadgetsToHide[] =
 	"StaticTextTeam",
 	"StaticTextFaction",
 	"StaticTextColor",
+	"StaticTextAIPersona",
 	"TextEntryMapDisplay",
 	"ButtonSelectMap",
 	"ButtonStart",
 	"StaticTextMapPreview",
-	
+
 	NULL // keep this last
 };
 static const char *perPlayerGadgetsToHide[] =
@@ -106,6 +107,7 @@ static const char *perPlayerGadgetsToHide[] =
 	"ComboBoxTeam",
 	"ComboBoxColor",
 	"ComboBoxPlayerTemplate",
+	"ComboBoxAIPersona",
 	//"ButtonStartPosition",
 	NULL // keep this last
 };
@@ -114,6 +116,8 @@ void positionStartSpots( AsciiString mapName, GameWindow *buttonMapStartPosition
 static void showGameSpyGameOptionsUnderlyingGUIElements( Bool show )
 {
 	ShowUnderlyingGUIElements( show, layoutFilename, parentName, gadgetsToHide, perPlayerGadgetsToHide );
+	if (show)
+		WOLDisplaySlotList();	// showing brought back every seat's personality box, a human's included
 	GameWindow *win	= TheWindowManager->winGetWindowFromId( NULL, TheNameKeyGenerator->nameToKey("GameSpyGameOptionsMenu.wnd:ButtonBack") );
 	if(win)
 		win->winEnable( show );

@@ -44,6 +44,7 @@
 #include "GameClient/GadgetPushButton.h"
 #include "GameClient/GameText.h"
 #include "GameLogic/GameLogic.h" // SUPERWEAPON_RESTRICT_COUNT
+#include "GameLogic/AI.h" // AIPersonality, for the personality column
 #include "GameNetwork/GameInfo.h"
 #include "Common/PlayerTemplate.h"
 #include "GameNetwork/LANAPICallbacks.h" // for acceptTrueColor, etc
@@ -806,6 +807,91 @@ void ShutdownLobbyTabs(void)
   theLobbyOtherTab = NULL;
   theLobbySettingsTabID = NAMEKEY_INVALID;
   theLobbyOtherTabID = NAMEKEY_INVALID;
+}
+
+// -----------------------------------------------------------------------------
+
+void InitAIPersonaComboBoxes(GameWindow *parent, const char *layoutFilename,
+														 GameWindow *comboPersona[], NameKeyType comboPersonaID[])
+{
+	for (Int i = 0; i < MAX_SLOTS; ++i)
+	{
+		AsciiString name;
+		name.format("%s:ComboBoxAIPersona%d", layoutFilename, i);
+		comboPersonaID[i] = NAMEKEY(name);
+		comboPersona[i] = TheWindowManager->winGetWindowFromId(parent, comboPersonaID[i]);
+		if (!comboPersona[i])
+			continue;	// a layout from before the column
+
+		// make room for the whole list before the first add, as PopulatePlayerSlotComboBox does
+		GameWindow *listBox = GadgetComboBoxGetListBox(comboPersona[i]);
+		ListboxData *listData = (ListboxData *)listBox->winGetUserData();
+		if (listData->listLength < AIPERSONA_COUNT)
+			GadgetListBoxSetListLength(listBox, AIPERSONA_COUNT);
+		GadgetComboBoxSetMaxDisplay(comboPersona[i], AIPERSONA_COUNT);
+
+		GadgetComboBoxReset(comboPersona[i]);
+		const Color color = comboPersona[i]->winGetEnabledTextColor();
+		for (Int p = 0; p < AIPERSONA_COUNT; ++p)
+		{
+			AsciiString label;
+			label.format("GUI:AIPersona%s", aiPersonalityName((AIPersonality)p));
+			Int index = GadgetComboBoxAddEntry(comboPersona[i], TheGameText->fetch(label), color);
+			GadgetComboBoxSetItemData(comboPersona[i], index, (void *)(intptr_t)p);
+		}
+		GadgetComboBoxSetSelectedPos(comboPersona[i], AIPERSONA_NORMAL, TRUE);
+	}
+}
+
+void UpdateAIPersonaComboBoxes(GameInfo *myGame, GameWindow *comboPersona[])
+{
+	if (!AreSlotListUpdatesEnabled())
+		return;
+	for (Int i = 0; i < MAX_SLOTS; ++i)
+	{
+		if (!comboPersona[i])
+			continue;
+		const GameSlot *slot = myGame->getConstSlot(i);
+		// a takeover seat has no AI behind it, so nothing for a personality to steer
+		const Bool computer = slot->isAI() && !slot->isTakeover();
+		comboPersona[i]->winHide(!computer);
+		if (!computer)
+			continue;
+		comboPersona[i]->winEnable(myGame->amIHost());
+		Int pos = -1;
+		GadgetComboBoxGetSelectedPos(comboPersona[i], &pos);
+		if (pos != slot->getAIPersonality())
+			GadgetComboBoxSetSelectedPos(comboPersona[i], slot->getAIPersonality(), TRUE);
+	}
+}
+
+Bool HandleAIPersonaSelection(GameInfo *myGame, GameWindow *comboPersona[], NameKeyType comboPersonaID[],
+															NameKeyType controlID)
+{
+	for (Int i = 0; i < MAX_SLOTS; ++i)
+	{
+		if (!comboPersona[i] || controlID != comboPersonaID[i])
+			continue;
+		Int pos = -1;
+		GadgetComboBoxGetSelectedPos(comboPersona[i], &pos);
+		GameSlot *slot = myGame->getSlot(i);
+		// Random goes into the slot as Random; the AI draws the real one from the logic stream
+		const Int persona = (Int)(intptr_t)GadgetComboBoxGetItemData(comboPersona[i], pos);
+		if (!myGame->amIHost() || !slot->isAI() || persona == slot->getAIPersonality())
+			return FALSE;
+		const Int was = slot->getAIPersonality();
+		slot->setAIPersonality(persona);
+		// an options string past the LAN budget comes back empty and is never sent: the host would
+		// start with a persona nobody else has, so the pick does not stand
+		if (GameInfoToAsciiString(myGame).isEmpty())
+		{
+			slot->setAIPersonality(was);
+			GadgetComboBoxSetSelectedPos(comboPersona[i], was, TRUE);	// entries are in enum order
+			return FALSE;
+		}
+		return TRUE;
+	}
+	return FALSE;
 }
 
 // -----------------------------------------------------------------------------

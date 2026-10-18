@@ -153,6 +153,13 @@ static GameWindow *comboBoxPlayerTemplate[MAX_SLOTS] = {NULL,NULL,NULL,NULL,
 static GameWindow *comboBoxTeam[MAX_SLOTS] = {NULL,NULL,NULL,NULL,
 																								NULL,NULL,NULL,NULL };
 
+static GameWindow *comboBoxAIPersona[MAX_SLOTS] = {NULL,NULL,NULL,NULL,
+																								NULL,NULL,NULL,NULL };
+static NameKeyType comboBoxAIPersonaID[MAX_SLOTS] = { NAMEKEY_INVALID,NAMEKEY_INVALID,
+																										NAMEKEY_INVALID,NAMEKEY_INVALID,
+																										NAMEKEY_INVALID,NAMEKEY_INVALID,
+																										NAMEKEY_INVALID,NAMEKEY_INVALID };
+
 //static GameWindow *buttonStartPosition[MAX_SLOTS] = {NULL,NULL,NULL,NULL,
 //																								NULL,NULL,NULL,NULL };
 //
@@ -1213,6 +1220,8 @@ void InitSkirmishGameGadgets( void )
 //			buttonStartPosition[i]->winHide(TRUE); // not using these right now
 	}
 	
+	InitAIPersonaComboBoxes( parentSkirmishGameOptions, "SkirmishGameOptionsMenu.wnd", comboBoxAIPersona, comboBoxAIPersonaID );
+
 	populateSkirmishBattleHonors();
 
 	// the settings page and the map info list share one rectangle; this opens on the info list
@@ -1236,6 +1245,7 @@ void skirmishUpdateSlotList( void )
     UpdateSlotList( TheSkirmishGameInfo, comboBoxPlayer,
 										comboBoxColor, comboBoxPlayerTemplate,
 									  comboBoxTeam, NULL, buttonStart, buttonMapStartPosition );
+		UpdateAIPersonaComboBoxes( TheSkirmishGameInfo, comboBoxAIPersona );
 		updateMapStartSpots(TheSkirmishGameInfo, buttonMapStartPosition, FALSE);
     doUpdateSlotList = TRUE;
   }
@@ -1264,6 +1274,7 @@ static const char *gadgetsToHide[] =
 	"StaticTextColor",
 	"StaticTextTeam",
 	"StaticTextFaction",
+	"StaticTextAIPersona",
 	NULL // keep this last
 };
 static const char *perPlayerGadgetsToHide[] =
@@ -1272,6 +1283,7 @@ static const char *perPlayerGadgetsToHide[] =
 	"ComboBoxTeam",
 	"ComboBoxColor",
 	"ComboBoxPlayerTemplate",
+	"ComboBoxAIPersona",
 	NULL // keep this last
 };
 
@@ -1297,6 +1309,7 @@ void updateSkirmishGameOptions( void )
 	if (isSkirmish)
 	{
 		ShowUnderlyingGUIElements(TRUE, layoutFilename, parentName, gadgetsToHide, perPlayerGadgetsToHide );
+		UpdateAIPersonaComboBoxes( TheSkirmishGameInfo, comboBoxAIPersona );	// a human seat has none
 	}
 	else
 	{
@@ -1656,6 +1669,10 @@ WindowMsgHandledType SkirmishGameOptionsMenuSystem( GameWindow *window, Unsigned
         else if ( controlID == comboBoxSupplyPileLimitID )
         {
           handleSupplyPileLimitSelection();
+        }
+        else if ( HandleAIPersonaSelection( TheSkirmishGameInfo, comboBoxAIPersona, comboBoxAIPersonaID, (NameKeyType)controlID ) )
+        {
+          // the slot has it; Skirmish.ini keeps it with the rest of the slot list
         }
         else
         {

@@ -78,6 +78,7 @@ static const char *gadgetsToHide[] =
 	"StaticTextFaction",
 	"StaticTextColor",
 	"StaticTextPlayers",
+	"StaticTextAIPersona",
 	"TextEntryMapDisplay",
 	"ButtonSelectMap",
 	"ButtonStart",
@@ -89,6 +90,7 @@ static const char *perPlayerGadgetsToHide[] =
 	"ComboBoxTeam",
 	"ComboBoxColor",
 	"ComboBoxPlayerTemplate",
+	"ComboBoxAIPersona",
 	"ComboBoxPlayer",
 	"ButtonAccept",
 	"GenericPing",
@@ -118,7 +120,7 @@ static const char *qmperPlayerGadgetsToHide[] =
 static void showGameSpyGameOptionsUnderlyingGUIElements( Bool show )
 {
 	ShowUnderlyingGUIElements( show, layoutFilename, parentName, gadgetsToHide, perPlayerGadgetsToHide );
-	
+
 }
 static void showGameSpyQMUnderlyingGUIElements( Bool show )
 {

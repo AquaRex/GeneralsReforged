@@ -8,6 +8,31 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
+## Computer players have personalities
+
+- Every computer seat in the skirmish, LAN and online lobbies has a new Personality box beside its team. It says how that player plays, and the difficulty still says how well, so a Hard Turtle and an Easy Turtle play the same way at different strengths.
+- Normal is the computer player you know, unchanged. The others:
+  - **Attacker** goes out early and often with smaller waves and spends everything it earns.
+  - **Turtle** finds the narrow stretch of each road into its base and packs its defences there so they cover each other, rather than ringing its command centre. China mines the guns on that line, GLA lays demo traps in front of it and America leans on Fire Bases. It holds its army back for a few big late waves and pulls out of fights it is losing.
+  - **Economist** puts income and upgrades first and keeps a fatter bank before it spends on the army.
+  - **Air Force** puts up several airfields early and fights mostly from the air, switching aircraft rather than giving up when it meets heavy anti-air. GLA has no airfield, so a GLA Air Force fields rockets instead: Quad Cannons, Rocket Buggies, Scud Launchers and an early Scud Storm.
+  - **Rusher** throws everything into one attack in the first four minutes, then keeps pressing.
+  - **Raider** sends its fastest vehicles after supply trucks, workers and depots the enemy has left unguarded.
+  - **Tech** goes for its tech, general powers and superweapon, and defends until they stand.
+  - **Infantry** fields a crowd of foot soldiers from two to four barracks, cheap ones mixed with whatever beats the army it has seen, and fills buildings with them.
+  - **Armor** builds tanks from several war factories and comes at you in big slow waves.
+  - **Sneaky** prefers stealth units and comes in by the back door or the flank.
+  - **Opportunist** goes for the weakest enemy, and for whoever is already busy fighting someone else.
+  - **Supporter** attacks what its ally attacks and sends its army home to its ally when the ally's base is hit.
+  - **Counter** studies what you field and builds the answer to it.
+  - **Random** picks one of the above when the match starts and does not tell you which.
+- Computer allies with a personality answer their team. When an ally's base is hit, an Air Force strikes the attacker, a Supporter comes home to defend, an Attacker or Rusher hits back at the attacker's base and a Tech turns its powers on him. An Economist sends money to an ally who runs dry.
+- Allied computer players join the attack a teammate has started, so a team hits one enemy together.
+- You can call them too. A beacon you place asks your computer allies to attack there, and typing `help`, `attack` or `money` in chat (`yardim`, `saldir`, `para` in Turkish) asks for help where you are looking, an attack there, or cash.
+- A personality is a preference, never a bonus: no personality gets extra money, faster building or tougher units.
+- Computer players with a personality now and then say something in chat, in their own voice, at most once every two and a half minutes. Normal ones stay quiet.
+- The choice travels with the game to every player in a LAN or online match and into the replay. Replays and saves from earlier versions load with every computer player on Normal; a save made with this version does not load in an earlier one.
+
 ## Turbo mode instead of a speed dropdown
 
 - Every match plays at normal speed. The skirmish lobby's game speed dropdown is gone, and with it x0.5 and x0.75.

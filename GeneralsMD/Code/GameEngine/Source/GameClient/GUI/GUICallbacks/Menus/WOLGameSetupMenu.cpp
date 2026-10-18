@@ -253,6 +253,13 @@ static GameWindow *comboBoxPlayerTemplate[MAX_SLOTS] = {NULL,NULL,NULL,NULL,
 static GameWindow *comboBoxTeam[MAX_SLOTS] = {NULL,NULL,NULL,NULL,
 																								NULL,NULL,NULL,NULL };
 
+static GameWindow *comboBoxAIPersona[MAX_SLOTS] = {NULL,NULL,NULL,NULL,
+																								NULL,NULL,NULL,NULL };
+static NameKeyType comboBoxAIPersonaID[MAX_SLOTS] = { NAMEKEY_INVALID,NAMEKEY_INVALID,
+																										NAMEKEY_INVALID,NAMEKEY_INVALID,
+																										NAMEKEY_INVALID,NAMEKEY_INVALID,
+																										NAMEKEY_INVALID,NAMEKEY_INVALID };
+
 //static GameWindow *buttonStartPosition[MAX_SLOTS] = {NULL,NULL,NULL,NULL,
 //																								NULL,NULL,NULL,NULL };
 //
@@ -1248,6 +1255,7 @@ void WOLDisplaySlotList( void )
 
 	UpdateSlotList( game, comboBoxPlayer, comboBoxColor,
 		comboBoxPlayerTemplate, comboBoxTeam, buttonAccept, buttonStart, buttonMapStartPosition );
+	UpdateAIPersonaComboBoxes( game, comboBoxAIPersona );
 
 	WOLDisplayGameOptions();
 
@@ -1509,6 +1517,8 @@ void InitWOLGameGadgets( void )
 		buttonBack->winEnable(TRUE);
 	}
 		//GadgetButtonSetEnabledColor(buttonAccept[0], GameSpyColor[GSCOLOR_ACCEPT_TRUE]);
+
+	InitAIPersonaComboBoxes( parentWOLGameSetup, "GameSpyGameOptionsMenu.wnd", comboBoxAIPersona, comboBoxAIPersonaID );
 
 	// the settings page and the chat log share one rectangle; this opens on the chat log
 	InitLobbyTabs( parentWOLGameSetup, "GameSpyGameOptionsMenu.wnd", "TabChat", "ListboxChatWindowGameSpyGameSetup" );
@@ -2879,6 +2889,12 @@ WindowMsgHandledType WOLGameSetupMenuSystem( GameWindow *window, UnsignedInt msg
         else if ( controlID == comboBoxSupplyPileLimitID )
         {
           handleSupplyPileLimitSelection();
+        }
+        else if ( HandleAIPersonaSelection( TheGameSpyInfo->getCurrentStagingRoom(), comboBoxAIPersona, comboBoxAIPersonaID, (NameKeyType)controlID ) )
+        {
+          TheGameSpyInfo->getCurrentStagingRoom()->resetAccepted();
+          TheGameSpyInfo->setGameOptions();
+          WOLDisplaySlotList();
         }
         else
         {

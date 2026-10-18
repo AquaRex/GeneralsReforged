@@ -12381,6 +12381,131 @@ TEST(enemy_choice_prefers_the_weak_the_rich_and_the_near)
 }
 
 
+/** Personalities: a Normal seat must play exactly as before, and each lean goes the way its name says. */
+TEST(ai_persona_normal_row_is_neutral)
+{
+	const AIPersonaWeights &normal = aiPersonaWeights( AIPERSONA_NORMAL );
+	CHECK_EQ( normal.m_role, -1 );
+	CHECK( normal.m_firstPush == 1.0f && normal.m_attackPower == 1.0f && normal.m_wavePower == 1.0f && normal.m_waveHold == 1.0f );
+	CHECK( normal.m_bank == 1.0f && normal.m_hoard == 1.0f && normal.m_surplus == 1.0f && normal.m_retreat == 1.0f );
+	CHECK( normal.m_counter == 1.0f && normal.m_counterAdd == 0.0f && normal.m_defenses == 1.0f && normal.m_upgradeStart == 1.0f );
+	CHECK_EQ( aiPersonaTeamBias( normal, TRUE, 0.3f, 0.3f, 0.3f, 0.1f ), 0.0f );
+	for( Int k = 0; k < AIBUY_KIND_COUNT; ++k )
+		CHECK_EQ( normal.m_buy[ k ], 0 );
+	CHECK_EQ( aiPersonaEnemyCost( AIPERSONA_NORMAL, 12345.0f, 0.7f, TRUE ), 12345.0f );
+	// an unknown value plays Normal rather than reading past the table
+	CHECK( &aiPersonaWeights( (AIPersonality)99 ) == &normal );
+}
+
+TEST(ai_persona_names_round_trip)
+{
+	for( Int i = 0; i < AIPERSONA_COUNT; ++i )
+		CHECK_EQ( (Int)aiPersonalityFromName( aiPersonalityName( (AIPersonality)i ) ), i );
+	CHECK_EQ( (Int)aiPersonalityFromName( "turtle" ), (Int)AIPERSONA_TURTLE );
+	CHECK_EQ( (Int)aiPersonalityFromName( "nobody" ), (Int)AIPERSONA_NORMAL );
+}
+
+TEST(ai_persona_leans_the_way_its_name_says)
+{
+	const AIPersonaWeights &attacker = aiPersonaWeights( AIPERSONA_ATTACKER );
+	const AIPersonaWeights &turtle = aiPersonaWeights( AIPERSONA_TURTLE );
+	CHECK( attacker.m_firstPush < 1.0f && attacker.m_wavePower < 1.0f && attacker.m_bank < 1.0f );
+	CHECK( turtle.m_firstPush > 1.0f && turtle.m_wavePower > 1.0f && turtle.m_retreat > 1.0f && turtle.m_defenses > 1.0f );
+	CHECK( turtle.m_buy[ AIBUY_DEFENSE ] > 0 && aiPersonaWeights( AIPERSONA_ECONOMIST ).m_buy[ AIBUY_ECONOMY ] > 0 );
+	CHECK( aiPersonaWeights( AIPERSONA_TECH ).m_buy[ AIBUY_SUPERWEAPON ] > 0 );
+	CHECK( aiPersonaWeights( AIPERSONA_COUNTER ).m_counterAdd > 0.0f );
+	CHECK_EQ( aiPersonaWeights( AIPERSONA_SUPPORTER ).m_role, (Int)AIROLE_SUPPORTIVE );
+	// the unit mix: an all-infantry team is what the Infantry one likes and the Armor one does not
+	CHECK( aiPersonaTeamBias( aiPersonaWeights( AIPERSONA_INFANTRY ), FALSE, 0.0f, 1.0f, 0.0f, 0.0f ) > 0.0f );
+	CHECK( aiPersonaTeamBias( aiPersonaWeights( AIPERSONA_ARMOR ), FALSE, 0.0f, 1.0f, 0.0f, 0.0f ) < 0.0f );
+	CHECK( aiPersonaTeamBias( aiPersonaWeights( AIPERSONA_AIR ), FALSE, 1.0f, 0.0f, 0.0f, 0.0f ) > 0.0f );
+	CHECK( aiPersonaTeamBias( aiPersonaWeights( AIPERSONA_SNEAKY ), FALSE, 0.0f, 0.5f, 0.5f, 1.0f ) > 0.0f );
+	CHECK( aiPersonaTeamBias( turtle, TRUE, 0.0f, 0.0f, 0.0f, 0.0f ) > 0.0f );
+	// no personality changes a cheat: there is no column for one, and none leaves the bank empty for ever
+	for( Int i = 0; i < AIPERSONA_COUNT; ++i )
+		CHECK( aiPersonaWeights( (AIPersonality)i ).m_bank > 0.0f );
+}
+
+TEST(ai_persona_air_wants_less_against_anti_air)
+{
+	CHECK_EQ( aiPersonaAirBias( 25.0f, 0.0f ), 25.0f );
+	CHECK( aiPersonaAirBias( 25.0f, 0.3f ) < 25.0f );
+	CHECK( aiPersonaAirBias( 25.0f, 0.3f ) > 0.0f );
+	CHECK( aiPersonaAirBias( 25.0f, 0.9f ) < 0.0f );
+	CHECK_EQ( aiPersonaAirBias( 25.0f, 1.0f ), -12.5f );		// a dislike, and no worse
+}
+
+TEST(ai_persona_opportunist_goes_for_the_thin_and_the_busy)
+{
+	const Real cost = 200.0f * 200.0f;
+	CHECK( aiPersonaEnemyCost( AIPERSONA_OPPORTUNIST, cost, 0.1f, FALSE ) < aiPersonaEnemyCost( AIPERSONA_OPPORTUNIST, cost, 0.6f, FALSE ) );
+	CHECK( aiPersonaEnemyCost( AIPERSONA_OPPORTUNIST, cost, 0.4f, TRUE ) < aiPersonaEnemyCost( AIPERSONA_OPPORTUNIST, cost, 0.4f, FALSE ) );
+	CHECK_EQ( aiPersonaEnemyCost( AIPERSONA_TURTLE, cost, 0.1f, TRUE ), cost );
+}
+
+TEST(ai_persona_economist_shares_only_a_real_surplus)
+{
+	CHECK_EQ( aiPersonaShareAmount( 3000, 2000, 3000 ), 0 );			// under twice the target
+	CHECK_EQ( aiPersonaShareAmount( 4800, 2000, 3000 ), 0 );			// 400 over: under the minimum
+	CHECK_EQ( aiPersonaShareAmount( 6150, 2000, 3000 ), 1000 );		// half of 2,150, in hundreds
+	CHECK_EQ( aiPersonaShareAmount( 50000, 2000, 2000 ), 2000 );	// the rung's cap
+}
+
+TEST(ai_persona_chat_waits_between_lines)
+{
+	CHECK( aiPersonaChatAllowed( 100, 0 ) );
+	CHECK( !aiPersonaChatAllowed( 100 + AI_CHAT_GAP_FRAMES - 1, 100 ) );
+	CHECK( aiPersonaChatAllowed( 100 + AI_CHAT_GAP_FRAMES, 100 ) );
+}
+
+/** A 40 by 41 field from a base at the middle of the left edge to an enemy at the middle of the
+	* right, walled down column 13 except rows 19 to 21 when walled is set. */
+static const Int CHOKE_TEST_WIDTH = 40;
+static const Int CHOKE_TEST_HEIGHT = 41;
+static const Int CHOKE_TEST_ROW = 20;
+static const Int CHOKE_TEST_WALL = 13;
+
+static Bool chokeTestWalkable( Int x, Int y, void *userData )
+{
+	const Bool walled = *(const Bool *)userData;
+	return !walled || x != CHOKE_TEST_WALL || ( y >= CHOKE_TEST_ROW - 1 && y <= CHOKE_TEST_ROW + 1 );
+}
+
+static Int chokeTestCell( Bool walled, Int *roadCells )
+{
+	std::vector<UnsignedShort> fields[ 2 ];
+	const Int sourceX[ 2 ] = { 0, CHOKE_TEST_WIDTH - 1 };
+	for( Int f = 0; f < 2; ++f )
+	{
+		AIGroundFlood flood( CHOKE_TEST_WIDTH, CHOKE_TEST_HEIGHT, chokeTestWalkable, &walled );
+		flood.addSource( sourceX[ f ], CHOKE_TEST_ROW );
+		Int x, y, d;
+		while( flood.next( &x, &y, &d ) )
+			;
+		fields[ f ].swap( flood.field() );
+	}
+	const Int route = fields[ 1 ][ CHOKE_TEST_ROW * CHOKE_TEST_WIDTH ];
+	return aiFindChoke( &fields[ 0 ][ 0 ], &fields[ 1 ][ 0 ], CHOKE_TEST_WIDTH, CHOKE_TEST_WIDTH * CHOKE_TEST_HEIGHT, route,
+		4 * AI_GROUND_STEP, 17 * AI_GROUND_STEP, roadCells );
+}
+
+TEST(ai_persona_turtle_finds_the_gap_in_the_wall)
+{
+	Int roadCells = 0;
+	const Int gap = chokeTestCell( TRUE, &roadCells );
+	CHECK( gap >= 0 );
+	CHECK( gap % CHOKE_TEST_WIDTH >= CHOKE_TEST_WALL - 3 && gap % CHOKE_TEST_WIDTH <= CHOKE_TEST_WALL + 1 );	// at the wall
+	CHECK( gap / CHOKE_TEST_WIDTH >= CHOKE_TEST_ROW - 1 && gap / CHOKE_TEST_WIDTH <= CHOKE_TEST_ROW + 1 );	// in the gap
+	CHECK( roadCells > 0 );
+
+	// open ground has no gap to find: the choke is still a cell on the straight road
+	const Int open = chokeTestCell( FALSE, &roadCells );
+	CHECK( open >= 0 );
+	CHECK( open / CHOKE_TEST_WIDTH >= CHOKE_TEST_ROW - 1 && open / CHOKE_TEST_WIDTH <= CHOKE_TEST_ROW + 1 );
+
+	CHECK_EQ( aiFindChoke( NULL, NULL, 40, 0, 10, 20, 10, &roadCells ), -1 );		// no band at all
+}
+
 /** B6: the classic AI disease is sitting on twenty thousand cash while trickling out one unit at a
 	 time.  The existing delays move with wealth, but only one step - past the Wealthy threshold a
 	 hoard of any size buys the same discount.  This is the second step, and it is a decision to
@@ -17855,3 +17980,63 @@ TEST(save_older_than_60hz_loads_only_as_mission_save)
 #include "test_game_results.inc"
 #include "test_map_ini_rollback.inc"
 #include "test_hostile_map.inc"
+
+#include "GameLogic/AI.h"
+
+/* An AI seat's personality rides on its slot entry as an optional sixth field.  The whole options
+	 string needs TheGameState, TheMapCache and the player templates to build or parse, so this checks
+	 the field and the slot that carry it: Normal writes nothing, so a Normal string is byte for byte
+	 the old one; every personality comes back as itself; an old five-field entry, and a value no
+	 build wrote, read as Normal; the slot keeps its pick while it stays an AI seat and loses it when a
+	 human takes it; and the -aipersona switches resolve per seat. */
+TEST(ai_persona_rides_the_slot_entry_and_normal_leaves_it_unchanged)
+{
+	CHECK_STR( AIPersonaSlotField( AIPERSONA_NORMAL ).str(), "" );
+	AsciiString entry;
+	entry.format( "CH,%d,%d,%d,%d%s:", 2, 3, -1, 0, AIPersonaSlotField( AIPERSONA_NORMAL ).str() );
+	CHECK_STR( entry.str(), "CH,2,3,-1,0:" );
+
+	for( Int p = AIPERSONA_NORMAL; p < AIPERSONA_COUNT; ++p )
+	{
+		AsciiString field = AIPersonaSlotField( p );
+		// the parser hands over what follows the team's comma, or nothing at all
+		CHECK_EQ( AIPersonaFromSlotField( field.isEmpty() ? NULL : field.str() + 1 ), p );
+	}
+	CHECK_STR( AIPersonaSlotField( AIPERSONA_RANDOM ).str(), ",14" );
+	CHECK_EQ( AIPersonaFromSlotField( "14" ), (Int)AIPERSONA_RANDOM );	// Random stays Random on the wire
+
+	CHECK_EQ( AIPersonaFromSlotField( NULL ), (Int)AIPERSONA_NORMAL );	// a five-field entry
+	CHECK_EQ( AIPersonaFromSlotField( "" ), (Int)AIPERSONA_NORMAL );
+	CHECK_EQ( AIPersonaFromSlotField( "99" ), (Int)AIPERSONA_NORMAL );
+	CHECK_EQ( AIPersonaFromSlotField( "-3" ), (Int)AIPERSONA_NORMAL );
+	CHECK_EQ( AIPersonaFromSlotField( "x" ), (Int)AIPERSONA_NORMAL );
+
+	GameSlot slot;
+	CHECK_EQ( slot.getAIPersonality(), (Int)AIPERSONA_NORMAL );
+	slot.setState( SLOT_MED_AI );
+	slot.setAIPersonality( AIPERSONA_TURTLE );
+	slot.setState( SLOT_BRUTAL_AI );		// another rung keeps it, as it keeps the faction
+	CHECK_EQ( slot.getAIPersonality(), (Int)AIPERSONA_TURTLE );
+	GameSlot copy = slot;								// GameInfo::setSlot copies the parsed slot in whole
+	CHECK_EQ( copy.getAIPersonality(), (Int)AIPERSONA_TURTLE );
+	UnicodeString name;
+	name.translate( AsciiString( "Player" ) );
+	slot.setState( SLOT_PLAYER, name );
+	CHECK_EQ( slot.getAIPersonality(), (Int)AIPERSONA_NORMAL );
+
+	CHECK_EQ( (Int)aiPersonalityFromName( "turtle" ), (Int)AIPERSONA_TURTLE );
+	CHECK_EQ( (Int)aiPersonalityFromName( "nonsense" ), (Int)AIPERSONA_NORMAL );
+
+	GlobalData *saved = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+	CHECK_EQ( TheGlobalData->autoSkirmishPersona( 1 ), (Int)AIPERSONA_NORMAL );
+	TheWritableGlobalData->m_autoSkirmishPersonaAll = AIPERSONA_ECONOMIST;
+	TheWritableGlobalData->m_autoSkirmishPersonaOdd = AIPERSONA_RUSHER;
+	TheWritableGlobalData->m_autoSkirmishPersona[ 2 ] = AIPERSONA_AIR;
+	CHECK_EQ( TheGlobalData->autoSkirmishPersona( 0 ), (Int)AIPERSONA_ECONOMIST );
+	CHECK_EQ( TheGlobalData->autoSkirmishPersona( 1 ), (Int)AIPERSONA_RUSHER );
+	CHECK_EQ( TheGlobalData->autoSkirmishPersona( 2 ), (Int)AIPERSONA_AIR );
+	CHECK_EQ( TheGlobalData->autoSkirmishPersona( 3 ), (Int)AIPERSONA_RUSHER );
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = saved;
+}

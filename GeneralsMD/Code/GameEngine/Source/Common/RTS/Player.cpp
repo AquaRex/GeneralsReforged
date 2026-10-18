@@ -994,6 +994,10 @@ void Player::initFromDict(const Dict* d)
 				m_ai->setAISkillLevel((AISkillLevel)skillInt);
 			else
 				m_ai->setAISkillLevel(AIPlayer::skillLevelForDifficulty(difficulty));
+			// the personality, which only a non-Normal seat writes; after the rung, since a Rusher's rush reads it
+			Bool personaExists = false;
+			const Int personaInt = d->getInt(TheKey_skirmishAIPersonality, &personaExists);
+			m_ai->setAIPersonality(personaExists ? (AIPersonality)personaInt : AIPERSONA_NORMAL);
 		}
 
 		if (!found) 
@@ -1298,7 +1302,13 @@ Bool Player::computeSuperweaponTarget(const SpecialPowerTemplate *power, Coord3D
 //-------------------------------------------------------------------------------------------------
 Player  *Player::getCurrentEnemy( void )
 {
-	return m_ai?m_ai->getAiEnemy():NULL; 
+	return m_ai?m_ai->getAiEnemy():NULL;
+}
+
+void Player::noteTeamRequest( Int kind, Int from, Int enemy, const Coord3D *pos )
+{
+	if( m_ai )
+		m_ai->noteTeamRequest( (AITeamRequestKind)kind, from, enemy, pos );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2853,6 +2863,17 @@ AIRole Player::getAIRole(void) const
 	return m_ai ? m_ai->getAIRole() : AIROLE_AGGRESSIVE;
 }
 
+AIPersonality Player::getAIPersonality(void) const
+{
+	return m_ai ? m_ai->getAIPersonality() : AIPERSONA_NORMAL;
+}
+
+void Player::logAIPersonaSummary(void)
+{
+	if (m_ai)
+		m_ai->logPersonaSummary();
+}
+
 Bool Player::isCapableOfPurchasingScience(ScienceType science) const
 {
 	if (science == SCIENCE_INVALID)
@@ -3525,7 +3546,12 @@ Bool Player::canBuildMoreOfType( const ThingTemplate *whatToBuild, Int unitsPerO
   {
     SuperweaponDefenseCount count = { 0, 0 };
     iterateObjects( countSuperweaponDefenses, &count );
-    if ( SuperweaponDefenseCapRefuses( count.defenses, count.superweapons ) )
+    // a Tech computer's first superweapon is its plan, and a GLA Air one's SCUD Storm, and waits for a few
+    // guns rather than twelve, Easy the most
+    static const Int TECH_FIRST_DEFENSES[ AISKILL_COUNT ] = { 8, 6, 4 };
+    const Bool techFirst = count.superweapons == 0 && m_ai && m_ai->superweaponIsPlan() &&
+      count.defenses >= TECH_FIRST_DEFENSES[ getAISkillLevel() ];
+    if ( !techFirst && SuperweaponDefenseCapRefuses( count.defenses, count.superweapons ) )
       return false;
   }
 

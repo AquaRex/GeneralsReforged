@@ -24,12 +24,19 @@ when regenerating from the shipped files.
 reads the tracked layouts back and checks every window the menu code names is still there, no two
 visible controls in one container overlap, and the shared edges are still shared. Run by CTest as
 lobbyroom_selfcheck. Layouts are not in the multiplayer INI checksum.
+
+Every seat row also carries a computer player's personality, a combo box cloned from the faction
+one, rightmost so a human seat's empty cell sits at the edge. The row had no room for a fifth
+column: the faction gives 36 to 48 pixels (the longest general names clip a little), the player,
+colour and team columns the rest. The online room is EA's layout, not on this grid; only its seat columns
+are re-cut here, on its own row geometry.
 """
 
 import os
 import sys
 
 import wndlayout
+from wndlayout import clone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MENUS = os.path.join(HERE, "..", "Data", "Window", "Menus")
@@ -71,20 +78,40 @@ TAB_CAPTION_COLOR = ("ENABLED:  255 255 255 255, ENABLEDBORDER:  0 0 0 255, "
                      "DISABLED: 186 255 12 255, DISABLEDBORDER: 0 2 0 255, "
                      "HILITE:   186 255 12 255, HILITEBORDER:   0 2 0 255")
 
-# (heading, control prefix, width). "USA Super Weapon General" clips at 800x600 in anything under
-# 208; a player name scrolls inside its box, so the player column is the one that gives.
+# The personality column: its heading is cloned from the team heading and its combo boxes from the
+# faction ones, so both keep EA's art.
+PERSONA_HEADING, PERSONA_PREFIX = "StaticTextAIPersona", "ComboBoxAIPersona"
+PERSONA_HEADING_TEXT, PERSONA_TOOLTIP = "GUI:AIPersona", "GUI:AIPersonaTooltip"
+PERSONA_MENUS = ("SkirmishGameOptionsMenu", "LanGameOptionsMenu", "GameSpyGameOptionsMenu")
+
+# (heading, control prefix, width). "USA Super Weapon General" wants 208 at 800x600 and gets 172:
+# the personality column needs about 90 ("Opportunist"), and the faction is the widest column. A
+# player name scrolls inside its box; the colour and team boxes hold a word or a digit.
 SKIRMISH_COLUMNS = [
-    ("StaticTextPlayers", "ComboBoxPlayer", 116),
-    ("StaticTextColor", "ComboBoxColor", 80),
-    ("StaticTextFaction", "ComboBoxPlayerTemplate", 208),
-    ("StaticTextTeam", "ComboBoxTeam", 80),
+    ("StaticTextPlayers", "ComboBoxPlayer", 100),
+    ("StaticTextColor", "ComboBoxColor", 64),
+    ("StaticTextFaction", "ComboBoxPlayerTemplate", 172),
+    ("StaticTextTeam", "ComboBoxTeam", 52),
+    (PERSONA_HEADING, PERSONA_PREFIX, 92),
 ]
 LAN_COLUMNS = [
     (None, "ButtonAccept", ACCEPT_LIGHT),
-    ("StaticTextPlayers", "ComboBoxPlayer", 104),
-    ("StaticTextColor", "ComboBoxColor", 80),
-    ("StaticTextFaction", "ComboBoxPlayerTemplate", 208),
-    ("StaticTextTeam", "ComboBoxTeam", 72),
+    ("StaticTextPlayers", "ComboBoxPlayer", 96),
+    ("StaticTextColor", "ComboBoxColor", 64),
+    ("StaticTextFaction", "ComboBoxPlayerTemplate", 160),
+    ("StaticTextTeam", "ComboBoxTeam", 52),
+    (PERSONA_HEADING, PERSONA_PREFIX, 88),
+]
+# EA's online room: seat columns from 79 to the team column's old right edge at 578, two apart,
+# headings at 86 and rows 24 apart from 110. A seat's player name is a static text over its combo.
+GAMESPY_LEFT, GAMESPY_RIGHT, GAMESPY_GAP = 79, 578, 2
+GAMESPY_HEADER_TOP, GAMESPY_ROW_TOP, GAMESPY_ROW_PITCH = 86, 110, 24
+GAMESPY_COLUMNS = [
+    ("StaticTextPlayers", ("ComboBoxPlayer", "StaticTextPlayer"), 120),
+    ("StaticTextColor", ("ComboBoxColor",), 64),
+    ("StaticTextFaction", ("ComboBoxPlayerTemplate",), 168),
+    ("StaticTextTeam", ("ComboBoxTeam",), 52),
+    (PERSONA_HEADING, (PERSONA_PREFIX,), 87),
 ]
 
 # (label width, control width, rows); a row is (label, combo), (label, slider, readout) or (check,).
@@ -164,6 +191,25 @@ def drop_game_speed_dropdown(layout):
 def left_align(window):
     if window.prop("STATICTEXTDATA") is not None:
         window.set_prop("STATICTEXTDATA", "CENTERED: 0")
+
+
+def add_persona_column(layout, menu):
+    """The personality heading and one combo box a seat, cloned in once and ahead of the team
+    heading, seat 7 first like EA's columns. A layout that already has them is left alone."""
+    if layout.find(PERSONA_HEADING) is not None:
+        return
+    named = lambda name: "%s.wnd:%s" % (menu, name)
+    team = need(layout, "StaticTextTeam")
+    container = layout.root.parent_of(team)
+    heading = clone(team, named(PERSONA_HEADING))
+    heading.put_prop("TEXT", '"%s"' % PERSONA_HEADING_TEXT)
+    added = [heading]
+    for seat in reversed(range(SEAT_COUNT)):
+        combo = clone(need(layout, "ComboBoxPlayerTemplate%d" % seat), named("%s%d" % (PERSONA_PREFIX, seat)))
+        combo.put_prop("TOOLTIPTEXT", '"%s"' % PERSONA_TOOLTIP)
+        added.append(combo)
+    at = container.children.index(team)
+    container.children[at:at] = added
 
 
 def place_seats(layout, columns, seat_zero_player):
@@ -264,6 +310,7 @@ def skirmish_panels(sub_parent):
 
 
 def build_skirmish(layout):
+    add_persona_column(layout, "SkirmishGameOptionsMenu")
     place_frame(layout, "SubParent", "Line")
     place_seats(layout, SKIRMISH_COLUMNS, "TextEntryPlayerName")
     place_map(layout)
@@ -291,6 +338,7 @@ def build_skirmish(layout):
 
 
 def build_lan(layout):
+    add_persona_column(layout, "LanGameOptionsMenu")
     place_frame(layout, "GadgetParent", "LINE")
     place_seats(layout, LAN_COLUMNS, None)
     place_map(layout)
@@ -309,7 +357,24 @@ def build_lan(layout):
     return layout
 
 
-BUILDERS = {"SkirmishGameOptionsMenu": build_skirmish, "LanGameOptionsMenu": build_lan}
+def build_gamespy(layout):
+    add_persona_column(layout, "GameSpyGameOptionsMenu")
+    left = GAMESPY_LEFT
+    for heading_name, prefixes, width in GAMESPY_COLUMNS:
+        heading = need(layout, heading_name)
+        heading.place(left, GAMESPY_HEADER_TOP, width, ROW_HEIGHT)
+        for seat in range(SEAT_COUNT):
+            for prefix in prefixes:
+                need(layout, "%s%d" % (prefix, seat)).place(left, GAMESPY_ROW_TOP + seat * GAMESPY_ROW_PITCH,
+                                                            width, ROW_HEIGHT)
+        left += width + GAMESPY_GAP
+    if left - GAMESPY_GAP != GAMESPY_RIGHT:
+        raise ValueError("online seat columns end at %d, expected %d" % (left - GAMESPY_GAP, GAMESPY_RIGHT))
+    return layout
+
+
+BUILDERS = {"SkirmishGameOptionsMenu": build_skirmish, "LanGameOptionsMenu": build_lan,
+            "GameSpyGameOptionsMenu": build_gamespy}
 
 
 # ---------------------------------------------------------------------------
@@ -336,7 +401,7 @@ def shared_edges(layout):
     """The two tracks: what is meant to stand on one edge, and whether it still does."""
     found = []
     tracks = [
-        ("seat table right edge", SEAT_RIGHT, [("ComboBoxTeam0", 2), ("PageLobbySettings", None)]),
+        ("seat table right edge", SEAT_RIGHT, [(PERSONA_PREFIX + "0", 2), ("PageLobbySettings", None)]),
         ("map column left edge", MAP_LEFT, [("MapWindow", 0), ("ButtonSelectMap", 0), ("ButtonStart", 0)]),
         ("inner left edge", INNER_LEFT, [("ButtonBack", 0), ("TabLobbySettings", None)]),
     ]
@@ -366,6 +431,18 @@ def selfcheck():
             problems.append("%s.wnd no longer builds: %s" % (menu, error))
         problems.extend("%s.wnd: %s" % (menu, problem) for problem in overlaps(container, spec["swapped"]))
         problems.extend("%s.wnd: %s" % (menu, problem) for problem in shared_edges(layout))
+
+    for menu in PERSONA_MENUS:
+        path = os.path.join(MENUS, menu + ".wnd")
+        layout = wndlayout.load(path)
+        for name in [PERSONA_HEADING] + ["%s%d" % (PERSONA_PREFIX, seat) for seat in range(SEAT_COUNT)]:
+            if layout.find(name) is None:
+                problems.append("%s.wnd has no %s" % (menu, name))
+        if menu not in ROOMS:
+            try:
+                BUILDERS[menu](wndlayout.load(path))
+            except (KeyError, ValueError) as error:
+                problems.append("%s.wnd no longer builds: %s" % (menu, error))
 
     for problem in problems:
         print("lobbyroom: %s" % problem)
