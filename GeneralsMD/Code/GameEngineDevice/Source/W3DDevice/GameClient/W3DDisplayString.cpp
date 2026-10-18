@@ -188,7 +188,10 @@ void W3DDisplayString::draw( Int x, Int y, Color color, Color dropColor, Int xDr
 	// text it holds now, which nothing changes before the replay
 	if( TheDisplay && TheDisplay->isRecording() )
 	{
-		TheDisplay->record( [=]() { draw( x, y, color, dropColor, xDrop, yDrop ); } );
+		TheDisplay->record( [=]() {
+			const ICoord2D &shift = TheDisplay->getReplayShift();
+			draw( x + shift.x, y + shift.y, color, dropColor, xDrop, yDrop );
+		} );
 		return;
 	}
 

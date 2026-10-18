@@ -350,7 +350,7 @@ void LogicThread::OverlapWindow::open( Bool mayOverlap )
 }
 
 //-------------------------------------------------------------------------------------------------
-Bool LogicThread::OverlapWindow::closeOrDrawAgain( void )
+Bool LogicThread::OverlapWindow::closeOrDrawAgain( Real pictureMS )
 {
 	if( m_open && s_overlapRunning )
 	{
@@ -359,10 +359,9 @@ Bool LogicThread::OverlapWindow::closeOrDrawAgain( void )
 			std::lock_guard<std::mutex> lock( s_lock );
 			running = !s_tickDone;
 		}
-		// the plan's rule: wait only once the next tick is due, where the serial game falls behind too.
-		// ponytail: a picture started just before it is due holds the next tick up by up to its own
-		// length; weigh the remaining time against the last picture's if catch-up ticks show it
-		if( running && TheGameEngine->msUntilNextTickDue() > 0.0f )
+		// the plan's rule, wait only once the next tick is due, with the next picture's length taken off
+		// so a picture never holds the next tick up; the last picture stands in for the next one
+		if( running && TheGameEngine->msUntilNextTickDue() > pictureMS )
 		{
 			++s_extraPictures;
 			return TRUE;

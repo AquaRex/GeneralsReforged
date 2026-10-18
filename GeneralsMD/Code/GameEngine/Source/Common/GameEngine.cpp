@@ -2020,13 +2020,16 @@ static void reportFrameTimeStats( void )
 
 	const Real over16 = 100.0f * theFrameTimes.countOver( 16.7f ) / theFrameTimes.count();
 	const Real over33 = 100.0f * theFrameTimes.countOver( 33.3f ) / theFrameTimes.count();
-	DEBUG_LOG(("HEADLESS FRAMETIME: %d frames | mean %.2f p50 %.2f p95 %.2f p99 %.2f p99.9 %.2f worst %.2f ms (frame %d) | over 16.7ms %d (%.2f%%) | over 33.3ms %d (%.2f%%)\n",
+	// over 25 ms is a picture that missed a refresh on a vsynced 60 Hz screen, where every frame is a
+	// multiple of 16.7 and the 16.7 count catches the on-time ones that ran a fraction long
+	DEBUG_LOG(("HEADLESS FRAMETIME: %d frames | mean %.2f p50 %.2f p95 %.2f p99 %.2f p99.9 %.2f worst %.2f ms (frame %d) | over 16.7ms %d (%.2f%%) | over 33.3ms %d (%.2f%%) | over 25.0ms %d\n",
 						 theFrameTimes.count(), theFrameTimes.meanMS(),
 						 theFrameTimes.percentileMS( 0.50f ), theFrameTimes.percentileMS( 0.95f ),
 						 theFrameTimes.percentileMS( 0.99f ), theFrameTimes.percentileMS( 0.999f ),
 						 theFrameTimes.worstMS(), theFrameTimes.worstAtFrame(),
 						 theFrameTimes.countOver( 16.7f ), over16,
-						 theFrameTimes.countOver( 33.3f ), over33));
+						 theFrameTimes.countOver( 33.3f ), over33,
+						 theFrameTimes.countOver( 25.0f )));
 	// the same passes split for the logic thread plan: mean/p50/p99 of each part
 	#define PASS_SPLIT(h) (h).meanMS(), (h).percentileMS( 0.50f ), (h).percentileMS( 0.99f )
 	DEBUG_LOG(("HEADLESS PASSES TICK: %d | pass %.2f/%.2f/%.2f | sync %.2f/%.2f/%.2f | render %.2f/%.2f/%.2f | logic %.2f/%.2f/%.2f ms mean/p50/p99\n",

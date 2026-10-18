@@ -2569,6 +2569,7 @@ AGAIN:
 	LogicThread::OverlapWindow overlapWindow;
 	Bool drawAgain = FALSE;
 	do {
+		Int64 pictureStart = Clock_Ticks();	// phase 4 weighs the next picture by this one, sync point left out
 #ifdef DEBUG_LOGGING
 		Int64 tOverlapStart = 0;		// the part a logic thread could run beside, TheOverlapWindowMS
 #endif
@@ -2634,6 +2635,7 @@ AGAIN:
 				TheParticleUpdateMS = w3dElapsedMS( tParticleStart, tParticleEnd );
 #endif
 				takeReadsForRender( rendersThisPass() );
+				pictureStart = Clock_Ticks();
 #ifdef DEBUG_LOGGING
 				tOverlapStart = Clock_Ticks();
 #endif
@@ -2906,7 +2908,8 @@ AGAIN:
 		if (tOverlapStart)
 			TheOverlapWindowMS += w3dElapsedMS( tOverlapStart, Clock_Ticks() );
 #endif
-		drawAgain = overlapWindow.closeOrDrawAgain();
+		drawAgain = overlapWindow.closeOrDrawAgain(
+			(Real)( (double)( Clock_Ticks() - pictureStart ) * 1000.0 / (double)Clock_Ticks_Per_Second() ) );
 		if (drawAgain)
 		{
 			GameEngine_noteExtraPicture();
@@ -3196,6 +3199,29 @@ void W3DDisplay::flushBatch2D( void )
 	flush2D();
 
 }  // end flushBatch2D
+
+// W3DDisplay::replayShifted ==================================================
+/** The 2D renderer turns a corner into screen space as it is added, so a coordinate range moved by
+	* the shift moves every quad the list adds; strings add the shift themselves (getReplayShift). */
+//=============================================================================
+void W3DDisplay::replayShifted( DrawCalls &calls, Int dx, Int dy )
+{
+	if( dx == 0 && dy == 0 )
+	{
+		replay( calls );
+		return;
+	}
+	flush2D();
+	m_2DRender->Set_Coordinate_Range( RectClass( -dx, -dy, (Real)getWidth() - dx, (Real)getHeight() - dy ) );
+	m_replayShift.x = dx;
+	m_replayShift.y = dy;
+	replay( calls );
+	flush2D();
+	m_replayShift.x = 0;
+	m_replayShift.y = 0;
+	m_2DRender->Set_Coordinate_Range( RectClass( 0, 0, getWidth(), getHeight() ) );
+
+}  // end replayShifted
 
 // W3DDisplay::drawLine =======================================================
 /** draw a line on the display in pixel coordinates with the specified color */

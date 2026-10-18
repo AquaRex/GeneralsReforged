@@ -142,10 +142,12 @@ namespace LogicThread
 		void open( Bool mayOverlap );
 		void close( void );
 		/** Phase 4, at the end of a picture: TRUE while the tick handed over at the opening still runs and
-			* the pacer does not owe the next one yet (a paced single-player pass).  The window stays open and
-			* the draw presents the same state again with only the camera moved.  FALSE closes it as close()
-			* does, waiting for the tick. */
-		Bool closeOrDrawAgain( void );
+			* another picture as long as pictureMS, the one just drawn, still ends before the pacer owes the next
+			* one (a paced single-player pass).  The window stays open and the draw presents the same state
+			* again with only the camera moved.  Under vsync a picture's length includes its wait for the
+			* refresh, so a 60 Hz screen beside 60 ticks a second draws none and a faster one draws them on its
+			* refreshes.  FALSE closes it as close() does, waiting for the tick. */
+		Bool closeOrDrawAgain( Real pictureMS );
 	private:
 		Bool m_open;
 	};

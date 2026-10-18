@@ -182,6 +182,10 @@ public:
 	void record( std::function<void()> call ) { m_recording->push_back( std::move( call ) ); }
 	/// kept for another replay: LOGIC-THREAD.md phase 4 draws the same pass's picture again; the next recording clears it
 	static void replay( DrawCalls &calls ) { for( size_t i = 0; i < calls.size(); ++i ) calls[ i ](); }
+	/// replay moved by (dx, dy) pixels, for a list recorded under a camera that has scrolled since
+	virtual void replayShifted( DrawCalls &calls, Int dx, Int dy ) { replay( calls ); }
+	/// the shift replayShifted is drawing with; a recorded string adds it to where it draws
+	const ICoord2D &getReplayShift( void ) const { return m_replayShift; }
 	void deferFree( DisplayString *string ) { m_deferredFrees.push_back( string ); }
 	void freeDeferred( void );
 
@@ -255,6 +259,7 @@ protected:
 	UnsignedInt m_elapsedCopywriteTime;			///< Hold on the last frame until both have expired
 	DisplayString *m_copyrightDisplayString;///< this'll hold the display string
 	DrawCalls *m_recording = NULL;					///< see beginRecording
+	ICoord2D m_replayShift = { 0, 0 };				///< see replayShifted
 	std::vector< DisplayString * > m_deferredFrees;	///< see beginRecording
 };
 

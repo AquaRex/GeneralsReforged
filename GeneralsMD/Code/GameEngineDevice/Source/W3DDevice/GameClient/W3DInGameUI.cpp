@@ -64,6 +64,7 @@
 #include "W3DDevice/GameClient/W3DInGameUI.h"
 #include "W3DDevice/GameClient/W3DDisplay.h"
 #include "W3DDevice/GameClient/W3DScene.h"
+#include "W3DDevice/GameClient/W3DView.h"
 #include "W3DDevice/Common/W3DConvert.h"
 #include "WW3D2/ww3d.h"
 #include "WW3D2/hanim.h"
@@ -401,6 +402,7 @@ void W3DInGameUI::reset( void )
 	InGameUI::reset();
 	// the recordings outlive their replays now (Display::replay); their strings go with Display::reset
 	m_overWorldDraw.clear();
+	m_dragBoxDraw.clear();
 	m_postDrawCalls.clear();
 	m_hudOverlayDraw.clear();
 
@@ -519,17 +521,21 @@ static void fillAround( const IRegion2D &window, Int outside, Color color )
 void W3DInGameUI::recordDraw( void )
 {
 	m_overWorldDraw.clear();
+	m_dragBoxDraw.clear();
 	m_postDrawCalls.clear();
 	m_hudOverlayDraw.clear();
 	if( CinemaDirector_hidesHud() )
 		return;
 
-	TheDisplay->beginRecording( &m_overWorldDraw );
-	preDraw();
-
-	// draw selection region if drag selecting
+	// the drag box is the pointer's, so a picture drawn again beside the tick keeps it where it is
+	// while the rest of this list moves with a scrolled camera; it draws after the guard markers now
+	TheDisplay->beginRecording( &m_dragBoxDraw );
 	if( m_isDragSelecting )
 		drawSelectionRegion();
+	TheDisplay->endRecording();
+
+	TheDisplay->beginRecording( &m_overWorldDraw );
+	preDraw();
 
 	// draw the formation line if one is being dragged out
 	if( m_isFormationDragging )
@@ -637,9 +643,11 @@ void W3DInGameUI::draw( void )
 		return;
 	}
 
-	// preDraw, the drag box, the formation line, the attack circle and the guard markers, which
-	// recordDraw ran at the sync point
-	Display::replay( m_overWorldDraw );
+	// preDraw, the formation line, the attack circle, the guard markers and the drag box, which
+	// recordDraw ran at the sync point; the world's part moves with a camera scrolled since
+	const ICoord2D shift = static_cast<W3DView *>( TheTacticalView )->overlayShift();
+	TheDisplay->replayShifted( m_overWorldDraw, shift.x, shift.y );
+	Display::replay( m_dragBoxDraw );
 
 	// for each view draw hints
 	/// @todo should the UI be iterating through views like this?
