@@ -7149,18 +7149,18 @@ void ScriptActions::executeAction( ScriptAction *pAction )
 			// (LOGIC-THREAD.md hazard 24), which is when the engine next paces anyway
 			const Int asked = pAction->getParameter(0)->getInt();
 			LogicThread::callAfterTick( [asked]{
+				// A match someone plays, or its replay, keeps the speed it started at: normal, or turbo
+				// mode's twice that.  Only the shell map's scripts may still pace themselves.
+				if (!TheGameLogic->isInShellGame())
+					return;
 				if (!asked)
 				{
 					TheGameEngine->setFramesPerSecondLimit(TheGlobalData->m_framesPerSecondLimit);
 				}
 				else
 				{
-					// the map asks for a 30 Hz logic rate; 30 is normal speed.  A mission or skirmish map gets
-					// half speed to normal like the player does, never faster
-					Int fps = ConvertRetailFrames(asked);
-					if (TheGameLogic->isInSkirmishGame() || TheGameLogic->isInSinglePlayerGame())
-						fps = ClampPlayerGameSpeed(fps);
-					TheGameEngine->setFramesPerSecondLimit(fps);
+					// the map asks for a 30 Hz logic rate; 30 is normal speed
+					TheGameEngine->setFramesPerSecondLimit(ConvertRetailFrames(asked));
 				}
 				// Setting the fps limit doesn't do much good if we don't use it.  jba.
 				TheWritableGlobalData->m_useFpsLimit = true;

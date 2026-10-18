@@ -407,6 +407,7 @@ void GameInfo::reset( void )
   m_incomeSharing = INCOME_SHARING_OFF;
   m_techRespawn = 0;
   m_supplyPileLimit = 0;
+  m_turbo = FALSE;
 
 	//
 
@@ -1205,6 +1206,9 @@ static AsciiString buildGameInfoAsciiString( const GameInfo *game, const AsciiSt
 		game->getStartingCash().countMoney(), game->oldFactionsOnly() ? 'Y' : 'N', game->getPeaceTime(),
 		game->getUnitLimit() ? 1 : 0, game->getProRules() ? 1 : 0, game->getIncomeSharing(), game->getTechRespawn(),
 		game->getSupplyPileLimit() );
+	// written only when on, so a normal-speed game's string is the one it always was
+	if (game->getTurbo())
+		optionsString.concat("TB=1;");
 
 	//add player info for each slot
 	optionsString.concat(slotListID);
@@ -1285,6 +1289,7 @@ Bool ParseAsciiStringToGameInfo(GameInfo *game, AsciiString options)
   Int incomeSharing = INCOME_SHARING_OFF; // the same
   Int techRespawn = 0; // the same
   Int supplyPileLimit = 0; // the same
+  Bool turbo = FALSE; // the same
 
 	Bool sawMap, sawMapCRC, sawMapSize, sawSeed, sawSlotlist, sawUseStats, sawSuperweaponRestriction, sawStartingCash, sawOldFactions;
 	sawMap = sawMapCRC = sawMapSize = sawSeed = sawSlotlist = sawUseStats = sawSuperweaponRestriction = sawStartingCash = sawOldFactions = FALSE;
@@ -1410,6 +1415,10 @@ Bool ParseAsciiStringToGameInfo(GameInfo *game, AsciiString options)
     else if (key.compare("PL") == 0 )
     {
       supplyPileLimit = atoi(val.str());
+    }
+    else if (key.compare("TB") == 0 )
+    {
+      turbo = atoi(val.str()) != 0;
     }
 		else if (key.getLength() == 1 && *key.str() == slotListID)
 		{
@@ -1762,6 +1771,7 @@ Bool ParseAsciiStringToGameInfo(GameInfo *game, AsciiString options)
     game->setIncomeSharing( incomeSharing );
     game->setTechRespawn( techRespawn );
     game->setSupplyPileLimit( supplyPileLimit );
+    game->setTurbo( turbo );
 
 		return true;
 	}

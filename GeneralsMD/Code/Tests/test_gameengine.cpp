@@ -4628,16 +4628,43 @@ TEST(controlbar_seconds_round_up_and_never_reach_zero_early)
 	CHECK_EQ( ControlBar_secondsFromFrames( 1.0f ), 1 );
 }
 
-TEST(player_game_speed_is_half_to_normal)
+TEST(player_game_speed_is_normal_or_turbo)
 {
-	/* A skirmish or mission runs from half speed to normal and never faster: the menu, the console,
-	   a saved game and a map script all clamp to this. An old x2 preference or save comes back at x1. */
-	CHECK_EQ( ClampPlayerGameSpeed( LOGICFRAMES_PER_SECOND * 2 ), LOGICFRAMES_PER_SECOND );
-	CHECK_EQ( ClampPlayerGameSpeed( LOGICFRAMES_PER_SECOND * 3 / 2 ), LOGICFRAMES_PER_SECOND );
+	/* A match someone plays runs at normal speed or in turbo mode at twice that, nothing between: a
+	   saved game and the console land on the nearer one, so a save from the old half-speed settings
+	   comes back at normal. */
+	CHECK_EQ( ClampPlayerGameSpeed( LOGICFRAMES_PER_SECOND * 3 ), LOGICFRAMES_PER_SECOND * 2 );
+	CHECK_EQ( ClampPlayerGameSpeed( LOGICFRAMES_PER_SECOND * 2 ), LOGICFRAMES_PER_SECOND * 2 );
+	CHECK_EQ( ClampPlayerGameSpeed( LOGICFRAMES_PER_SECOND * 3 / 2 ), LOGICFRAMES_PER_SECOND * 2 );
 	CHECK_EQ( ClampPlayerGameSpeed( LOGICFRAMES_PER_SECOND ), LOGICFRAMES_PER_SECOND );
-	CHECK_EQ( ClampPlayerGameSpeed( LOGICFRAMES_PER_SECOND * 3 / 4 ), LOGICFRAMES_PER_SECOND * 3 / 4 );
-	CHECK_EQ( ClampPlayerGameSpeed( LOGICFRAMES_PER_SECOND / 2 ), LOGICFRAMES_PER_SECOND / 2 );
-	CHECK_EQ( ClampPlayerGameSpeed( ConvertRetailFrames( 5 ) ), LOGICFRAMES_PER_SECOND / 2 );
+	CHECK_EQ( ClampPlayerGameSpeed( LOGICFRAMES_PER_SECOND / 2 ), LOGICFRAMES_PER_SECOND );
+	CHECK_EQ( ClampPlayerGameSpeed( ConvertRetailFrames( 5 ) ), LOGICFRAMES_PER_SECOND );
+}
+
+TEST(match_speed_is_frames_per_second_limit_doubled_by_turbo)
+{
+	/* Every MSG_NEW_GAME a player starts passes this: GameData.ini's normal speed, or -fps for a test,
+	   twice that in turbo mode, inside the 1..1000 MSG_NEW_GAME takes. */
+	GlobalData *saved = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+
+	TheWritableGlobalData->m_framesPerSecondLimit = LOGICFRAMES_PER_SECOND;
+	CHECK_EQ( GameEngine_matchFramesPerSecond( FALSE ), LOGICFRAMES_PER_SECOND );
+	CHECK_EQ( GameEngine_matchFramesPerSecond( TRUE ), LOGICFRAMES_PER_SECOND * 2 );
+	TheWritableGlobalData->m_framesPerSecondLimit = 0;	// no FramesPerSecondLimit at all
+	CHECK_EQ( GameEngine_matchFramesPerSecond( TRUE ), LOGICFRAMES_PER_SECOND * 2 );
+	TheWritableGlobalData->m_framesPerSecondLimit = 800;
+	CHECK_EQ( GameEngine_matchFramesPerSecond( TRUE ), 1000 );
+
+	SkirmishGameInfo game;
+	game.init();
+	CHECK( !game.getTurbo() );
+	game.setTurbo( TRUE );
+	game.reset();
+	CHECK( !game.getTurbo() );
+
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = saved;
 }
 
 TEST(controlbar_seconds_are_real_seconds_at_the_current_game_speed)

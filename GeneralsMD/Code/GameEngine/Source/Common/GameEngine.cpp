@@ -780,6 +780,7 @@ static void startAutoSkirmish( Int numPlayersWanted )
 	TheSkirmishGameInfo->setTechRespawn( TheGlobalData->m_techRespawn );
 	TheSkirmishGameInfo->setSupplyPileLimit( TheGlobalData->m_supplyPileLimit );
 	TheSkirmishGameInfo->setSuperweaponRestriction( (UnsignedShort)TheGlobalData->m_superweapons );
+	TheSkirmishGameInfo->setTurbo( TheGlobalData->m_turboMatch );
 	if (TheGlobalData->m_startingCash > 0)
 	{
 		Money cash;
@@ -797,15 +798,9 @@ static void startAutoSkirmish( Int numPlayersWanted )
 	TheWritableGlobalData->m_shellMapOn = FALSE;
 	TheWritableGlobalData->m_playIntro = FALSE;
 
-	/* The menu passes the game speed slider's position here, so pass the same thing and clamp it
-		 the same way reallyDoStart() does: MSG_NEW_GAME rejects anything outside 1..1000 by falling
-		 back to m_framesPerSecondLimit *unclamped*, which is how a stray -fps would still get through.
-		 -noFPSLimit deliberately does not appear here - it uncaps the renderer, not the simulation. */
-	Int maxFPS = TheGlobalData->m_framesPerSecondLimit;
-	if (maxFPS < ConvertRetailFrames( 15 ))
-		maxFPS = DEFAULT_MAX_FPS;
-	if (maxFPS > 1000)
-		maxFPS = 1000;
+	/* The speed reallyDoStart() passes for the lobby's turbo box, -fps included.  -noFPSLimit
+		 deliberately does not appear here - it uncaps the renderer, not the simulation. */
+	const Int maxFPS = GameEngine_matchFramesPerSecond( TheSkirmishGameInfo->getTurbo() );
 
 	InitRandom( seed );
 	GameMessage *msg = TheMessageStream->appendMessage( GameMessage::MSG_NEW_GAME );
@@ -1610,6 +1605,19 @@ Int GameEngine_logicCatchupMaxFrames( Int logicFps )
 		return 1;
 	const Int frames = (Int)(logicFps * LOGIC_CATCHUP_MAX_MS / 1000.0f + 0.5f);
 	return frames < 1 ? 1 : frames;
+}
+
+/* MSG_NEW_GAME refuses anything outside 1..1000 and falls back to m_framesPerSecondLimit
+	 unclamped, so the answer stays inside that.  A FramesPerSecondLimit below retail's 15, or none at
+	 all, is normal speed. */
+Int GameEngine_matchFramesPerSecond( Bool turbo )
+{
+	Int fps = TheGlobalData->m_framesPerSecondLimit;
+	if (fps < ConvertRetailFrames( 15 ))
+		fps = LOGICFRAMES_PER_SECOND;
+	if (turbo)
+		fps *= 2;
+	return fps > 1000 ? 1000 : fps;
 }
 
 Bool GameEngine_mayStartAnotherCatchupTick( Int ticksSoFar, Int maxTicks, Real elapsedMsInLoop )
@@ -3052,8 +3060,7 @@ void GameEngine::update( void )
 			// count and the pacer's own accumulator cap stop at LOGIC_CATCHUP_MAX_FRAMES, so a logic
 			// frame that is itself over budget cannot pull the loop into a spiral.
 			Int logicTicksThisPass = 0;
-			const Int maxTicksThisPass = GameEngine_logicCatchupMaxFrames(
-				networkPaced ? TheGlobalData->m_framesPerSecondLimit : m_maxFPS );
+			const Int maxTicksThisPass = GameEngine_logicCatchupMaxFrames( m_maxFPS );
 			/* Bounded by the clock as well as by the count - see LOGIC_CATCHUP_BUDGET_MS.  Three
 				 25ms ticks back to back with no picture in between is the 113ms freeze; one of them
 				 plus the render is a dropped frame nobody files a bug about. */
@@ -3107,7 +3114,7 @@ void GameEngine::update( void )
 				else if (!GameEngine_isLogicFrameDue(s_logicAccumMs, 0.0f, m_maxFPS))
 					break;
 			}
-			GameEngine_noteLogicTickDone( networkPaced ? TheGlobalData->m_framesPerSecondLimit : m_maxFPS, fastMode );
+			GameEngine_noteLogicTickDone( m_maxFPS, fastMode );
 			// a frame held by a scripted freeze keeps showing its last picture, rather than going back
 			// half a frame every other pass
 			if (TheGameLogic->getFrame() == frameBeforeTicks)

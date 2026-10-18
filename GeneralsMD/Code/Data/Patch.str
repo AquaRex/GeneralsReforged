@@ -1032,6 +1032,22 @@ TOOLTIP:ProRules
 "The tournament list. No Particle Cannon or SCUD Storm, except the Superweapon General's one cannon. The Nuclear Missile silo goes up but never fires. No Aurora, no Tactical Nuke MiGs, no demo bike, no suicide bombs, Neutron Shells or Stealth Comanche, and no Carpet Bomb before rank 3. A Microwave Tank cannot freeze a building still going up, nobody builds within 300 of an enemy building, and nobody puts more than two Patriots, Gatling Cannons or Stinger Sites round one group of oil derricks."
 END
 
+GUI:TurboMode
+"Turbo Mode"
+END
+
+TOOLTIP:TurboMode
+"The match runs twice as fast: two seconds of play go by in every second, and nothing else about it changes. In a network game the host picks it for everyone."
+END
+
+GUI:TurboModeMissions
+"Turbo Mode in Missions"
+END
+
+TOOLTIP:TurboModeMissions
+"Campaign and Generals' Challenge missions run twice as fast, and a mission already under way speeds up at once. Skirmish and multiplayer games have their own box in the lobby."
+END
+
 // Pro Rules, rule 9: no foundation within reach of an enemy building
 GUI:CantBuildTooCloseToEnemy
 "Can't build this close to an enemy building."
@@ -1316,6 +1332,10 @@ END
 
 GUI:OptionsGroupMenus
 "Menus"
+END
+
+GUI:OptionsGroupSpeed
+"Game Speed"
 END
 
 GUI:OptionsGroupReplays

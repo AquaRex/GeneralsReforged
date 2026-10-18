@@ -1405,8 +1405,8 @@ Int parseIgnoreStackTrace(char *args[], int num)
 }
 #endif
 
-/* -fps <n> is the game speed itself: the rate the logic tick is paced at, the command-line twin of
-	 the skirmish menu's game speed slider.  MSG_NEW_GAME only honours 1..1000.  n is in retail 30 Hz
+/* -fps <n> is the game speed itself: the rate the logic tick is paced at, for tests; a player gets
+	 normal speed or turbo mode's twice that, and turbo doubles this too.  MSG_NEW_GAME only honours 1..1000.  n is in retail 30 Hz
 	 frames, so -fps 30 is still normal speed and every script that passes it keeps its meaning. */
 
 Int parseFPSLimit(char *args[], int num)
@@ -2299,6 +2299,15 @@ Int parseSupplyPileLimit(char *args[], int num)
 	return 1;
 }
 
+/* -turbomode: the lobby's turbo mode for an -autoskirmish or -netgame run, twice the logic frames a
+	 second at the same frames.  Not -turbo, which fast-forwards a drawing run as fast as it goes. */
+Int parseTurboMode(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+		TheWritableGlobalData->m_turboMatch = TRUE;
+	return 1;
+}
+
 /* -slowframe <ms> lowers the bar a logic frame has to clear before it logs its own breakdown.
 
 	 The default of 20ms is a stutter hunt: it catches the frames a player would notice. Chasing a
@@ -2887,6 +2896,7 @@ static CommandLineParam params[] =
 	{ "-techrespawn", parseTechRespawn },
 	{ "-superweapons", parseSuperweapons },
 	{ "-supplypilelimit", parseSupplyPileLimit },
+	{ "-turbomode", parseTurboMode },
 	{ "-startingcash", parseStartingCash },
 	{ "-showlanes", parseShowLanes },
 	{ "-uidrill", parseUIDrill },
