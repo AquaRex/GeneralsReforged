@@ -1857,7 +1857,11 @@ void W3DTreeBuffer::drawModelShadows(CameraClass *camera, Real stretchX, Real st
 		ms.baseZ = 0.0f;
 		Int k;
 		for (k=0; k<ms.numMesh; k++) {
-			//the meshes are where the object stands now, which is the only place this is known
+			//the meshes are where the object stands now, which is the only place this is known.  The
+			//cached box never asks whether the transform moved: a sub-mesh takes its HLod's transform
+			//only when something validates it, and a palm placed after a draw had already cached its
+			//box at the origin kept that box, and its shadow stayed culled, for the whole match
+			ms.mesh[k]->Get_Transform();
 			const AABoxClass &box = ms.mesh[k]->Get_Bounding_Box();
 			Real bottom = box.Center.Z - box.Extent.Z;
 			if (k == 0 || bottom < ms.baseZ) {
