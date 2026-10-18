@@ -279,6 +279,9 @@ RTS3DScene::~RTS3DScene()
 	{	REF_PTR_RELEASE(m_occludedMaterialPass[i]);
 	}
 
+	for (size_t spent = 0; spent < m_spentDynamicLights.size(); ++spent)
+		m_spentDynamicLights[spent]->Release_Ref();
+
 }  // end ~RTS3DScene
 
 
@@ -1365,10 +1368,12 @@ void RTS3DScene::Customized_Render( RenderInfoClass &rinfo )
 	   flagOccludedObjects(&rinfo.Camera);
 #endif
    }
-   Visibility_Checked = false;	
-	
+   Visibility_Checked = false;
 
-	RefRenderObjListIterator it(&UpdateList);	
+	if (m_customPassMode == SCENE_PASS_DEFAULT && !ShaderClass::Is_Backface_Culling_Inverted())
+		parkSpentDynamicLights();
+
+	RefRenderObjListIterator it(&UpdateList);
 	// allow all objects in the update list to do their "every frame" processing
 	for (it.First(); !it.Is_Done(); it.Next()) {
 		RenderObjClass * robj = it.Peek_Obj();
@@ -1960,11 +1965,42 @@ W3DDynamicLight * RTS3DScene::getADynamicLight(void)
 				return(pLight);
 			}
 		}
-		pLight = NEW_REF(W3DDynamicLight, ());
+		if (m_spentDynamicLights.empty())
+			pLight = NEW_REF(W3DDynamicLight, ());
+		else
+		{
+			pLight = m_spentDynamicLights.back();
+			m_spentDynamicLights.pop_back();
+		}
 		addDynamicLight( pLight );
 		pLight->Release_Ref();
 		pLight->setEnabled(true);
 		return(pLight);
+}
+
+//=============================================================================
+// RTS3DScene::parkSpentDynamicLights
+//=============================================================================
+/** Takes the lights that are off and out of the terrain's tiles out of both lists.  The pool used
+	* to keep every light the busiest moment of the match had needed, mostly off, and the five walks
+	* over it a frame (the fade, the terrain, the blast lights, the smoke's pulses, a model's own
+	* lights under -d3d9) read each one: a late match had thousands to step over, all of it cache
+	* misses the logic thread's own walks then had to share the memory with. */
+//=============================================================================
+void RTS3DScene::parkSpentDynamicLights(void)
+{
+	RefRenderObjListIterator dynaLightIt(&m_dynamicLightList);
+	for (dynaLightIt.First(); !dynaLightIt.Is_Done(); )
+	{
+		W3DDynamicLight *pLight = (W3DDynamicLight*)dynaLightIt.Peek_Obj();
+		dynaLightIt.Next();
+		if (!pLight->isSpent())
+			continue;
+		pLight->Add_Ref();
+		m_spentDynamicLights.push_back(pLight);
+		UpdateList.Remove(pLight);
+		m_dynamicLightList.Remove(pLight);
+	}
 }
 
 //=============================================================================
