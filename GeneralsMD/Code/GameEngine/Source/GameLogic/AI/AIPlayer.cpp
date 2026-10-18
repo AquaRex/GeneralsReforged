@@ -3127,6 +3127,32 @@ static Bool templateCanStealth( const ThingTemplate *tmpl )
 	return FALSE;
 }
 
+static Int personaFavouredKind( const AIPersonaWeights &taste );
+
+/** The share of aircraft an Air AI wants among the units it has built, by rung, before the scripts'
+	* teams without any are built again. */
+static const Real AIR_SHARE_TARGET[ AISKILL_COUNT ] = { 0.25f, 0.35f, 0.45f };
+
+/** Of the units this player built that fly, walk or drive, the share that flies, by count as the
+	* HEADLESS PERSONA summary counts it. */
+static Real builtAircraftShare( Player *player )
+{
+	ScoreKeeper *score = player->getScoreKeeper();
+	const KindOfMaskType none = KINDOFMASK_NONE;
+	KindOfMaskType air = none;
+	air.set( KINDOF_AIRCRAFT );
+	KindOfMaskType ground = none;
+	ground.set( KINDOF_INFANTRY );
+	KindOfMaskType vehicle = none;
+	vehicle.set( KINDOF_VEHICLE );
+	KindOfMaskType notVehicle = air;
+	notVehicle.set( KINDOF_HARVESTER );
+	notVehicle.set( KINDOF_DOZER );
+	const Int aircraft = score->getTotalUnitsBuilt( air, none );
+	const Int total = aircraft + score->getTotalUnitsBuilt( ground, air ) + score->getTotalUnitsBuilt( vehicle, notVehicle );
+	return total > 0 ? INT_TO_REAL( aircraft ) / INT_TO_REAL( total ) : 0.0f;
+}
+
 /** What a team prototype is made of, by cost: the shares that fly, walk, drive and can go invisible,
 	* each 0..1, for the personality's taste (aiPersonaTeamBias). */
 static void teamKindShares( const TeamPrototype *proto, const Player *owner, Real *air, Real *infantry, Real *vehicle, Real *stealth )
@@ -3369,6 +3395,12 @@ Bool AIPlayer::selectTeamToBuild( void )
 	// share of the enemy's known guns that can shoot up
 	const Bool persona = skirmish && m_persona != AIPERSONA_NORMAL;
 	const AIPersonaWeights taste = persona ? personaTaste() : aiPersonaWeights( AIPERSONA_NORMAL );
+	// an Air AI under its rung's share of aircraft built skips the scripts' teams with no aircraft in
+	// them: the taste on the score moved nothing, and every soldier they trained thinned the share
+	Real aircraftShare = 0.0f;
+	const Bool skipGround = persona && m_persona == AIPERSONA_AIR && personaFavouredKind( taste ) == 2 &&
+		( aircraftShare = builtAircraftShare( m_player ) ) < AIR_SHARE_TARGET[ m_skillLevel ];
+	Int skipped = 0;
 
 	Player::PlayerTeamList candidateList;
 	Int count = 0;
@@ -3391,6 +3423,11 @@ Bool AIPlayer::selectTeamToBuild( void )
 		{
 			Real air, infantry, vehicle, stealth;
 			teamKindShares( *t, m_player, &air, &infantry, &vehicle, &stealth );
+			if( skipGround && !isDefenceTeam && air <= 0.0f )
+			{
+				++skipped;
+				continue;
+			}
 			score += aiPersonaTeamBias( taste, isDefenceTeam, air, infantry, vehicle, stealth );
 		}
 		if( !dominant.empty() && !isDefenceTeam && teamCapability( *t, m_player, dominant ).m_answer < HARD_COUNTERED )
@@ -3409,6 +3446,12 @@ Bool AIPlayer::selectTeamToBuild( void )
 			count++;
 		}
 	}
+
+	if( skipped > 0 )
+		DEBUG_LOG(("AI PERSONA frame %d player %d skips %d teams with no aircraft, %.2f of what it built flies, %d teams left\n",
+			TheGameLogic->getFrame(), m_player->getPlayerIndex(), skipped, aircraftShare, count));
+	if( skipGround && count == 0 )
+		return false;
 
 	// pick a random team from the hi-priority set
 	Int which = GameLogicRandomValue( 0, count-1 );
@@ -5653,6 +5696,33 @@ Int AIPlayer::enemyStarts( Coord3D *threats )
 }
 
 //----------------------------------------------------------------------------------------------------------
+/** Every start an enemy may still be at: the ones a scout found him at, and while an enemy is not
+	* placed yet every start nobody has looked at.  *known, when asked, counts the found ones, which come
+	* first. */
+//----------------------------------------------------------------------------------------------------------
+Int AIPlayer::possibleEnemyStarts( Coord3D *starts, Int *known )
+{
+	Bool everyonePlaced = TRUE;
+	for( Int i = 0; i < ThePlayerList->getPlayerCount() && i < MAX_PLAYER_COUNT; ++i )
+	{
+		Player *them = ThePlayerList->getNthPlayer( i );
+		if( them != m_player && m_player->getRelationship( them->getDefaultTeam() ) == ENEMIES && them->hasAnyObjects() &&
+				m_playerStartNdx[ i ] < 0 )
+			everyonePlaced = FALSE;
+	}
+	Int count = 0;
+	for( Int startNdx = 0; startNdx < MAX_PLAYER_COUNT; ++startNdx )
+		if( m_startOccupied[ startNdx ] && startPositionLoc( startNdx, &starts[ count ] ) )
+			++count;
+	if( known )
+		*known = count;
+	for( Int startNdx = 0; startNdx < MAX_PLAYER_COUNT && !everyonePlaced; ++startNdx )
+		if( !m_startChecked[ startNdx ] && startPositionLoc( startNdx, &starts[ count ] ) )
+			++count;
+	return count;
+}
+
+//----------------------------------------------------------------------------------------------------------
 /** ZH has no wall to build, so the Turtle's wall is its guns packed across the narrowest place on each
 	* enemy's road in (aiFindChoke), a base radius or two out.  Flooded once per enemy, and again only
 	* when the base center, an enemy's address or a bridge changes. */
@@ -5666,23 +5736,9 @@ const std::vector<Coord3D> &AIPlayer::turtleChokes( void )
 	}
 	// every start an enemy may still be at, not only the best guess: on a map with more starts than
 	// players the guess pointed at an empty one for most of the match, and the line moved when a scout
-	// found the real one.  Once every enemy is placed, only theirs.
-	Bool everyonePlaced = TRUE;
-	for( Int i = 0; i < ThePlayerList->getPlayerCount() && i < MAX_PLAYER_COUNT; ++i )
-	{
-		Player *them = ThePlayerList->getNthPlayer( i );
-		if( them != m_player && m_player->getRelationship( them->getDefaultTeam() ) == ENEMIES && them->hasAnyObjects() &&
-				m_playerStartNdx[ i ] < 0 )
-			everyonePlaced = FALSE;
-	}
+	// found the real one
 	Coord3D threats[ MAX_PLAYER_COUNT ];
-	Int threatCount = 0;
-	for( Int startNdx = 0; startNdx < MAX_PLAYER_COUNT; ++startNdx )
-	{
-		const Bool open = !m_startChecked[ startNdx ] && !everyonePlaced;
-		if( ( open || m_startOccupied[ startNdx ] ) && startPositionLoc( startNdx, &threats[ threatCount ] ) )
-			++threatCount;
-	}
+	const Int threatCount = possibleEnemyStarts( threats, NULL );
 	const UnsignedInt bridges = bridgesDownKey();
 	Bool same = (Int)m_chokeThreatsAt.size() == threatCount && threatCount > 0 && m_chokeBridges == bridges &&
 		m_chokeBaseAt.x == m_baseCenter.x && m_chokeBaseAt.y == m_baseCenter.y;
@@ -8600,9 +8656,20 @@ void AIPlayer::trainSurplus( Int budget )
 
 /** How deep a personality with a unit taste keeps its favoured factories' queues, below the bank target, by rung. */
 static const Int PERSONA_FAVOURED_DEPTH[ AISKILL_COUNT ] = { 1, 2, 2 };
+/** The same for the Air AI's airfields: an aircraft costs three to six soldiers, so by count its share
+	* only climbs with more of them on order. */
+static const Int AIR_FAVOURED_DEPTH[ AISKILL_COUNT ] = { 1, 3, 3 };
 
 /** The cheapest armed ground vehicle off this factory's buttons it can make now, the first of two
 	* alike: a Technical, a Humvee, a Scorpion, the quick ones a Raider sends.  Not a worker or a gatherer. */
+static Bool hasPrimaryWeapon( const ThingTemplate *tmpl )
+{
+	// a Demo radar van carries only its suicide charge, in the tertiary slot: "can have a weapon" let it
+	// be the Raider's raider, and parties of radar vans killed nothing
+	const WeaponTemplateSet *set = tmpl->getWeaponTemplateSets().empty() ? NULL : tmpl->findWeaponTemplateSet( WeaponSetFlags() );
+	return set && set->getNth( PRIMARY_WEAPON ) != NULL;
+}
+
 static const ThingTemplate *cheapestVehicle( Object *factory, const Player *owner )
 {
 	const CommandSet *commandSet = TheCommandStore->findCommandSet( factory->getCommandSetString() );
@@ -8614,7 +8681,7 @@ static const ThingTemplate *cheapestVehicle( Object *factory, const Player *owne
 		if( button == NULL || button->getCommandType() != GUI_COMMAND_UNIT_BUILD )
 			continue;
 		const ThingTemplate *tmpl = button->getThingTemplate();
-		if( tmpl == NULL || !tmpl->canPossiblyHaveAnyWeapon() || !tmpl->isKindOf( KINDOF_VEHICLE ) || tmpl->isKindOf( KINDOF_AIRCRAFT ) ||
+		if( tmpl == NULL || !hasPrimaryWeapon( tmpl ) || !tmpl->isKindOf( KINDOF_VEHICLE ) || tmpl->isKindOf( KINDOF_AIRCRAFT ) ||
 				tmpl->isKindOf( KINDOF_DOZER ) || tmpl->isKindOf( KINDOF_HARVESTER ) || tmpl->isKindOf( KINDOF_MONEY_HACKER ) ||
 				TheBuildAssistant->canMakeUnit( factory, tmpl ) != CANMAKE_OK )
 			continue;
@@ -8652,9 +8719,11 @@ static void countOfTemplate( Object *obj, void *userData )
 void AIPlayer::trainFavoured( void )
 {
 	// the opening's economy first; a Raider's raiders a minute before its first sortie
+	// and an Air AI's from its first airfield: behind the drop-zone wait its first jet came at six minutes
 	const Bool raider = m_persona == AIPERSONA_RAIDER;
+	const Bool air = m_persona == AIPERSONA_AIR;
 	if( raider ? TheGameLogic->getFrame() < (UnsignedInt)( ( RAID_START_SECONDS[ m_skillLevel ] - 60 ) * LOGICFRAMES_PER_SECOND )
-						 : !readyToPush() )
+						 : !air && !readyToPush() )
 		return;
 	const AIPersonaWeights taste = personaTaste();
 	const Int favoured = personaFavouredKind( taste );
@@ -8672,7 +8741,7 @@ void AIPlayer::trainFavoured( void )
 			continue;
 		++ofKind;
 		ProductionUpdateInterface *pu = (*f)->getProductionUpdateInterface();
-		if( (Int)pu->getProductionCount() >= PERSONA_FAVOURED_DEPTH[ m_skillLevel ] )
+		if( (Int)pu->getProductionCount() >= ( air ? AIR_FAVOURED_DEPTH : PERSONA_FAVOURED_DEPTH )[ m_skillLevel ] )
 			continue;
 		const ThingTemplate *unit = raider ? cheapestVehicle( *f, m_player )
 																			 : surplusUnit( *f, m_player, army, getSkillProfile()->m_counterCompositionWeight, &taste );
@@ -15213,6 +15282,17 @@ void AIPlayer::notePersonaProgress( void )
 static const Int RAID_EVERY_SECONDS[ AISKILL_COUNT ] = { 60, 40, 30 };
 static const Int RAID_MAX_GUNS_OVER_TARGET = 1;
 static const Real RAID_GUN_MARGIN = 50.0f;
+/** How far a raider looks round itself for a gatherer to turn on, and how near a supply centre a pile
+	* has to be to count as the one its gatherers load at. */
+static const Real RAID_HUNT_RADIUS = 450.0f;
+static const Real RAID_PILE_REACH = 600.0f;
+
+/** What a raid is for: a supply truck or a worker on the ground.  A Chinook gathers in the air, out of
+	* a ground raider's reach. */
+static Bool isGroundGatherer( const Object *obj )
+{
+	return ( obj->isKindOf( KINDOF_HARVESTER ) || obj->isKindOf( KINDOF_DOZER ) ) && !obj->isKindOf( KINDOF_AIRCRAFT );
+}
 
 static Bool raidsFasterFirst( Object *a, Object *b )
 {
@@ -15249,7 +15329,8 @@ void AIPlayer::doPersonaRaids( void )
 		{
 			Object *obj = *o;
 			if( obj->isEffectivelyDead() || obj->isContained() || obj->getAI() == NULL || !obj->isKindOf( KINDOF_VEHICLE ) ||
-					obj->isKindOf( KINDOF_AIRCRAFT ) || obj->isKindOf( KINDOF_IMMOBILE ) || !isAtHome( obj->getPosition() ) || !leavesToFinish( obj ) )
+					obj->isKindOf( KINDOF_AIRCRAFT ) || obj->isKindOf( KINDOF_IMMOBILE ) || !hasPrimaryWeapon( obj->getTemplate() ) ||
+					!isAtHome( obj->getPosition() ) || !leavesToFinish( obj ) )
 				continue;
 			const StateID state = obj->getAI()->getCurrentStateID();
 			if( state != AI_IDLE && state != AI_GUARD && state != AI_GUARD_RETALIATE )
@@ -15267,6 +15348,8 @@ void AIPlayer::doPersonaRaids( void )
 			if( m_raider[ r ] == INVALID_ID )
 				m_raider[ r ] = recruits[ next++ ]->getID();
 	}
+
+	huntGatherers();
 
 	if( isBaseUnderAttack() || now < (UnsignedInt)( RAID_START_SECONDS[ m_skillLevel ] * LOGICFRAMES_PER_SECOND ) ||
 			(m_raidFrame != 0 && now - m_raidFrame < (UnsignedInt)( RAID_EVERY_SECONDS[ m_skillLevel ] * LOGICFRAMES_PER_SECOND )) )
@@ -15296,25 +15379,27 @@ void AIPlayer::doPersonaRaids( void )
 	std::vector<AIKnownGun> guns;
 	collectKnownGuns( &guns );
 	const Int me = m_player->getPlayerIndex();
+	// a gatherer he has, by the fewest known guns over it and then the nearest; a supply centre of his the
+	// same way when none is known.  88 of 117 sorties used to drive at the neutral supply pile, where an
+	// attack-move found nothing to shoot, and a whole match killed two gatherers
 	Object *target = NULL;
 	Real bestScore = 0.0f;
 	Int bestGuns = 0;
 	Bool bestWorker = FALSE;
 	for( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
 	{
-		const Bool worker = obj->isKindOf( KINDOF_HARVESTER ) || obj->isKindOf( KINDOF_DOZER );
-		const Bool depot = obj->isKindOf( KINDOF_FS_SUPPLY_CENTER ) || obj->isKindOf( KINDOF_FS_SUPPLY_DROPZONE );
-		if( (!worker && !depot) || obj->isKindOf( KINDOF_AIRCRAFT ) || obj->isEffectivelyDead() ||
-				m_player->getRelationship( obj->getTeam() ) != ENEMIES || !observerKnowsAbout( obj, me ) )
+		const Bool worker = isGroundGatherer( obj );
+		const Bool depot = obj->isKindOf( KINDOF_FS_SUPPLY_CENTER );
+		if( (!worker && !depot) || obj->isEffectivelyDead() || m_player->getRelationship( obj->getTeam() ) != ENEMIES ||
+				!observerKnowsAbout( obj, me ) )
 			continue;
 		const Coord3D *at = obj->getPosition();
 		Int covering = 0;
 		for( size_t g = 0; g < guns.size(); ++g )
 			if( sqr( guns[ g ].m_x - at->x ) + sqr( guns[ g ].m_y - at->y ) <= sqr( guns[ g ].m_reach + RAID_GUN_MARGIN ) )
 				++covering;
-		if( covering > RAID_MAX_GUNS_OVER_TARGET )
+		if( worker && covering > RAID_MAX_GUNS_OVER_TARGET )
 			continue;
-		// any worker before any depot, then the fewest guns, then the nearest
 		const Real score = (Real)sqrt( sqr( at->x - m_baseCenter.x ) + sqr( at->y - m_baseCenter.y ) );
 		if( target == NULL || (worker && !bestWorker) ||
 				(worker == bestWorker && (covering < bestGuns || (covering == bestGuns && score < bestScore))) )
@@ -15325,37 +15410,123 @@ void AIPlayer::doPersonaRaids( void )
 			bestWorker = worker;
 		}
 	}
-	if( target == NULL )
+
+	// a supply centre is where his gatherers unload, and the pile beside it where they load: the party
+	// drives at the middle of the two, and huntGatherers turns it on the nearest gatherer there.  With
+	// neither known, the pile nearest his base
+	Coord3D goal;
+	const Coord3D *from = NULL;
+	Coord3D guess;
+	if( target && !bestWorker )
+		from = target->getPosition();
+	else if( target == NULL )
 	{
-		// nothing of his economy seen yet: the supply source nearest his base, where his gatherers go
-		Player *enemy = getAiEnemy();
-		Coord3D guess;
-		if( enemy == NULL || !enemyStartGuess( enemy->getPlayerIndex(), &guess ) )
+		// a start a scout found him at; else every start he may be at by turns, sortie by sortie.  The best
+		// guess alone sent every sortie of a match to an empty start, with his base at the other end
+		Coord3D starts[ MAX_PLAYER_COUNT ];
+		Int known = 0;
+		const Int count = possibleEnemyStarts( starts, &known );
+		if( count == 0 )
 			return;
+		const Int sortie = (Int)( now / ( RAID_EVERY_SECONDS[ m_skillLevel ] * LOGICFRAMES_PER_SECOND ) );
+		guess = starts[ known > 0 ? sortie % known : sortie % count ];
+		from = &guess;
+	}
+	if( from )
+	{
+		const Object *pile = NULL;
 		Real nearestSqr = 0.0f;
 		for( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
 		{
 			if( !obj->isKindOf( KINDOF_SUPPLY_SOURCE ) || obj->isEffectivelyDead() || m_player->getRelationship( obj->getTeam() ) == ALLIES )
 				continue;
-			const Real distSqr = sqr( obj->getPosition()->x - guess.x ) + sqr( obj->getPosition()->y - guess.y );
-			if( target == NULL || distSqr < nearestSqr )
+			const Real distSqr = sqr( obj->getPosition()->x - from->x ) + sqr( obj->getPosition()->y - from->y );
+			if( pile == NULL || distSqr < nearestSqr )
 			{
-				target = obj;
+				pile = obj;
 				nearestSqr = distSqr;
 			}
 		}
-		if( target == NULL )
+		if( pile == NULL && target == NULL )
 			return;
+		goal = pile ? *pile->getPosition() : *from;
+		if( target && pile && nearestSqr <= sqr( RAID_PILE_REACH ) )
+		{
+			goal.x = 0.5f * ( goal.x + from->x );
+			goal.y = 0.5f * ( goal.y + from->y );
+		}
+		else if( target )
+			goal = *from;
+		if( target == NULL )
+			target = (Object *)pile;
 	}
 	for( std::vector<Object *>::const_iterator r = party.begin(); r != party.end(); ++r )
 	{
 		if( bestWorker )
 			(*r)->getAI()->aiAttackObject( target, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI );
 		else
-			(*r)->getAI()->aiAttackMoveToPosition( target->getPosition(), NO_MAX_SHOTS_LIMIT, CMD_FROM_AI );
+			(*r)->getAI()->aiAttackMoveToPosition( &goal, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI );
 	}
 	DEBUG_LOG(("AI RAIDER frame %d player %d sends %d at '%s' %d at (%.0f,%.0f), %d known guns over it\n", now, me, (Int)party.size(),
-		target->getTemplate()->getName().str(), target->getID(), target->getPosition()->x, target->getPosition()->y, bestGuns));
+		target->getTemplate()->getName().str(), target->getID(), bestWorker ? target->getPosition()->x : goal.x,
+		bestWorker ? target->getPosition()->y : goal.y, bestGuns));
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A raider out of the base that is not already after a gatherer turns on the nearest one this AI
+	* knows of within RAID_HUNT_RADIUS: on its way, and when it gets to the supply centre it was sent at.
+	* An attack-move shoots what it meets and walks on, and a truck turning off the road was let go. */
+//-------------------------------------------------------------------------------------------------
+void AIPlayer::huntGatherers( void )
+{
+	const Int me = m_player->getPlayerIndex();
+	for( Int r = 0; r < MAX_PERSONA_RAIDERS; ++r )
+	{
+		Object *raider = TheGameLogic->findObjectByID( m_raider[ r ] );
+		if( raider == NULL || raider->isEffectivelyDead() || raider->isContained() || isAtHome( raider->getPosition() ) )
+			continue;
+		// a raider at an empty start crosses it off as a scout would, so the next sortie goes elsewhere
+		for( Int startNdx = 0; startNdx < MAX_PLAYER_COUNT; ++startNdx )
+		{
+			Coord3D there;
+			if( m_startChecked[ startNdx ] || !startPositionLoc( startNdx, &there ) ||
+					sqr( there.x - raider->getPosition()->x ) + sqr( there.y - raider->getPosition()->y ) > sqr( raider->getVisionRange() ) )
+				continue;
+			m_startChecked[ startNdx ] = TRUE;
+			for( Int i = 0; i < ThePlayerList->getPlayerCount() && i < MAX_PLAYER_COUNT; ++i )
+			{
+				Player *p = ThePlayerList->getNthPlayer( i );
+				if( p != m_player && p->getMpStartIndex() == startNdx && m_player->getRelationship( p->getDefaultTeam() ) == ENEMIES )
+				{
+					m_startOccupied[ startNdx ] = TRUE;
+					m_playerStartNdx[ i ] = startNdx;
+				}
+			}
+			DEBUG_LOG(("AI RAIDER frame %d player %d looks at start position %d: %s\n", TheGameLogic->getFrame(), me, startNdx + 1,
+				m_startOccupied[ startNdx ] ? "an enemy" : "empty"));
+		}
+		// already on one: the goal reads empty while the chase is in a substate, and the order went out
+		// again every two seconds
+		const Object *goal = raider->getAI()->getGoalObject();
+		if( ( goal && isGroundGatherer( goal ) ) || raider->getAI()->getCurrentStateID() == AI_ATTACK_OBJECT )
+			continue;
+		PartitionFilterPlayerAffiliation enemies( m_player, ALLOW_ENEMIES, true );
+		PartitionFilterAlive alive;
+		PartitionFilter *filters[] = { &enemies, &alive, NULL };
+		ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange( raider->getPosition(), RAID_HUNT_RADIUS, FROM_BOUNDINGSPHERE_2D,
+			filters, ITER_SORTED_NEAR_TO_FAR );
+		MemoryPoolObjectHolder hold( iter );
+		for( Object *obj = iter->first(); obj; obj = iter->next() )
+		{
+			// the affiliation filter lets this player's own through too: the first version chased its own workers
+			if( !isGroundGatherer( obj ) || m_player->getRelationship( obj->getTeam() ) != ENEMIES || !observerKnowsAbout( obj, me ) )
+				continue;
+			raider->getAI()->aiAttackObject( obj, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI );
+			DEBUG_LOG(("AI RAIDER frame %d player %d turns '%s' %d on '%s' %d\n", TheGameLogic->getFrame(), me,
+				raider->getTemplate()->getName().str(), raider->getID(), obj->getTemplate()->getName().str(), obj->getID()));
+			break;
+		}
+	}
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -15505,7 +15676,10 @@ void AIPlayer::logPersonaSummary( void )
 	gatherer.set( KINDOF_HARVESTER );
 	KindOfMaskType worker = none;
 	worker.set( KINDOF_DOZER );
-	const Int gathererKills = score->getTotalObjectsDestroyed( gatherer, none ) + score->getTotalObjectsDestroyed( worker, gatherer );
+	// on the ground: a Chinook is a gatherer too, and whatever shot it down was no raid
+	KindOfMaskType gathererOrAir = gatherer;
+	gathererOrAir.set( KINDOF_AIRCRAFT );
+	const Int gathererKills = score->getTotalObjectsDestroyed( gatherer, air ) + score->getTotalObjectsDestroyed( worker, gathererOrAir );
 	// the guns standing measured against the chokes a Turtle on this rung would fortify, whatever the seat plays
 	std::vector<Object *> defenses;
 	m_player->iterateObjects( collectFinishedDefenses, &defenses );

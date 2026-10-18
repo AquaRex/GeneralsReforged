@@ -401,6 +401,7 @@ protected:
 	const ThingTemplate *nextBaseDefense(Object *dozer);	///< the base defence off this dozer's buttons that the base has fewest of, NULL for none
 	Bool placeDefense(const ThingTemplate *defense);	///< queue it on the ring spot whose clear field of fire covers the most ground the enemy drives in over; a Turtle's round a choke first
 	Bool placeDefenseAround(const ThingTemplate *defense, const Coord3D *choke);	///< placeDefense's search, on rings round the base center, or round choke when it is set
+	Int possibleEnemyStarts(Coord3D *starts, Int *known);	///< starts a scout found an enemy at, then while one is unplaced every start not looked at
 	Int enemyStarts(Coord3D *threats);	///< enemyStartGuess of every enemy with anything left, at most MAX_PLAYER_COUNT
 	const std::vector<Coord3D> &turtleChokes(void);	///< the narrowest place on the road in from each start an enemy may be at, nearest first, cached until the base or the starts change
 	Int guardedChokes(void);	///< how many of turtleChokes this rung fortifies
@@ -550,6 +551,7 @@ protected:
 	void personaChat(const char *trigger);				///< a line of chat in character, rate limited; display only
 	void notePersonaProgress(void);								///< the summary's superweapon frame and the chat's beaten enemies
 	void doPersonaRaids(void);										///< Raider: fast units at the enemy's gatherers, workers and depots
+	void huntGatherers(void);										///< raiders out of the base turn on the nearest known gatherer near them
 	void defendAlly(void);												///< Supporter: idle units at home go to an ally's base when it is hit
 	void shareSurplusWithAllies(Int bank, Int target);	///< Economist: who gets what out of the bank (the hook only)
 	AsciiString sneakyLane(const Coord3D *from, const AsciiString &requested, Int pathSuffix);	///< Sneaky: the back door or the flank
