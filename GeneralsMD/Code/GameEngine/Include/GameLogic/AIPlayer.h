@@ -372,6 +372,8 @@ protected:
 	void addProductionForIncome(Int bank, Int bankWindowAgo, Int target);	///< another factory, while what stands does not bring the bank down
 	void trainSurplus(Int budget);												///< a unit from each idle factory, within budget
 	void trainFavoured(void);															///< a personality's favoured units, below the bank target as well
+	void buyPersonaTransports(void);											///< an Infantry AI's ground transports, a few by rung
+	void sendPersonaTransports(AIGroup *wave);	///< ... driven loaded to a wave's front, riders put down there
 	Int					m_incomeMark;						///< money earned in all, when the income was last measured ...
 	UnsignedInt	m_incomeMarkFrame;			///< ... and the frame, 0 for never
 	Int					m_bankMark;							///< ... and the bank then
@@ -381,7 +383,7 @@ protected:
 	Bool purchaseAllowed(Int key, Int cost, AIPurchaseKind kind, Bool startable, const AsciiString &what, Int scoreOffset = 0);
 	void purchased(Int key, Int cost, AIPurchaseKind kind, const AsciiString &what);
 	Bool buyUnit(ProductionUpdateInterface *pu, const ThingTemplate *unit, AIPurchaseKind kind);	///< queueCreateUnit through the queue
-	Bool buyUpgrade(ProductionUpdateInterface *pu, const UpgradeTemplate *upgrade);								///< queueUpgrade through the queue
+	Bool buyUpgrade(ProductionUpdateInterface *pu, const UpgradeTemplate *upgrade, Int scoreOffset = 0);	///< queueUpgrade through the queue
 	AIPurchaseKind purchaseKindOf(const ThingTemplate *tmpl) const;
 	AIPurchaseQueue	m_purchases;
 	AsciiString			m_purchaseSavingFor;	///< the reserved item's name, for the log only
@@ -550,6 +552,8 @@ protected:
 	AIPersonaWeights personaKindTaste(void) const;	///< the row, turned to vehicles for an Air AI on a side with no airfield
 	Bool sideFlies(void) const;									///< this side's dozers can put up an airfield at all
 	Int favouredFactoryScore(const ThingTemplate *tmpl) const;	///< what a personality adds to the purchase score of a factory of its favoured kind, 0 for any other building
+	Bool isKindPersona(void) const;		///< an Air, Infantry or Armor AI, whose army is its favoured kind
+	Int personaBuildingScore(const ThingTemplate *tmpl) const;	///< ... and of any building: that, or an Air AI's first few anti-air defences
 	Real wavePower(void) const;										///< what a parked wave waits for
 	UnsignedInt waveMaxHoldFrames(void) const;		///< ... and for how long at most
 	Bool rushPending(void) const;									///< a Rusher whose one big attack has not gone yet

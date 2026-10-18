@@ -259,7 +259,7 @@ void AISkirmishPlayer::processBaseBuilding( void )
 				(powerThin && curPlan->isKindOf(KINDOF_FS_POWER) && !curPlan->isKindOf(KINDOF_CASH_GENERATOR)));
 			const AIPurchaseKind planKind = purchaseKindOf(curPlan);
 			const Int planScore = byScore ? aiPurchaseScore(planKind, earlyGame) +
-				(m_persona != AIPERSONA_NORMAL ? personaWeights().m_buy[planKind] + favouredFactoryScore(curPlan) : 0) : 0;
+				(m_persona != AIPERSONA_NORMAL ? personaWeights().m_buy[planKind] + personaBuildingScore(curPlan) : 0) : 0;
 			const Bool couldBePriority = info->isPriorityBuild() &&
 				(!isPriority || (rushThis && !rushTaken) || planScore > bldgScore) && m_player->canBuild(curPlan);
 			const Bool couldBePower = powerPlan==NULL && curPlan->isKindOf(KINDOF_FS_POWER) &&
