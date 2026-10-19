@@ -47,6 +47,7 @@
 #include "Common/INI.h"
 #include "Common/LatchRestore.h"
 #include "Common/MapObject.h"
+#include "Common/MatchHistory.h"
 #include "Common/MultiplayerSettings.h"
 #include "Common/PerfTimer.h"
 #include "Common/Player.h"
@@ -1250,6 +1251,9 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
 	}  // end if
 
 	m_rankLevelLimit = 1000;	// this is reset every game.
+	// the score screen's graphs are the last match's: a match clears them, the shell map never does
+	if( m_gameMode != GAME_SHELL )
+		TheMatchHistory.reset();
 	setDefaults( loadingSaveGame );
 	TheWritableGlobalData->m_loadScreenRender = TRUE;	///< mark it so only a few select things are rendered during load	
 	TheWritableGlobalData->m_TiVOFastMode = FALSE;	//always disable the TIVO fast-forward mode at the start of a new game.
@@ -4996,6 +5000,10 @@ void GameLogic::update( void )
 	tStores = Clock_Ticks();
 
 	TheVictoryConditions->UPDATE();
+
+	// the score screen's graphs: written here, read only by the score screen
+	if( isInGame() && !isInShellGame() )
+		TheMatchHistory.update( m_frame );
 
 	tVictory = Clock_Ticks();
 

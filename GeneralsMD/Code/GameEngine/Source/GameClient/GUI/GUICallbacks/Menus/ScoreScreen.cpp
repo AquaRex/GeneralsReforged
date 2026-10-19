@@ -155,6 +155,11 @@ GameWindow *staticTextAcademyTitle = NULL;
 std::string LastReplayFileName;
 static Bool canSaveReplay = FALSE;
 extern void PopupReplayUpdate(WindowLayout *layout, void *userData);
+// the Graphs button and its panel, ScoreScreenGraphs.cpp
+extern void ScoreScreenGraphsInit( GameWindow *parent, GameWindow *anchor );
+extern void ScoreScreenGraphsAddPlayer( Int index, const UnicodeString &name, Color color );
+extern Bool ScoreScreenGraphsSelected( GameWindow *control );
+extern void ScoreScreenGraphsShutdown( void );
 
 void initSinglePlayer( void );
 void finishSinglePlayerInit( void );
@@ -325,6 +330,7 @@ void ScoreScreenInit( WindowLayout *layout, void *userData )
 		buttonSaveReplay->winEnable(FALSE);
 
 	s_needToFinishSinglePlayerInit = FALSE;
+	ScoreScreenGraphsInit( parent, buttonOk );
 	if (TheGameLogic->isInReplayGame())
 	{
 		if (buttonSaveReplay)
@@ -404,6 +410,7 @@ void FixupScoreScreenMovieWindow( void )
 void ScoreScreenShutdown( WindowLayout *layout, void *userData )
 {
 	DontShowMainMenu = FALSE; //KRIS
+	ScoreScreenGraphsShutdown();
 
 	// hide the layout
 	layout->hide( TRUE );
@@ -552,6 +559,8 @@ WindowMsgHandledType ScoreScreenSystem( GameWindow *window, UnsignedInt msg,
 
 			GameWindow *control = (GameWindow *)mData1;
 			Int controlID = control->winGetWindowId();
+			if( ScoreScreenGraphsSelected( control ) )
+				return MSG_HANDLED;
 			if( controlID == buttonOkID )
 			{
 				TheShell->pop();
@@ -1432,6 +1441,7 @@ void populatePlayerInfo( Player *player, Int pos)
 	}
 	else
 		GadgetStaticTextSetText(win, player->getPlayerDisplayName());
+	ScoreScreenGraphsAddPlayer( player->getPlayerIndex(), GadgetStaticTextGetText( win ), color );
 	win->winHide(FALSE);
 	win->winSetEnabledTextColors(color, win->winGetEnabledTextBorderColor());
 

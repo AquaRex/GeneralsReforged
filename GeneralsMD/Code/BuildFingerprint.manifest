@@ -456,6 +456,7 @@ GameEngine/Include/Common/LocalFileSystem.h
 GameEngine/Include/Common/LogicThread.h
 GameEngine/Include/Common/MapObject.h
 GameEngine/Include/Common/MapReaderWriterInfo.h
+GameEngine/Include/Common/MatchHistory.h
 GameEngine/Include/Common/MessageBoxFlags.h
 GameEngine/Include/Common/MessageStream.h
 GameEngine/Include/Common/MiniLog.h
@@ -1045,6 +1046,7 @@ GameEngine/Source/Common/RTS/AcademyStats.cpp
 GameEngine/Source/Common/RTS/ActionManager.cpp
 GameEngine/Source/Common/RTS/Energy.cpp
 GameEngine/Source/Common/RTS/Handicap.cpp
+GameEngine/Source/Common/RTS/MatchHistory.cpp
 GameEngine/Source/Common/RTS/MissionStats.cpp
 GameEngine/Source/Common/RTS/Money.cpp
 GameEngine/Source/Common/RTS/Player.cpp
@@ -1193,6 +1195,7 @@ GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/PopupSaveLoad.cpp
 GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/QuitMenu.cpp
 GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/ReplayMenu.cpp
 GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/ScoreScreen.cpp
+GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/ScoreScreenGraphs.cpp
 GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/SinglePlayerMenu.cpp
 GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/SkirmishGameOptionsMenu.cpp
 GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/SkirmishMapSelectMenu.cpp

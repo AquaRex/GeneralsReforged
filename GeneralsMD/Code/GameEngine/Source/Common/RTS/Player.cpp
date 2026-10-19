@@ -56,6 +56,7 @@
 #include "Common/DisabledTypes.h"
 #include "Common/GameState.h"
 #include "Common/GlobalData.h"
+#include "Common/MatchHistory.h"
 #include "Common/MessageStream.h"
 #include "Common/MiscAudio.h"
 #include "Common/PerfTimer.h"
@@ -1727,6 +1728,7 @@ void Player::onUnitCreated( Object *factory, Object *unit )
 
 	// increment our scorekeeper
 	m_scoreKeeper.addObjectBuilt(unit);
+	TheMatchHistory.noteBuilt(this, unit);
 
 	// ai notification callback
 	if( m_ai )
@@ -1811,6 +1813,7 @@ void Player::onStructureConstructionComplete( Object *builder, Object *structure
 	if (isRebuild == FALSE) {
 		m_scoreKeeper.addObjectBuilt(structure);
 		m_scoreKeeper.addMoneySpent(structure->getTemplate()->calcCostToBuild(this));
+		TheMatchHistory.noteBuilt(this, structure);
 	}
 
 	structure->friend_adjustPowerForPlayer(TRUE);

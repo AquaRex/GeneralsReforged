@@ -1987,3 +1987,68 @@ END
 GUI:LobbyRecordClose
 "Close"
 END
+
+// The score screen's Graphs panel (ScoreScreenGraphs.cpp)
+GUI:ScoreGraphs
+"GRAPHS"
+END
+
+GUI:ScoreTable
+"SCORES"
+END
+
+GUI:GraphEarned
+"Money earned"
+END
+
+GUI:GraphBank
+"Bank"
+END
+
+GUI:GraphArmy
+"Army"
+END
+
+GUI:GraphBuildings
+"Buildings"
+END
+
+GUI:GraphPower
+"Power"
+END
+
+GUI:GraphLost
+"Units lost"
+END
+
+GUI:GraphBuildOrder
+"Build order"
+END
+
+GUI:GraphSuperweaponBuilt
+"Superweapon built"
+END
+
+GUI:GraphSuperweaponFired
+"Superweapon fired"
+END
+
+GUI:GraphGeneralPower
+"General's power"
+END
+
+GUI:GraphPromotion
+"Promotion"
+END
+
+GUI:GraphRank
+"Rank %d"
+END
+
+GUI:GraphFirstMinutes
+"First 5 minutes"
+END
+
+GUI:GraphNoData
+"Nothing was recorded in this match."
+END

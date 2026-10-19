@@ -16376,3 +16376,67 @@ END
 GUI:LobbyRecordClose
 "Kapat"
 END
+
+GUI:ScoreGraphs
+"GRAFİKLER"
+END
+
+GUI:ScoreTable
+"SKORLAR"
+END
+
+GUI:GraphEarned
+"Kazanılan para"
+END
+
+GUI:GraphBank
+"Kasa"
+END
+
+GUI:GraphArmy
+"Ordu"
+END
+
+GUI:GraphBuildings
+"Binalar"
+END
+
+GUI:GraphPower
+"Enerji"
+END
+
+GUI:GraphLost
+"Kaybedilen birlik"
+END
+
+GUI:GraphBuildOrder
+"İnşa sırası"
+END
+
+GUI:GraphSuperweaponBuilt
+"Süper silah kuruldu"
+END
+
+GUI:GraphSuperweaponFired
+"Süper silah ateşlendi"
+END
+
+GUI:GraphGeneralPower
+"General Gücü"
+END
+
+GUI:GraphPromotion
+"Terfi"
+END
+
+GUI:GraphRank
+"Rütbe %d"
+END
+
+GUI:GraphFirstMinutes
+"İlk 5 dakika"
+END
+
+GUI:GraphNoData
+"Bu maçta hiçbir şey kaydedilmedi."
+END

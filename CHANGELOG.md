@@ -8,7 +8,12 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
-## Computer players have personalities
+## Graphs on the score screen
+
+- The score screen has a Graphs button beside OK. It opens a panel with one line per player over the whole match for money earned, money in the bank, army size, buildings standing, power and units lost. Army size counts infantry, vehicles and aircraft; workers and supply trucks are left out.
+- Markers along the top of each chart show when a superweapon went up (gold frame), when one fired (red frame), when a general's power was used and when a general was promoted, each in its player's colour. Hover over a marker for the time, the player and what it was.
+- The Build order tab lays each player's structures, and the first of each unit type, on a timeline. The first five minutes take over half its width, so an opening reads at a glance; hover over a picture for its name and time.
+- It works the same after a skirmish, a LAN or online match and a replay. The game records it as the match plays, a sample every five seconds, and it changes nothing in the match itself. A game loaded from a save only graphs what happened after the load.
 
 - Every computer seat in the skirmish, LAN and online lobbies has a new Personality box beside its team. It says how that player plays, and the difficulty still says how well, so a Hard Turtle and an Easy Turtle play the same way at different strengths.
 - Normal is the computer player you know, unchanged. The others:
