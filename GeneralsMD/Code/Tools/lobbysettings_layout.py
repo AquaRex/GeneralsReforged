@@ -307,7 +307,9 @@ def selfcheck():
         page = layout.find(PAGE)
         if page is None:
             problems.append("%s.wnd has no %s" % (menu, PAGE))
-        for name in (spec["other"][0], TAB_SETTINGS[0], spec["other"][2]):
+        # the tabs this script adds are taken out again by lobbyroom_layout.py, whose rooms show the
+        # settings page beside the seats; only the window a tab used to swap must still be there
+        for name in (spec["other"][2],):
             if layout.find(name) is None:
                 problems.append("%s.wnd has no %s" % (menu, name))
 

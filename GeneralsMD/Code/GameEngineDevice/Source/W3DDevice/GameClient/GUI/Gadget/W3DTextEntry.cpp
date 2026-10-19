@@ -300,10 +300,10 @@ void W3DGadgetTextEntryDraw( GameWindow *window, WinInstanceData *instData )
 
 	width = size.x - (2 * startOffset);
 	start.x = origin.x + startOffset;  // offset a little bit into the entry
-	if( BitTest( window->winGetStatus(), WIN_STATUS_ONE_LINE ) )
-		start.y = size.y / 2 - fontHeight / 2;
-	else
-		start.y = origin.y + startOffset;  // offset a little bit into the entry
+	// the line of text centred in the box.  EA put it 5 pixels under the top, which only suited the
+	// box heights it drew at 800x600: in a box scaled with its lettering the descenders ran into the
+	// bottom border.  (EA's one-line case centred it without the window's own y, off the screen top.)
+	start.y = origin.y + max( 1, (size.y - fontHeight) / 2 );
 
 	// draw the edit text
 	drawTextEntryText( window, instData, textColor, textBorder, compositeColor, compositeBorder,
@@ -454,10 +454,10 @@ void W3DGadgetTextEntryImageDraw( GameWindow *window, WinInstanceData *instData 
 
 	width = size.x - (2 * startOffset);
 	start.x = origin.x + startOffset;  // offset a little bit into the entry
-		if( BitTest( window->winGetStatus(), WIN_STATUS_ONE_LINE ) )
-		start.y = size.y / 2 - fontHeight / 2;
-	else
-		start.y = origin.y + startOffset;  // offset a little bit into the entry
+		// the line of text centred in the box.  EA put it 5 pixels under the top, which only suited the
+	// box heights it drew at 800x600: in a box scaled with its lettering the descenders ran into the
+	// bottom border.  (EA's one-line case centred it without the window's own y, off the screen top.)
+	start.y = origin.y + max( 1, (size.y - fontHeight) / 2 );
 
 	// draw the edit text
 	drawTextEntryText( window, instData, textColor, textBorder, compositeColor, compositeBorder,

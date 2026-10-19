@@ -43,6 +43,7 @@
 #include "GameClient/GadgetStaticText.h"
 #include "GameClient/GadgetPushButton.h"
 #include "GameClient/GameText.h"
+#include "GameClient/Image.h"
 #include "GameLogic/GameLogic.h" // SUPERWEAPON_RESTRICT_COUNT
 #include "GameLogic/AI.h" // AIPersonality, for the personality column
 #include "GameNetwork/GameInfo.h"
@@ -828,7 +829,8 @@ void InitAIPersonaComboBoxes(GameWindow *parent, const char *layoutFilename,
 		ListboxData *listData = (ListboxData *)listBox->winGetUserData();
 		if (listData->listLength < AIPERSONA_COUNT)
 			GadgetListBoxSetListLength(listBox, AIPERSONA_COUNT);
-		GadgetComboBoxSetMaxDisplay(comboPersona[i], AIPERSONA_COUNT);
+		// sixteen lines from a lower seat ran off the bottom of the screen; eight and a scroll bar
+		GadgetComboBoxSetMaxDisplay(comboPersona[i], min((Int)AIPERSONA_COUNT, 8));
 
 		GadgetComboBoxReset(comboPersona[i]);
 		const Color color = comboPersona[i]->winGetEnabledTextColor();
@@ -892,6 +894,110 @@ Bool HandleAIPersonaSelection(GameInfo *myGame, GameWindow *comboPersona[], Name
 		return TRUE;
 	}
 	return FALSE;
+}
+
+// -----------------------------------------------------------------------------
+
+static GameWindow *theSeatBar[MAX_SLOTS];
+static GameWindow *theSeatSwatch[MAX_SLOTS];
+static GameWindow *theSeatEmblem[MAX_SLOTS];
+static GameWindow *theSeatBadge[MAX_SLOTS];
+static GameWindow *theSeatStatus[MAX_SLOTS];
+
+void InitLobbySeatVisuals(GameWindow *parent, const char *layoutFilename)
+{
+	GameWindow **const windows[] = { theSeatBar, theSeatSwatch, theSeatEmblem, theSeatBadge, theSeatStatus };
+	const char *const names[] = { "SeatBar", "SeatSwatch", "SeatEmblem", "SeatBadge", "SeatStatus" };
+	for (Int kind = 0; kind < (Int)ARRAY_SIZE(names); ++kind)
+		for (Int i = 0; i < MAX_SLOTS; ++i)
+		{
+			AsciiString name;
+			name.format("%s:%s%d", layoutFilename, names[kind], i);
+			windows[kind][i] = TheWindowManager->winGetWindowFromId(parent, NAMEKEY(name));
+		}
+}
+
+void ShutdownLobbySeatVisuals(void)
+{
+	for (Int i = 0; i < MAX_SLOTS; ++i)
+		theSeatBar[i] = theSeatSwatch[i] = theSeatEmblem[i] = theSeatBadge[i] = theSeatStatus[i] = NULL;
+}
+
+// The general's own emblem, else the side's badge; Random and a mod faction with neither show the
+// shell's question mark, an observer the observer's eye.
+static const Image *seatEmblem(Int playerTemplate)
+{
+	if (playerTemplate == PLAYERTEMPLATE_OBSERVER)
+		return TheMappedImageCollection->findImageByName("GameinfoOBSRVR");
+	const PlayerTemplate *pt = playerTemplate >= 0 ? ThePlayerTemplateStore->getNthPlayerTemplate(playerTemplate) : NULL;
+	const Image *image = pt ? pt->getGeneralImage() : NULL;
+	if (image == NULL && pt)
+		image = pt->getSideIconImage();
+	return image ? image : TheMappedImageCollection->findImageByName("GameinfoRANDOM");
+}
+
+static void showImage(GameWindow *window, const Image *image)
+{
+	if (window == NULL)
+		return;
+	window->winHide(image == NULL);
+	if (image)
+		window->winSetEnabledImage(0, image);
+}
+
+static void showColor(GameWindow *window, Color color)
+{
+	if (window)
+		window->winSetEnabledColor(0, color);
+}
+
+void UpdateLobbySeatVisuals(GameInfo *myGame)
+{
+	const Color empty = GameMakeColor(48, 54, 76, 255);
+	const Color unpicked = GameMakeColor(128, 128, 128, 255);
+	for (Int i = 0; i < MAX_SLOTS; ++i)
+	{
+		const GameSlot *slot = myGame->getConstSlot(i);
+		const Bool occupied = slot->isOccupied();
+		Color color = occupied ? unpicked : empty;
+		if (occupied && slot->getColor() >= 0 && slot->getColor() < TheMultiplayerSettings->getNumColors())
+			color = TheMultiplayerSettings->getColor(slot->getColor())->getColor();
+		showColor(theSeatBar[i], color);
+		showColor(theSeatSwatch[i], color);
+
+		showImage(theSeatEmblem[i], occupied ? seatEmblem(slot->getPlayerTemplate()) : NULL);
+		const PlayerTemplate *pt = occupied && slot->getPlayerTemplate() >= 0
+			? ThePlayerTemplateStore->getNthPlayerTemplate(slot->getPlayerTemplate()) : NULL;
+		// the badge only where it adds something: under a general's emblem, not doubling the side's own
+		const Image *badge = pt && pt->getGeneralImage() ? pt->getSideIconImage() : NULL;
+		showImage(theSeatBadge[i], badge);
+
+		if (theSeatStatus[i] == NULL)
+			continue;
+		UnicodeString status;
+		Color statusColor = GameMakeColor(255, 255, 255, 255);
+		if (slot->isHuman())
+		{
+			// the host always sits in the first seat of a network room
+			if (i == 0)
+			{
+				status = TheGameText->fetch("GUI:LobbyHost");
+				statusColor = GameMakeColor(255, 196, 40, 255);
+			}
+			else if (slot->isAccepted())
+			{
+				status = TheGameText->fetch("GUI:LobbyReady");
+				statusColor = GameMakeColor(70, 220, 110, 255);
+			}
+			else
+			{
+				status = TheGameText->fetch("GUI:LobbyNotReady");
+				statusColor = GameMakeColor(240, 80, 64, 255);
+			}
+		}
+		theSeatStatus[i]->winSetEnabledTextColors(statusColor, GameMakeColor(0, 0, 0, 255));
+		GadgetStaticTextSetText(theSeatStatus[i], status);
+	}
 }
 
 // -----------------------------------------------------------------------------

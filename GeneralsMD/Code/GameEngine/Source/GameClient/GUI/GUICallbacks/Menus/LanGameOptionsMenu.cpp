@@ -854,6 +854,7 @@ void lanUpdateSlotList( void )
 	UpdateSlotList( TheLAN->GetMyGame(), comboBoxPlayer, comboBoxColor,
 		comboBoxPlayerTemplate, comboBoxTeam, buttonAccept, buttonStart, buttonMapStartPosition);
 	UpdateAIPersonaComboBoxes( TheLAN->GetMyGame(), comboBoxAIPersona );
+	UpdateLobbySeatVisuals( TheLAN->GetMyGame() );
 
 	updateMapStartSpots(TheLAN->GetMyGame(), buttonMapStartPosition);
 }
@@ -1024,6 +1025,7 @@ void InitLanGameGadgets( void )
 		GadgetButtonSetEnabledColor(buttonAccept[0], acceptTrueColor );
 
 	InitAIPersonaComboBoxes( parentLanGameOptions, "LanGameOptionsMenu.wnd", comboBoxAIPersona, comboBoxAIPersonaID );
+	InitLobbySeatVisuals( parentLanGameOptions, "LanGameOptionsMenu.wnd" );
 
 	// the settings page and the chat log share one rectangle; this opens on the chat log
 	InitLobbyTabs( parentLanGameOptions, "LanGameOptionsMenu.wnd", "TabChat", "ListboxChatWindowLanGame" );
@@ -1032,6 +1034,7 @@ void InitLanGameGadgets( void )
 void DeinitLanGameGadgets( void )
 {
 	ShutdownLobbyTabs();
+	ShutdownLobbySeatVisuals();
 	parentLanGameOptions = NULL;
 	buttonEmote = NULL;
 	buttonSelectMap = NULL;

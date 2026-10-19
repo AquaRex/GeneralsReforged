@@ -41,6 +41,13 @@ found and fixed â€” EA's own, not port damage.**
 - Campaign and Generals' Challenge missions have the box in Options, under Interface: Turbo Mode in Missions. Ticked in the middle of a mission, it speeds that mission up at once.
 - A skirmish lobby or a saved game left on x0.5 or x0.75 comes back at normal speed. A map script can no longer change how fast a match runs, and the speed console command picks between normal and turbo.
 
+## A lobby built for your screen
+
+- The skirmish, LAN and online rooms are laid out again from scratch, the same way in all three. Each seat is one row: a bar in that player's colour, the general's emblem with his side's badge, the player or the computer's level with its personality beside it, the army, a colour swatch and the team. In LAN and online games the row ends in HOST, READY or NOT READY, so you see who you are waiting for without hunting for a little light.
+- The map preview is square at last, 482 pixels a side in the skirmish room at 1080p where it was a 422 by 266 oblong of a square map, and the match rules sit under it the whole time. The Info, Chat and Lobby Settings tabs are gone: nothing is hidden behind a click any more. The skirmish room keeps your medals and career record under the seats, the network rooms their chat.
+- The rooms used to be a 4:3 screen pulled out to fit a wide monitor, so every emblem, start spot and the map itself came out a third wider than tall. They are drawn for 16:9 now and keep their shape on any screen: exact at 1080p, twice that at 4K, and centred between bands on a 4:3 or 16:10 monitor instead of squashed.
+- The personality list opens eight lines tall with a scroll bar. Opened from a lower seat, its sixteen lines used to run off the bottom of the screen.
+
 ## Every campaign mission is open
 
 - Picking USA, GLA or China now opens a list of that campaign's missions, every one of them open. Pick a mission, then the difficulty, and it starts with its briefing and movie as it always did; win it and the campaign carries on to the next one. Every campaign mission starts at the same rank however you reach it, so starting at the fourth is the same game as playing through to it.

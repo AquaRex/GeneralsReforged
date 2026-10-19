@@ -1256,6 +1256,7 @@ void WOLDisplaySlotList( void )
 	UpdateSlotList( game, comboBoxPlayer, comboBoxColor,
 		comboBoxPlayerTemplate, comboBoxTeam, buttonAccept, buttonStart, buttonMapStartPosition );
 	UpdateAIPersonaComboBoxes( game, comboBoxAIPersona );
+	UpdateLobbySeatVisuals( game );
 
 	WOLDisplayGameOptions();
 
@@ -1519,6 +1520,7 @@ void InitWOLGameGadgets( void )
 		//GadgetButtonSetEnabledColor(buttonAccept[0], GameSpyColor[GSCOLOR_ACCEPT_TRUE]);
 
 	InitAIPersonaComboBoxes( parentWOLGameSetup, "GameSpyGameOptionsMenu.wnd", comboBoxAIPersona, comboBoxAIPersonaID );
+	InitLobbySeatVisuals( parentWOLGameSetup, "GameSpyGameOptionsMenu.wnd" );
 
 	// the settings page and the chat log share one rectangle; this opens on the chat log
 	InitLobbyTabs( parentWOLGameSetup, "GameSpyGameOptionsMenu.wnd", "TabChat", "ListboxChatWindowGameSpyGameSetup" );
@@ -1527,6 +1529,7 @@ void InitWOLGameGadgets( void )
 void DeinitWOLGameGadgets( void )
 {
 	ShutdownLobbyTabs();
+	ShutdownLobbySeatVisuals();
 	parentWOLGameSetup = NULL;
 	buttonEmote = NULL;
 	buttonSelectMap = NULL;

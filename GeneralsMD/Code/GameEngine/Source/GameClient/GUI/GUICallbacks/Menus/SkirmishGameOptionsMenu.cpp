@@ -1221,6 +1221,7 @@ void InitSkirmishGameGadgets( void )
 	}
 	
 	InitAIPersonaComboBoxes( parentSkirmishGameOptions, "SkirmishGameOptionsMenu.wnd", comboBoxAIPersona, comboBoxAIPersonaID );
+	InitLobbySeatVisuals( parentSkirmishGameOptions, "SkirmishGameOptionsMenu.wnd" );
 
 	populateSkirmishBattleHonors();
 
@@ -1246,6 +1247,7 @@ void skirmishUpdateSlotList( void )
 										comboBoxColor, comboBoxPlayerTemplate,
 									  comboBoxTeam, NULL, buttonStart, buttonMapStartPosition );
 		UpdateAIPersonaComboBoxes( TheSkirmishGameInfo, comboBoxAIPersona );
+		UpdateLobbySeatVisuals( TheSkirmishGameInfo );
 		updateMapStartSpots(TheSkirmishGameInfo, buttonMapStartPosition, FALSE);
     doUpdateSlotList = TRUE;
   }
@@ -1310,6 +1312,7 @@ void updateSkirmishGameOptions( void )
 	{
 		ShowUnderlyingGUIElements(TRUE, layoutFilename, parentName, gadgetsToHide, perPlayerGadgetsToHide );
 		UpdateAIPersonaComboBoxes( TheSkirmishGameInfo, comboBoxAIPersona );	// a human seat has none
+		UpdateLobbySeatVisuals( TheSkirmishGameInfo );
 	}
 	else
 	{
@@ -1518,6 +1521,7 @@ void SkirmishGameOptionsMenuShutdown( WindowLayout *layout, void *userData )
 	SignalUIInteraction(SHELL_SCRIPT_HOOK_SKIRMISH_CLOSED);
 
 	ShutdownLobbyTabs();
+	ShutdownLobbySeatVisuals();
 
 	TheMouse->setCursor(Mouse::ARROW);
 	TheMouse->setMouseText(UnicodeString::TheEmptyString,NULL,NULL);
