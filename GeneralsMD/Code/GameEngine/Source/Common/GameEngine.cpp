@@ -1652,6 +1652,14 @@ static Bool isVideoFrame( Int frame )
 	return frame >= TheGlobalData->m_videoStartFrame && frame <= TheGlobalData->m_videoEndFrame;
 }
 
+/* A pass that draws a recorded picture or runs the tick into the first one: one logic frame a pass
+	 (fast mode in planLogicPass), and never a tick beside the draw (planOverlappedTick). */
+static Bool isVideoPass( void )
+{
+	const Int frame = (Int)TheGameLogic->getFrame();
+	return isVideoFrame( frame ) || isVideoFrame( frame + 1 );
+}
+
 /* -recordfps's pictures of a recorded logic frame.  A network game's clock is the network's, one logic
 	 frame a pass or more, and -headless draws no picture to make more of */
 static Int videoPicturesOn( Int frame )
@@ -2859,11 +2867,7 @@ void GameEngine::planLogicPass( LogicPassPlan &plan )
 	/* -video: one logic frame a pass across the range being recorded, so the draw in front of each
 		 logic frame is the one picture of it.  Paced by the wall clock, a pass that fell behind would
 		 run two logic frames back to back and the video would jump over one. */
-	const Int videoLogicFrame = (Int)TheGameLogic->getFrame();
-	fastMode = fastMode || ( TheGlobalData->m_videoEndFrame > 0 && TheGameLogic->isInGame()
-													 && !TheGameLogic->isInShellGame()
-													 && videoLogicFrame + 1 >= TheGlobalData->m_videoStartFrame
-													 && videoLogicFrame <= TheGlobalData->m_videoEndFrame );
+	fastMode = fastMode || isVideoPass();
 
 	static UnsignedInt prevLogicTime = Clock_Milliseconds();
 	UnsignedInt now = Clock_Milliseconds();
@@ -2930,11 +2934,15 @@ void GameEngine::planLogicPass( LogicPassPlan &plan )
 	 here the message stream and the pacer, which a pass that does not overlap runs after the client
 	 update; then the draw's sync point, and the tick goes to the logic thread as the overlap window
 	 opens (LogicThread::OverlapWindow).  A network game keeps its own order, the network's update
-	 between the message stream and the tick, and stays serialised until phase 5. */
+	 between the message stream and the tick, and stays serialised until phase 5.  So does a -video pass:
+	 planned here, the pacer moved the -recordfps picture on in front of the draw, and the picture that
+	 should have opened the next frame was drawn on the old one, numbered as a picture already taken and
+	 dropped: one picture of every recorded frame, half of them at -recordfps 120.  A tick beside the
+	 draw would move the frame the picture is numbered by while it is drawn. */
 Bool GameEngine::planOverlappedTick( void )
 {
 	if (TheNetwork != NULL || !TheGameLogic->isInGame() || TheGameLogic->isInShellGame()
-			|| TheGameLogic->isLoadingMap())
+			|| TheGameLogic->isLoadingMap() || isVideoPass())
 		return FALSE;
 
 	TheMessageStream->propagateMessages();
