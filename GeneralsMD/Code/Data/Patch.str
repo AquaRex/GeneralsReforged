@@ -2041,6 +2041,10 @@ GUI:BuildOrderFirsts
 "Show the first of each"
 END
 
+GUI:GraphSummary
+"Summary"
+END
+
 GUI:GraphEarned
 "Money earned"
 END

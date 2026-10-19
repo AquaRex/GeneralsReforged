@@ -18,9 +18,10 @@
 
 // FILE: ScoreScreenGraphs.cpp ////////////////////////////////////////////////////////////////////
 //
-// The score screen's whole content after any match, a mission or a replay: a short table of every
-// player's numbers (a campaign adds its allied and enemy sides as rows of their own), and below it
-// one chart at a time (money earned, army, buildings) or the build order.  A chart carries one row
+// The score screen's whole content after any match, a mission or a replay, one page at a time under a
+// row of tabs: the Summary, a table of every player's numbers (a campaign adds its allied and enemy
+// sides as rows of their own), then the charts (money earned, army, buildings), each with a key of
+// the players' colours, and the build order.  A chart carries one row
 // of small markers where a superweapon went up or fired, a general's power was used or a general was
 // promoted; markers that fall close together share one picture and list all of theirs on hover.  The
 // build order shows the first of each structure and unit until asked for every build.  Everything is
@@ -53,6 +54,7 @@
 
 enum GraphTab
 {
+	GRAPH_TAB_SUMMARY,
 	GRAPH_TAB_EARNED,
 	GRAPH_TAB_ARMY,
 	GRAPH_TAB_BUILDINGS,
@@ -62,10 +64,11 @@ enum GraphTab
 
 static const char *const theTabLabels[ GRAPH_TAB_COUNT ] =
 {
-	"GUI:GraphEarned", "GUI:GraphArmy", "GUI:GraphBuildings", "GUI:GraphBuildOrder"
+	"GUI:GraphSummary", "GUI:GraphEarned", "GUI:GraphArmy", "GUI:GraphBuildings", "GUI:GraphBuildOrder"
 };
 
-static const MatchSeries theTabSeries[ GRAPH_TAB_BUILD_ORDER ] =
+/// the series each chart tab draws, from GRAPH_TAB_EARNED on
+static const MatchSeries theTabSeries[ GRAPH_TAB_BUILD_ORDER - GRAPH_TAB_EARNED ] =
 {
 	MATCH_SERIES_EARNED, MATCH_SERIES_ARMY, MATCH_SERIES_BUILDINGS
 };
@@ -96,6 +99,9 @@ static const char *const theGroupLabels[ SUMMARY_GROUP_COUNT ] = { "GUI:SummaryU
 
 /// the group each column sits under
 static const Int theColumnGroup[ SUMMARY_COLUMN_COUNT ] = { 0, 0, 0, 1, 1, 1, 2 };
+
+/// whether the most (TRUE) or the fewest (FALSE) is the best of a column; a lone best is set in gold
+static const Bool theColumnMostIsBest[ SUMMARY_COLUMN_COUNT ] = { TRUE, FALSE, TRUE, TRUE, FALSE, TRUE, TRUE };
 
 static const char *const theEventLabels[ MATCH_EVENT_TYPE_COUNT ] =
 {
@@ -173,9 +179,10 @@ struct GraphLine
 
 static GameWindow *s_panel = NULL;
 static GameFont *s_font = NULL;
+static GameFont *s_bigFont = NULL;		///< the Summary page's names and numbers
 static GameFont *s_smallFont = NULL;
 static GameFont *s_tinyFont = NULL;
-static Int s_tab = GRAPH_TAB_EARNED;
+static Int s_tab = GRAPH_TAB_SUMMARY;
 static Bool s_everyBuild = FALSE;
 static std::vector< GraphPlayer > s_players;
 static std::vector< GraphText > s_texts;
@@ -283,6 +290,18 @@ static std::vector< const GraphPlayer * > chartedPlayers( void )
 			players.push_back( &s_players[ each ] );
 	}
 	return players;
+}
+
+/** A player in one short line: the name, or the side where names repeat, as eight "Hard AI" seats
+	* would. */
+static UnicodeString shortLabel( const std::vector< const GraphPlayer * > &players, size_t which )
+{
+	for( size_t other = 0; other < players.size(); other++ )
+	{
+		if( other != which && players[ other ]->name == players[ which ]->name )
+			return players[ which ]->side;
+	}
+	return players[ which ]->name;
 }
 
 static const GraphPlayer *playerFor( Int index )
@@ -409,12 +428,14 @@ static Int minuteStep( UnsignedInt frames, Int most )
 }
 
 //-------------------------------------------------------------------------------------------------
-/** A row a player: a bar in its colour, the name in it, the side dimmed beside it, then the numbers
-	* under their group headings, Units, Buildings and Money.  Returns where the table ends. */
-static Int layoutSummary( Int top, Int width, Int pad )
+/** The Summary page, a row a player: a bar in its colour, the name in it with the side dimmed under
+	* it, the winner tagged in gold, then the numbers under their group headings, Units, Buildings and
+	* Money, a column's lone best in gold.  The rows share the height down to bottom, up to two lines
+	* each. */
+static void layoutSummary( Int top, Int width, Int bottom, Int pad )
 {
 	const Int smallLine = s_smallFont->height;
-	const Int line = s_font->height;
+	const Int line = s_bigFont->height;
 	const Int left = pad * 2;
 	const Int right = width - pad * 2;
 	const Int namesRight = left + ( right - left ) / 3;
@@ -426,7 +447,7 @@ static Int layoutSummary( Int top, Int width, Int pad )
 	for( Int each = 0; each < SUMMARY_COLUMN_COUNT; each++ )
 		columnRight[ each ] = namesRight + ( each + 1 ) * column + theColumnGroup[ each ] * groupGap;
 
-	const Int subTop = top + smallLine + pad / 2;
+	const Int subTop = top + s_font->height + pad / 2;
 	for( Int group = 0; group < SUMMARY_GROUP_COUNT; group++ )
 	{
 		Int first = SUMMARY_COLUMN_COUNT, last = 0;
@@ -439,38 +460,70 @@ static Int layoutSummary( Int top, Int width, Int pad )
 			}
 		}
 		const Int groupLeft = columnRight[ first ] - column + pad;
-		addText( TheGameText->fetch( theGroupLabels[ group ] ), s_smallFont, ( groupLeft + columnRight[ last ] ) / 2, top, TEXT, 1 );
+		addText( TheGameText->fetch( theGroupLabels[ group ] ), s_font, ( groupLeft + columnRight[ last ] ) / 2, top, TEXT, 1 );
 		addRule( groupLeft, subTop - pad / 4, columnRight[ last ], subTop - pad / 4, AXIS );
 	}
 	for( Int each = 0; each < SUMMARY_COLUMN_COUNT; each++ )
 		addText( TheGameText->fetch( theColumnLabels[ each ] ), s_smallFont, columnRight[ each ], subTop, TEXT_DIM, 2 );
 	Int y = subTop + smallLine + pad / 2;
-	addRule( left, y, right, y, GRID );
+	addRule( left, y, right, y, AXIS );
 
-	// eight players in a lobby with its chat below get tighter rows
-	const Int rowHeight = s_players.size() > 4 ? line + pad / 3 : line + pad;
-	y += pad / 2;
+	// the row a column's best stands in, or -1 where two rows share it
+	Int bestRow[ SUMMARY_COLUMN_COUNT ];
+	for( Int stat = 0; stat < SUMMARY_COLUMN_COUNT; stat++ )
+	{
+		bestRow[ stat ] = -1;
+		Int best = 0;
+		for( size_t each = 0; each < s_players.size(); each++ )
+		{
+			const Int value = s_players[ each ].stats[ stat ];
+			const Bool better = theColumnMostIsBest[ stat ] ? value > best : value < best;
+			if( each == 0 || better )
+			{
+				best = value;
+				bestRow[ stat ] = (Int)each;
+			}
+			else if( value == best )
+				bestRow[ stat ] = -1;
+		}
+	}
+
+	const Int rows = max( (Int)s_players.size(), 1 );
+	const Int sideLine = s_font->height;
+	const Int rowHeight = max( min( ( bottom - y ) / rows, line * 2 + pad * 2 ), line + pad / 3 );
+	// the side goes under the name where the row has room for both, beside it where not
+	const Bool sideUnder = rowHeight >= line + sideLine + pad / 2;
 	for( size_t each = 0; each < s_players.size(); each++ )
 	{
 		const GraphPlayer &player = s_players[ each ];
-		const Int textY = y + ( rowHeight - line ) / 2;
-		s_marks.push_back( newMark( left, textY + 2, 4, line - 4, player.color, player.color ) );
-		Int x = left + 4 + pad;
-		x += addText( player.name, s_font, x, textY, player.color ) + pad;
-		const Int smallY = textY + line - smallLine - 1;
+		const Int nameY = y + ( rowHeight - ( sideUnder && !player.side.isEmpty() ? line + sideLine : line ) ) / 2;
+		s_marks.push_back( newMark( left, y + pad / 2, 4, rowHeight - pad, player.color, player.color ) );
+		const Int x = left + 4 + pad;
+		const Int nameWidth = addText( player.name, s_bigFont, x, nameY, player.color );
 		if( !player.side.isEmpty() )
-			x += addText( player.side, s_smallFont, x, smallY, TEXT_DIM ) + pad;
+		{
+			if( sideUnder )
+				addText( player.side, s_font, x, nameY + line, TEXT_DIM );
+			else
+				addText( player.side, s_smallFont, x + nameWidth + pad, nameY + line - smallLine - 1, TEXT_DIM );
+		}
 		if( player.winner )
-			addText( TheGameText->fetch( "GUI:SummaryWinner" ), s_smallFont, x, smallY, GOLD );
+		{
+			const Int tagY = y + ( rowHeight - sideLine ) / 2;
+			const Int tagWidth = addText( TheGameText->fetch( "GUI:SummaryWinner" ), s_font, namesRight - pad, tagY, GOLD, 2 );
+			s_marks.push_back( newMark( namesRight - pad * 2 - tagWidth, tagY - 3, tagWidth + pad * 2, sideLine + 6, 0, GOLD ) );
+		}
+		const Int textY = y + ( rowHeight - line ) / 2;
 		for( Int stat = 0; stat < SUMMARY_COLUMN_COUNT; stat++ )
 		{
 			UnicodeString value;
 			value.format( u"%d", player.stats[ stat ] );
-			addText( value, s_font, columnRight[ stat ], textY, TEXT, 2 );
+			addText( value, s_bigFont, columnRight[ stat ], textY, bestRow[ stat ] == (Int)each ? GOLD : TEXT, 2 );
 		}
 		y += rowHeight;
+		if( each + 1 < s_players.size() )
+			addRule( left, y, right, y, GRID );
 	}
-	return y;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -656,17 +709,11 @@ static void layoutBuildOrder( Int top, Int width, Int bottom, Int pad )
 	const Int rowsTop = top + smallLine + pad / 2;
 	// a lone campaign player gets the height of two rows, not the whole area
 	const Int rowHeight = ( bottom - rowsTop ) / max( (Int)players.size(), 2 );
-	// a row too short for the name over the side (six players and up at 1080) gets one line: the name,
-	// or the side where names repeat, as eight "Hard AI" seats would
+	// a row too short for the name over the side (eight players at 1280x720) gets one line
 	const Bool twoLines = rowHeight >= 2 * smallLine;
 	std::vector< UnicodeString > labels;
 	for( size_t each = 0; each < players.size(); each++ )
-	{
-		Bool repeated = FALSE;
-		for( size_t other = 0; other < players.size(); other++ )
-			repeated = repeated || ( other != each && players[ other ]->name == players[ each ]->name );
-		labels.push_back( twoLines || !repeated ? players[ each ]->name : players[ each ]->side );
-	}
+		labels.push_back( twoLines ? players[ each ]->name : shortLabel( players, each ) );
 
 	UnsignedInt end = history.getSampleCount() > 0 ? history.getSampleFrame( history.getSampleCount() - 1 ) : 0;
 	Int nameWidth = 0;
@@ -753,6 +800,33 @@ static void layoutBuildOrder( Int top, Int width, Int bottom, Int pad )
 }
 
 //-------------------------------------------------------------------------------------------------
+/** A chart's key, the summary being a page away: a mark in each charted player's colour and its
+	* short label, run along a line and onto a second when they do not fit.  Returns where it ends. */
+static Int layoutLegend( Int top, Int width, Int pad )
+{
+	const Int smallLine = s_smallFont->height;
+	const std::vector< const GraphPlayer * > players = chartedPlayers();
+	Int x = pad * 2;
+	Int y = top;
+	for( size_t each = 0; each < players.size(); each++ )
+	{
+		const UnicodeString label = shortLabel( players, each );
+		DisplayString *text = newText( label, s_smallFont );
+		const Int entryWidth = 4 + pad / 2 + textWidth( text );
+		TheDisplayStringManager->freeDisplayString( text );
+		if( x > pad * 2 && x + entryWidth > width - pad * 2 )
+		{
+			x = pad * 2;
+			y += smallLine + pad / 3;
+		}
+		s_marks.push_back( newMark( x, y + 3, 4, smallLine - 6, players[ each ]->color, players[ each ]->color ) );
+		addText( label, s_smallFont, x + 4 + pad / 2, y, players[ each ]->color );
+		x += entryWidth + pad * 2;
+	}
+	return y + smallLine;
+}
+
+//-------------------------------------------------------------------------------------------------
 static void layoutPanel( void )
 {
 	clearContent();
@@ -761,7 +835,7 @@ static void layoutPanel( void )
 	const Int pad = max( s_font->height / 2, 4 );
 	const Int smallLine = s_smallFont->height;
 
-	const Int tabsTop = layoutSummary( pad * 2, width, pad ) + pad * 2;
+	const Int tabsTop = pad * 2;
 	Int x = pad * 2;
 	for( Int tab = 0; tab < GRAPH_TAB_COUNT; tab++ )
 	{
@@ -776,7 +850,9 @@ static void layoutPanel( void )
 
 	s_toggleBox.lo.x = s_toggleBox.hi.x = 0;
 	s_toggleBox.lo.y = s_toggleBox.hi.y = 0;
-	if( s_tab == GRAPH_TAB_BUILD_ORDER )
+	if( s_tab == GRAPH_TAB_SUMMARY )
+		layoutSummary( tabsBottom + pad * 2, width, height - pad, pad );
+	else if( s_tab == GRAPH_TAB_BUILD_ORDER )
 	{
 		s_toggleText->setText( TheGameText->fetch( s_everyBuild ? "GUI:BuildOrderFirsts" : "GUI:BuildOrderEvery" ) );
 		s_toggleBox.hi.x = width - pad * 2;
@@ -786,7 +862,7 @@ static void layoutPanel( void )
 		layoutBuildOrder( tabsBottom + pad, width, height - pad, pad );
 	}
 	else
-		layoutChart( theTabSeries[ s_tab ], tabsBottom + pad, width, height - pad, pad );
+		layoutChart( theTabSeries[ s_tab - GRAPH_TAB_EARNED ], layoutLegend( tabsBottom + pad, width, pad ) + pad, width, height - pad, pad );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -937,9 +1013,10 @@ static WindowMsgHandledType panelInput( GameWindow *window, UnsignedInt msg, Win
 void ScoreScreenGraphsInit( GameWindow *parent, GameWindow *anchor )
 {
 	s_players.clear();
-	s_tab = GRAPH_TAB_EARNED;
+	s_tab = GRAPH_TAB_SUMMARY;
 	s_everyBuild = FALSE;
 	s_font = anchor->winGetFont();
+	s_bigFont = TheFontLibrary->getFont( s_font->nameString, s_font->pointSize + 3, FALSE );
 	s_smallFont = TheFontLibrary->getFont( s_font->nameString, max( s_font->pointSize - 2, 8 ), FALSE );
 	s_tinyFont = TheFontLibrary->getFont( s_font->nameString, max( s_font->pointSize * 2 / 3, 7 ), TRUE );
 
