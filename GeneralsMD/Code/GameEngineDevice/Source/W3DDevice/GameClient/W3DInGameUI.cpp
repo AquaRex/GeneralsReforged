@@ -32,6 +32,7 @@
 #include <stdlib.h>
 #include "Lib/Clock.h"
 
+#include "Common/BuildAssistant.h"
 #include "Common/GameEngine.h"
 #include "Common/GlobalData.h"
 #include "Common/Player.h"
@@ -44,6 +45,7 @@
 #include "GameLogic/TerrainLogic.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
+#include "GameLogic/PartitionManager.h"
 #include "GameLogic/Module/AIUpdate.h"
 #include "GameLogic/Module/DozerAIUpdate.h"
 #include "GameClient/CinemaDirector.h"
@@ -304,6 +306,10 @@ W3DInGameUI::W3DInGameUI()
 		m_moveHintAnim[ i ] = NULL;
 	}
 
+	m_buildGridCellX = 0;
+	m_buildGridCellY = 0;
+	memset( m_buildGridBlocked, 0, sizeof( m_buildGridBlocked ) );
+
 }  // end W3DInGameUI
 
 //-------------------------------------------------------------------------------------------------
@@ -537,6 +543,7 @@ void W3DInGameUI::recordDraw( void )
 
 	TheDisplay->beginRecording( &m_overWorldDraw );
 	preDraw();
+	takeBuildGrid();	// after preDraw, which puts the ghost where the patch is centred
 
 	// draw the formation line if one is being dragged out
 	if( m_isFormationDragging )
@@ -880,7 +887,10 @@ static void setGroundOverlayState( void )
 	* structure, plain impassable.  It deliberately does not run the full isLocationLegalToBuild for
 	* every cell - that is a per-structure query (build radius, shroud, supply proximity) and a
 	* couple of hundred of them a frame is not worth it.  The ghost's own red tint already answers
-	* that question for the one spot the cursor is actually on. */
+	* that question for the one spot the cursor is actually on.
+	*
+	* The cells are read at the sync point (takeBuildGrid), not here: this runs in the terrain pass,
+	* beside the tick. */
 //-------------------------------------------------------------------------------------------------
 void W3DInGameUI::drawBuildGrid( void )
 {
@@ -891,20 +901,12 @@ void W3DInGameUI::drawBuildGrid( void )
 	const Bool drawLines = gridPlacementOn();
 	if( m_placeIcon == NULL || m_placeIcon[ 0 ] == NULL )
 		return;
-	if( TheTerrainLogic == NULL || TheAI == NULL )
-		return;
-
-	Pathfinder *pathfinder = TheAI->pathfinder();
-	if( pathfinder == NULL )
-		return;
-
-	const Coord3D *center = m_placeIcon[ 0 ]->getPosition();
-	if( center == NULL )
+	if( TheTerrainLogic == NULL )
 		return;
 
 	// how many cells each way around the cursor we light up
-	enum { GRID_RADIUS = 28 };
-	enum { GRID_CELLS = GRID_RADIUS * 2 + 1, GRID_POINTS = GRID_CELLS + 1 };
+	enum { GRID_RADIUS = BUILD_GRID_RADIUS };
+	enum { GRID_CELLS = BUILD_GRID_CELLS, GRID_POINTS = GRID_CELLS + 1 };
 
 	// half the width of a painted line, in world units - a cell is PLACEMENT_CELL (10) across
 	const Real LINE_HALF_WIDTH = 0.3f;
@@ -913,8 +915,8 @@ void W3DInGameUI::drawBuildGrid( void )
 	const Real GRID_LIFT = 0.35f;
 
 	// the pathfinder's own cell indexing, so the lines drawn are the lines it reasons about
-	const Int cellX = REAL_TO_INT_FLOOR( (center->x + 0.5f) / PATHFIND_CELL_SIZE_F ) - GRID_RADIUS;
-	const Int cellY = REAL_TO_INT_FLOOR( (center->y + 0.5f) / PATHFIND_CELL_SIZE_F ) - GRID_RADIUS;
+	const Int cellX = m_buildGridCellX;
+	const Int cellY = m_buildGridCellY;
 
 	// sample the terrain once per grid corner, rather than once per quad corner.  Static, not
 	// automatic: at this radius the two square tables are ~27k together, which is more than a
@@ -990,8 +992,7 @@ void W3DInGameUI::drawBuildGrid( void )
 	{
 		for( ix = 0; ix < GRID_CELLS; ++ix )
 		{
-			PathfindCell *cell = pathfinder->getCell( LAYER_GROUND, cellX + ix, cellY + iy );
-			if( cell == NULL || cell->getType() == PathfindCell::CELL_CLEAR )
+			if( !m_buildGridBlocked[ iy ][ ix ] )
 				continue;
 
 			if( fade[ iy ][ ix ] <= 0.0f && fade[ iy + 1 ][ ix + 1 ] <= 0.0f )
@@ -1011,6 +1012,51 @@ void W3DInGameUI::drawBuildGrid( void )
 	quads.flush();
 
 }  // end drawBuildGrid
+
+//-------------------------------------------------------------------------------------------------
+/** Which cells of the patch round the ghost drawBuildGrid washes red, read from the pathfinder at
+	* the sync point.  The pathfinder marks every structure the moment it is placed, the enemy's in the
+	* shroud included, so its cells alone drew enemy foundations into the dark: a cell held by
+	* something the local player has no picture of stays clear here, and so does rubble under the
+	* shroud.  Water, cliffs and plain impassable ground are the map's own and always show. */
+//-------------------------------------------------------------------------------------------------
+void W3DInGameUI::takeBuildGrid( void )
+{
+	if( m_pendingPlaceType == NULL || m_placeIcon == NULL || m_placeIcon[ 0 ] == NULL )
+		return;
+
+	const Coord3D *center = m_placeIcon[ 0 ]->getPosition();
+	m_buildGridCellX = REAL_TO_INT_FLOOR( (center->x + 0.5f) / PATHFIND_CELL_SIZE_F ) - BUILD_GRID_RADIUS;
+	m_buildGridCellY = REAL_TO_INT_FLOOR( (center->y + 0.5f) / PATHFIND_CELL_SIZE_F ) - BUILD_GRID_RADIUS;
+
+	Pathfinder *pathfinder = TheAI->pathfinder();
+	const Int me = ThePlayerList->getLocalPlayer()->getPlayerIndex();
+
+	for( Int iy = 0; iy < BUILD_GRID_CELLS; ++iy )
+	{
+		for( Int ix = 0; ix < BUILD_GRID_CELLS; ++ix )
+		{
+			const PathfindCell *cell = pathfinder->getCell( LAYER_GROUND, m_buildGridCellX + ix, m_buildGridCellY + iy );
+			Bool blocked = cell != NULL && cell->getType() != PathfindCell::CELL_CLEAR;
+
+			if( blocked && cell->getType() == PathfindCell::CELL_OBSTACLE )
+			{
+				blocked = !BuildAssistant_isHiddenFromLocalPlayer( TheGameLogic->findObjectByID( cell->getObstacleID() ) );
+			}
+			else if( blocked && cell->getType() == PathfindCell::CELL_RUBBLE )
+			{
+				Coord3D at;
+				at.x = ( (Real)( m_buildGridCellX + ix ) + 0.5f ) * PATHFIND_CELL_SIZE_F;
+				at.y = ( (Real)( m_buildGridCellY + iy ) + 0.5f ) * PATHFIND_CELL_SIZE_F;
+				at.z = 0.0f;
+				blocked = ThePartitionManager->getShroudStatusForPlayer( me, &at ) != CELLSHROUD_SHROUDED;
+			}
+
+			m_buildGridBlocked[ iy ][ ix ] = blocked;
+		}
+	}
+
+}  // end takeBuildGrid
 
 //-------------------------------------------------------------------------------------------------
 /** The wash inside the circle a left drag is sweeping targets out of.  The rim is a screen space

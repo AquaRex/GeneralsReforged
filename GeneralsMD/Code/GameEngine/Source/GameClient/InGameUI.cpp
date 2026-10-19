@@ -2207,7 +2207,8 @@ void InGameUI::handleBuildPlacements( void )
 																																&worldStart, &worldEnd,
 																																objectSize,
 																																TheGlobalData->m_maxLineBuildObjects,
-																																builderObject );
+																																builderObject,
+																																BuildAssistant::IGNORE_UNSEEN );
 				positions = tileBuildInfo->positions;
 				iconsUsed = tileBuildInfo->tilesUsed;
 			}
@@ -5740,7 +5741,9 @@ void InGameUI::computePlacementRow( const ThingTemplate *what, Real angle, const
 /** The legality question asked of the spot under the ghost, in one place - the nudge search asks it
 	* of every candidate too.  IGNORE_STEALTHED is deliberate: a structure you cannot put down is a
 	* place a stealthed unit is standing, and the placement cursor is not a detector.  The click
-	* re-asks with FAIL_STEALTHED_WITHOUT_FEEDBACK, which is where that actually gets decided. */
+	* re-asks with FAIL_STEALTHED_WITHOUT_FEEDBACK, which is where that actually gets decided.
+	* IGNORE_UNSEEN is the same for the fog: the ghost, its bib, the nudge and the click know only what
+	* this player has seen, and the logic's own check turns down an order on a building he has not. */
 //-------------------------------------------------------------------------------------------------
 UnsignedInt InGameUI::placementCheckOptions( void )
 {
@@ -5749,7 +5752,8 @@ UnsignedInt InGameUI::placementCheckOptions( void )
 				 BuildAssistant::CLEAR_PATH |
 				 BuildAssistant::NO_OBJECT_OVERLAP |
 				 BuildAssistant::SHROUD_REVEALED |
-				 BuildAssistant::IGNORE_STEALTHED;
+				 BuildAssistant::IGNORE_STEALTHED |
+				 BuildAssistant::IGNORE_UNSEEN;
 
 }  // end placementCheckOptions
 
@@ -5860,7 +5864,9 @@ void InGameUI::snapPlacementToNeighbour( Coord3D *world, const ThingTemplate *wh
 	MemoryPoolObjectHolder holder( iter );
 	for( Object *obj = iter->first(); obj; obj = iter->next() )
 	{
-		if( !obj->isKindOf( KINDOF_STRUCTURE ) || obj->isEffectivelyDead() )
+		// a ghost that jumps flush against bare ground says where an unseen building stands
+		if( !obj->isKindOf( KINDOF_STRUCTURE ) || obj->isEffectivelyDead() ||
+				BuildAssistant_isHiddenFromLocalPlayer( obj ) )
 			continue;
 
 		PlacementBox standing;

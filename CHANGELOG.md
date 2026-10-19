@@ -661,6 +661,7 @@ found and fixed â€” EA's own, not port damage.**
 - Click a plan, or press Stop, to cancel it and take the money back.
 - Cancelling a plan is silent â€” nothing was built, so nothing explodes.
 - Ground your units have walked stays buildable after they leave it.
+- Placing a building no longer shows you the enemy's base. The red cells under the building on your cursor marked every structure on the map, the ones standing in the shroud and the ones going up in the fog since you last looked included, so sweeping the cursor over the dark drew your opponent's foundations for you. The red tint and the outline under the building did the same in the fog, and the building slid flush against walls you had never seen. All of it now goes by what you have seen: a building you scouted still shows where your eyes left it, one you have not shows nothing until you find it. Put a building down on top of one you could not see and the order is turned down, as it always was.
 - A plan opens no fog of its own, and your opponent never sees it. Not with a unit parked right next
   to the site, and not as a leftover outline in the fog after that unit walks away. Both used to show
   an AI's whole base layout before its first worker arrived.

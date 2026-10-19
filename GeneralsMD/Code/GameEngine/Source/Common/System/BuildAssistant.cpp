@@ -35,6 +35,7 @@
 #include "Common/BuildAssistant.h"
 #include "Common/GlobalData.h"
 #include "Common/Player.h"
+#include "Common/PlayerList.h"
 #include "Common/ThingTemplate.h"
 #include "Common/GameAudio.h"
 #include "Common/ThingFactory.h"
@@ -737,6 +738,13 @@ LegalBuildCode BuildAssistant::isLocationClearOfObjects( const Coord3D *worldPos
 			}
 		}
 
+		// The ghost and its red bib go by what this player has seen: counting a building standing in
+		// the shroud, or put up in the fog since he last looked, turned the ghost red over it and drew
+		// its footprint.  The order still meets the full check in the logic, which refuses it there.
+		// A stealthed thing the click was told to fail on quietly (above) is left to fail.
+		if( BitTest( options, IGNORE_UNSEEN ) && feedbackWithFailure && BuildAssistant_isHiddenFromLocalPlayer( them ) )
+			continue;
+
 		//Kris: Patch 1.01 - November 5, 2003
 		//Prevent busy units (black lotus hacking from being moved by trying to place a building -- exploit).
 		if( rel == ALLIES )
@@ -890,6 +898,9 @@ LegalBuildCode BuildAssistant::isLocationClearOfObjects( const Coord3D *worldPos
 			}
 		}
 
+		if( BitTest( options, IGNORE_UNSEEN ) && BuildAssistant_isHiddenFromLocalPlayer( them ) )
+			continue;
+
 		// ignore any kind of class of objects that we will "remove" for building
 		if( isRemovableForConstruction( them ) == TRUE )
 			continue;
@@ -964,6 +975,26 @@ LegalBuildCode BuildAssistant::isLocationClearOfObjects( const Coord3D *worldPos
 Bool BuildAssistant_shroudBlocksBuilding( CellShroudStatus status )
 {
 	return status == CELLSHROUD_SHROUDED;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Fogged is a picture: a building he walked past is still drawn there from the ghost, and the
+	* object's own status says FOGGED only for that (see PartitionData::getShroudedStatus).  A unit in
+	* the fog, a building the fog closed over unseen and anything shrouded come back SHROUDED.  A
+	* stealthed thing nobody has detected is not drawn for him either, wherever it stands. */
+//-------------------------------------------------------------------------------------------------
+Bool BuildAssistant_isHiddenFromLocalPlayer( const Object *obj )
+{
+	const Player *me = ThePlayerList->getLocalPlayer();
+	if( obj->getControllingPlayer() == me || me->getRelationship( obj->getTeam() ) == ALLIES )
+		return FALSE;
+
+	if( obj->testStatus( OBJECT_STATUS_STEALTHED ) && !obj->testStatus( OBJECT_STATUS_DETECTED ) &&
+			!obj->testStatus( OBJECT_STATUS_DISGUISED ) )
+		return TRUE;
+
+	const ObjectShroudStatus status = obj->getShroudedStatus( me->getPlayerIndex() );
+	return status != OBJECTSHROUD_CLEAR && status != OBJECTSHROUD_PARTIAL_CLEAR && status != OBJECTSHROUD_FOGGED;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1192,7 +1223,8 @@ LegalBuildCode BuildAssistant::isLocationLegalToBuild( const Coord3D *worldPos,
 			// The relationship is asked here rather than through PartitionFilterPlayerAffiliation, which
 			// lets a player's own objects through whatever it is asked for - and the first building near
 			// any spot in a base is that base's own command center, so every base refused itself.
-			if( owner->getRelationship( them->getTeam() ) == ENEMIES )
+			if( owner->getRelationship( them->getTeam() ) == ENEMIES &&
+					!( BitTest( options, IGNORE_UNSEEN ) && BuildAssistant_isHiddenFromLocalPlayer( them ) ) )
 				return LBC_TOO_CLOSE_TO_ENEMY;
 		}
 	}
@@ -1260,7 +1292,8 @@ BuildAssistant::TileBuildInfo *BuildAssistant::buildTiledLocations( const ThingT
 																																		const Coord3D *end,
 																																		Real tilingSize, 
 																																		Int maxTiles,
-																																		Object *builderObject )
+																																		Object *builderObject,
+																																		UnsignedInt extraOptions )
 {
 
 	// sanity
@@ -1338,7 +1371,8 @@ BuildAssistant::TileBuildInfo *BuildAssistant::buildTiledLocations( const ThingT
 																BuildAssistant::TERRAIN_RESTRICTIONS |
 																BuildAssistant::CLEAR_PATH |
 																BuildAssistant::NO_OBJECT_OVERLAP |
-																BuildAssistant::SHROUD_REVEALED,
+																BuildAssistant::SHROUD_REVEALED |
+																extraOptions,
 																builderObject,
 																NULL) != LBC_OK )
 			break;

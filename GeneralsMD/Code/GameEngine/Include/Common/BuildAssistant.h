@@ -108,6 +108,13 @@ enum LegalBuildCode : Int
 extern Bool BuildAssistant_shroudBlocksBuilding( CellShroudStatus status );
 
 //-------------------------------------------------------------------------------------------------
+/** Is this object one the player at this machine has no picture of: shrouded, or a unit in the fog,
+	* or a building the fog closed over before he ever saw it?  Client feedback only - the shroud
+	* status it reads is filled per machine and is not lockstep. */
+//-------------------------------------------------------------------------------------------------
+extern Bool BuildAssistant_isHiddenFromLocalPlayer( const Object *obj );
+
+//-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 class BuildAssistant : public SubsystemInterface
 {
@@ -129,7 +136,8 @@ public:
 		SHROUD_REVEALED					= 0x00000010,	///< Check to make sure the shroud is revealed
 		NO_ENEMY_OBJECT_OVERLAP	= 0x00000020,	///< Can't overlap enemy objects only.			
 		IGNORE_STEALTHED				= 0x00000040, ///< Units that we can't see are legal to "build" on. (when moving mouse around)
-		FAIL_STEALTHED_WITHOUT_FEEDBACK = 0x00000080 ///< USE WITH IGNORE_STEALTHED except it will fail without BIB feedback (when clicking to place).
+		FAIL_STEALTHED_WITHOUT_FEEDBACK = 0x00000080, ///< USE WITH IGNORE_STEALTHED except it will fail without BIB feedback (when clicking to place).
+		IGNORE_UNSEEN						= 0x00000100	///< Client only: what the local player cannot see is legal to build on (BuildAssistant_isHiddenFromLocalPlayer); never from logic
 	};
 
 public:
@@ -183,7 +191,8 @@ public:
 																							Real angle, // angle to consturct thing being tiled
 																						  const Coord3D *start, const Coord3D *end,
 																						  Real tilingSize, Int maxTiles,
-																							Object *builderObject );
+																							Object *builderObject,
+																							UnsignedInt extraOptions = 0 );	///< IGNORE_UNSEEN from the client's ghost
 
 	/// return the "scratch pad" array that can be used to create a line of build locations
 	virtual inline Coord3D *getBuildLocations( void ) { return m_buildPositions; }

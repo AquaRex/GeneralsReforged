@@ -96,6 +96,13 @@ protected:
 	Matrix3D				m_moveHintTransform[ MAX_MOVE_HINTS ];	///< each ring laid on the ground at the sync point (recordDraw)
 	void takeMoveHintTransforms( void );
 
+	// the build grid's patch, read at the sync point (recordDraw) and drawn by drawBuildGrid
+	enum { BUILD_GRID_RADIUS = 28, BUILD_GRID_CELLS = BUILD_GRID_RADIUS * 2 + 1 };
+	Int		m_buildGridCellX;		///< the patch's first pathfinder cell
+	Int		m_buildGridCellY;
+	Bool	m_buildGridBlocked[ BUILD_GRID_CELLS ][ BUILD_GRID_CELLS ];	///< [y][x], washed red
+	void takeBuildGrid( void );
+
 	// recordDraw's lists, replayed by draw
 	Display::DrawCalls m_overWorldDraw;		///< preDraw to the guard markers, drawn where the world is
 	Display::DrawCalls m_dragBoxDraw;		///< the drag box, drawn where the pointer is
