@@ -16389,24 +16389,32 @@ GUI:LobbyRecordClose
 "Kapat"
 END
 
-GUI:ScoreSummary
-"ÖZET"
+GUI:SummaryUnits
+"Birlikler"
 END
 
-GUI:ScoreTable
-"SKORLAR"
+GUI:SummaryMoney
+"Para"
 END
 
 GUI:SummaryUnitsBuilt
-"Üretilen birlik"
-END
-
-GUI:SummaryUnitsDestroyed
-"Yok edilen birlik"
+"Üretilen"
 END
 
 GUI:SummaryBuildingsBuilt
-"İnşa edilen bina"
+"İnşa edilen"
+END
+
+GUI:SummaryLost
+"Kaybedilen"
+END
+
+GUI:SummaryDestroyed
+"Yok edilen"
+END
+
+GUI:SummaryEarned
+"Kazanılan"
 END
 
 GUI:SummaryWinner
@@ -16431,10 +16439,6 @@ END
 
 GUI:GraphBuildings
 "Binalar"
-END
-
-GUI:GraphLost
-"Kaybedilen birlik"
 END
 
 GUI:GraphBuildOrder

@@ -10,7 +10,7 @@ found and fixed â€” EA's own, not port damage.**
 
 ## A summary and graphs on the score screen
 
-- After a skirmish, a LAN or online match or a replay the score screen opens on a summary: one row per player with its side, units built, lost and destroyed, buildings built and money earned, and the winner marked. The Scores button beside OK swaps it for the full score table and back.
+- The old score table with its rows of icons and the Tactical Analysis box is gone. Every score screen, skirmish, LAN, online, replay and campaign mission alike, opens on one summary: a row per player with its side, units built, lost and destroyed, buildings built, lost and destroyed, and money earned, the winner marked. In a campaign mission your enemies share one row per side, as they did in the old table. Generals' Challenge keeps the general's portrait and verdict it always had.
 - Under the summary one chart at a time draws a line per player over the whole match: money earned, army size or buildings standing. Army size counts infantry, vehicles and aircraft; workers and supply trucks are left out.
 - A single row of small pictures above the chart marks superweapons built and fired, general's powers and promotions, framed in the player's colour. Moments that fall close together share one picture with a count on it. Hover over it for the list, each line with its time, and a faint line down to where each one falls on the chart.
 - The Build order tab puts the first of each structure and unit each player made on a timeline whose first five minutes take over half the width, so an opening reads at a glance. Show every build adds the rest; hover over a picture for its name and time.

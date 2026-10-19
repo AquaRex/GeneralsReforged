@@ -18,14 +18,14 @@
 
 // FILE: ScoreScreenGraphs.cpp ////////////////////////////////////////////////////////////////////
 //
-// The summary panel the score screen opens on after a multiplayer match, a skirmish or a replay: a
-// short table of the numbers that matter for each player, and below it one chart at a time (money
-// earned, army, buildings) or the build order.  A chart carries one row of small markers where a
-// superweapon went up or fired, a general's power was used or a general was promoted; markers that
-// fall close together share one picture and list all of theirs on hover.  The build order shows
-// the first of each structure and unit until asked for every build.  The Scores button beside OK
-// swaps the panel for the stock score table.  Everything is drawn here from TheMatchHistory and the
-// players' score keepers; the panel and its button are made in code, so no layout file changes.
+// The score screen's whole content after any match, a mission or a replay: a short table of every
+// player's numbers (a campaign adds its allied and enemy sides as rows of their own), and below it
+// one chart at a time (money earned, army, buildings) or the build order.  A chart carries one row
+// of small markers where a superweapon went up or fired, a general's power was used or a general was
+// promoted; markers that fall close together share one picture and list all of theirs on hover.  The
+// build order shows the first of each structure and unit until asked for every build.  Everything is
+// drawn here from TheMatchHistory and the score keepers; the panel is made in code over the layout,
+// whose own score table ScoreScreen.cpp hides, so no layout file changes.
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
@@ -40,7 +40,6 @@
 #include "GameClient/Display.h"
 #include "GameClient/DisplayString.h"
 #include "GameClient/DisplayStringManager.h"
-#include "GameClient/GadgetPushButton.h"
 #include "GameClient/GameFont.h"
 #include "GameClient/GameText.h"
 #include "GameClient/GameWindow.h"
@@ -71,21 +70,32 @@ static const MatchSeries theTabSeries[ GRAPH_TAB_BUILD_ORDER ] =
 	MATCH_SERIES_EARNED, MATCH_SERIES_ARMY, MATCH_SERIES_BUILDINGS
 };
 
-/// the summary's columns, in the stock score table's order
+/// the summary's columns, in the old score table's order, under three group headings
 enum SummaryColumn
 {
 	SUMMARY_UNITS_BUILT,
 	SUMMARY_UNITS_LOST,
 	SUMMARY_UNITS_DESTROYED,
 	SUMMARY_BUILDINGS_BUILT,
+	SUMMARY_BUILDINGS_LOST,
+	SUMMARY_BUILDINGS_DESTROYED,
 	SUMMARY_EARNED,
 	SUMMARY_COLUMN_COUNT
 };
 
 static const char *const theColumnLabels[ SUMMARY_COLUMN_COUNT ] =
 {
-	"GUI:SummaryUnitsBuilt", "GUI:GraphLost", "GUI:SummaryUnitsDestroyed", "GUI:SummaryBuildingsBuilt", "GUI:GraphEarned"
+	"GUI:SummaryUnitsBuilt", "GUI:SummaryLost", "GUI:SummaryDestroyed",
+	"GUI:SummaryBuildingsBuilt", "GUI:SummaryLost", "GUI:SummaryDestroyed",
+	"GUI:SummaryEarned"
 };
+
+enum { SUMMARY_GROUP_COUNT = 3 };
+
+static const char *const theGroupLabels[ SUMMARY_GROUP_COUNT ] = { "GUI:SummaryUnits", "GUI:GraphBuildings", "GUI:SummaryMoney" };
+
+/// the group each column sits under
+static const Int theColumnGroup[ SUMMARY_COLUMN_COUNT ] = { 0, 0, 0, 1, 1, 1, 2 };
 
 static const char *const theEventLabels[ MATCH_EVENT_TYPE_COUNT ] =
 {
@@ -111,7 +121,7 @@ static const Color SHADOW = GameMakeColor( 0, 0, 0, 255 );
 
 struct GraphPlayer
 {
-	Int index;
+	Int index;		///< the player's index, or -1 for a campaign's side, which only has a summary row
 	UnicodeString name;
 	UnicodeString side;
 	Color color;
@@ -161,7 +171,6 @@ struct GraphLine
 	std::vector< ICoord2D > points;
 };
 
-static GameWindow *s_button = NULL;
 static GameWindow *s_panel = NULL;
 static GameFont *s_font = NULL;
 static GameFont *s_smallFont = NULL;
@@ -262,6 +271,18 @@ static void addTip( GraphMark &mark, const UnicodeString &text, Color color )
 	line.text = text;
 	line.color = color;
 	mark.tip.push_back( line );
+}
+
+/** The rows a player stands behind; a campaign's side rows have no history to draw. */
+static std::vector< const GraphPlayer * > chartedPlayers( void )
+{
+	std::vector< const GraphPlayer * > players;
+	for( size_t each = 0; each < s_players.size(); each++ )
+	{
+		if( s_players[ each ].index >= 0 )
+			players.push_back( &s_players[ each ] );
+	}
+	return players;
 }
 
 static const GraphPlayer *playerFor( Int index )
@@ -388,31 +409,55 @@ static Int minuteStep( UnsignedInt frames, Int most )
 }
 
 //-------------------------------------------------------------------------------------------------
-/** A row a player: a bar in its colour, the name in it, the side dimmed beside it, then the numbers.
-	* Returns where the table ends. */
+/** A row a player: a bar in its colour, the name in it, the side dimmed beside it, then the numbers
+	* under their group headings, Units, Buildings and Money.  Returns where the table ends. */
 static Int layoutSummary( Int top, Int width, Int pad )
 {
 	const Int smallLine = s_smallFont->height;
 	const Int line = s_font->height;
 	const Int left = pad * 2;
 	const Int right = width - pad * 2;
-	const Int namesRight = left + ( right - left ) * 2 / 5;
-	const Int column = ( right - namesRight ) / SUMMARY_COLUMN_COUNT;
+	const Int namesRight = left + ( right - left ) / 3;
+	const Int groupGap = pad * 2;
+	const Int column = ( right - namesRight - ( SUMMARY_GROUP_COUNT - 1 ) * groupGap ) / SUMMARY_COLUMN_COUNT;
 
+	// each column's right edge, where its heading and numbers are aligned
+	Int columnRight[ SUMMARY_COLUMN_COUNT ];
 	for( Int each = 0; each < SUMMARY_COLUMN_COUNT; each++ )
-		addText( TheGameText->fetch( theColumnLabels[ each ] ), s_smallFont, namesRight + ( each + 1 ) * column, top, TEXT_DIM, 2 );
-	Int y = top + smallLine + pad / 2;
+		columnRight[ each ] = namesRight + ( each + 1 ) * column + theColumnGroup[ each ] * groupGap;
+
+	const Int subTop = top + smallLine + pad / 2;
+	for( Int group = 0; group < SUMMARY_GROUP_COUNT; group++ )
+	{
+		Int first = SUMMARY_COLUMN_COUNT, last = 0;
+		for( Int each = 0; each < SUMMARY_COLUMN_COUNT; each++ )
+		{
+			if( theColumnGroup[ each ] == group )
+			{
+				first = min( first, each );
+				last = max( last, each );
+			}
+		}
+		const Int groupLeft = columnRight[ first ] - column + pad;
+		addText( TheGameText->fetch( theGroupLabels[ group ] ), s_smallFont, ( groupLeft + columnRight[ last ] ) / 2, top, TEXT, 1 );
+		addRule( groupLeft, subTop - pad / 4, columnRight[ last ], subTop - pad / 4, AXIS );
+	}
+	for( Int each = 0; each < SUMMARY_COLUMN_COUNT; each++ )
+		addText( TheGameText->fetch( theColumnLabels[ each ] ), s_smallFont, columnRight[ each ], subTop, TEXT_DIM, 2 );
+	Int y = subTop + smallLine + pad / 2;
 	addRule( left, y, right, y, GRID );
 
-	const Int rowHeight = line + pad;
+	// eight players in a lobby with its chat below get tighter rows
+	const Int rowHeight = s_players.size() > 4 ? line + pad / 3 : line + pad;
 	y += pad / 2;
 	for( size_t each = 0; each < s_players.size(); each++ )
 	{
 		const GraphPlayer &player = s_players[ each ];
-		s_marks.push_back( newMark( left, y + pad / 2, 4, rowHeight - pad, player.color, player.color ) );
+		const Int textY = y + ( rowHeight - line ) / 2;
+		s_marks.push_back( newMark( left, textY + 2, 4, line - 4, player.color, player.color ) );
 		Int x = left + 4 + pad;
-		x += addText( player.name, s_font, x, y + pad / 2, player.color ) + pad;
-		const Int smallY = y + pad / 2 + line - smallLine - 1;
+		x += addText( player.name, s_font, x, textY, player.color ) + pad;
+		const Int smallY = textY + line - smallLine - 1;
 		if( !player.side.isEmpty() )
 			x += addText( player.side, s_smallFont, x, smallY, TEXT_DIM ) + pad;
 		if( player.winner )
@@ -421,7 +466,7 @@ static Int layoutSummary( Int top, Int width, Int pad )
 		{
 			UnicodeString value;
 			value.format( u"%d", player.stats[ stat ] );
-			addText( value, s_font, namesRight + ( stat + 1 ) * column, y + pad / 2, TEXT, 2 );
+			addText( value, s_font, columnRight[ stat ], textY, TEXT, 2 );
 		}
 		y += rowHeight;
 	}
@@ -477,11 +522,12 @@ static void layoutChart( MatchSeries series, Int top, Int width, Int bottom, Int
 		return;
 	}
 
+	const std::vector< const GraphPlayer * > players = chartedPlayers();
 	Int most = 0;
 	for( Int sample = 0; sample < count; sample++ )
 	{
-		for( size_t each = 0; each < s_players.size(); each++ )
-			most = max( most, history.getValue( sample, s_players[ each ].index, series ) );
+		for( size_t each = 0; each < players.size(); each++ )
+			most = max( most, history.getValue( sample, players[ each ]->index, series ) );
 	}
 	const Int step = niceStep( max( most, 4 ) / 4 );
 	const Int ceiling = step * ( ( max( most, 1 ) + step - 1 ) / step );
@@ -509,13 +555,13 @@ static void layoutChart( MatchSeries series, Int top, Int width, Int bottom, Int
 		addText( clockText( frame ), s_smallFont, x, plotBottom + pad / 2, TEXT_DIM, frame == 0 ? 0 : 1 );
 	}
 
-	for( size_t each = 0; each < s_players.size(); each++ )
+	for( size_t each = 0; each < players.size(); each++ )
 	{
-		const Int index = s_players[ each ].index;
+		const Int index = players[ each ]->index;
 		if( !history.wasSampled( index ) )
 			continue;
 		GraphLine graph;
-		graph.color = s_players[ each ].color;
+		graph.color = players[ each ]->color;
 		for( Int sample = 0; sample < count; sample++ )
 		{
 			ICoord2D point;
@@ -603,26 +649,28 @@ static void layoutBuildOrder( Int top, Int width, Int bottom, Int pad )
 {
 	const MatchHistory &history = TheMatchHistory;
 	const Int smallLine = s_smallFont->height;
-	if( s_players.empty() )
+	const std::vector< const GraphPlayer * > players = chartedPlayers();
+	if( players.empty() )
 		return;
 
 	UnsignedInt end = history.getSampleCount() > 0 ? history.getSampleFrame( history.getSampleCount() - 1 ) : 0;
 	Int nameWidth = 0;
-	for( size_t each = 0; each < s_players.size(); each++ )
+	for( size_t each = 0; each < players.size(); each++ )
 	{
-		const std::vector< MatchBuild > &builds = history.getBuilds( s_players[ each ].index );
+		const std::vector< MatchBuild > &builds = history.getBuilds( players[ each ]->index );
 		if( !builds.empty() )
 			end = max( end, builds.back().frame );
-		DisplayString *name = newText( s_players[ each ].name, s_smallFont );
+		DisplayString *name = newText( players[ each ]->name, s_smallFont );
 		nameWidth = max( nameWidth, textWidth( name ) );
-		name->setText( s_players[ each ].side );
+		name->setText( players[ each ]->side );
 		nameWidth = max( nameWidth, textWidth( name ) );
 		TheDisplayStringManager->freeDisplayString( name );
 	}
 	end = max( end, (UnsignedInt)LOGICFRAMES_PER_SECOND );
 
 	const Int rowsTop = top + smallLine + pad / 2;
-	const Int rowHeight = ( bottom - rowsTop ) / (Int)s_players.size();
+	// a lone campaign player gets the height of two rows, not the whole area
+	const Int rowHeight = ( bottom - rowsTop ) / max( (Int)players.size(), 2 );
 	// the cameos at their own 4:3, two lanes of the first of each thing, three of every build
 	const Int lanes = s_everyBuild ? 3 : 2;
 	const Int icon = min( max( ( rowHeight - pad ) / lanes - 3, 10 ), s_font->height * 3 / 2 );
@@ -638,15 +686,15 @@ static void layoutBuildOrder( Int top, Int width, Int bottom, Int pad )
 	for( UnsignedInt frame = 0; frame <= end; frame += ( split && frame < EARLY_FRAMES ) ? minute : lateStep )
 	{
 		const Int x = buildX( frame, end, left, span );
-		addRule( x, rowsTop, x, bottom, frame == EARLY_FRAMES && split ? AXIS : GRID );
+		addRule( x, rowsTop, x, rowsTop + (Int)players.size() * rowHeight, frame == EARLY_FRAMES && split ? AXIS : GRID );
 		addText( clockText( frame ), s_smallFont, x, top, TEXT_DIM, 1 );
 		if( split && frame < EARLY_FRAMES && frame + minute > EARLY_FRAMES )
 			frame = EARLY_FRAMES - minute;
 	}
 
-	for( size_t each = 0; each < s_players.size(); each++ )
+	for( size_t each = 0; each < players.size(); each++ )
 	{
-		const GraphPlayer &player = s_players[ each ];
+		const GraphPlayer &player = *players[ each ];
 		const Int rowTop = rowsTop + (Int)each * rowHeight;
 		if( each > 0 )
 			addRule( pad * 2, rowTop, right + iconWidth / 2, rowTop, GRID );
@@ -865,7 +913,8 @@ static WindowMsgHandledType panelInput( GameWindow *window, UnsignedInt msg, Win
 }
 
 //-------------------------------------------------------------------------------------------------
-/** The button goes to the left of anchor, the panel over the score table above it. */
+/** Makes the panel, hidden until ScoreScreenGraphsShow; anchor is the layout's OK button, whose font
+	* the panel takes and above which it stops. */
 void ScoreScreenGraphsInit( GameWindow *parent, GameWindow *anchor )
 {
 	s_players.clear();
@@ -880,26 +929,6 @@ void ScoreScreenGraphsInit( GameWindow *parent, GameWindow *anchor )
 	parent->winGetSize( &parentW, &parentH );
 	anchor->winGetScreenPosition( &anchorX, &anchorY );
 	anchor->winGetSize( &anchorW, &anchorH );
-
-	WinInstanceData instData;
-	instData.init();
-	BitSet( instData.m_style, GWS_PUSH_BUTTON | GWS_MOUSE_TRACK );
-	s_button = TheWindowManager->gogoGadgetPushButton( parent, WIN_STATUS_ENABLED | WIN_STATUS_IMAGE,
-		anchorX - parentX - anchorW - anchorW / 8, anchorY - parentY, anchorW, anchorH, &instData, s_font, TRUE );
-	// dressed as its neighbour, the layout's own button, rather than the plain default look
-	WinInstanceData *mine = s_button->winGetInstanceData();
-	const WinInstanceData *theirs = anchor->winGetInstanceData();
-	for( Int index = 0; index < MAX_DRAW_DATA; index++ )
-	{
-		mine->m_enabledDrawData[ index ] = theirs->m_enabledDrawData[ index ];
-		mine->m_disabledDrawData[ index ] = theirs->m_disabledDrawData[ index ];
-		mine->m_hiliteDrawData[ index ] = theirs->m_hiliteDrawData[ index ];
-	}
-	mine->m_enabledText = theirs->m_enabledText;
-	mine->m_disabledText = theirs->m_disabledText;
-	mine->m_hiliteText = theirs->m_hiliteText;
-	s_button->winSetDrawFunc( anchor->winGetDrawFunc() );
-	GadgetButtonSetText( s_button, TheGameText->fetch( "GUI:ScoreSummary" ) );
 
 	// inside the layout's blue frame, which sits about a twentieth of the screen in from each side
 	const Int marginX = parentW / 20;
@@ -928,42 +957,55 @@ void ScoreScreenGraphsAddPlayer( Player *player, const UnicodeString &name, Colo
 	entry.stats[ SUMMARY_UNITS_LOST ] = score->getTotalUnitsLost();
 	entry.stats[ SUMMARY_UNITS_DESTROYED ] = score->getTotalUnitsDestroyed();
 	entry.stats[ SUMMARY_BUILDINGS_BUILT ] = score->getTotalBuildingsBuilt();
+	entry.stats[ SUMMARY_BUILDINGS_LOST ] = score->getTotalBuildingsLost();
+	entry.stats[ SUMMARY_BUILDINGS_DESTROYED ] = score->getTotalBuildingsDestroyed();
 	entry.stats[ SUMMARY_EARNED ] = score->getTotalMoneyEarned();
 	s_players.push_back( entry );
 }
 
-/** Puts the summary over the stock score table, or takes it away. */
-void ScoreScreenGraphsShow( Bool show )
+/** A campaign's allies or enemies of one side, summed into one row; it has numbers and no lines. */
+void ScoreScreenGraphsAddSide( const UnicodeString &name, Color color, Int unitsBuilt, Int unitsLost, Int unitsDestroyed,
+	Int buildingsBuilt, Int buildingsLost, Int buildingsDestroyed, Int earned )
 {
-	if( show )
-	{
-		layoutPanel();
-		s_panel->winBringToTop();
-	}
-	s_panel->winHide( !show );
-	GadgetButtonSetText( s_button, TheGameText->fetch( show ? "GUI:ScoreTable" : "GUI:ScoreSummary" ) );
+	GraphPlayer entry;
+	entry.index = -1;
+	entry.name = name;
+	entry.color = color;
+	entry.winner = FALSE;
+	entry.stats[ SUMMARY_UNITS_BUILT ] = unitsBuilt;
+	entry.stats[ SUMMARY_UNITS_LOST ] = unitsLost;
+	entry.stats[ SUMMARY_UNITS_DESTROYED ] = unitsDestroyed;
+	entry.stats[ SUMMARY_BUILDINGS_BUILT ] = buildingsBuilt;
+	entry.stats[ SUMMARY_BUILDINGS_LOST ] = buildingsLost;
+	entry.stats[ SUMMARY_BUILDINGS_DESTROYED ] = buildingsDestroyed;
+	entry.stats[ SUMMARY_EARNED ] = earned;
+	s_players.push_back( entry );
 }
 
-/** TRUE when control was the Summary/Scores button, which then swaps the two. */
-Bool ScoreScreenGraphsSelected( GameWindow *control )
+/** Lays the panel out and shows it.  floor, when given, is a window the panel has to stop above:
+	* the chat after a network match, the "game saved" line after a mission. */
+void ScoreScreenGraphsShow( GameWindow *floor )
 {
-	if( s_button == NULL || control != s_button )
-		return FALSE;
-	ScoreScreenGraphsShow( s_panel->winIsHidden() );
-	return TRUE;
+	if( floor )
+	{
+		Int panelX, panelY, floorX, floorY, width, height;
+		s_panel->winGetScreenPosition( &panelX, &panelY );
+		floor->winGetScreenPosition( &floorX, &floorY );
+		s_panel->winGetSize( &width, &height );
+		s_panel->winSetSize( width, min( height, floorY - panelY - s_font->height / 2 ) );
+	}
+	layoutPanel();
+	s_panel->winBringToTop();
+	s_panel->winHide( FALSE );
 }
 
 void ScoreScreenGraphsShutdown( void )
 {
-	if( s_button == NULL )
-		return;
 	clearContent();
 	for( Int tab = 0; tab < GRAPH_TAB_COUNT; tab++ )
 		TheDisplayStringManager->freeDisplayString( s_tabText[ tab ] );
 	TheDisplayStringManager->freeDisplayString( s_toggleText );
 	TheWindowManager->winDestroy( s_panel );
-	TheWindowManager->winDestroy( s_button );
 	s_panel = NULL;
-	s_button = NULL;
 	s_players.clear();
 }

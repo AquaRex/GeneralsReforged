@@ -2001,24 +2001,32 @@ GUI:LobbyRecordClose
 END
 
 // The score screen's summary panel (ScoreScreenGraphs.cpp)
-GUI:ScoreSummary
-"SUMMARY"
+GUI:SummaryUnits
+"Units"
 END
 
-GUI:ScoreTable
-"SCORES"
+GUI:SummaryMoney
+"Money"
 END
 
 GUI:SummaryUnitsBuilt
-"Units built"
-END
-
-GUI:SummaryUnitsDestroyed
-"Units destroyed"
+"Built"
 END
 
 GUI:SummaryBuildingsBuilt
-"Buildings built"
+"Built"
+END
+
+GUI:SummaryLost
+"Lost"
+END
+
+GUI:SummaryDestroyed
+"Destroyed"
+END
+
+GUI:SummaryEarned
+"Earned"
 END
 
 GUI:SummaryWinner
@@ -2043,10 +2051,6 @@ END
 
 GUI:GraphBuildings
 "Buildings"
-END
-
-GUI:GraphLost
-"Units lost"
 END
 
 GUI:GraphBuildOrder
