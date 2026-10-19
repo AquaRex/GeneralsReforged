@@ -4889,8 +4889,11 @@ static void captureVideoFrame(void)
 
 		// a directory left over from an earlier run would hand ffmpeg its tail as well
 		deleteVideoFrames();
-		DEBUG_LOG(("VIDEO: recording logic frames %d to %d into %s\n",
-			TheGlobalData->m_videoStartFrame, TheGlobalData->m_videoEndFrame, s_videoDirectory));
+		DEBUG_LOG(("VIDEO: recording logic frames %d to %d into %s, the first picture on frame %d\n",
+			TheGlobalData->m_videoStartFrame, TheGlobalData->m_videoEndFrame, s_videoDirectory, frame));
+		// the files are numbered from the first picture taken, so a late first one moves every file after it
+		// that many frames early; say so in the summary rather than leave the count short and silent
+		s_videoFramesMissed += picture - (UnsignedInt)TheGlobalData->m_videoStartFrame * GameEngine_videoPictures();
 	}
 	else if (picture <= s_videoLastPicture)
 	{

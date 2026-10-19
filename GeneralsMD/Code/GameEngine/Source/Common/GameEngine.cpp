@@ -3084,6 +3084,12 @@ void GameEngine::update( void )
 
 				if (!mayCatchUp)
 					break;
+				/* -video: the recorded frames run one a pass (fast mode in planLogicPass), but a burst that
+					 started in front of them ran on into them, over frames nobody drew.  The recording then
+					 opened a few frames late and every file after was numbered that much early: a laserlook
+					 shot on frame 207 sat in the file for 199.  The burst stops on the first one instead. */
+				if (!networkPaced && isVideoFrame( (Int)TheGameLogic->getFrame() ))
+					break;
 				tCatchupNow = Clock_Ticks();
 				if (!GameEngine_mayStartAnotherCatchupTick( logicTicksThisPass, maxTicksThisPass,
 																									 engineElapsedMS( tCatchupStart, tCatchupNow ) ))

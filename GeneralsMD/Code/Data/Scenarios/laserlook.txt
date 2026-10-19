@@ -7,13 +7,15 @@
 #   generals.exe -win -xres 1920 -yres 1080 -msaa 0 -quickstart -noshellmap -observer -multiInstance
 #     -fps 120 -noFPSLimit -particlecap 2500 -cinema nohud -freecam 3170 3790 270 0 -36
 #     -map "Maps\Twilight Flame\Twilight Flame.map" -autoskirmish 2 -takeover
-#     -side 0 FactionAmerica -side 1 FactionChina -seed 7 -maxframes 250 -logicthread 0
+#     -side 0 FactionAmerica -side 1 FactionChina -seed 7 -maxframes 250
 #     -video 120 240 laserlook_d3d11 -scenario laserlook -logPrefix laserlook_d3d11_
 #
 # Add -d3d9 and change the names for the reference device. The Avenger's beam is on from about
-# logic frame 140 to the end; the Crusaders fire at 147 to 152 and 207 to 212, which is where a
-# still is taken (209). -logicthread 0 because with the logic thread on, two runs of the same
-# seed fired the first Crusader shot at 199 and 207 (2026-10-19); off, two runs agreed.
+# logic frame 140 to the end. The beam at 147 to 152 and 207 to 212, where a still is taken (209),
+# is the Paladin's gun, fired on logic frames 146 and 206; the Crusaders do not fire before 250.
+# Those frames are the same in every run at either -logicthread. A shot that once seemed to come at
+# 199 was a recording that opened 8 frames late (2026-10-19); the VIDEO line now names the frame
+# of the first picture.
 
 30    spawn      0  Lazr_AmericaTankCrusader      3   3300 3740  40
 30    spawn      0  Lazr_AmericaTankPaladin       1   3420 3740
