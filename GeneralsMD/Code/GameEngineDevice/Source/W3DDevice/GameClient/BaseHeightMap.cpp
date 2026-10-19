@@ -2101,6 +2101,11 @@ void BaseHeightMapRenderObjClass::stepTrees(void)
 	m_treeBuffer->stepTrees();
 }
 
+void BaseHeightMapRenderObjClass::takeWaypointsForRender(void)
+{
+	m_waypointBuffer->takeReadsForRender();
+}
+
 //=============================================================================
 Bool BaseHeightMapRenderObjClass::updateTreePosition(DrawableID id, Coord3D location, Real angle)
 {

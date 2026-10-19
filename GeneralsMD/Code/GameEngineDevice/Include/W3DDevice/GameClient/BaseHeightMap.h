@@ -199,6 +199,7 @@ public:
 	void removeTree(DrawableID id);
 	Bool updateTreePosition(DrawableID id, Coord3D location, Real angle);
 	void stepTrees(void);	///< W3DTreeBuffer::stepTrees, at the render's sync point
+	void takeWaypointsForRender(void);	///< W3DWaypointBuffer::takeReadsForRender, at the render's sync point
 	void renderTrees(CameraClass * camera); ///< renders the tree buffer.
 
 	void addProp(Int id, Coord3D location, Real angle, Real scale, const AsciiString &modelName);

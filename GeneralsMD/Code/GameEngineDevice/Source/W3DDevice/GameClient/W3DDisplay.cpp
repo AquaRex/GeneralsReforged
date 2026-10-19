@@ -2332,6 +2332,7 @@ static void takeReadsForRender( Bool renders )
 	for( View *view = TheDisplay->getFirstView(); view; view = TheDisplay->getNextView( view ) )
 		static_cast<W3DView *>( view )->recordPostDraw();
 	TheInGameUI->recordDraw();
+	TheTerrainRenderObject->takeWaypointsForRender();
 	TheTerrainRenderObject->stepTrees();	// before the particles: a falling tree's FX makes systems
 	static_cast<W3DParticleSystemManager *>( TheParticleSystemManager )->takeReadsForRender();
 }
