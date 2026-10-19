@@ -39,6 +39,7 @@
 #include "W3DDevice/GameClient/W3DSnow.h"
 #include "W3DDevice/GameClient/W3DScene.h"
 #include "W3DDevice/GameClient/W3DDynamicLight.h"
+#include "W3DDevice/GameClient/W3DWater.h"
 #include "WW3D2/camera.h"
 #include "W3DDevice/GameClient/W3DSmoothMotion.h"
 #include "WW3D2/dx8wrapper.h"
@@ -50,6 +51,9 @@
 #include "GameLogic/PartitionManager.h"
 #include "GameClient/ObserverCamera.h"
 #include <algorithm>
+#include "GameClient/GameClient.h"
+#include "GameClient/Drawable.h"
+#include "Platform/WaterFoamParticlePolicy.h"
 #include <map>
 
 #ifdef _INTERNAL
@@ -71,6 +75,28 @@
 #ifdef DEBUG_LOGGING
 extern Real TheParticleFillMS;
 extern UnsignedInt TheParticlesPastGroupLimit;
+#endif
+
+#if defined(__linux__)
+// Modern water replaces only verified vessel-surface particles, after that hull's water draw.  The
+// owner is the one the frame view took at the sync point, so the draw reads no live object.
+static Bool replaceLegacyVesselFoam(ParticleSystem *sys, ObjectID owner)
+{
+    if(!sys || !TheWaterRenderObj || !sys->getTemplate() || owner==INVALID_ID) return FALSE;
+    const Bool ordinaryGroundParticle=!sys->shouldBillboard() && !sys->isUsingDrawables() &&
+        !sys->isUsingStreak() && !sys->isUsingSmudge() && sys->getVolumeParticleDepth()==0;
+    const AsciiString name=sys->getTemplate()->getName(),texture=sys->getParticleTypeName();
+    if(!ordinaryGroundParticle || !WaterFoamParticlePolicy::KnownSurfaceFoam(name.str(),texture.str())) return FALSE;
+    const Bool mirror=ShaderClass::Is_Backface_Culling_Inverted();
+    // Keep the original admission functions for each pass. In particular, reflected
+    // hulls and spray remain intact; only same-interface surface ripples are isolated.
+    const Bool admitted=mirror?TheWaterRenderObj->isModernWaterMirrorForOwner(owner):TheWaterRenderObj->hasModernVesselFoam(owner);
+    // Simulation, emission, aging and IDs are untouched. Missing modern admission
+    // immediately restores the original particle draw.
+    return mirror?
+        WaterFoamParticlePolicy::ExcludeSelfReflection(name.str(),texture.str(),TRUE,TRUE,admitted):
+        WaterFoamParticlePolicy::Replace(name.str(),texture.str(),TRUE,TRUE,admitted,FALSE);
+}
 #endif
 
 /** The preset a particle shader type draws with, and whether it names one at all.  An invalid type
@@ -1311,6 +1337,14 @@ void W3DParticleSystemManager::refreshFrameView( void )
 		SystemView view;
 		view.system = sys;
 		view.fade = fade;
+#if defined(__linux__)
+		view.owner = INVALID_ID;
+		if (sys->getAttachedDrawable() != INVALID_DRAWABLE_ID) {
+			const Drawable *drawable = TheGameClient->findDrawableByID(sys->getAttachedDrawable());
+			const Object *object = drawable ? drawable->getObject() : NULL;
+			if (object) view.owner = object->getID();
+		} else view.owner = sys->getAttachedObject();
+#endif
 		m_frameView.push_back( view );
 	}
 
@@ -1506,6 +1540,10 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 	for (size_t v = 0; v < m_frameView.size(); ++v)
 	{
 		ParticleSystem *sys = m_frameView[ v ].system;
+#if defined(__linux__)
+		if (replaceLegacyVesselFoam(sys, m_frameView[ v ].owner))
+			continue;
+#endif
 		if (*((UnsignedInt *)sys->getParticleTypeName().str()) == 0x44554D53)
 			continue;
 
@@ -1597,6 +1635,10 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 #endif
 			continue;
 		}
+#if defined(__linux__)
+		if (replaceLegacyVesselFoam(sys, m_frameView[ v ].owner))
+			continue;
+#endif
 
 		//temporary hack that checks if texture name starts with "SMUD" - if so, we can assume it's a smudge type
 		if (/*sys->isUsingSmudge()*/ *((UnsignedInt *)sys->getParticleTypeName().str()) == 0x44554D53)
