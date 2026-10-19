@@ -944,14 +944,17 @@ Color LobbySeatColor(const GameSlot *slot)
 }
 
 // The seat's mark, its image drawn in the window's own colour: white art tinted per seat.  A mod
-// faction's disc carries its initials, the display string in the window's user data.
+// faction's disc carries its initials, the display string kept beside the seat's emblem window.
 static void drawTintedEmblem(GameWindow *window, WinInstanceData *instData)
 {
 	Int x, y, width, height;
 	window->winGetScreenPosition(&x, &y);
 	window->winGetSize(&width, &height);
 	TheDisplay->drawImage(window->winGetEnabledImage(0), x, y, x + width, y + height, window->winGetEnabledColor(0));
-	DisplayString *initials = (DisplayString *)window->winGetUserData();
+	Int seat = 0;
+	while (theSeatEmblem[seat] != window)
+		++seat;
+	DisplayString *initials = theSeatInitials[seat];
 	if (initials->getTextLength() == 0)
 		return;
 	Int textWidth, textHeight;
@@ -975,7 +978,6 @@ void InitLobbySeatVisuals(GameWindow *parent, const char *layoutFilename)
 		if (theSeatEmblem[i] == NULL)
 			continue;
 		theSeatInitials[i] = TheDisplayStringManager->newDisplayString();
-		theSeatEmblem[i]->winSetUserData(theSeatInitials[i]);
 		theSeatEmblem[i]->winSetDrawFunc(drawTintedEmblem);
 	}
 	theSeatsShowReady = strcmp(layoutFilename, "SkirmishGameOptionsMenu.wnd") != 0;

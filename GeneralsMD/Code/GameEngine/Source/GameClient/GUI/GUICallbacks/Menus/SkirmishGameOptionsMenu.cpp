@@ -849,13 +849,43 @@ void positionStartSpots( GameInfo *myGame, GameWindow *buttonMapStartPositions[]
 	positionStartSpots(localMapFname, buttonMapStartPositions, mapWindow);	
 }
 
-// A start spot draws as the button it is, then a taken one gets a ring a third wider than the spot
-// in the colour its user data holds (a Color, 0 for none).
+// A start spot draws as the button it is, then a taken one gets a ring a third wider than the spot in
+// its team's colour.  The colour is kept here by window, not in the button's user data, which the
+// push button's own draw reads as its PushButtonData.  The skirmish, LAN or online room and the load
+// screen each own one set of spots, so two sets cover every screen that shows them.
+struct StartSpotRing
+{
+	GameWindow *spot;
+	Color ring;	// 0 for none
+};
+static StartSpotRing theStartSpotRings[MAX_SLOTS * 2];
 static GameWinDrawFunc theStartSpotButtonDraw = NULL;
+
+static StartSpotRing *startSpotRing( GameWindow *spot )
+{
+	StartSpotRing *freeEntry = NULL;
+	for ( Int i = 0; i < (Int)ARRAY_SIZE(theStartSpotRings); ++i )
+	{
+		if ( theStartSpotRings[i].spot == spot )
+			return &theStartSpotRings[i];
+		if ( freeEntry == NULL && theStartSpotRings[i].spot == NULL )
+			freeEntry = &theStartSpotRings[i];
+	}
+	// a full table means a third set of spots is alive: start the table over for the newest one
+	if ( freeEntry == NULL )
+	{
+		memset( theStartSpotRings, 0, sizeof( theStartSpotRings ) );
+		freeEntry = &theStartSpotRings[0];
+	}
+	freeEntry->spot = spot;
+	freeEntry->ring = 0;
+	return freeEntry;
+}
+
 static void drawStartSpot( GameWindow *window, WinInstanceData *instData )
 {
 	theStartSpotButtonDraw( window, instData );
-	const Color ring = (Color)(uintptr_t)window->winGetUserData();
+	const Color ring = startSpotRing( window )->ring;
 	if ( ring == 0 )
 		return;
 	Int x, y, width, height;
@@ -894,7 +924,7 @@ void updateMapStartSpots( GameInfo *myGame, GameWindow *buttonMapStartPositions[
 			  theStartSpotButtonDraw = buttonMapStartPositions[i]->winGetDrawFunc();
 			  buttonMapStartPositions[i]->winSetDrawFunc( drawStartSpot );
 		  }
-		  buttonMapStartPositions[i]->winSetUserData( NULL );
+		  startSpotRing( buttonMapStartPositions[i] )->ring = 0;
 		  if (!onLoadScreen)
 		  {
 			  buttonMapStartPositions[i]->winSetTooltip(TheGameText->fetch("TOOLTIP:StartPosition"));
@@ -913,7 +943,7 @@ void updateMapStartSpots( GameInfo *myGame, GameWindow *buttonMapStartPositions[
 		if (spot >= 0 && spot < mmd.m_numPlayers && gs->getPlayerTemplate() > PLAYERTEMPLATE_MIN)
 		{
 			const Color ring = gs->getTeamNumber() >= 0 ? LobbyTeamColor(gs->getTeamNumber()) : LobbySeatColor(gs);
-			buttonMapStartPositions[spot]->winSetUserData((void *)(uintptr_t)ring);
+			startSpotRing(buttonMapStartPositions[spot])->ring = ring;
 		}
 		if(onLoadScreen)
 		{
