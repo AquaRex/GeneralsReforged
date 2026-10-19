@@ -915,8 +915,10 @@ static void drawStartSpot( GameWindow *window, WinInstanceData *instData )
 	// the stock spot's dark middle is about 62% of the button, inside its blue ring: colour only that
 	const Int insetX = width * 19 / 100;
 	const Int insetY = height * 19 / 100;
+	// and that middle sits a pixel right of and below the button's own (two at 4K)
+	const Int holeShift = max( 1, width / 28 );
 	TheDisplay->drawImage( TheMappedImageCollection->findImageByName( "ReforgedLobbySpot" ),
-		x + insetX, y + insetY, x + width - insetX, y + height - insetY, fill );
+		x + insetX + holeShift, y + insetY + holeShift, x + width - insetX + holeShift, y + height - insetY + holeShift, fill );
 	DisplayString *number = instData->getTextDisplayString();
 	// the number in the bold of the button's own face, so it holds up on a bright disc
 	GameFont *font = number->getFont();
