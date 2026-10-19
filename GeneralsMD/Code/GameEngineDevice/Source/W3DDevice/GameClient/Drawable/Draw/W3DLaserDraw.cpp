@@ -45,6 +45,7 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/TerrainLogic.h"
 #include "GameLogic/Module/LaserUpdate.h"
+#include "GameLogic/Module/LifetimeUpdate.h"
 #include "W3DDevice/GameClient/Module/W3DLaserDraw.h"
 #include "W3DDevice/GameClient/W3DDisplay.h"
 #include "W3DDevice/GameClient/W3DScene.h"
@@ -53,6 +54,7 @@
 #include "WW3D2/segline.h"
 #include "WWMath/vector3.h"
 #include "WW3D2/assetmgr.h"
+#include "WW3D2/ww3d.h"
 
 
 #ifdef _INTERNAL
@@ -62,24 +64,49 @@
 #endif
 
 // BEAM GLOW //////////////////////////////////////////////////////////////////////////////////////
-// Weapon lasers get two more additive lines per segment over EA's beams: a wide halo in the beam's
-// own hue and a narrow core run toward white. Both draw through one texture made here, a falloff
-// across the width that reaches zero at the edge, so the halo has no visible border. The core
-// stacks past white on top of EA's layers, which the Direct3D 11 bloom then picks up; under -d3d9
-// the halo alone is the glow. Both follow the Glow option (glowStrength). Draw side only: nothing
-// here is read by GameLogic or parsed from INI.
-static const Real GLOW_HALO_WIDTH_SCALE	= 2.8f;		// halo width over the beam's widest layer
+// Weapon lasers get three more additive lines per segment over EA's beams, whose texture leaves a
+// line three percent of each layer's width: a wide halo in the beam's own hue, a body in the same
+// hue with bright knots running down it from the gun to the target, and a narrow core run toward
+// white. A flare sits at each end, a glow and a white-hot heart, small at the muzzle and larger
+// where the beam lands. Everything but the knots draws through one texture made here, a falloff
+// across the width that reaches zero at the edge, so nothing has a visible border. The beam comes
+// up over two logic frames and dies away over the last third of its life, and every layer
+// flickers a little, the flares most. The core and the hearts stack past white, which the
+// Direct3D 11 bloom then picks up; under -d3d9 the halo and the flare glows are the glow. All of
+// it follows the Glow option (glowStrength), and Off draws EA's beam alone. Draw side only:
+// nothing here is read by GameLogic or parsed from INI.
+static const Real GLOW_HALO_WIDTH_SCALE	= 2.4f;		// halo width over the beam's widest layer
 static const Real GLOW_HALO_MIN_WIDTH		= 16.0f;
-static const Real GLOW_HALO_INTENSITY		= 0.75f;
+static const Real GLOW_HALO_INTENSITY		= 0.3f;
 static const Real GLOW_HALO_SPREAD			= 0.5f;		// halo width gained per unit of strength past Medium
-static const Real GLOW_CORE_WIDTH_SCALE	= 0.3f;
-static const Real GLOW_CORE_MIN_WIDTH		= 3.0f;
-static const Real GLOW_CORE_WHITEN			= 0.7f;		// how far the core's hue is run toward white
-static const Int GLOW_LAYERS						= 2;			// [0] halo, [1] core
+static const Real GLOW_BODY_WIDTH_SCALE	= 0.9f;
+static const Real GLOW_BODY_MIN_WIDTH		= 8.0f;
+static const Real GLOW_BODY_INTENSITY		= 0.7f;		// with BEAM_FLICKER on top it stays under one
+static const Real GLOW_BODY_WHITEN			= 0.5f;		// a red beam's red is spent on the halo; the knots show in white
+static const Real GLOW_BODY_KNOT_SPACING	= 22.0f;	// world units from one bright knot to the next
+static const Real GLOW_BODY_KNOT_SPEED	= -30.0f;	// knots a second, toward the target
+static const Real GLOW_CORE_WIDTH_SCALE	= 0.2f;
+static const Real GLOW_CORE_MIN_WIDTH		= 2.5f;
+static const Real GLOW_CORE_WHITEN			= 0.85f;	// how far the core's hue is run toward white
+static const Int GLOW_LAYERS						= 3;			// [0] halo, [1] body, [2] core
 static const Int GLOW_TEXTURE_SIZE			= 64;
 static const Int GLOW_LINE_POINTS				= 4;			// cap tip, start, end, cap tip
 
+// [0] muzzle glow, [1] muzzle heart, [2] impact glow, [3] impact heart: width over the beam's widest
+// layer, the least width, and how far toward white
+static const Int FLARE_COUNT						= 4;
+static const Real FLARE_WIDTH_SCALE[ FLARE_COUNT ]	= { 1.6f, 0.6f, 2.6f, 1.0f };
+static const Real FLARE_MIN_WIDTH[ FLARE_COUNT ]		= { 16.0f, 6.0f, 26.0f, 10.0f };
+static const Real FLARE_WHITEN[ FLARE_COUNT ]				= { 0.2f, 0.9f, 0.2f, 0.9f };
+static const Real FLARE_FLICKER									= 0.3f;		// share of a flare's light and width that flickers
+static const Real BEAM_FLICKER									= 0.15f;	// the same for the three beam lines
+static const UnsignedInt FLICKER_STEP_MS				= 40;			// one new flicker value this often, blended between
+
+static const UnsignedInt FADE_IN_FRAMES					= 2;
+static const Real FADE_OUT_SHARE								= 0.34f;	// of the beam's lifetime
+
 static TextureClass *s_glowTexture = NULL;
+static TextureClass *s_knotTexture = NULL;
 
 // ponytail: chosen by template name so no INI field and no checksum change; a "Glow" field in
 // W3DLaserDraw is the upgrade if a mod ever wants it per beam. Every weapon laser in ZH ends in
@@ -103,52 +130,78 @@ static Real glowFalloff( Real distance )
 // u runs across the beam. v runs along a glow line of four points (glowLinePoints): the first third
 // is the cap behind the start, fading in, the middle third the beam at full, the last third the cap
 // past the end, fading out. A cap as long as half the width with the width's own falloff rounds the
-// end, where a line stopping at its last point left a straight cut through the halo.
-static TextureClass *acquireGlowTexture()
+// end, where a line stopping at its last point left a straight cut through the halo. A flare is the
+// same line with no middle, a round glow.
+static Real glowTexel( Real across, Real along )
 {
-	if( !s_glowTexture )
-	{
-		s_glowTexture = MSGNEW("TextureClass") TextureClass( GLOW_TEXTURE_SIZE, GLOW_TEXTURE_SIZE, WW3D_FORMAT_A8R8G8B8, MIP_LEVELS_1 );
-		SurfaceClass *surf = s_glowTexture->Get_Surface_Level();
-		if( surf )
-		{
-			Int pitch;
-			UnsignedByte *pData = (UnsignedByte*)surf->Lock( &pitch );
-			if( pData )
-			{
-				const Real third = 1.0f / 3.0f;
-				for( Int y = 0; y < GLOW_TEXTURE_SIZE; y++ )
-				{
-					Real along = ( y + 0.5f ) / GLOW_TEXTURE_SIZE;
-					Real cap = MAX( third - along, along - 2.0f * third ) * 3.0f;	// 0 at a beam end, 1 at a cap's tip
-					Real lengthFalloff = glowFalloff( MAX( cap, 0.0f ) );
-					UnsignedInt *row = (UnsignedInt*)( pData + y * pitch );
-					for( Int x = 0; x < GLOW_TEXTURE_SIZE; x++ )
-					{
-						Real across = ( x + 0.5f ) / GLOW_TEXTURE_SIZE * 2.0f - 1.0f;	// -1..1 across the beam
-						UnsignedInt c = (UnsignedInt)( glowFalloff( across ) * lengthFalloff * 255.0f + 0.5f );
-						row[ x ] = ( c << 24 ) | ( c << 16 ) | ( c << 8 ) | c;
-					}
-				}
-				surf->Unlock();
-			}
-			REF_PTR_RELEASE( surf );
-		}
-		s_glowTexture->Get_Filter().Set_U_Addr_Mode( TextureFilterClass::TEXTURE_ADDRESS_CLAMP );
-		s_glowTexture->Get_Filter().Set_V_Addr_Mode( TextureFilterClass::TEXTURE_ADDRESS_CLAMP );
-	}
-	s_glowTexture->Add_Ref();
-	return s_glowTexture;
+	const Real third = 1.0f / 3.0f;
+	Real cap = MAX( third - along, along - 2.0f * third ) * 3.0f;	// 0 at a beam end, 1 at a cap's tip
+	return glowFalloff( across ) * glowFalloff( MAX( cap, 0.0f ) );
 }
 
-static void releaseGlowTexture()
+// The body's texture tiles along the beam, one knot a tile: a bright swelling over a dim floor.
+static Real knotTexel( Real across, Real along )
 {
-	if( !s_glowTexture )
-		return;
+	Real wave = 0.5f + 0.5f * cosf( 2.0f * PI * along );
+	return glowFalloff( across ) * ( 0.25f + 0.75f * wave * wave * wave );
+}
+
+// u is -1..1 across the beam, v 0..1 along it
+static TextureClass *acquireBeamTexture( TextureClass *&slot, Real (*texel)( Real across, Real along ), Bool wrapAlong )
+{
+	if( !slot )
+	{
+		slot = MSGNEW("TextureClass") TextureClass( GLOW_TEXTURE_SIZE, GLOW_TEXTURE_SIZE, WW3D_FORMAT_A8R8G8B8, MIP_LEVELS_1 );
+		SurfaceClass *surf = slot->Get_Surface_Level();
+		Int pitch;
+		UnsignedByte *pData = (UnsignedByte*)surf->Lock( &pitch );
+		for( Int y = 0; y < GLOW_TEXTURE_SIZE; y++ )
+		{
+			Real along = ( y + 0.5f ) / GLOW_TEXTURE_SIZE;
+			UnsignedInt *row = (UnsignedInt*)( pData + y * pitch );
+			for( Int x = 0; x < GLOW_TEXTURE_SIZE; x++ )
+			{
+				Real across = ( x + 0.5f ) / GLOW_TEXTURE_SIZE * 2.0f - 1.0f;
+				UnsignedInt c = (UnsignedInt)( texel( across, along ) * 255.0f + 0.5f );
+				row[ x ] = ( c << 24 ) | ( c << 16 ) | ( c << 8 ) | c;
+			}
+		}
+		surf->Unlock();
+		REF_PTR_RELEASE( surf );
+		slot->Get_Filter().Set_U_Addr_Mode( TextureFilterClass::TEXTURE_ADDRESS_CLAMP );
+		slot->Get_Filter().Set_V_Addr_Mode( wrapAlong ? TextureFilterClass::TEXTURE_ADDRESS_REPEAT : TextureFilterClass::TEXTURE_ADDRESS_CLAMP );
+	}
+	slot->Add_Ref();
+	return slot;
+}
+
+static void releaseBeamTexture( TextureClass *&slot )
+{
 	// the static pointer holds one reference of its own; the last beam takes it with it
-	s_glowTexture->Release_Ref();
-	if( s_glowTexture->Num_Refs() == 1 )
-		REF_PTR_RELEASE( s_glowTexture );
+	slot->Release_Ref();
+	if( slot->Num_Refs() == 1 )
+		REF_PTR_RELEASE( slot );
+}
+
+// A flicker of one on average, varying by up to depth: a value per FLICKER_STEP_MS for each seed,
+// blended into the next, so it shimmers rather than strobes. On the picture's clock, so a -video
+// recording gets the same flicker every run.
+static Real flicker( UnsignedInt seed, Real depth )
+{
+	UnsignedInt now = WW3D::Get_Sync_Time();
+	UnsignedInt step = now / FLICKER_STEP_MS;
+	Real blend = (Real)( now % FLICKER_STEP_MS ) / FLICKER_STEP_MS;
+	Real value[ 2 ];
+	for( Int i = 0; i < 2; i++ )
+	{
+		UnsignedInt h = ( seed * 2654435761u ) ^ ( ( step + i ) * 2246822519u );
+		h ^= h >> 15;
+		h *= 2654435761u;
+		h ^= h >> 13;
+		value[ i ] = ( h & 0xFFFF ) / 65535.0f;
+	}
+	Real noise = value[ 0 ] + ( value[ 1 ] - value[ 0 ] ) * blend;
+	return 1.0f + depth * ( noise - 0.5f ) * 2.0f;
 }
 
 // The beam's hue at full brightness: whichever of the two INI colours is more saturated, so a
@@ -206,6 +259,36 @@ static const Real BEAM_TEXTURE_ROW = 0.5f;
 static Bool holdsOneTextureRow( const W3DLaserDrawModuleData *data )
 {
 	return data->m_tile && data->m_tilingScalar <= 0.0f && !data->m_textureName.isEmpty();
+}
+
+// EA's colour for beam layer i of numBeams, inner to outer
+static Vector3 beamLayerColor( const W3DLaserDrawModuleData *data, Int i )
+{
+	Real innerRed, innerGreen, innerBlue, innerAlpha, outerRed, outerGreen, outerBlue, outerAlpha;
+	GameGetColorComponentsReal( data->m_innerColor, &innerRed, &innerGreen, &innerBlue, &innerAlpha );
+	GameGetColorComponentsReal( data->m_outerColor, &outerRed, &outerGreen, &outerBlue, &outerAlpha );
+	if( data->m_numBeams == 1 )
+		return Vector3( innerRed * innerAlpha, innerGreen * innerAlpha, innerBlue * innerAlpha );
+
+	//Calculate the scale between min and max values
+	//0 means use min value, 1 means use max value
+	//0.2 means min value + 20% of the diff between min and max
+	Real scale = i / ( data->m_numBeams - 1.0f );
+	return Vector3( innerRed		+ scale * ( outerRed - innerRed ) * innerAlpha,
+									innerGreen	+ scale * ( outerGreen - innerGreen ) * innerAlpha,
+									innerBlue		+ scale * ( outerBlue - innerBlue ) * innerAlpha );
+}
+
+// How long the beam lives, from its template's LifetimeUpdate: template data, not the object's.
+static UnsignedInt beamLifetimeFrames( const Thing *thing )
+{
+	const ModuleInfo &info = thing->getTemplate()->getBehaviorModuleInfo();
+	for( Int i = 0; i < info.getCount(); i++ )
+	{
+		if( info.getNthName( i ) == "LifetimeUpdate" )
+			return ( (const LifetimeUpdateModuleData *)info.getNthData( i ) )->m_maxFrames;
+	}
+	return 0;
 }
 
 // PUBLIC FUNCTIONS ///////////////////////////////////////////////////////////////////////////////
@@ -267,6 +350,10 @@ W3DLaserDraw::W3DLaserDraw( Thing *thing, const ModuleData* moduleData ) :
 	DrawModule( thing, moduleData ),
 	m_line3D(NULL),
 	m_glow3D(NULL),
+	m_beamStart(0.0f, 0.0f, 0.0f),
+	m_beamEnd(0.0f, 0.0f, 0.0f),
+	m_birthFrame(0),
+	m_lifetimeFrames(0),
 	m_texture(NULL),
 	m_textureAspectRatio(1.0f),
 	m_selfDirty(TRUE)
@@ -293,11 +380,6 @@ void W3DLaserDraw::buildRenderObjects( Bool madeInTick )
 		m_textureAspectRatio = (Real)surfaceDesc.Width/(Real)surfaceDesc.Height;
 	}
 
-	//Get the color components for calculation purposes.
-	Real innerRed, innerGreen, innerBlue, innerAlpha, outerRed, outerGreen, outerBlue, outerAlpha;
-	GameGetColorComponentsReal( data->m_innerColor, &innerRed, &innerGreen, &innerBlue, &innerAlpha );
-	GameGetColorComponentsReal( data->m_outerColor, &outerRed, &outerGreen, &outerBlue, &outerAlpha );
-
 	//Make sure our beams range between 1 and the maximum cap.
 #ifdef I_WANT_TO_BE_FIRED
 // srj sez: this data is const for a reason. casting away the constness because we don't like the values
@@ -321,39 +403,19 @@ void W3DLaserDraw::buildRenderObjects( Bool madeInTick )
 		{
 			int index = segment * data->m_numBeams + i;
 
-			Real red, green, blue, alpha, width;
-
-			if( data->m_numBeams == 1 )
-			{	
-				width = data->m_innerBeamWidth;
-				alpha = innerAlpha;
-				red = innerRed * innerAlpha;
-				green = innerGreen * innerAlpha;
-				blue = innerBlue * innerAlpha;
-			}
-			else
-			{
-				//Calculate the scale between min and max values
-				//0 means use min value, 1 means use max value
-				//0.2 means min value + 20% of the diff between min and max
-				Real scale = i / ( data->m_numBeams - 1.0f);
-				
-				width		= data->m_innerBeamWidth	+ scale * (data->m_outerBeamWidth - data->m_innerBeamWidth);
-				alpha		= innerAlpha							+ scale * (outerAlpha - innerAlpha);
-				red			= innerRed								+ scale * (outerRed - innerRed) * innerAlpha;
-				green		= innerGreen							+ scale * (outerGreen - innerGreen) * innerAlpha;
-				blue		= innerBlue								+ scale * (outerBlue - innerBlue) * innerAlpha;
-			}
+			Real width = data->m_innerBeamWidth;
+			if( data->m_numBeams > 1 )
+				width += i / ( data->m_numBeams - 1.0f ) * ( data->m_outerBeamWidth - data->m_innerBeamWidth );
 
 			m_line3D[ index ] = NEW SegmentedLineClass;
-			
+
 			SegmentedLineClass *line = m_line3D[ index ];
 			if( line )
 			{
 				line->Set_Texture( m_texture );
 				line->Set_Shader( glowingAdditiveShader() );	//pick the alpha blending mode you want - see shader.h for others.
 				line->Set_Width( width );
-				line->Set_Color( Vector3( red, green, blue ) );
+				line->Set_Color( beamLayerColor( data, i ) );
 				line->Set_UV_Offset_Rate( Vector2(0.0f, data->m_scrollRate) );	//amount to scroll texture on each draw
 				if( m_texture )
 				{
@@ -380,23 +442,40 @@ void W3DLaserDraw::buildRenderObjects( Bool madeInTick )
 
 	if( beamGlows( getDrawable() ) )
 	{
-		TextureClass *glowTexture = acquireGlowTexture();
+		// this beam's references on both textures are given back by releaseBeamTexture in the destructor
+		TextureClass *glowTexture = acquireBeamTexture( s_glowTexture, glowTexel, FALSE );
+		TextureClass *knotTexture = acquireBeamTexture( s_knotTexture, knotTexel, TRUE );
 
 		const Int glowCount = (Int)data->m_segments * GLOW_LAYERS;
 		m_glow3D = NEW SegmentedLineClass *[ glowCount ];
-		for( Int g = 0; g < glowCount; g++ )
+		for( Int g = 0; g < glowCount + FLARE_COUNT; g++ )
 		{
 			SegmentedLineClass *line = NEW SegmentedLineClass;
-			m_glow3D[ g ] = line;
-			line->Set_Texture( glowTexture );
+			if( g < glowCount )
+				m_glow3D[ g ] = line;
+			else
+				m_flare3D[ g - glowCount ] = line;
 			line->Set_Shader( glowingAdditiveShader() );
-			// u across the width, v a third further at each of the four points (acquireGlowTexture)
 			line->Set_Texture_Mapping_Mode( SegLineRendererClass::TILED_TEXTURE_MAP );
-			line->Set_Texture_Tile_Factor( 1.0f / ( GLOW_LINE_POINTS - 1 ) );
+			if( g < glowCount && g % GLOW_LAYERS == 1 )
+			{
+				// the body: two points, the knots tiled along it (tile factor set with the points) and
+				// running toward the target
+				line->Set_Texture( knotTexture );
+				line->Set_UV_Offset_Rate( Vector2( 0.0f, GLOW_BODY_KNOT_SPEED ) );
+			}
+			else
+			{
+				// u across the width, v a third further at each of the four points (glowTexel)
+				line->Set_Texture( glowTexture );
+				line->Set_Texture_Tile_Factor( 1.0f / ( GLOW_LINE_POINTS - 1 ) );
+			}
 			W3DDisplay::m_3DScene->Add_Render_Object( line );
 			line->Set_Visible( 0 );
 		}
-		// this beam's reference on glowTexture is given back by releaseGlowTexture in the destructor
+		m_lifetimeFrames = beamLifetimeFrames( getDrawable() );
+		// the beam's birth, so one the camera only reaches mid-life still fades out on time
+		m_birthFrame = TheGameLogic->getFrame();
 	}
 
 }
@@ -429,7 +508,13 @@ W3DLaserDraw::~W3DLaserDraw( void )
 			REF_PTR_RELEASE( m_glow3D[ g ] );
 		}
 		delete [] m_glow3D;
-		releaseGlowTexture();
+		for( Int f = 0; f < FLARE_COUNT; f++ )
+		{
+			W3DDisplay::m_3DScene->Remove_Render_Object( m_flare3D[ f ] );
+			REF_PTR_RELEASE( m_flare3D[ f ] );
+		}
+		releaseBeamTexture( s_glowTexture );
+		releaseBeamTexture( s_knotTexture );
 	}
 }
 
@@ -621,24 +706,15 @@ void W3DLaserDraw::doDrawModule(const Matrix3D* transformMtx)
 			if( m_glow3D )
 			{
 				// set with the points rather than once, so a change of the Glow option reaches the
-				// next beam drawn
-				const Real strength = glowStrength();
-				const Real brightness = MIN( strength, 1.0f );
-				const Real spread = 1.0f + GLOW_HALO_SPREAD * MAX( strength - 1.0f, 0.0f );
+				// next beam drawn; the colours and the body's width are set on every draw, below
+				const Real spread = 1.0f + GLOW_HALO_SPREAD * MAX( glowStrength() - 1.0f, 0.0f );
 				Real widest = MAX( data->m_innerBeamWidth, data->m_outerBeamWidth );
 				Real widthScale = update->getWidthScale();
 				Real widths[ GLOW_LAYERS ] =
 				{
 					MAX( widest * GLOW_HALO_WIDTH_SCALE, GLOW_HALO_MIN_WIDTH ) * widthScale * spread,
+					0.0f,
 					MAX( widest * GLOW_CORE_WIDTH_SCALE, GLOW_CORE_MIN_WIDTH ) * widthScale
-				};
-				// glowHue's brightest channel is one, so neither colour passes one
-				Vector3 hue = glowHue( data->m_innerColor, data->m_outerColor );
-				Vector3 white( 1.0f, 1.0f, 1.0f );
-				Vector3 colors[ GLOW_LAYERS ] =
-				{
-					hue * ( GLOW_HALO_INTENSITY * brightness ),
-					( hue * ( 1.0f - GLOW_CORE_WHITEN ) + white * GLOW_CORE_WHITEN ) * brightness
 				};
 				// ponytail: every segment gets its own caps, so an arc of several segments would double
 				// up at its joints; no glowing laser in the data has more than one
@@ -647,7 +723,12 @@ void W3DLaserDraw::doDrawModule(const Matrix3D* transformMtx)
 				for( Int g = 0; g < GLOW_LAYERS; g++ )
 				{
 					SegmentedLineClass *line = m_glow3D[ segment * GLOW_LAYERS + g ];
-					line->Set_Color( colors[ g ] );
+					if( g == 1 )
+					{
+						line->Set_Texture_Tile_Factor( length / GLOW_BODY_KNOT_SPACING );
+						line->Set_Points( 2, &laserPoints[0] );
+						continue;
+					}
 					line->Set_Width( widths[ g ] );
 					if( length > 0.0f )
 					{
@@ -663,11 +744,93 @@ void W3DLaserDraw::doDrawModule(const Matrix3D* transformMtx)
 						line->Set_Points( 2, &laserPoints[0] );
 					}
 				}
+				if( segment == 0 )
+					m_beamStart = laserPoints[ 0 ];
+				m_beamEnd = laserPoints[ 1 ];
 			}
 		}
 	}
-	
-	return;
+
+	if( m_glow3D )
+		drawGlow( update->getWidthScale() );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The glow's light on this draw: the fade in and out, the flicker, the body's width and the flares,
+	* which sit at the beam's ends and are re-placed every draw because their size flickers. */
+//-------------------------------------------------------------------------------------------------
+void W3DLaserDraw::drawGlow( Real widthScale )
+{
+	const W3DLaserDrawModuleData *data = getW3DLaserDrawModuleData();
+	const Real brightness = MIN( glowStrength(), 1.0f );
+	if( brightness <= 0.0f )
+	{
+		// Off: EA's beam alone, as it was
+		for( Int g = 0; g < (Int)data->m_segments * GLOW_LAYERS; g++ )
+			m_glow3D[ g ]->Set_Color( Vector3( 0.0f, 0.0f, 0.0f ) );
+		for( Int f = 0; f < FLARE_COUNT; f++ )
+			m_flare3D[ f ]->Set_Color( Vector3( 0.0f, 0.0f, 0.0f ) );
+		return;
+	}
+
+	// up over FADE_IN_FRAMES, down over the last FADE_OUT_SHARE of the template's lifetime
+	const Real age = (Real)( TheGameLogic->getFrame() - m_birthFrame );
+	Real fade = MIN( ( age + 1.0f ) / FADE_IN_FRAMES, 1.0f );
+	if( m_lifetimeFrames > 0 )
+	{
+		const Real fadeOutFrames = MAX( m_lifetimeFrames * FADE_OUT_SHARE, 1.0f );
+		fade = MIN( fade, MAX( ( m_lifetimeFrames - age ) / fadeOutFrames, 0.0f ) );
+	}
+
+	const UnsignedInt seed = (UnsignedInt)getDrawable()->getID() * 8;
+	const Vector3 hue = glowHue( data->m_innerColor, data->m_outerColor );
+	const Vector3 white( 1.0f, 1.0f, 1.0f );
+	const Real light = brightness * fade;
+
+	// glowHue's brightest channel is one, so no colour passes one before the flicker
+	const Vector3 colors[ GLOW_LAYERS ] =
+	{
+		hue * ( GLOW_HALO_INTENSITY * light * flicker( seed, BEAM_FLICKER ) ),
+		( hue * ( 1.0f - GLOW_BODY_WHITEN ) + white * GLOW_BODY_WHITEN ) * ( GLOW_BODY_INTENSITY * light * flicker( seed + 1, BEAM_FLICKER ) ),
+		( hue * ( 1.0f - GLOW_CORE_WHITEN ) + white * GLOW_CORE_WHITEN ) * light
+	};
+	const Real widest = MAX( data->m_innerBeamWidth, data->m_outerBeamWidth );
+	const Real bodyWidth = MAX( widest * GLOW_BODY_WIDTH_SCALE, GLOW_BODY_MIN_WIDTH ) * widthScale * flicker( seed + 2, BEAM_FLICKER );
+	for( Int segment = 0; segment < (Int)data->m_segments; segment++ )
+	{
+		for( Int g = 0; g < GLOW_LAYERS; g++ )
+			m_glow3D[ segment * GLOW_LAYERS + g ]->Set_Color( colors[ g ] );
+		m_glow3D[ segment * GLOW_LAYERS + 1 ]->Set_Width( bodyWidth );
+		// EA's layers come up and go down with the rest
+		for( Int i = 0; i < (Int)data->m_numBeams; i++ )
+			m_line3D[ segment * data->m_numBeams + i ]->Set_Color( beamLayerColor( data, i ) * fade );
+	}
+
+	// a beam LaserUpdate has not placed yet has both ends at the origin: no flares in the map's corner
+	Vector3 direction = m_beamEnd - m_beamStart;
+	const Real length = direction.Length();
+	for( Int f = 0; f < FLARE_COUNT; f++ )
+	{
+		if( length <= 0.0f )
+		{
+			m_flare3D[ f ]->Set_Color( Vector3( 0.0f, 0.0f, 0.0f ) );
+			continue;
+		}
+		if( f == 0 )
+			direction /= length;
+		const Real shimmer = flicker( seed + 3 + f, FLARE_FLICKER );
+		const Real width = MAX( widest * FLARE_WIDTH_SCALE[ f ], FLARE_MIN_WIDTH[ f ] ) * widthScale * shimmer * ( 0.6f + 0.4f * fade );
+		const Vector3 &at = ( f < 2 ) ? m_beamStart : m_beamEnd;
+		// a glow line with no middle is a round glow (glowTexel); its middle is kept a hair long so
+		// the line has a direction to turn its width across
+		Vector3 cap = direction * ( width * 0.5f );
+		Vector3 hair = direction * ( width * 0.01f );
+		Vector3 flarePoints[ GLOW_LINE_POINTS ] = { at - cap, at - hair, at + hair, at + cap };
+		SegmentedLineClass *line = m_flare3D[ f ];
+		line->Set_Width( width );
+		line->Set_Points( GLOW_LINE_POINTS, flarePoints );
+		line->Set_Color( ( hue * ( 1.0f - FLARE_WHITEN[ f ] ) + white * FLARE_WHITEN[ f ] ) * MIN( light * shimmer, 1.0f ) );
+	}
 }
 
 // ------------------------------------------------------------------------------------------------

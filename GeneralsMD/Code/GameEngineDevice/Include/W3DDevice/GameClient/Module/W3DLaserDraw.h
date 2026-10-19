@@ -37,6 +37,7 @@
 #include "Common/DrawModule.h"
 //#include "WW3D2/Line3D.h"
 #include "GameClient/Color.h"
+#include "WWMath/vector3.h"
 
 class SegmentedLineClass;
 class TextureClass;
@@ -97,8 +98,15 @@ public:
 
 protected:
 
+	void drawGlow( Real widthScale );
+
 	SegmentedLineClass **m_line3D;  ///< line 3D for effect
-	SegmentedLineClass **m_glow3D;  ///< halo and hot core per segment, NULL for beams that do not glow
+	SegmentedLineClass **m_glow3D;  ///< halo, pulsing body and hot core per segment, NULL for beams that do not glow
+	SegmentedLineClass *m_flare3D[ 4 ];	///< muzzle glow and core, impact glow and core; made beside m_glow3D
+	Vector3 m_beamStart;						///< the first segment's start and the last one's end, for the flares
+	Vector3 m_beamEnd;
+	UnsignedInt m_birthFrame;				///< logic frame the lines were built on, for the fade in and out
+	UnsignedInt m_lifetimeFrames;		///< the template's LifetimeUpdate, 0 when it has none (no fade out)
 	TextureClass *m_texture;
 	Real m_textureAspectRatio;			///< aspect ratio of texture
 	Bool m_selfDirty;								// not saved
