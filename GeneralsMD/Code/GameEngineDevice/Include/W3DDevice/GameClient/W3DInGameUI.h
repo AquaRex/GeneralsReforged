@@ -93,6 +93,8 @@ protected:
 	void drawMoveHints( View *view );
 	RenderObjClass *m_moveHintRenderObj[ MAX_MOVE_HINTS ];
 	HAnimClass		 *m_moveHintAnim[ MAX_MOVE_HINTS ];
+	Matrix3D				m_moveHintTransform[ MAX_MOVE_HINTS ];	///< each ring laid on the ground at the sync point (recordDraw)
+	void takeMoveHintTransforms( void );
 
 	// recordDraw's lists, replayed by draw
 	Display::DrawCalls m_overWorldDraw;		///< preDraw to the guard markers, drawn where the world is

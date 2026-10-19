@@ -524,6 +524,7 @@ void W3DInGameUI::recordDraw( void )
 	m_dragBoxDraw.clear();
 	m_postDrawCalls.clear();
 	m_hudOverlayDraw.clear();
+	takeMoveHintTransforms();
 	if( CinemaDirector_hidesHud() )
 		return;
 
@@ -1325,6 +1326,35 @@ void W3DInGameUI::drawGuardMarkers( void )
 }  // end drawGuardMarkers
 
 //-------------------------------------------------------------------------------------------------
+/** Each live move ring aligned on logic's terrain, at the sync point: the ground and water heights
+	* are logic's, and drawMoveHints runs inside the overlap window. */
+//-------------------------------------------------------------------------------------------------
+void W3DInGameUI::takeMoveHintTransforms( void )
+{
+	for( Int i = 0; i < MAX_MOVE_HINTS; i++ )
+	{
+		Int elapsed = TheGameClient->getFrame() - m_moveHint[i].frame;
+		if( m_moveHint[ i ].frame == 0 || elapsed > ConvertRetailFrames( 40 ) )
+			continue;
+
+		Matrix3D &transform = m_moveHintTransform[ i ];
+		PathfindLayerEnum layer = TheTerrainLogic->alignOnTerrain( 0, m_moveHint[ i ].pos, true, transform );
+
+		Real waterZ;
+		if (layer == LAYER_GROUND && TheTerrainLogic->isUnderwater(m_moveHint[ i ].pos.x, m_moveHint[ i ].pos.y, &waterZ))
+		{
+			Coord3D tmp = m_moveHint[ i ].pos;
+			tmp.z = waterZ;
+			Coord3D normal;
+			normal.x = 0;
+			normal.y = 0;
+			normal.z = 1;
+			makeAlignToNormalMatrix(0, tmp, normal, transform);
+		}
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
 /** EA's animated ring on the ground where a move order landed, 40 client frames each.  EA's own
 	* code, deleted by fec052cc and brought back (InGameUI::createMoveHint fills it). */
 //-------------------------------------------------------------------------------------------------
@@ -1368,23 +1398,8 @@ void W3DInGameUI::drawMoveHints( View *view )
 					m_moveHintRenderObj[i]->Set_Animation(m_moveHintAnim[i], 0, RenderObjClass::ANIM_MODE_ONCE);
 			}
 
-			// move this hint render object to the position and align with terrain
-			Matrix3D transform;
-			PathfindLayerEnum layer = TheTerrainLogic->alignOnTerrain( 0, m_moveHint[ i ].pos, true, transform );
-
-			Real waterZ;
-			if (layer == LAYER_GROUND && TheTerrainLogic->isUnderwater(m_moveHint[ i ].pos.x, m_moveHint[ i ].pos.y, &waterZ))
-			{
-				Coord3D tmp = m_moveHint[ i ].pos;
-				tmp.z = waterZ;
-				Coord3D normal;
-				normal.x = 0;
-				normal.y = 0;
-				normal.z = 1;
-				makeAlignToNormalMatrix(0, tmp, normal, transform);
-			}
-
-			m_moveHintRenderObj[ i ]->Set_Transform( transform );
+			// move this hint render object to where takeMoveHintTransforms laid it on the terrain
+			m_moveHintRenderObj[ i ]->Set_Transform( m_moveHintTransform[ i ] );
 		}
 		else if( m_moveHintRenderObj[ i ] && m_moveHintRenderObj[ i ]->Is_Hidden() == 0 )
 		{
