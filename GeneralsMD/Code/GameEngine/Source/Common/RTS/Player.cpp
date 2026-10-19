@@ -1795,6 +1795,8 @@ void Player::onStructureCreated( Object *builder, Object *structure )
 {
 }  // end onStructureCreated
 
+static void logSuperweaponRation( Player *player, const Object *structure );
+
 //-------------------------------------------------------------------------------------------------
 /// a structure that was under construction has become completed
 //-------------------------------------------------------------------------------------------------
@@ -1821,6 +1823,8 @@ void Player::onStructureConstructionComplete( Object *builder, Object *structure
 	// ai notification callback
 	if( m_ai )
 		m_ai->onStructureProduced( builder, structure );
+	if( m_ai && ( structure->isKindOf( KINDOF_FS_SUPERWEAPON ) || structure->isKindOf( KINDOF_FS_BASE_DEFENSE ) ) )
+		logSuperweaponRation( this, structure );
 
 	// the GUI needs to re-evaluate the information being displayed to the user now
 	if( TheControlBar )
@@ -3428,6 +3432,17 @@ static void countSuperweaponDefenses( Object *obj, void *userData )
                                       standing && !standing->isEffectivelyDead() ) )
       count->superweapons++;
   }
+}
+
+/* What the superweapon ration stands on, each time a computer player finishes a gun or a
+   superweapon: the batch reads the first superweapon's frame and the defences behind it from here. */
+static void logSuperweaponRation( Player *player, const Object *structure )
+{
+  SuperweaponDefenseCount count = { 0, 0 };
+  player->iterateObjects( countSuperweaponDefenses, &count );
+  DEBUG_LOG(( "AI RATION frame %d player %d skill %d built '%s', defences %d superweapons %d\n",
+    TheGameLogic->getFrame(), player->getPlayerIndex(), (Int)player->getAISkillLevel(),
+    structure->getTemplate()->getName().str(), count.defenses, count.superweapons ));
 }
 
 Bool RebuildHoleHoldsSuperweapon( Bool rebuildsSuperweapon, Bool rebuildStanding )

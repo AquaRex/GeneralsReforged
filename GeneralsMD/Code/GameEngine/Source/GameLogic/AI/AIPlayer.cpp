@@ -2007,6 +2007,51 @@ void AIPlayer::onUnitProduced( Object *factory, Object *unit )
 	* again, and the fade recovering the whole way is what allows it. */
 enum { SUPERWEAPON_REAIM_FRAMES = 600 * LOGICFRAMES_PER_SECOND };
 
+/** What a strike's blast holds, by plain price, for the AI SUPERWEAPON line only: buildings against
+	* units, and the dearest building. */
+struct StrikeSummary
+{
+	Int structures;
+	Int units;
+	const Object *top;
+};
+
+static void summarizeStrike( const Coord3D *at, Int playerNdx, Real radius, Int observerNdx, StrikeSummary *summary )
+{
+	summary->structures = 0;
+	summary->units = 0;
+	summary->top = NULL;
+	Int topCost = 0;
+	Player *enemy = ThePlayerList->getNthPlayer( playerNdx );
+	Player::PlayerTeamList::const_iterator teamIt;
+	for( teamIt = enemy->getPlayerTeams()->begin(); teamIt != enemy->getPlayerTeams()->end(); ++teamIt )
+	{
+		for( DLINK_ITERATOR<Team> instanceIt = (*teamIt)->iterate_TeamInstanceList(); !instanceIt.done(); instanceIt.advance() )
+		{
+			for( DLINK_ITERATOR<Object> memberIt = instanceIt.cur()->iterate_TeamMemberList(); !memberIt.done(); memberIt.advance() )
+			{
+				const Object *obj = memberIt.cur();
+				const Real dx = at->x - obj->getPosition()->x;
+				const Real dy = at->y - obj->getPosition()->y;
+				if( dx*dx + dy*dy >= radius*radius || obj->isEffectivelyDead() || !observerKnowsAbout( obj, observerNdx ) )
+					continue;
+				const Int cost = obj->getTemplate()->calcCostToBuild( enemy );
+				if( !obj->isKindOf( KINDOF_STRUCTURE ) )
+				{
+					summary->units += cost;
+					continue;
+				}
+				summary->structures += cost;
+				if( cost > topCost )
+				{
+					topCost = cost;
+					summary->top = obj;
+				}
+			}
+		}
+	}
+}
+
 //----------------------------------------------------------------------------------------------------------
 /** What a superweapon aimed at this spot is worth to this player right now.
  *
@@ -2260,8 +2305,11 @@ Bool AIPlayer::computeSuperweaponTarget(const SpecialPowerTemplate *power, Coord
 
 	if( success )
 	{
-		DEBUG_LOG(("AI SUPERWEAPON frame %d player %d aims '%s' at (%.0f,%.0f), worth %d\n", TheGameLogic->getFrame(),
-			m_player->getPlayerIndex(), power->getName().str(), veryBestPos.x, veryBestPos.y, cash));
+		StrikeSummary summary;
+		summarizeStrike( &veryBestPos, playerNdx, weaponRadius, m_player->getPlayerIndex(), &summary );
+		DEBUG_LOG(("AI SUPERWEAPON frame %d player %d skill %d aims '%s' at (%.0f,%.0f), worth %d: structures %d units %d, top '%s'\n",
+			TheGameLogic->getFrame(), m_player->getPlayerIndex(), (Int)m_skillLevel, power->getName().str(), veryBestPos.x,
+			veryBestPos.y, cash, summary.structures, summary.units, summary.top ? summary.top->getTemplate()->getName().str() : "none"));
 		noteSuperweaponAim( &veryBestPos );
 	}
 
