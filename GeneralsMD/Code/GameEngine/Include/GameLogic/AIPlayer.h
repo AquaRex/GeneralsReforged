@@ -569,7 +569,7 @@ protected:
 	void answerTeamRequests(void);								///< Air, Attacker and Rusher answer an ally's call for help
 	const AITeamRequest *freshRequest(AITeamRequestKind kind, UnsignedInt within) const;	///< the request of that kind posted inside within frames, NULL for none
 	void coopChat(const char *trigger);					///< one line to the team when answering, GUI:AICoop<trigger>
-	AITeamRequest	m_inbox[ AIREQ_COUNT ];				///< the latest request of each kind from an ally; not saved
+	AITeamRequest	m_inbox[ AIREQ_COUNT ];				///< the latest request of each kind from an ally
 	UnsignedInt		m_answeredFrame;							///< the frame of the last call answerTeamRequests answered
 	void shareSurplusWithAllies(Int bank, Int target);	///< Economist: who gets what out of the bank (the hook only)
 	AsciiString sneakyLane(const Coord3D *from, const AsciiString &requested, Int pathSuffix);	///< Sneaky: the back door or the flank

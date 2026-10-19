@@ -7539,11 +7539,7 @@ void AIUpdateInterface::xfer( Xfer *xfer )
 	if (m_attackInfo) attackName = m_attackInfo->getName();
 	xfer->xferAsciiString(&attackName);
 	if (xfer->getXferMode() == XFER_LOAD)
-	{
-		if (attackName.isNotEmpty()) {
-			m_attackInfo = TheScriptEngine->getAttackInfo(attackName);
-		}
-	}  
+		m_attackInfoToLoad = attackName;	// looked up in loadPostProcess, once the script engine has its sets back
 
 	xfer->xferInt(&m_waypointCount);
 	if (m_waypointCount<0 || m_waypointCount>MAX_WAYPOINTS) {
@@ -7853,7 +7849,13 @@ void AIUpdateInterface::loadPostProcess( void )
 {
 	UpdateModule::loadPostProcess();
 
-	if (m_fixLocoInPostProcess && m_curLocomotorSet!=LOCOMOTORSET_INVALID) 
+	if (m_attackInfoToLoad.isNotEmpty())
+	{
+		m_attackInfo = TheScriptEngine->getAttackInfo(m_attackInfoToLoad);
+		m_attackInfoToLoad.clear();
+	}
+
+	if (m_fixLocoInPostProcess && m_curLocomotorSet!=LOCOMOTORSET_INVALID)
 	{
 		m_fixLocoInPostProcess = FALSE;
 
@@ -7874,18 +7876,21 @@ void AIUpdateInterface::loadPostProcess( void )
 		TheAI->pathfinder()->updatePos(getObject(), getObject()->getPosition());
 	}	else {
 		if (m_pathfindGoalCell.x >= 0 && m_pathfindGoalCell.y >= 0) {
+			// a quarter cell in: updateGoal floors the position for a unit that centres in a cell and
+			// rounds it for one that does not, and from the middle of the cell rounding went one over
 			Coord3D goalPos;
-			goalPos.x = m_pathfindGoalCell.x * PATHFIND_CELL_SIZE_F + PATHFIND_CELL_SIZE_F*0.5f;
-			goalPos.y = m_pathfindGoalCell.y * PATHFIND_CELL_SIZE_F + PATHFIND_CELL_SIZE_F*0.5f;
+			goalPos.x = m_pathfindGoalCell.x * PATHFIND_CELL_SIZE_F + PATHFIND_CELL_SIZE_F*0.25f;
+			goalPos.y = m_pathfindGoalCell.y * PATHFIND_CELL_SIZE_F + PATHFIND_CELL_SIZE_F*0.25f;
 			m_pathfindGoalCell.x = -1;
 			m_pathfindGoalCell.y = -1;
 			TheAI->pathfinder()->updateGoal(getObject(), &goalPos, getObject()->getLayer());
 		}
 	}
 
-	// The pathfinder's queue is not saved, so a unit that was in it when the game was saved comes
-	// back waiting for a path nobody is going to look for, and stands for the rest of the match.
-	// One waiting on the retry timer is asked for again by update() and needs nothing here.
+	// A save before GameLogic 18 has no pathfinder queue, so a unit that was in it when the game was
+	// saved comes back waiting for a path nobody is going to look for, and stands for the rest of the
+	// match.  From 18 on it is still in the queue and queueForPath turns it away.  One waiting on the
+	// retry timer is asked for again by update() and needs nothing here.
 	if (m_waitingForPath && m_queueForPathFrame == 0)
 		queueForPathOrRetry();
 
