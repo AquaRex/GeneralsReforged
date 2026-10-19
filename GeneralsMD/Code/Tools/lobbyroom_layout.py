@@ -66,6 +66,8 @@ CONTROL_HEIGHT = 40
 # a seat card three pixels taller than its combo boxes top and bottom, six between cards
 ROW_HEIGHT = CONTROL_HEIGHT + 6
 ROW_PITCH = ROW_HEIGHT + 6
+# the last column stops as far inside the card's right edge as the combos sit inside its top
+COLUMNS_RIGHT = SEAT_RIGHT - (ROW_HEIGHT - CONTROL_HEIGHT) // 2
 GAP = 8
 
 # a seat row: colour bar, then the columns
@@ -303,7 +305,7 @@ def column_widths(columns):
     """The one column without a width takes what the fixed ones and their gaps leave."""
     fixed = sum(width for _h, _p, width in columns if width is not None)
     gaps = sum(6 if prefixes[0] in SWATCHES else GAP for _h, prefixes, _w in columns[:-1])
-    rest = SEAT_RIGHT - SEAT_COLUMNS_LEFT - fixed - gaps
+    rest = COLUMNS_RIGHT - SEAT_COLUMNS_LEFT - fixed - gaps
     return [rest if width is None else width for _h, _p, width in columns]
 
 
@@ -342,8 +344,8 @@ def place_seats(layout, spec, seat_zero_player):
                 else:
                     control.place(left, top + (height - CONTROL_HEIGHT) // 2, width, CONTROL_HEIGHT)
         left += width + (6 if prefixes[0] in SWATCHES else GAP)
-    if min(widths) <= 0 or left - GAP != SEAT_RIGHT:
-        raise ValueError("seat columns %s do not fill the seat table to %d" % (widths, SEAT_RIGHT))
+    if min(widths) <= 0 or left - GAP != COLUMNS_RIGHT:
+        raise ValueError("seat columns %s do not fill the seat table to %d" % (widths, COLUMNS_RIGHT))
     return ROW_TOP + (SEAT_COUNT - 1) * pitch + height
 
 

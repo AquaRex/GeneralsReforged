@@ -964,8 +964,10 @@ static void drawSwatch(GameWindow *window, WinInstanceData *instData)
 	window->winGetSize(&width, &height);
 	TheDisplay->drawImage(TheMappedImageCollection->findImageByName("Active-Unchecked"), x, y, x + width, y + height);
 	const Int padding = max(2, width / 5);
-	TheDisplay->drawFillRect(x + padding, y + padding, width - 2 * padding, height - 2 * padding,
-		window->winGetEnabledColor(0));
+	// the box art's hole sits a pixel left of and below its middle at 26 pixels (two at 4K)
+	const Int holeShift = max(1, width / 26);
+	TheDisplay->drawFillRect(x + padding - holeShift, y + padding + holeShift, width - 2 * padding,
+		height - 2 * padding, window->winGetEnabledColor(0));
 }
 
 void InitLobbySeatVisuals(GameWindow *parent, const char *layoutFilename)
