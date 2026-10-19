@@ -8,19 +8,21 @@ than 4:3 at one scale (GameWindowManagerScript.cpp, parseScreenRect): exact on 1
 4K, centred between bands of its own backdrop on 4:3 and 16:10.
 
 One grid drives all three rooms. The seat table takes the left of the panel, one row a seat: a
-colour bar, the side's flat mark, the player (or the computer's level) and the computer's
-personality, the army, a colour swatch and the colour, a team swatch and the team. A player who is
+colour bar, the player (or the computer's level) and the computer's personality, the army, a colour
+swatch and the colour, a team swatch and the team; the swatches are the rules page's check boxes'
+size, framed like them. A player who is
 ready turns his row green, so the network rooms need no status column; their ready lights are kept
 at no size, since the menu code still sets them. The online room puts a ping light ahead of the row.
 The right column is the map preview, the map's name and Select Map, and the match rules page, always
 open: the Info / Chat / Lobby Settings tabs are gone. In the skirmish room the seats run down to the
 buttons, and the battle honours and career record open over them from the Record button beside Back,
-in a window of their own that starts hidden; the network rooms keep their chat under the seats. Back
+in a window of their own that starts hidden, over a veil that dims the room and takes its clicks;
+the network rooms keep their chat under the seats. Back
 sits bottom left, Play / Start bottom right; the online room's buddies button beside Back.
 
 Every control keeps its name and art; only its rectangle moves, and the record's three windows move
-into the popover. Windows this script adds (SeatCard, SeatBar, SeatEmblem, SeatSwatch, SeatTeam, one
-a seat) take no input and are filled by UpdateLobbySeatVisuals in GUIUtil.cpp. A layout still at 800x600 is first scaled to the
+into the popover. Windows this script adds (SeatCard, SeatBar, SeatSwatch, SeatTeam, one a seat)
+take no input and are filled by UpdateLobbySeatVisuals in GUIUtil.cpp. A layout still at 800x600 is first scaled to the
 1920x1080 grid the way the stretch drew it, so a window this script does not place stays where it
 appeared before.
 
@@ -63,12 +65,11 @@ ROW_TOP = 160
 CONTROL_HEIGHT = 40
 GAP = 8
 
-# a seat row: colour bar, emblem, then the columns
+# a seat row: colour bar, then the columns
 BAR_WIDTH = 6
-EMBLEM_LEFT = INNER_LEFT + 16
-SEAT_COLUMNS_LEFT = 152
-SWATCH = 30
-LIGHT = 24
+SEAT_COLUMNS_LEFT = INNER_LEFT + BAR_WIDTH + 16
+# the rules page's check boxes draw a 26 pixel box at 1080; the swatches match it
+SWATCH = 26
 PING = 24
 
 MAP_TOP = 160
@@ -87,7 +88,6 @@ BACK_WIDTH, BUDDIES_WIDTH = 300, 260
 EMOTE_WIDTH = 64
 STATS_WIDTH = 372
 STAT_PITCH, STAT_VALUE_WIDTH = 40, 64
-EMBLEM_MAX = 56
 
 # the skirmish room's record, over the seats
 # down to the gap under the fourth skirmish seat, so its edge never cuts a row in half
@@ -95,7 +95,9 @@ POPOVER = (INNER_LEFT, HEADER_TOP, SEAT_RIGHT - INNER_LEFT, 160 + 3 * 96 + 84 + 
 POPOVER_PADDING = 24
 POPOVER_TITLE_HEIGHT = 44
 CLOSE_WIDTH = 220
-RECORD_WINDOWS = ("RecordPopover", "StaticTextRecordTitle", "ButtonRecordClose")
+RECORD_WINDOWS = ("RecordVeil", "RecordPopover", "StaticTextRecordTitle", "ButtonRecordClose")
+# the open record dims the whole room behind it
+RECORD_VEIL = (0, 0, 0, 160)
 RECORD_TEXT, CLOSE_TEXT = "GUI:LobbyRecord", "GUI:LobbyRecordClose"
 POPOVER_COLOR = (6, 10, 22, 255)
 POPOVER_BORDER = (90, 120, 200, 255)
@@ -103,7 +105,6 @@ POPOVER_BORDER = (90, 120, 200, 255)
 CARD_COLOR = (8, 12, 26, 200)
 CARD_BORDER = (40, 64, 130, 255)
 EMPTY_COLOR = (48, 54, 76, 255)
-TEAM_SWATCH_BORDER = (150, 160, 190, 255)
 VEIL = (2, 4, 12, 120)
 
 # The personality column: its heading is cloned from the team heading and its combo boxes from the
@@ -116,9 +117,9 @@ PERSONA_HEADING_TEXT, PERSONA_TOOLTIP = "GUI:AIPersona", "GUI:AIPersonaTooltip"
 TURBO_BOX = ("CheckBoxTurbo", "GUI:TurboMode", "TOOLTIP:TurboMode")
 GAME_SPEED_DROPDOWN = ("LabelGameSpeed", "ComboBoxGameSpeed")
 TABS = ("TabInfo", "TabChat", "TabLobbySettings")
-SEAT_WINDOWS = ("SeatCard", "SeatBar", "SeatEmblem", "SeatSwatch", "SeatTeam")
+SEAT_WINDOWS = ("SeatCard", "SeatBar", "SeatSwatch", "SeatTeam")
 # what earlier versions of this grid added and this one takes out again
-RETIRED_SEAT_WINDOWS = ("SeatBadge", "SeatStatus")
+RETIRED_SEAT_WINDOWS = ("SeatBadge", "SeatStatus", "SeatEmblem")
 
 STAT_ROWS = [
     ("StaticTextBestStreak", "StaticTextBestStreakValue"),
@@ -278,20 +279,19 @@ def plain_window(template, name, image, color, border):
 
 
 def add_seat_windows(layout, menu, container, spec):
-    """One card, bar, emblem and two swatches a seat, put at the front of the container so they
-    draw under the seat's controls."""
+    """One card, bar and two swatches a seat, put at the front of the container so they draw under
+    the seat's controls. The game draws the swatches' check box frame itself."""
     remove(layout, ["%s%d" % (kind, seat) for kind in SEAT_WINDOWS + RETIRED_SEAT_WINDOWS
                     for seat in range(SEAT_COUNT)])
     template = need(layout, spec["container"])
     named = lambda kind, seat: "%s.wnd:%s%d" % (menu, kind, seat)
     added = {kind: [] for kind in SEAT_WINDOWS}
-    # a card has its frame; the team swatch an edge light enough to show the black team
-    borders = {"SeatCard": CARD_BORDER, "SeatTeam": TEAM_SWATCH_BORDER}
     for seat in range(SEAT_COUNT):
         for kind in SEAT_WINDOWS:
-            added[kind].append(plain_window(template, named(kind, seat), kind == "SeatEmblem",
-                                            CARD_COLOR if kind == "SeatCard" else EMPTY_COLOR,
-                                            borders.get(kind, (0, 0, 0, 0))))
+            card = kind == "SeatCard"
+            added[kind].append(plain_window(template, named(kind, seat), False,
+                                            CARD_COLOR if card else EMPTY_COLOR,
+                                            CARD_BORDER if card else (0, 0, 0, 0)))
     container.children[0:0] = [window for kind in SEAT_WINDOWS for window in added[kind]]
 
 
@@ -305,12 +305,10 @@ def column_widths(columns):
 
 def place_seats(layout, spec, seat_zero_player):
     pitch, height = spec["row_pitch"], spec["row_height"]
-    emblem = min(height - 8, EMBLEM_MAX)
     for seat in range(SEAT_COUNT):
         top = ROW_TOP + seat * pitch
         need(layout, "SeatCard%d" % seat).place(INNER_LEFT, top, SEAT_RIGHT - INNER_LEFT, height)
         need(layout, "SeatBar%d" % seat).place(INNER_LEFT, top, BAR_WIDTH, height)
-        need(layout, "SeatEmblem%d" % seat).place(EMBLEM_LEFT, top + (height - emblem) // 2, emblem, emblem)
         accept = layout.find("ButtonAccept%d" % seat)
         if accept is not None:
             # the menu code still shows and colours it; the row's own colour says ready now
@@ -439,12 +437,19 @@ def add_record_popover(layout, menu, container):
         close.put_prop("TEXT", '"%s"' % CLOSE_TEXT)
         popover.children = [title, info_frame, listbox, stats_panel, close]
         container.children.append(popover)
+    if layout.find("RecordVeil") is None:
+        # the menu code gives it the input that closes the record
+        veil = plain_window(container, named("RecordVeil"), False, RECORD_VEIL, (0, 0, 0, 0))
+        veil.set_prop("STATUS", "ENABLED+HIDDEN+NOFOCUS")
+        container.children.insert(container.children.index(popover), veil)
     return popover
 
 
 def place_record(layout, menu, container):
-    """The battle honours and the career record, side by side in the popover over the seats."""
+    """The battle honours and the career record, side by side in the popover over the seats, the
+    veil under it over the whole room."""
     popover = add_record_popover(layout, menu, container)
+    need(layout, "RecordVeil").place(*FRAME)
     popover.place(*POPOVER)
     popover.set_prop("ENABLEDDRAWDATA", draw_data(POPOVER_COLOR, POPOVER_BORDER))
     left, top, width, height = POPOVER

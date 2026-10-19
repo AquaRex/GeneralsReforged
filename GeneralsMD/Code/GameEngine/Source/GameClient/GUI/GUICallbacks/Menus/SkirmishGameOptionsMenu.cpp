@@ -131,16 +131,34 @@ static NameKeyType comboBoxSupplyPileLimitID = NAMEKEY_INVALID;
 // Window Pointers ------------------------------------------------------------------------
 static GameWindow *parentSkirmishGameOptions = NULL;
 static GameWindow *buttonExit = NULL;
-// the battle honours and career record, opened over the seats by the Record button
+// the battle honours and career record, opened over the seats by the Record button, over a veil
+// that dims the rest of the room
 static GameWindow *recordPopover = NULL;
+static GameWindow *recordVeil = NULL;
 static NameKeyType buttonRecordID = NAMEKEY_INVALID;
 static NameKeyType buttonRecordCloseID = NAMEKEY_INVALID;
 
-// The open record is a wall: a click on it never reaches the seat under it.  Keys still go up to the
+static void showRecord( Bool show )
+{
+	recordVeil->winHide( !show );
+	recordPopover->winHide( !show );
+}
+
+// The open record is modal: a click on it never reaches the room under it.  Keys still go up to the
 // room, so Escape closes it.
 static WindowMsgHandledType recordPopoverInput( GameWindow *window, UnsignedInt msg, WindowMsgData mData1, WindowMsgData mData2 )
 {
 	return msg == GWM_CHAR ? MSG_IGNORED : MSG_HANDLED;
+}
+
+// a click on the dimmed room beside the record closes it, and goes no further
+static WindowMsgHandledType recordVeilInput( GameWindow *window, UnsignedInt msg, WindowMsgData mData1, WindowMsgData mData2 )
+{
+	if ( msg == GWM_CHAR )
+		return MSG_IGNORED;
+	if ( msg == GWM_LEFT_UP )
+		showRecord( FALSE );
+	return MSG_HANDLED;
 }
 static GameWindow *buttonStart = NULL;
 static GameWindow *buttonSelectMap = NULL;
@@ -849,51 +867,57 @@ void positionStartSpots( GameInfo *myGame, GameWindow *buttonMapStartPositions[]
 	positionStartSpots(localMapFname, buttonMapStartPositions, mapWindow);	
 }
 
-// A start spot draws as the button it is, then a taken one gets a ring a third wider than the spot in
-// its team's colour.  The colour is kept here by window, not in the button's user data, which the
-// push button's own draw reads as its PushButtonData.  The skirmish, LAN or online room and the load
-// screen each own one set of spots, so two sets cover every screen that shows them.
-struct StartSpotRing
+// An open start spot draws as the button it is; a taken one is a solid disc in its team's colour with
+// the seat's number on it in black or white, whichever reads better on that colour.  The colour is
+// kept here by window, not in the button's user data, which the push button's own draw reads as its
+// PushButtonData.  The skirmish, LAN or online room and the load screen each own one set of spots,
+// so two sets cover every screen that shows them.
+struct StartSpotFill
 {
 	GameWindow *spot;
-	Color ring;	// 0 for none
+	Color fill;	// 0 for an open spot
 };
-static StartSpotRing theStartSpotRings[MAX_SLOTS * 2];
+static StartSpotFill theStartSpotFills[MAX_SLOTS * 2];
 static GameWinDrawFunc theStartSpotButtonDraw = NULL;
 
-static StartSpotRing *startSpotRing( GameWindow *spot )
+static StartSpotFill *startSpotFill( GameWindow *spot )
 {
-	StartSpotRing *freeEntry = NULL;
-	for ( Int i = 0; i < (Int)ARRAY_SIZE(theStartSpotRings); ++i )
+	StartSpotFill *freeEntry = NULL;
+	for ( Int i = 0; i < (Int)ARRAY_SIZE(theStartSpotFills); ++i )
 	{
-		if ( theStartSpotRings[i].spot == spot )
-			return &theStartSpotRings[i];
-		if ( freeEntry == NULL && theStartSpotRings[i].spot == NULL )
-			freeEntry = &theStartSpotRings[i];
+		if ( theStartSpotFills[i].spot == spot )
+			return &theStartSpotFills[i];
+		if ( freeEntry == NULL && theStartSpotFills[i].spot == NULL )
+			freeEntry = &theStartSpotFills[i];
 	}
 	// a full table means a third set of spots is alive: start the table over for the newest one
 	if ( freeEntry == NULL )
 	{
-		memset( theStartSpotRings, 0, sizeof( theStartSpotRings ) );
-		freeEntry = &theStartSpotRings[0];
+		memset( theStartSpotFills, 0, sizeof( theStartSpotFills ) );
+		freeEntry = &theStartSpotFills[0];
 	}
 	freeEntry->spot = spot;
-	freeEntry->ring = 0;
+	freeEntry->fill = 0;
 	return freeEntry;
 }
 
 static void drawStartSpot( GameWindow *window, WinInstanceData *instData )
 {
-	theStartSpotButtonDraw( window, instData );
-	const Color ring = startSpotRing( window )->ring;
-	if ( ring == 0 )
+	const Color fill = startSpotFill( window )->fill;
+	if ( fill == 0 )
+	{
+		theStartSpotButtonDraw( window, instData );
 		return;
+	}
 	Int x, y, width, height;
 	window->winGetScreenPosition( &x, &y );
 	window->winGetSize( &width, &height );
-	const Int grow = width / 6;
-	TheDisplay->drawImage( TheMappedImageCollection->findImageByName( "ReforgedLobbyStartRing" ),
-		x - grow, y - grow, x + width + grow, y + height + grow, ring );
+	TheDisplay->drawImage( TheMappedImageCollection->findImageByName( "ReforgedLobbySpot" ),
+		x, y, x + width, y + height, fill );
+	DisplayString *number = instData->getTextDisplayString();
+	Int textWidth, textHeight;
+	number->getSize( &textWidth, &textHeight );
+	number->draw( x + (width - textWidth) / 2, y + (height - textHeight) / 2, LobbyTextColorOn( fill ), 0 );
 }
 
 void updateMapStartSpots( GameInfo *myGame, GameWindow *buttonMapStartPositions[], Bool onLoadScreen )
@@ -924,7 +948,7 @@ void updateMapStartSpots( GameInfo *myGame, GameWindow *buttonMapStartPositions[
 			  theStartSpotButtonDraw = buttonMapStartPositions[i]->winGetDrawFunc();
 			  buttonMapStartPositions[i]->winSetDrawFunc( drawStartSpot );
 		  }
-		  startSpotRing( buttonMapStartPositions[i] )->ring = 0;
+		  startSpotFill( buttonMapStartPositions[i] )->fill = 0;
 		  if (!onLoadScreen)
 		  {
 			  buttonMapStartPositions[i]->winSetTooltip(TheGameText->fetch("TOOLTIP:StartPosition"));
@@ -937,14 +961,12 @@ void updateMapStartSpots( GameInfo *myGame, GameWindow *buttonMapStartPositions[
       continue;
 
 		GameSlot *gs =myGame->getSlot(i);
-		// a taken spot wears a ring in its team's colour, or the player's without a team; the number
+		// a taken spot is filled with its team's colour, or the player's without a team; the number
 		// stays for whoever cannot tell the colours apart
 		const Int spot = onLoadScreen ? gs->getApparentStartPos() : gs->getStartPos();
 		if (spot >= 0 && spot < mmd.m_numPlayers && gs->getPlayerTemplate() > PLAYERTEMPLATE_MIN)
-		{
-			const Color ring = gs->getTeamNumber() >= 0 ? LobbyTeamColor(gs->getTeamNumber()) : LobbySeatColor(gs);
-			startSpotRing(buttonMapStartPositions[spot])->ring = ring;
-		}
+			startSpotFill(buttonMapStartPositions[spot])->fill =
+				gs->getTeamNumber() >= 0 ? LobbyTeamColor(gs->getTeamNumber()) : LobbySeatColor(gs);
 		if(onLoadScreen)
 		{
 			if(gs->getApparentStartPos() >=0 && gs->getApparentStartPos() < mmd.m_numPlayers && gs->getPlayerTemplate() > PLAYERTEMPLATE_MIN )
@@ -1193,8 +1215,10 @@ void InitSkirmishGameGadgets( void )
 	buttonRecordID = NAMEKEY( "SkirmishGameOptionsMenu.wnd:ButtonRecord" );
 	buttonRecordCloseID = NAMEKEY( "SkirmishGameOptionsMenu.wnd:ButtonRecordClose" );
 	recordPopover = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, NAMEKEY( "SkirmishGameOptionsMenu.wnd:RecordPopover" ) );
-	recordPopover->winHide( TRUE );
+	recordVeil = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, NAMEKEY( "SkirmishGameOptionsMenu.wnd:RecordVeil" ) );
 	recordPopover->winSetInputFunc( recordPopoverInput );
+	recordVeil->winSetInputFunc( recordVeilInput );
+	showRecord( FALSE );
 	textEntryMapDisplay =TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, textEntryMapDisplayID );
 	DEBUG_ASSERTCRASH(textEntryMapDisplay, ("Could not find the textEntryMapDisplay"));
 	buttonReset = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, buttonResetID );
@@ -1686,7 +1710,7 @@ WindowMsgHandledType SkirmishGameOptionsMenuInput( GameWindow *window, UnsignedI
 					//
 					// an open record closes first
 					if( BitTest( state, KEY_STATE_UP ) && !recordPopover->winIsHidden() )
-						recordPopover->winHide( TRUE );
+						showRecord( FALSE );
 					else if( BitTest( state, KEY_STATE_UP ) )
 					{
 						TheWindowManager->winSendSystemMsg( window, GBM_SELECTED,
@@ -1804,7 +1828,7 @@ WindowMsgHandledType SkirmishGameOptionsMenuSystem( GameWindow *window, Unsigned
 					break;
 				if ( controlID == buttonRecordID || controlID == buttonRecordCloseID )
 				{
-					recordPopover->winHide( controlID == buttonRecordCloseID );
+					showRecord( controlID == buttonRecordID );
 					break;
 				}
 				if ( controlID == buttonExitID )

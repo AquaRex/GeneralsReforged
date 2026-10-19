@@ -43,10 +43,7 @@
 #include "GameClient/GadgetStaticText.h"
 #include "GameClient/GadgetPushButton.h"
 #include "GameClient/GameText.h"
-#include "GameClient/Image.h"
 #include "GameClient/Display.h"
-#include "GameClient/DisplayStringManager.h"
-#include "GameClient/GameFont.h"
 #include "GameLogic/GameLogic.h" // SUPERWEAPON_RESTRICT_COUNT
 #include "GameLogic/AI.h" // AIPersonality, for the personality column
 #include "GameNetwork/GameInfo.h"
@@ -904,10 +901,7 @@ Bool HandleAIPersonaSelection(GameInfo *myGame, GameWindow *comboPersona[], Name
 static GameWindow *theSeatCard[MAX_SLOTS];
 static GameWindow *theSeatBar[MAX_SLOTS];
 static GameWindow *theSeatSwatch[MAX_SLOTS];
-static GameWindow *theSeatEmblem[MAX_SLOTS];
 static GameWindow *theSeatTeam[MAX_SLOTS];
-// a mod faction's initials, written on its disc
-static DisplayString *theSeatInitials[MAX_SLOTS];
 static Bool theSeatsShowReady;
 
 // The eight player colours (gold, red, blue, green, orange, sky blue, purple, pink) take every bright
@@ -921,7 +915,8 @@ static const Color theTeamColors[] =
 	GameMakeColor(150, 88, 30, 255),
 	GameMakeColor(0, 128, 128, 255),
 };
-static const Color theInitialsColor = GameMakeColor(16, 20, 32, 255);
+// the check boxes' own frame colour, so a swatch reads as one of them
+static const Color theSwatchFrameColor = GameMakeColor(90, 100, 230, 255);
 static const Color theSeatEmptyColor = GameMakeColor(48, 54, 76, 255);
 static const Color theSeatUnpickedColor = GameMakeColor(128, 128, 128, 255);
 static const Color theCardColor = GameMakeColor(8, 12, 26, 200);
@@ -943,29 +938,42 @@ Color LobbySeatColor(const GameSlot *slot)
 	return theSeatUnpickedColor;
 }
 
-// The seat's mark, its image drawn in the window's own colour: white art tinted per seat.  A mod
-// faction's disc carries its initials, the display string kept beside the seat's emblem window.
-static void drawTintedEmblem(GameWindow *window, WinInstanceData *instData)
+// WCAG's relative luminance of one 0-255 channel
+static Real linearChannel(Int channel)
+{
+	const Real c = channel / 255.0f;
+	return c <= 0.03928f ? c / 12.92f : (Real)pow((c + 0.055f) / 1.055f, 2.4f);
+}
+
+Color LobbyTextColorOn(Color fill)
+{
+	UnsignedByte r, g, b, a;
+	GameGetColorComponents(fill, &r, &g, &b, &a);
+	const Real luminance = 0.2126f * linearChannel(r) + 0.7152f * linearChannel(g) + 0.0722f * linearChannel(b);
+	// black on it beats white on it in contrast exactly when the luminance is over about 0.179
+	const Real blackContrast = (luminance + 0.05f) / 0.05f;
+	const Real whiteContrast = 1.05f / (luminance + 0.05f);
+	return blackContrast > whiteContrast ? GameMakeColor(0, 0, 0, 255) : GameMakeColor(255, 255, 255, 255);
+}
+
+// A colour swatch drawn like the rules page's check boxes: their frame, and the colour inside it
+// with a little room between.
+static void drawSwatch(GameWindow *window, WinInstanceData *instData)
 {
 	Int x, y, width, height;
 	window->winGetScreenPosition(&x, &y);
 	window->winGetSize(&width, &height);
-	TheDisplay->drawImage(window->winGetEnabledImage(0), x, y, x + width, y + height, window->winGetEnabledColor(0));
-	Int seat = 0;
-	while (theSeatEmblem[seat] != window)
-		++seat;
-	DisplayString *initials = theSeatInitials[seat];
-	if (initials->getTextLength() == 0)
-		return;
-	Int textWidth, textHeight;
-	initials->getSize(&textWidth, &textHeight);
-	initials->draw(x + (width - textWidth) / 2, y + (height - textHeight) / 2, theInitialsColor, 0);
+	const Int frame = max(1, width / 13);
+	const Int padding = frame * 2;
+	TheDisplay->drawOpenRect(x, y, width, height, (Real)frame, theSwatchFrameColor);
+	TheDisplay->drawFillRect(x + padding, y + padding, width - 2 * padding, height - 2 * padding,
+		window->winGetEnabledColor(0));
 }
 
 void InitLobbySeatVisuals(GameWindow *parent, const char *layoutFilename)
 {
-	GameWindow **const windows[] = { theSeatCard, theSeatBar, theSeatSwatch, theSeatEmblem, theSeatTeam };
-	const char *const names[] = { "SeatCard", "SeatBar", "SeatSwatch", "SeatEmblem", "SeatTeam" };
+	GameWindow **const windows[] = { theSeatCard, theSeatBar, theSeatSwatch, theSeatTeam };
+	const char *const names[] = { "SeatCard", "SeatBar", "SeatSwatch", "SeatTeam" };
 	for (Int kind = 0; kind < (Int)ARRAY_SIZE(names); ++kind)
 		for (Int i = 0; i < MAX_SLOTS; ++i)
 		{
@@ -975,10 +983,10 @@ void InitLobbySeatVisuals(GameWindow *parent, const char *layoutFilename)
 		}
 	for (Int i = 0; i < MAX_SLOTS; ++i)
 	{
-		if (theSeatEmblem[i] == NULL)
-			continue;
-		theSeatInitials[i] = TheDisplayStringManager->newDisplayString();
-		theSeatEmblem[i]->winSetDrawFunc(drawTintedEmblem);
+		if (theSeatSwatch[i])
+			theSeatSwatch[i]->winSetDrawFunc(drawSwatch);
+		if (theSeatTeam[i])
+			theSeatTeam[i]->winSetDrawFunc(drawSwatch);
 	}
 	theSeatsShowReady = strcmp(layoutFilename, "SkirmishGameOptionsMenu.wnd") != 0;
 }
@@ -986,59 +994,7 @@ void InitLobbySeatVisuals(GameWindow *parent, const char *layoutFilename)
 void ShutdownLobbySeatVisuals(void)
 {
 	for (Int i = 0; i < MAX_SLOTS; ++i)
-	{
-		if (theSeatInitials[i])
-			TheDisplayStringManager->freeDisplayString(theSeatInitials[i]);
-		theSeatInitials[i] = NULL;
-		theSeatCard[i] = theSeatBar[i] = theSeatSwatch[i] = theSeatEmblem[i] = theSeatTeam[i] = NULL;
-	}
-}
-
-static const Image *lobbyMark(const char *name)
-{
-	AsciiString imageName;
-	imageName.format("ReforgedLobby%s", name);
-	return TheMappedImageCollection->findImageByName(imageName);
-}
-
-// Up to two letters: the first of the first two words of a faction's name.
-static UnicodeString factionInitials(const UnicodeString &name)
-{
-	UnicodeString initials;
-	Bool wordStart = TRUE;
-	for (Int i = 0; i < name.getLength() && initials.getLength() < 2; ++i)
-	{
-		const WideChar letter = name.getCharAt(i);
-		if (letter == L' ')
-			wordStart = TRUE;
-		else if (wordStart)
-		{
-			initials.concat((WideChar)towupper(letter));
-			wordStart = FALSE;
-		}
-	}
-	return initials;
-}
-
-// The general's own mark ("ReforgedLobby" + his side's name), else his base side's crest; Random a
-// question mark, an observer an eye.  A mod faction on a side of its own gets a plain disc and its
-// initials.
-static const Image *seatEmblem(Int playerTemplate, UnicodeString *initials)
-{
-	initials->clear();
-	if (playerTemplate == PLAYERTEMPLATE_OBSERVER)
-		return lobbyMark("Observer");
-	const PlayerTemplate *pt = playerTemplate >= 0 ? ThePlayerTemplateStore->getNthPlayerTemplate(playerTemplate) : NULL;
-	if (pt == NULL)
-		return lobbyMark("Random");
-	const Image *general = lobbyMark(pt->getSide().str());
-	if (general)
-		return general;
-	const AsciiString side = pt->getBaseSide();
-	if (side == "USA" || side == "China" || side == "GLA")
-		return lobbyMark(side.str());
-	*initials = factionInitials(pt->getDisplayName());
-	return lobbyMark("Faction");
+		theSeatCard[i] = theSeatBar[i] = theSeatSwatch[i] = theSeatTeam[i] = NULL;
 }
 
 static void showColor(GameWindow *window, Color color)
@@ -1049,7 +1005,6 @@ static void showColor(GameWindow *window, Color color)
 
 void UpdateLobbySeatVisuals(GameInfo *myGame)
 {
-	const Color white = GameMakeColor(255, 255, 255, 255);
 	for (Int i = 0; i < MAX_SLOTS; ++i)
 	{
 		const GameSlot *slot = myGame->getConstSlot(i);
@@ -1058,20 +1013,6 @@ void UpdateLobbySeatVisuals(GameInfo *myGame)
 		showColor(theSeatBar[i], color);
 		showColor(theSeatSwatch[i], color);
 		showColor(theSeatTeam[i], occupied ? LobbyTeamColor(slot->getTeamNumber()) : theSeatEmptyColor);
-
-		if (theSeatEmblem[i])
-		{
-			theSeatEmblem[i]->winHide(!occupied);
-			UnicodeString initials;
-			if (occupied)
-				theSeatEmblem[i]->winSetEnabledImage(0, seatEmblem(slot->getPlayerTemplate(), &initials));
-			// an unpicked colour draws the mark white rather than grey
-			theSeatEmblem[i]->winSetEnabledColor(0, slot->getColor() >= 0 ? color : white);
-			Int width, height;
-			theSeatEmblem[i]->winGetSize(&width, &height);
-			theSeatInitials[i]->setFont(TheFontLibrary->getFont("Arial", max(8, height * 2 / 5), TRUE));
-			theSeatInitials[i]->setText(initials);
-		}
 
 		if (theSeatCard[i] == NULL || !theSeatsShowReady)
 			continue;
