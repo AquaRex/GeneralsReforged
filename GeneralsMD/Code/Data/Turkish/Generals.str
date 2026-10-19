@@ -16065,6 +16065,91 @@ GUI:HotkeysCommandBEGIN_PREFER_SELECTION
 "Seçime ekle (basılı tut)"
 END
 
+// Maç yükleme ekranı (LoadScreen.cpp içindeki LoadScreenBoard)
+GUI:LoadModeSkirmish
+"Çatışma"
+END
+
+GUI:LoadModeLAN
+"LAN oyunu"
+END
+
+GUI:LoadModeOnline
+"Çevrimiçi oyun"
+END
+
+GUI:LoadModeReplay
+"Tekrar"
+END
+
+GUI:LoadMission
+"Görev %d"
+END
+
+GUI:LoadBriefing
+"BRİFİNG"
+END
+
+GUI:LoadFreeForAll
+"Herkes herkese karşı"
+END
+
+GUI:LoadObservers
+"Gözlemciler:"
+END
+
+GUI:LoadTeam
+"Takım %d"
+END
+
+GUI:LoadWaiting
+"Diğer oyuncular bekleniyor"
+END
+
+GUI:LoadTip
+"İPUCU"
+END
+
+GUI:LoadTip1
+"Emir verirken Shift'i basılı tutun, grup listeyi kendi başına sırayla yapar: yürü, saldır, ele geçir, koru."
+END
+
+GUI:LoadTip2
+"Shift ve bir rakam seçtiklerinizi o kontrol grubuna ekler, gruptakiler de yerinde kalır."
+END
+
+GUI:LoadTip3
+"Ctrl+D seçtiğiniz türlerden ekrandaki bütün birlikleri seçer. İki kez basarsanız bütün haritadakileri alır."
+END
+
+GUI:LoadTip4
+"Shift'i basılı tutup sürükleyerek bir çizgi çizin. Seçtikleriniz onun boyunca ateş hattı olarak dizilir."
+END
+
+GUI:LoadTip5
+"Bir üretim düğmesinde Shift beş, Ctrl yirmi birliği sıraya koyar."
+END
+
+GUI:LoadTip6
+"Bir birliğin düğmesine Ctrl ve Alt ile basın, fabrika onu durmadan üretir."
+END
+
+GUI:LoadTip7
+"Koyduğunuz bir işaret, bilgisayar müttefiklerinizden oraya saldırmalarını ister."
+END
+
+GUI:LoadTip8
+"Sohbete yardim, saldir ya da para yazın: bilgisayar müttefikleriniz yardıma gelir, oraya saldırır ya da para gönderir."
+END
+
+GUI:LoadTip9
+"Bina yerleştirirken Ctrl'yi basılı tutun, tuş basılı kaldıkça ızgaraya oturtma tersine döner."
+END
+
+GUI:LoadTip10
+"Bir binaya çift tıklayın, ekrandaki aynı türden bütün binalar seçilir."
+END
+
 // Bilgisayar oyuncusu kişilikleri, lobide koltuk başına seçilir (AIPersonality)
 GUI:AIPersonaNormal
 "Normal"

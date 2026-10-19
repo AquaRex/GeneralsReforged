@@ -1668,6 +1668,91 @@ GUI:HotkeysCommandBEGIN_PREFER_SELECTION
 "Add to selection (hold)"
 END
 
+// The match load screen (LoadScreenBoard in LoadScreen.cpp)
+GUI:LoadModeSkirmish
+"Skirmish"
+END
+
+GUI:LoadModeLAN
+"LAN game"
+END
+
+GUI:LoadModeOnline
+"Online game"
+END
+
+GUI:LoadModeReplay
+"Replay"
+END
+
+GUI:LoadMission
+"Mission %d"
+END
+
+GUI:LoadBriefing
+"BRIEFING"
+END
+
+GUI:LoadFreeForAll
+"Free for all"
+END
+
+GUI:LoadObservers
+"Observers:"
+END
+
+GUI:LoadTeam
+"Team %d"
+END
+
+GUI:LoadWaiting
+"Waiting for the other players"
+END
+
+GUI:LoadTip
+"TIP"
+END
+
+GUI:LoadTip1
+"Hold Shift while you give orders and the group works down the list by itself: move, attack, capture, guard."
+END
+
+GUI:LoadTip2
+"Shift and a number adds your selection to that control group and keeps everyone already in it."
+END
+
+GUI:LoadTip3
+"Ctrl+D selects every unit of the kinds you have selected on the screen. Press it twice for the whole map."
+END
+
+GUI:LoadTip4
+"Hold Shift and drag to draw a line. The selection spreads along it as a firing line."
+END
+
+GUI:LoadTip5
+"On a build button, Shift queues five and Ctrl twenty."
+END
+
+GUI:LoadTip6
+"Hold Ctrl and Alt on a unit's button and the factory builds it on repeat."
+END
+
+GUI:LoadTip7
+"A beacon you place asks your computer allies to attack there."
+END
+
+GUI:LoadTip8
+"Type help, attack or money in chat and your computer allies come to help, attack there or send cash."
+END
+
+GUI:LoadTip9
+"Hold Ctrl while placing a building to flip grid placement for as long as the key is down."
+END
+
+GUI:LoadTip10
+"Double-click a building to select every building of its kind on the screen."
+END
+
 // Computer player personalities, picked per seat in the lobby (AIPersonality)
 GUI:AIPersonaNormal
 "Normal"

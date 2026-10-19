@@ -8,6 +8,14 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
+## A new loading screen
+
+- Skirmish, LAN, online and replay loads show every player on a card: the general's portrait, or the side's crest for a plain side, the name in the player's colour, the army, and for a computer seat its difficulty and personality. Teams face each other in two columns with the map and its start spots between them. Three teams or more share the columns, and a game where everyone plays alone says Free for all.
+- In a LAN or online game each player's card carries his own load bar, so you see who the match is waiting for.
+- The map's name, the kind of game, the team sizes and the starting cash head the screen. Along the bottom a tip changes every eight seconds over the load's bar and percentage.
+- Enemies who picked a random side, colour or start stay hidden as they were in the lobby. Observers and replays see every side as it is.
+- A campaign mission keeps its own picture and briefing movie. Once the movie ends, the mission number, campaign and difficulty sit above it and the same tip and bar sit below it. Generals' Challenge is unchanged.
+
 ## A summary and graphs on the score screen
 
 - The old score table with its rows of icons and the Tactical Analysis box is gone. Every score screen, skirmish, LAN, online, replay and campaign mission alike, opens on its Summary page: a large row per player with its side, units built, lost and destroyed, buildings built, lost and destroyed, and money earned. The winners carry a gold Winner tag, and the best number in each column is gold too, the fewest where fewer is better. In a campaign mission your enemies share one row per side, as they did in the old table. Generals' Challenge keeps the general's portrait and verdict it always had.
