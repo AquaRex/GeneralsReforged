@@ -35,6 +35,7 @@
 
 class GameWindow;
 class GameInfo;
+class GameSlot;
 
 void ShowUnderlyingGUIElements( Bool show, const char *layoutFilename, const char *parentName,
 															 const char **gadgetsToHide, const char **perPlayerGadgetsToHide );
@@ -124,13 +125,19 @@ void UpdateAIPersonaComboBoxes(GameInfo *myGame, GameWindow *comboPersona[]);
 Bool HandleAIPersonaSelection(GameInfo *myGame, GameWindow *comboPersona[], NameKeyType comboPersonaID[],
 															NameKeyType controlID);
 
-// What a seat row shows beside its combo boxes: a bar and a swatch in the seat's colour, the general's
-// emblem with the side's badge in its corner, and in the network rooms HOST, READY or NOT READY.  All
-// of it is drawn from the slot on every update and none of it takes input.  A layout without the
-// windows (a stale Run/Window) leaves them NULL and the room looks as it did.
+// What a seat row shows beside its combo boxes: a bar and a swatch in the seat's colour, the side's
+// flat mark in that colour, a swatch in the team's colour, and in the network rooms a green card for
+// a player who is ready and a gold edge round the host's.  All of it is drawn from the slot on every
+// update and none of it takes input.  A layout without the windows (a stale Run/Window) leaves them
+// NULL and the room looks as it did.
 void InitLobbySeatVisuals(GameWindow *parent, const char *layoutFilename);
 void UpdateLobbySeatVisuals(GameInfo *myGame);
 void ShutdownLobbySeatVisuals(void);
+// Team 0 to 3 (shown as 1 to 4) each have a colour none of the players can pick; no team is the
+// empty seat's slate.  The map's start spots wear
+// them too.
+Color LobbyTeamColor(Int team);
+Color LobbySeatColor(const GameSlot *slot);
 
 void EnableSlotListUpdates( Bool val );
 Bool AreSlotListUpdatesEnabled( void );

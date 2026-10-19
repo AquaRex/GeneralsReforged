@@ -129,6 +129,17 @@ static NameKeyType comboBoxSupplyPileLimitID = NAMEKEY_INVALID;
 // Window Pointers ------------------------------------------------------------------------
 static GameWindow *parentSkirmishGameOptions = NULL;
 static GameWindow *buttonExit = NULL;
+// the battle honours and career record, opened over the seats by the Record button
+static GameWindow *recordPopover = NULL;
+static NameKeyType buttonRecordID = NAMEKEY_INVALID;
+static NameKeyType buttonRecordCloseID = NAMEKEY_INVALID;
+
+// The open record is a wall: a click on it never reaches the seat under it.  Keys still go up to the
+// room, so Escape closes it.
+static WindowMsgHandledType recordPopoverInput( GameWindow *window, UnsignedInt msg, WindowMsgData mData1, WindowMsgData mData2 )
+{
+	return msg == GWM_CHAR ? MSG_IGNORED : MSG_HANDLED;
+}
 static GameWindow *buttonStart = NULL;
 static GameWindow *buttonSelectMap = NULL;
 static GameWindow *textEntryMapDisplay = NULL;
@@ -871,6 +882,13 @@ void updateMapStartSpots( GameInfo *myGame, GameWindow *buttonMapStartPositions[
       continue;
 
 		GameSlot *gs =myGame->getSlot(i);
+		// a taken spot's number wears its team's colour, or the player's without a team; the number
+		// stays for whoever cannot tell the colours apart
+		const Int spot = onLoadScreen ? gs->getApparentStartPos() : gs->getStartPos();
+		if (spot >= 0 && spot < mmd.m_numPlayers && gs->getPlayerTemplate() > PLAYERTEMPLATE_MIN)
+			buttonMapStartPositions[spot]->winSetEnabledTextColors(
+				gs->getTeamNumber() >= 0 ? LobbyTeamColor(gs->getTeamNumber()) : LobbySeatColor(gs),
+				GameMakeColor(0, 0, 0, 255));
 		if(onLoadScreen)
 		{
 			if(gs->getApparentStartPos() >=0 && gs->getApparentStartPos() < mmd.m_numPlayers && gs->getPlayerTemplate() > PLAYERTEMPLATE_MIN )
@@ -1116,7 +1134,12 @@ void InitSkirmishGameGadgets( void )
 	DEBUG_ASSERTCRASH(buttonStart, ("Could not find the buttonStart"));
 	buttonExit = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions,  buttonExitID);
 	DEBUG_ASSERTCRASH(buttonExit, ("Could not find the buttonExit"));
-	textEntryMapDisplay = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, textEntryMapDisplayID );
+	buttonRecordID = NAMEKEY( "SkirmishGameOptionsMenu.wnd:ButtonRecord" );
+	buttonRecordCloseID = NAMEKEY( "SkirmishGameOptionsMenu.wnd:ButtonRecordClose" );
+	recordPopover = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, NAMEKEY( "SkirmishGameOptionsMenu.wnd:RecordPopover" ) );
+	recordPopover->winHide( TRUE );
+	recordPopover->winSetInputFunc( recordPopoverInput );
+	textEntryMapDisplay =TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, textEntryMapDisplayID );
 	DEBUG_ASSERTCRASH(textEntryMapDisplay, ("Could not find the textEntryMapDisplay"));
 	buttonReset = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, buttonResetID );
 	DEBUG_ASSERTCRASH(buttonReset, ("Could not find the buttonReset"));
@@ -1605,9 +1628,12 @@ WindowMsgHandledType SkirmishGameOptionsMenuInput( GameWindow *window, UnsignedI
 					// send a simulated selected event to the parent window of the
 					// back/exit button
 					//
-					if( BitTest( state, KEY_STATE_UP ) )
+					// an open record closes first
+					if( BitTest( state, KEY_STATE_UP ) && !recordPopover->winIsHidden() )
+						recordPopover->winHide( TRUE );
+					else if( BitTest( state, KEY_STATE_UP ) )
 					{
-						TheWindowManager->winSendSystemMsg( window, GBM_SELECTED, 
+						TheWindowManager->winSendSystemMsg( window, GBM_SELECTED,
 																							(WindowMsgData)buttonExit, buttonExitID );
 					}  // end if
 					// don't let key fall through anywhere else
@@ -1720,6 +1746,11 @@ WindowMsgHandledType SkirmishGameOptionsMenuSystem( GameWindow *window, Unsigned
 				}
 				if ( LobbyTabClicked( (NameKeyType)controlID ) )
 					break;
+				if ( controlID == buttonRecordID || controlID == buttonRecordCloseID )
+				{
+					recordPopover->winHide( controlID == buttonRecordCloseID );
+					break;
+				}
 				if ( controlID == buttonExitID )
 				{
 					buttonPushed = TRUE;

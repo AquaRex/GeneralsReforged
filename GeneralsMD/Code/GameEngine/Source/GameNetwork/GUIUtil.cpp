@@ -44,6 +44,7 @@
 #include "GameClient/GadgetPushButton.h"
 #include "GameClient/GameText.h"
 #include "GameClient/Image.h"
+#include "GameClient/Display.h"
 #include "GameLogic/GameLogic.h" // SUPERWEAPON_RESTRICT_COUNT
 #include "GameLogic/AI.h" // AIPersonality, for the personality column
 #include "GameNetwork/GameInfo.h"
@@ -898,16 +899,57 @@ Bool HandleAIPersonaSelection(GameInfo *myGame, GameWindow *comboPersona[], Name
 
 // -----------------------------------------------------------------------------
 
+static GameWindow *theSeatCard[MAX_SLOTS];
 static GameWindow *theSeatBar[MAX_SLOTS];
 static GameWindow *theSeatSwatch[MAX_SLOTS];
 static GameWindow *theSeatEmblem[MAX_SLOTS];
-static GameWindow *theSeatBadge[MAX_SLOTS];
-static GameWindow *theSeatStatus[MAX_SLOTS];
+static GameWindow *theSeatTeam[MAX_SLOTS];
+static Bool theSeatsShowReady;
+
+// The eight player colours (gold, red, blue, green, orange, sky blue, purple, pink) take every bright
+// hue, so the teams wear pale tints between them: white, tan, mint and lavender, light enough to
+// read as a start spot's number on a dark map.  The number itself is what a colour-blind eye goes by.
+static const Color theTeamColors[] =
+{
+	GameMakeColor(240, 240, 240, 255),
+	GameMakeColor(215, 175, 110, 255),
+	GameMakeColor(140, 240, 190, 255),
+	GameMakeColor(185, 165, 255, 255),
+};
+static const Color theSeatEmptyColor = GameMakeColor(48, 54, 76, 255);
+static const Color theSeatUnpickedColor = GameMakeColor(128, 128, 128, 255);
+static const Color theCardColor = GameMakeColor(8, 12, 26, 200);
+static const Color theCardReadyColor = GameMakeColor(22, 74, 40, 210);
+static const Color theCardBorderColor = GameMakeColor(40, 64, 130, 255);
+static const Color theCardHostBorderColor = GameMakeColor(196, 156, 48, 255);
+
+Color LobbyTeamColor(Int team)
+{
+	return team >= 0 && team < (Int)ARRAY_SIZE(theTeamColors) ? theTeamColors[team] : theSeatEmptyColor;
+}
+
+Color LobbySeatColor(const GameSlot *slot)
+{
+	if (!slot->isOccupied())
+		return theSeatEmptyColor;
+	if (slot->getColor() >= 0 && slot->getColor() < TheMultiplayerSettings->getNumColors())
+		return TheMultiplayerSettings->getColor(slot->getColor())->getColor();
+	return theSeatUnpickedColor;
+}
+
+// The seat's mark, its image drawn in the window's own colour: white art tinted per seat.
+static void drawTintedEmblem(GameWindow *window, WinInstanceData *instData)
+{
+	Int x, y, width, height;
+	window->winGetScreenPosition(&x, &y);
+	window->winGetSize(&width, &height);
+	TheDisplay->drawImage(window->winGetEnabledImage(0), x, y, x + width, y + height, window->winGetEnabledColor(0));
+}
 
 void InitLobbySeatVisuals(GameWindow *parent, const char *layoutFilename)
 {
-	GameWindow **const windows[] = { theSeatBar, theSeatSwatch, theSeatEmblem, theSeatBadge, theSeatStatus };
-	const char *const names[] = { "SeatBar", "SeatSwatch", "SeatEmblem", "SeatBadge", "SeatStatus" };
+	GameWindow **const windows[] = { theSeatCard, theSeatBar, theSeatSwatch, theSeatEmblem, theSeatTeam };
+	const char *const names[] = { "SeatCard", "SeatBar", "SeatSwatch", "SeatEmblem", "SeatTeam" };
 	for (Int kind = 0; kind < (Int)ARRAY_SIZE(names); ++kind)
 		for (Int i = 0; i < MAX_SLOTS; ++i)
 		{
@@ -915,34 +957,37 @@ void InitLobbySeatVisuals(GameWindow *parent, const char *layoutFilename)
 			name.format("%s:%s%d", layoutFilename, names[kind], i);
 			windows[kind][i] = TheWindowManager->winGetWindowFromId(parent, NAMEKEY(name));
 		}
+	for (Int i = 0; i < MAX_SLOTS; ++i)
+		if (theSeatEmblem[i])
+			theSeatEmblem[i]->winSetDrawFunc(drawTintedEmblem);
+	theSeatsShowReady = strcmp(layoutFilename, "SkirmishGameOptionsMenu.wnd") != 0;
 }
 
 void ShutdownLobbySeatVisuals(void)
 {
 	for (Int i = 0; i < MAX_SLOTS; ++i)
-		theSeatBar[i] = theSeatSwatch[i] = theSeatEmblem[i] = theSeatBadge[i] = theSeatStatus[i] = NULL;
+		theSeatCard[i] = theSeatBar[i] = theSeatSwatch[i] = theSeatEmblem[i] = theSeatTeam[i] = NULL;
 }
 
-// The general's own emblem, else the side's badge; Random and a mod faction with neither show the
-// shell's question mark, an observer the observer's eye.
-static const Image *seatEmblem(Int playerTemplate)
+// A side's crest as a flat shape; Random a question mark, an observer an eye. A mod faction on a
+// side of its own keeps its side icon, drawn untinted.
+static const Image *seatEmblem(Int playerTemplate, Bool *tinted)
 {
+	*tinted = TRUE;
 	if (playerTemplate == PLAYERTEMPLATE_OBSERVER)
-		return TheMappedImageCollection->findImageByName("GameinfoOBSRVR");
+		return TheMappedImageCollection->findImageByName("ReforgedLobbyObserver");
 	const PlayerTemplate *pt = playerTemplate >= 0 ? ThePlayerTemplateStore->getNthPlayerTemplate(playerTemplate) : NULL;
-	const Image *image = pt ? pt->getGeneralImage() : NULL;
-	if (image == NULL && pt)
-		image = pt->getSideIconImage();
-	return image ? image : TheMappedImageCollection->findImageByName("GameinfoRANDOM");
-}
-
-static void showImage(GameWindow *window, const Image *image)
-{
-	if (window == NULL)
-		return;
-	window->winHide(image == NULL);
-	if (image)
-		window->winSetEnabledImage(0, image);
+	if (pt == NULL)
+		return TheMappedImageCollection->findImageByName("ReforgedLobbyRandom");
+	const AsciiString side = pt->getBaseSide();
+	if (side == "USA" || side == "China" || side == "GLA")
+	{
+		AsciiString name;
+		name.format("ReforgedLobby%s", side.str());
+		return TheMappedImageCollection->findImageByName(name);
+	}
+	*tinted = FALSE;
+	return pt->getSideIconImage() ? pt->getSideIconImage() : TheMappedImageCollection->findImageByName("ReforgedLobbyRandom");
 }
 
 static void showColor(GameWindow *window, Color color)
@@ -953,50 +998,34 @@ static void showColor(GameWindow *window, Color color)
 
 void UpdateLobbySeatVisuals(GameInfo *myGame)
 {
-	const Color empty = GameMakeColor(48, 54, 76, 255);
-	const Color unpicked = GameMakeColor(128, 128, 128, 255);
+	const Color white = GameMakeColor(255, 255, 255, 255);
 	for (Int i = 0; i < MAX_SLOTS; ++i)
 	{
 		const GameSlot *slot = myGame->getConstSlot(i);
 		const Bool occupied = slot->isOccupied();
-		Color color = occupied ? unpicked : empty;
-		if (occupied && slot->getColor() >= 0 && slot->getColor() < TheMultiplayerSettings->getNumColors())
-			color = TheMultiplayerSettings->getColor(slot->getColor())->getColor();
+		const Color color = LobbySeatColor(slot);
 		showColor(theSeatBar[i], color);
 		showColor(theSeatSwatch[i], color);
+		showColor(theSeatTeam[i], occupied ? LobbyTeamColor(slot->getTeamNumber()) : theSeatEmptyColor);
 
-		showImage(theSeatEmblem[i], occupied ? seatEmblem(slot->getPlayerTemplate()) : NULL);
-		const PlayerTemplate *pt = occupied && slot->getPlayerTemplate() >= 0
-			? ThePlayerTemplateStore->getNthPlayerTemplate(slot->getPlayerTemplate()) : NULL;
-		// the badge only where it adds something: under a general's emblem, not doubling the side's own
-		const Image *badge = pt && pt->getGeneralImage() ? pt->getSideIconImage() : NULL;
-		showImage(theSeatBadge[i], badge);
-
-		if (theSeatStatus[i] == NULL)
-			continue;
-		UnicodeString status;
-		Color statusColor = GameMakeColor(255, 255, 255, 255);
-		if (slot->isHuman())
+		if (theSeatEmblem[i])
 		{
-			// the host always sits in the first seat of a network room
-			if (i == 0)
-			{
-				status = TheGameText->fetch("GUI:LobbyHost");
-				statusColor = GameMakeColor(255, 196, 40, 255);
-			}
-			else if (slot->isAccepted())
-			{
-				status = TheGameText->fetch("GUI:LobbyReady");
-				statusColor = GameMakeColor(70, 220, 110, 255);
-			}
-			else
-			{
-				status = TheGameText->fetch("GUI:LobbyNotReady");
-				statusColor = GameMakeColor(240, 80, 64, 255);
-			}
+			theSeatEmblem[i]->winHide(!occupied);
+			Bool tinted = TRUE;
+			if (occupied)
+				theSeatEmblem[i]->winSetEnabledImage(0, seatEmblem(slot->getPlayerTemplate(), &tinted));
+			// an unpicked colour draws the mark white rather than grey
+			const Bool picked = slot->getColor() >= 0;
+			theSeatEmblem[i]->winSetEnabledColor(0, tinted && picked ? color : white);
 		}
-		theSeatStatus[i]->winSetEnabledTextColors(statusColor, GameMakeColor(0, 0, 0, 255));
-		GadgetStaticTextSetText(theSeatStatus[i], status);
+
+		if (theSeatCard[i] == NULL || !theSeatsShowReady)
+			continue;
+		// the host always sits in the first seat of a network room and is never asked to ready up
+		const Bool host = i == 0 && slot->isHuman();
+		const Bool ready = slot->isHuman() && !host && slot->isAccepted();
+		theSeatCard[i]->winSetEnabledColor(0, ready ? theCardReadyColor : theCardColor);
+		theSeatCard[i]->winSetEnabledBorderColor(0, host ? theCardHostBorderColor : theCardBorderColor);
 	}
 }
 

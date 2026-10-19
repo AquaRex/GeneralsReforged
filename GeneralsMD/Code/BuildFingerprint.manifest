@@ -23,6 +23,7 @@ Data/Art/Textures/ReforgedHudHelpbox.dds
 Data/Art/Textures/ReforgedHudObsCommandBar.dds
 Data/Art/Textures/ReforgedHudObsPlayerWindow.dds
 Data/Art/Textures/ReforgedLaserPink.tga
+Data/Art/Textures/ReforgedLobbyEmblems.tga
 Data/Art/Textures/ReforgedMineGlowBlue.tga
 Data/Art/Textures/ReforgedMineGlowRed.tga
 Data/Art/Textures/ReforgedMineLedBlue.tga
@@ -167,6 +168,7 @@ Data/INI/MappedImages/HandCreated/ReforgedHudGlaPowers.ini
 Data/INI/MappedImages/HandCreated/ReforgedHudHelpbox.ini
 Data/INI/MappedImages/HandCreated/ReforgedHudObsCommandBar.ini
 Data/INI/MappedImages/HandCreated/ReforgedHudObsPlayerWindow.ini
+Data/INI/MappedImages/HandCreated/ReforgedLobbyEmblems.ini
 Data/INI/ObjectCreationListReforged.ini
 Data/INI/ParticleSystemReforged.ini
 Data/INI/ScienceReforged.ini
@@ -245,6 +247,7 @@ Data/Scenarios/jetturn.txt
 Data/Scenarios/laserglow.txt
 Data/Scenarios/leadinfantry.txt
 Data/Scenarios/leadvehicle.txt
+Data/Scenarios/logicscroll.txt
 Data/Scenarios/looks4.txt
 Data/Scenarios/mappers.txt
 Data/Scenarios/mass420x2.txt
@@ -3872,6 +3875,7 @@ Tools/linux-packages/PKGBUILD
 Tools/linux-packages/io.github.olcayseygan.ZeroHourReforged.metainfo.xml
 Tools/linux-packages/io.github.olcayseygan.ZeroHourReforged.yml
 Tools/linux-portable.sh
+Tools/lobby_emblems.py
 Tools/lobbyroom_layout.py
 Tools/lobbysettings_layout.py
 Tools/lod-first-run-check.sh

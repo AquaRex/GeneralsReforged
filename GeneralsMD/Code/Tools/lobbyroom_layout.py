@@ -8,17 +8,19 @@ than 4:3 at one scale (GameWindowManagerScript.cpp, parseScreenRect): exact on 1
 4K, centred between bands of its own backdrop on 4:3 and 16:10.
 
 One grid drives all three rooms. The seat table takes the left of the panel, one row a seat: a
-colour bar, the general's emblem with the side's badge, the player (or the computer's level) and the
-computer's personality, the army, a colour swatch and the colour, the team, and in the network rooms
-the ready light and HOST / READY / NOT READY. The online room puts a ping light ahead of the row.
+colour bar, the side's flat mark, the player (or the computer's level) and the computer's
+personality, the army, a colour swatch and the colour, a team swatch and the team. A player who is
+ready turns his row green, so the network rooms need no status column; their ready lights are kept
+at no size, since the menu code still sets them. The online room puts a ping light ahead of the row.
 The right column is the map preview, the map's name and Select Map, and the match rules page, always
-open: the Info / Chat / Lobby Settings tabs are gone. Under the seats the skirmish room keeps its
-battle honours and career record, the network rooms their chat. Back sits bottom left, Play / Start
-bottom right; the online room's buddies button beside Back.
+open: the Info / Chat / Lobby Settings tabs are gone. In the skirmish room the seats run down to the
+buttons, and the battle honours and career record open over them from the Record button beside Back,
+in a window of their own that starts hidden; the network rooms keep their chat under the seats. Back
+sits bottom left, Play / Start bottom right; the online room's buddies button beside Back.
 
-Every control keeps its name, parent and art; only its rectangle moves. Windows this script adds
-(SeatCard, SeatBar, SeatEmblem, SeatBadge, SeatSwatch, SeatStatus, one a seat) take no input and are
-filled by UpdateLobbySeatVisuals in GUIUtil.cpp. A layout still at 800x600 is first scaled to the
+Every control keeps its name and art; only its rectangle moves, and the record's three windows move
+into the popover. Windows this script adds (SeatCard, SeatBar, SeatEmblem, SeatSwatch, SeatTeam, one
+a seat) take no input and are filled by UpdateLobbySeatVisuals in GUIUtil.cpp. A layout still at 800x600 is first scaled to the
 1920x1080 grid the way the stretch drew it, so a window this script does not place stays where it
 appeared before.
 
@@ -85,6 +87,18 @@ BACK_WIDTH, BUDDIES_WIDTH = 300, 260
 EMOTE_WIDTH = 64
 STATS_WIDTH = 372
 STAT_PITCH, STAT_VALUE_WIDTH = 40, 64
+EMBLEM_MAX = 56
+
+# the skirmish room's record, over the seats
+# down to the gap under the fourth skirmish seat, so its edge never cuts a row in half
+POPOVER = (INNER_LEFT, HEADER_TOP, SEAT_RIGHT - INNER_LEFT, 160 + 3 * 96 + 84 + 6 - HEADER_TOP)
+POPOVER_PADDING = 24
+POPOVER_TITLE_HEIGHT = 44
+CLOSE_WIDTH = 220
+RECORD_WINDOWS = ("RecordPopover", "StaticTextRecordTitle", "ButtonRecordClose")
+RECORD_TEXT, CLOSE_TEXT = "GUI:LobbyRecord", "GUI:LobbyRecordClose"
+POPOVER_COLOR = (6, 10, 22, 255)
+POPOVER_BORDER = (90, 120, 200, 255)
 
 CARD_COLOR = (8, 12, 26, 200)
 CARD_BORDER = (40, 64, 130, 255)
@@ -101,7 +115,9 @@ PERSONA_HEADING_TEXT, PERSONA_TOOLTIP = "GUI:AIPersona", "GUI:AIPersonaTooltip"
 TURBO_BOX = ("CheckBoxTurbo", "GUI:TurboMode", "TOOLTIP:TurboMode")
 GAME_SPEED_DROPDOWN = ("LabelGameSpeed", "ComboBoxGameSpeed")
 TABS = ("TabInfo", "TabChat", "TabLobbySettings")
-SEAT_WINDOWS = ("SeatCard", "SeatBar", "SeatEmblem", "SeatBadge", "SeatSwatch", "SeatStatus")
+SEAT_WINDOWS = ("SeatCard", "SeatBar", "SeatEmblem", "SeatSwatch", "SeatTeam")
+# what earlier versions of this grid added and this one takes out again
+RETIRED_SEAT_WINDOWS = ("SeatBadge", "SeatStatus")
 
 STAT_ROWS = [
     ("StaticTextBestStreak", "StaticTextBestStreakValue"),
@@ -110,44 +126,28 @@ STAT_ROWS = [
     ("StaticTextLosses", "StaticTextLossesValue"),
 ]
 
-# (heading, control prefixes, width); None for a column without a heading. "SWATCH" and "LIGHT" are
-# fixed-size squares centred in the row, "STATUS" the seat's status text.
+# (heading, control prefixes, width); None for a column without a heading, a width of None for the
+# column that takes what the others leave. The swatches and the ping light are fixed-size squares
+# centred in the row.
 # Widths measured, not guessed: the longest English, Turkish or German entry each box can show,
 # in Arial at the 19 pixels the rooms draw at 1080p, plus 10 of inset and the 40 pixel arrow.
 # Players "Geschlossen" 112, personality "Hava Kuvvetleri" 135, army "ABD Hava Kuvvetleri
-# Generali" 258, colour "Camgöbeği" 98, team "Keins" 49, status "NICHT BEREIT" 132.
-SKIRMISH_COLUMNS = [
-    ("StaticTextPlayers", ("ComboBoxPlayer",), 170),
-    (PERSONA_HEADING, (PERSONA_PREFIX,), 196),
-    ("StaticTextFaction", ("ComboBoxPlayerTemplate",), 320),
+# Generali" 258, colour "Camgöbeği" 98, team "Keins" 49.
+SEAT_COLUMNS = [
+    ("StaticTextPlayers", ("ComboBoxPlayer",), 190),
+    (PERSONA_HEADING, (PERSONA_PREFIX,), 210),
+    ("StaticTextFaction", ("ComboBoxPlayerTemplate",), None),
     ("StaticTextColor", ("SeatSwatch",), SWATCH),
-    (None, ("ComboBoxColor",), 160),
-    ("StaticTextTeam", ("ComboBoxTeam",), 110),
+    (None, ("ComboBoxColor",), 170),
+    ("StaticTextTeam", ("SeatTeam",), SWATCH),
+    (None, ("ComboBoxTeam",), 120),
 ]
-LAN_COLUMNS = [
-    ("StaticTextPlayers", ("ComboBoxPlayer",), 170),
-    (PERSONA_HEADING, (PERSONA_PREFIX,), 196),
-    ("StaticTextFaction", ("ComboBoxPlayerTemplate",), 290),
-    ("StaticTextColor", ("SeatSwatch",), SWATCH),
-    (None, ("ComboBoxColor",), 160),
-    ("StaticTextTeam", ("ComboBoxTeam",), 110),
-    (None, ("ButtonAccept",), LIGHT),
-    (None, ("SeatStatus",), None),
-]
-# A seat's player name in the online room is a static text over its combo, as EA drew it. The
-# ping light costs the army column 30.
-GAMESPY_COLUMNS = [
-    (None, ("GenericPing",), PING),
-    ("StaticTextPlayers", ("ComboBoxPlayer", "StaticTextPlayer"), 170),
-    (PERSONA_HEADING, (PERSONA_PREFIX,), 196),
-    ("StaticTextFaction", ("ComboBoxPlayerTemplate",), 260),
-    ("StaticTextColor", ("SeatSwatch",), SWATCH),
-    (None, ("ComboBoxColor",), 160),
-    ("StaticTextTeam", ("ComboBoxTeam",), 110),
-    (None, ("ButtonAccept",), LIGHT),
-    (None, ("SeatStatus",), None),
-]
-SQUARES = {"SeatSwatch": SWATCH, "ButtonAccept": LIGHT, "GenericPing": PING}
+# A seat's player name in the online room is a static text over its combo, as EA drew it.
+GAMESPY_COLUMNS = [(None, ("GenericPing",), PING),
+                   ("StaticTextPlayers", ("ComboBoxPlayer", "StaticTextPlayer"), 190)] + SEAT_COLUMNS[1:]
+SQUARES = {"SeatSwatch": SWATCH, "SeatTeam": SWATCH, "GenericPing": PING}
+# a swatch and the box after it share one heading
+SWATCHES = ("SeatSwatch", "SeatTeam")
 
 # The rules page, one column: (label, combo) rows, then the check boxes two to a row.
 SKIRMISH_RULES = [("StartingCashLabel", "ComboBoxStartingCash"), ("LabelSuperweapons", "ComboBoxSuperweapons"),
@@ -160,10 +160,10 @@ GAMESPY_CHECKS = ["CheckBoxUseStats", "CheckBoxLimitArmies"] + LAN_CHECKS
 
 ROOMS = {
     "SkirmishGameOptionsMenu": dict(container="SubParent", rule="Line", title="StaticTextTitle",
-                                    columns=SKIRMISH_COLUMNS, rules=SKIRMISH_RULES, checks=SKIRMISH_CHECKS,
-                                    row_pitch=66, row_height=58),
+                                    columns=SEAT_COLUMNS, rules=SKIRMISH_RULES, checks=SKIRMISH_CHECKS,
+                                    row_pitch=96, row_height=84),
     "LanGameOptionsMenu": dict(container="GadgetParent", rule="LINE", title="StaticTextTitle",
-                               columns=LAN_COLUMNS, rules=NETWORK_RULES, checks=LAN_CHECKS,
+                               columns=SEAT_COLUMNS, rules=NETWORK_RULES, checks=LAN_CHECKS,
                                row_pitch=58, row_height=50, chat="ListboxChatWindowLanGame"),
     "GameSpyGameOptionsMenu": dict(container="FadeParent", rule="LINE", title="StaticTextGameName",
                                    columns=GAMESPY_COLUMNS, rules=NETWORK_RULES, checks=GAMESPY_CHECKS,
@@ -174,7 +174,9 @@ ROOMS = {
 NAMED = ["MapWindow", "ButtonSelectMap", "TextEntryMapDisplay", "StaticTextMapPreview", "ButtonBack",
          "ButtonStart", "PageLobbySettings"]
 NAMED_PER_SEAT = ["ComboBoxColor", "ComboBoxPlayerTemplate", "ComboBoxTeam", PERSONA_PREFIX,
-                  "ButtonMapStartPosition", "SeatCard", "SeatBar", "SeatEmblem", "SeatBadge", "SeatSwatch"]
+                  "ButtonMapStartPosition"] + list(SEAT_WINDOWS)
+NAMED_SKIRMISH = ["ButtonRecord", "ListboxInfo"] + list(RECORD_WINDOWS)
+NAMED_NETWORK_PER_SEAT = ["ButtonAccept"]
 
 
 def short(window):
@@ -264,61 +266,62 @@ def widen(layout):
 # the grid
 # ---------------------------------------------------------------------------
 
+def plain_window(template, name, image, color, border):
+    """An empty window cloned from the room's container: no input, a colour fill or an image."""
+    window = clone(template, name)
+    window.children = []
+    window.set_prop("STATUS", "ENABLED+NOINPUT+NOFOCUS" + ("+IMAGE" if image else ""))
+    window.put_prop("SYSTEMCALLBACK", '"[None]"')
+    window.set_prop("ENABLEDDRAWDATA", draw_data(color, border))
+    return window
+
+
 def add_seat_windows(layout, menu, container, spec):
-    """One card, bar, emblem, badge and swatch a seat, and a status text in the network rooms,
-    put at the front of the container so they draw under the seat's controls."""
-    remove(layout, ["%s%d" % (kind, seat) for kind in SEAT_WINDOWS for seat in range(SEAT_COUNT)])
+    """One card, bar, emblem and two swatches a seat, put at the front of the container so they
+    draw under the seat's controls."""
+    remove(layout, ["%s%d" % (kind, seat) for kind in SEAT_WINDOWS + RETIRED_SEAT_WINDOWS
+                    for seat in range(SEAT_COUNT)])
     template = need(layout, spec["container"])
-    text_template = need(layout, "TextEntryMapDisplay")
     named = lambda kind, seat: "%s.wnd:%s%d" % (menu, kind, seat)
-    has_status = any("SeatStatus" in prefixes for _h, prefixes, _w in spec["columns"])
-
-    def plain(kind, seat, image):
-        window = clone(template, named(kind, seat))
-        window.children = []
-        window.set_prop("STATUS", "ENABLED+NOINPUT+NOFOCUS" + ("+IMAGE" if image else ""))
-        window.put_prop("SYSTEMCALLBACK", '"[None]"')
-        color = CARD_COLOR if kind == "SeatCard" else EMPTY_COLOR
-        border = CARD_BORDER if kind == "SeatCard" else (0, 0, 0, 0)
-        window.set_prop("ENABLEDDRAWDATA", draw_data(color, border))
-        return window
-
     added = {kind: [] for kind in SEAT_WINDOWS}
     for seat in range(SEAT_COUNT):
-        for kind in ("SeatCard", "SeatBar", "SeatSwatch"):
-            added[kind].append(plain(kind, seat, False))
-        for kind in ("SeatEmblem", "SeatBadge"):
-            added[kind].append(plain(kind, seat, True))
-        if has_status:
-            status = clone(text_template, named("SeatStatus", seat))
-            status.set_prop("STATUS", "ENABLED+NOINPUT+NOFOCUS")
-            status.put_prop("TEXT", '""')
-            left_align(status)
-            added["SeatStatus"].append(status)
+        for kind in SEAT_WINDOWS:
+            card = kind == "SeatCard"
+            added[kind].append(plain_window(template, named(kind, seat), kind == "SeatEmblem",
+                                            CARD_COLOR if card else EMPTY_COLOR,
+                                            CARD_BORDER if card else (0, 0, 0, 0)))
     container.children[0:0] = [window for kind in SEAT_WINDOWS for window in added[kind]]
+
+
+def column_widths(columns):
+    """The one column without a width takes what the fixed ones and their gaps leave."""
+    fixed = sum(width for _h, _p, width in columns if width is not None)
+    gaps = sum(6 if prefixes[0] in SWATCHES else GAP for _h, prefixes, _w in columns[:-1])
+    rest = SEAT_RIGHT - SEAT_COLUMNS_LEFT - fixed - gaps
+    return [rest if width is None else width for _h, _p, width in columns]
 
 
 def place_seats(layout, spec, seat_zero_player):
     pitch, height = spec["row_pitch"], spec["row_height"]
-    emblem = height - 8
-    badge = emblem // 2
+    emblem = min(height - 8, EMBLEM_MAX)
     for seat in range(SEAT_COUNT):
         top = ROW_TOP + seat * pitch
         need(layout, "SeatCard%d" % seat).place(INNER_LEFT, top, SEAT_RIGHT - INNER_LEFT, height)
         need(layout, "SeatBar%d" % seat).place(INNER_LEFT, top, BAR_WIDTH, height)
-        need(layout, "SeatEmblem%d" % seat).place(EMBLEM_LEFT, top + 4, emblem, emblem)
-        need(layout, "SeatBadge%d" % seat).place(EMBLEM_LEFT + emblem - badge + 6, top + height - badge - 2,
-                                                 badge, badge)
+        need(layout, "SeatEmblem%d" % seat).place(EMBLEM_LEFT, top + (height - emblem) // 2, emblem, emblem)
+        accept = layout.find("ButtonAccept%d" % seat)
+        if accept is not None:
+            # the menu code still shows and colours it; the row's own colour says ready now
+            accept.place(INNER_LEFT, top, 0, 0)
 
     left = SEAT_COLUMNS_LEFT
     columns = spec["columns"]
-    for index, (heading_name, prefixes, width) in enumerate(columns):
-        if width is None:
-            width = SEAT_RIGHT - left
+    widths = column_widths(columns)
+    for index, (heading_name, prefixes, _width) in enumerate(columns):
+        width = widths[index]
         if heading_name is not None:
             heading = need(layout, heading_name)
-            # the colour heading stands over the swatch and the colour box after it
-            span = width + (6 + columns[index + 1][2] if prefixes[0] == "SeatSwatch" else 0)
+            span = width + (6 + widths[index + 1] if prefixes[0] in SWATCHES else 0)
             heading.place(left - TEXT_NUDGE, HEADER_TOP, span, HEADER_HEIGHT)
             left_align(heading)
         for seat in range(SEAT_COUNT):
@@ -332,13 +335,11 @@ def place_seats(layout, spec, seat_zero_player):
                 if prefix in SQUARES:
                     size = SQUARES[prefix]
                     control.place(left + (width - size) // 2, top + (height - size) // 2, size, size)
-                elif prefix == "SeatStatus":
-                    control.place(left - TEXT_NUDGE, top + (height - CONTROL_HEIGHT) // 2, width, CONTROL_HEIGHT)
                 else:
                     control.place(left, top + (height - CONTROL_HEIGHT) // 2, width, CONTROL_HEIGHT)
-        left += width + (GAP if prefixes[0] != "SeatSwatch" else 6)
-    if left - GAP > SEAT_RIGHT:
-        raise ValueError("seat columns run to %d, past the seat table at %d" % (left - GAP, SEAT_RIGHT))
+        left += width + (6 if prefixes[0] in SWATCHES else GAP)
+    if min(widths) <= 0 or left - GAP != SEAT_RIGHT:
+        raise ValueError("seat columns %s do not fill the seat table to %d" % (widths, SEAT_RIGHT))
     return ROW_TOP + (SEAT_COUNT - 1) * pitch + height
 
 
@@ -400,34 +401,74 @@ def place_chat(layout, listbox, top):
     need(layout, "ButtonEmote").place(SEAT_RIGHT - EMOTE_WIDTH, entry_top, EMOTE_WIDTH, 44)
 
 
-def skirmish_panels(sub_parent):
+def skirmish_panels(parent):
     """EA left the honours frame and the career stats panel unnamed; the stats panel is the one
     with children."""
-    unnamed = [child for child in sub_parent.children if not short(child)]
+    unnamed = [child for child in parent.children if not short(child)]
     info_frames = [child for child in unnamed if not child.children]
     stats_panels = [child for child in unnamed if child.children]
     if len(info_frames) != 1 or len(stats_panels) != 1:
-        raise ValueError("expected one info frame and one stats panel in SubParent, found %d and %d"
-                         % (len(info_frames), len(stats_panels)))
+        raise ValueError("expected one info frame and one stats panel in %s, found %d and %d"
+                         % (short(parent), len(info_frames), len(stats_panels)))
     return info_frames[0], stats_panels[0]
 
 
-def place_record(layout, top):
-    """The battle honours and the career record under the seats, where the Info tab was."""
-    info_frame, stats_panel = skirmish_panels(need(layout, "SubParent"))
-    height = UNDER_SEATS_BOTTOM - top
-    honours_width = SEAT_RIGHT - INNER_LEFT - STATS_WIDTH - 16
+def add_record_popover(layout, menu, container):
+    """The honours frame, its list and the stats panel move into a hidden window of their own, last
+    in the container so it draws over the seats, with a title and a close button; Record beside Back
+    opens it. Once there, a second run finds them and moves nothing."""
+    named = lambda name: "%s.wnd:%s" % (menu, name)
+    back = need(layout, "ButtonBack")
+    if layout.find("ButtonRecord") is None:
+        record = clone(back, named("ButtonRecord"))
+        record.put_prop("TEXT", '"%s"' % RECORD_TEXT)
+        container.children.insert(container.children.index(back) + 1, record)
+    popover = layout.find("RecordPopover")
+    if popover is None:
+        popover = plain_window(container, named("RecordPopover"), False, POPOVER_COLOR, POPOVER_BORDER)
+        popover.set_prop("STATUS", "ENABLED+HIDDEN+NOFOCUS")
+        info_frame, stats_panel = skirmish_panels(container)
+        listbox = need(layout, "ListboxInfo")
+        for window in (info_frame, listbox, stats_panel):
+            container.children.remove(window)
+        title = clone(need(layout, "StaticTextMapPreview"), named("StaticTextRecordTitle"))
+        title.put_prop("TEXT", '"%s"' % RECORD_TEXT)
+        close = clone(back, named("ButtonRecordClose"))
+        close.put_prop("TEXT", '"%s"' % CLOSE_TEXT)
+        popover.children = [title, info_frame, listbox, stats_panel, close]
+        container.children.append(popover)
+    return popover
+
+
+def place_record(layout, menu, container):
+    """The battle honours and the career record, side by side in the popover over the seats."""
+    popover = add_record_popover(layout, menu, container)
+    popover.place(*POPOVER)
+    popover.set_prop("ENABLEDDRAWDATA", draw_data(POPOVER_COLOR, POPOVER_BORDER))
+    left, top, width, height = POPOVER
+    right, bottom = left + width - POPOVER_PADDING, top + height - POPOVER_PADDING
+    title = need(layout, "StaticTextRecordTitle")
+    title.place(left + POPOVER_PADDING - TEXT_NUDGE, top + POPOVER_PADDING, width // 2, POPOVER_TITLE_HEIGHT)
+    left_align(title)
+    close_top = bottom - BUTTON_HEIGHT
+    need(layout, "ButtonRecordClose").place(right - CLOSE_WIDTH, close_top, CLOSE_WIDTH, BUTTON_HEIGHT)
+
+    info_frame, stats_panel = skirmish_panels(popover)
+    body_top = top + POPOVER_PADDING + POPOVER_TITLE_HEIGHT + GAP
+    body_height = close_top - GAP - body_top
+    stats_left = right - STATS_WIDTH
+    honours_width = stats_left - 16 - left - POPOVER_PADDING
     for window in (info_frame, need(layout, "ListboxInfo")):
-        window.place(INNER_LEFT, top, honours_width, height)
-    stats_left = SEAT_RIGHT - STATS_WIDTH
-    stats_panel.place(stats_left, top, STATS_WIDTH, height)
-    value_left = SEAT_RIGHT - 16 - STAT_VALUE_WIDTH
+        window.place(left + POPOVER_PADDING, body_top, honours_width, body_height)
+    stats_panel.place(stats_left, body_top, STATS_WIDTH, body_height)
+    value_left = right - 16 - STAT_VALUE_WIDTH
     for row, (label_name, value_name) in enumerate(STAT_ROWS):
-        row_top = top + 16 + row * STAT_PITCH
+        row_top = body_top + 16 + row * STAT_PITCH
         label = need(layout, label_name)
         label.place(stats_left + 16 - TEXT_NUDGE, row_top, value_left - stats_left - 16, CONTROL_HEIGHT)
         left_align(label)
         need(layout, value_name).place(value_left, row_top, STAT_VALUE_WIDTH, CONTROL_HEIGHT)
+    need(layout, "ButtonRecord").place(INNER_LEFT + BACK_WIDTH + 16, BUTTON_TOP, BUDDIES_WIDTH, BUTTON_HEIGHT)
 
 
 def build(layout, menu):
@@ -442,11 +483,10 @@ def build(layout, menu):
     seats_bottom = place_seats(layout, spec, "TextEntryPlayerName" if menu == "SkirmishGameOptionsMenu" else None)
     page_top = place_rules(layout, spec["rules"], spec["checks"])
     place_map(layout, page_top - 14 - CONTROL_HEIGHT)
-    under = seats_bottom + 16
     if "chat" in spec:
-        place_chat(layout, spec["chat"], under)
+        place_chat(layout, spec["chat"], seats_bottom + 16)
     else:
-        place_record(layout, under)
+        place_record(layout, menu, container)
     if menu == "GameSpyGameOptionsMenu":
         need(layout, "ButtonCommunicator").place(INNER_LEFT + BACK_WIDTH + 16, BUTTON_TOP, BUDDIES_WIDTH,
                                                  BUTTON_HEIGHT)
@@ -485,7 +525,10 @@ def selfcheck():
         for _heading, prefixes, _width in spec["columns"]:
             names += ["%s%d" % (prefix, seat) for prefix in prefixes for seat in range(SEAT_COUNT)
                       if not (seat == 0 and prefix == "ComboBoxPlayer" and menu == "SkirmishGameOptionsMenu")]
-        names += ["%s%d" % (prefix, seat) for prefix in NAMED_PER_SEAT for seat in range(SEAT_COUNT)]
+        per_seat = NAMED_PER_SEAT + (NAMED_NETWORK_PER_SEAT if "chat" in spec else [])
+        names += ["%s%d" % (prefix, seat) for prefix in per_seat for seat in range(SEAT_COUNT)]
+        if "chat" not in spec:
+            names += NAMED_SKIRMISH
         for rule in spec["rules"]:
             names += list(rule)
         names += spec["checks"]

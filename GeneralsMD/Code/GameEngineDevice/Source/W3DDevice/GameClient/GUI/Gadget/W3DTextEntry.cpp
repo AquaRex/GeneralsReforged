@@ -379,11 +379,13 @@ void W3DGadgetTextEntryImageDraw( GameWindow *window, WinInstanceData *instData 
 	}  // end else, just enabled
 
 	// get image sizes for the ends
+	// The ends are stretched to the box's height, so they are widened by the same ratio: at their own
+	// width a box scaled up to 1080 kept a hairline left edge beside a combo arrow drawn at full scale.
 	ICoord2D leftSize, rightSize;
-	leftSize.x = leftImage->getImageWidth();
 	leftSize.y = leftImage->getImageHeight();
-	rightSize.x = rightImage->getImageWidth();
 	rightSize.y = rightImage->getImageHeight();
+	leftSize.x = max( 1, leftImage->getImageWidth() * size.y / max( 1, leftSize.y ) );
+	rightSize.x = max( 1, rightImage->getImageWidth() * size.y / max( 1, rightSize.y ) );
 
 	// get two key points used in the end drawing
 	ICoord2D leftEnd, rightStart;

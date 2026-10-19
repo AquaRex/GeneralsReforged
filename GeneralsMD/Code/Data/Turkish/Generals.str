@@ -16369,14 +16369,10 @@ TOOLTIP:MoneyTransfer
 "Miktarı tekerlekle ya da - ve + ile seç: adım 100, Ctrl ile 1.000, Shift ile 10.000, ikisiyle 100.000. Gönder parayı oyuncuya verir."
 END
 
-GUI:LobbyHost
-"KURUCU"
+GUI:LobbyRecord
+"Kariyer"
 END
 
-GUI:LobbyReady
-"HAZIR"
-END
-
-GUI:LobbyNotReady
-"HAZIR DEĞİL"
+GUI:LobbyRecordClose
+"Kapat"
 END

@@ -1980,14 +1980,10 @@ TOOLTIP:MoneyTransfer
 "Scroll or click - and + to pick the amount: 100 a step, 1,000 with Ctrl, 10,000 with Shift, 100,000 with both. Send hands it over."
 END
 
-GUI:LobbyHost
-"HOST"
+GUI:LobbyRecord
+"Record"
 END
 
-GUI:LobbyReady
-"READY"
-END
-
-GUI:LobbyNotReady
-"NOT READY"
+GUI:LobbyRecordClose
+"Close"
 END
