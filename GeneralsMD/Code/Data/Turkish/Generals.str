@@ -16389,20 +16389,40 @@ GUI:LobbyRecordClose
 "Kapat"
 END
 
-GUI:ScoreGraphs
-"GRAFİKLER"
+GUI:ScoreSummary
+"ÖZET"
 END
 
 GUI:ScoreTable
 "SKORLAR"
 END
 
-GUI:GraphEarned
-"Kazanılan para"
+GUI:SummaryUnitsBuilt
+"Üretilen birlik"
 END
 
-GUI:GraphBank
-"Kasa"
+GUI:SummaryUnitsDestroyed
+"Yok edilen birlik"
+END
+
+GUI:SummaryBuildingsBuilt
+"İnşa edilen bina"
+END
+
+GUI:SummaryWinner
+"Kazanan"
+END
+
+GUI:BuildOrderEvery
+"Her inşayı göster"
+END
+
+GUI:BuildOrderFirsts
+"Her şeyin ilkini göster"
+END
+
+GUI:GraphEarned
+"Kazanılan para"
 END
 
 GUI:GraphArmy
@@ -16411,10 +16431,6 @@ END
 
 GUI:GraphBuildings
 "Binalar"
-END
-
-GUI:GraphPower
-"Enerji"
 END
 
 GUI:GraphLost
@@ -16443,10 +16459,6 @@ END
 
 GUI:GraphRank
 "Rütbe %d"
-END
-
-GUI:GraphFirstMinutes
-"İlk 5 dakika"
 END
 
 GUI:GraphNoData

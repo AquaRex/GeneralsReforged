@@ -2000,21 +2000,41 @@ GUI:LobbyRecordClose
 "Close"
 END
 
-// The score screen's Graphs panel (ScoreScreenGraphs.cpp)
-GUI:ScoreGraphs
-"GRAPHS"
+// The score screen's summary panel (ScoreScreenGraphs.cpp)
+GUI:ScoreSummary
+"SUMMARY"
 END
 
 GUI:ScoreTable
 "SCORES"
 END
 
-GUI:GraphEarned
-"Money earned"
+GUI:SummaryUnitsBuilt
+"Units built"
 END
 
-GUI:GraphBank
-"Bank"
+GUI:SummaryUnitsDestroyed
+"Units destroyed"
+END
+
+GUI:SummaryBuildingsBuilt
+"Buildings built"
+END
+
+GUI:SummaryWinner
+"Winner"
+END
+
+GUI:BuildOrderEvery
+"Show every build"
+END
+
+GUI:BuildOrderFirsts
+"Show the first of each"
+END
+
+GUI:GraphEarned
+"Money earned"
 END
 
 GUI:GraphArmy
@@ -2023,10 +2043,6 @@ END
 
 GUI:GraphBuildings
 "Buildings"
-END
-
-GUI:GraphPower
-"Power"
 END
 
 GUI:GraphLost
@@ -2055,10 +2071,6 @@ END
 
 GUI:GraphRank
 "Rank %d"
-END
-
-GUI:GraphFirstMinutes
-"First 5 minutes"
 END
 
 GUI:GraphNoData

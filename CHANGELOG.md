@@ -8,12 +8,15 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
-## Graphs on the score screen
+## A summary and graphs on the score screen
 
-- The score screen has a Graphs button beside OK. It opens a panel with one line per player over the whole match for money earned, money in the bank, army size, buildings standing, power and units lost. Army size counts infantry, vehicles and aircraft; workers and supply trucks are left out.
-- Markers along the top of each chart show when a superweapon went up (gold frame), when one fired (red frame), when a general's power was used and when a general was promoted, each in its player's colour. Hover over a marker for the time, the player and what it was.
-- The Build order tab lays each player's structures, and the first of each unit type, on a timeline. The first five minutes take over half its width, so an opening reads at a glance; hover over a picture for its name and time.
-- It works the same after a skirmish, a LAN or online match and a replay. The game records it as the match plays, a sample every five seconds, and it changes nothing in the match itself. A game loaded from a save only graphs what happened after the load.
+- After a skirmish, a LAN or online match or a replay the score screen opens on a summary: one row per player with its side, units built, lost and destroyed, buildings built and money earned, and the winner marked. The Scores button beside OK swaps it for the full score table and back.
+- Under the summary one chart at a time draws a line per player over the whole match: money earned, army size or buildings standing. Army size counts infantry, vehicles and aircraft; workers and supply trucks are left out.
+- A single row of small pictures above the chart marks superweapons built and fired, general's powers and promotions, framed in the player's colour. Moments that fall close together share one picture with a count on it. Hover over it for the list, each line with its time, and a faint line down to where each one falls on the chart.
+- The Build order tab puts the first of each structure and unit each player made on a timeline whose first five minutes take over half the width, so an opening reads at a glance. Show every build adds the rest; hover over a picture for its name and time.
+- The game records all of this as the match plays, a sample every five seconds, and it changes nothing in the match itself. A game loaded from a save only graphs what happened after the load.
+
+## Computer players have personalities
 
 - Every computer seat in the skirmish, LAN and online lobbies has a new Personality box beside its team. It says how that player plays, and the difficulty still says how well, so a Hard Turtle and an Easy Turtle play the same way at different strengths.
 - Normal is the computer player you know, unchanged. The others:

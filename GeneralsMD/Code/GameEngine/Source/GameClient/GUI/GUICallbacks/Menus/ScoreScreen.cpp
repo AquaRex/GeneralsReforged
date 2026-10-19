@@ -155,9 +155,10 @@ GameWindow *staticTextAcademyTitle = NULL;
 std::string LastReplayFileName;
 static Bool canSaveReplay = FALSE;
 extern void PopupReplayUpdate(WindowLayout *layout, void *userData);
-// the Graphs button and its panel, ScoreScreenGraphs.cpp
+// the summary panel and the button that swaps it with the score table, ScoreScreenGraphs.cpp
 extern void ScoreScreenGraphsInit( GameWindow *parent, GameWindow *anchor );
-extern void ScoreScreenGraphsAddPlayer( Int index, const UnicodeString &name, Color color );
+extern void ScoreScreenGraphsAddPlayer( Player *player, const UnicodeString &name, Color color );
+extern void ScoreScreenGraphsShow( Bool show );
 extern Bool ScoreScreenGraphsSelected( GameWindow *control );
 extern void ScoreScreenGraphsShutdown( void );
 
@@ -381,6 +382,9 @@ void ScoreScreenInit( WindowLayout *layout, void *userData )
 		buttonSaveReplay->winHide(TRUE);
 	}
 
+	// a match opens on its summary; a mission keeps the campaign's own screen
+	if (screenType != SCORESCREEN_SINGLEPLAYER)
+		ScoreScreenGraphsShow(TRUE);
 
 	// Make Sure the layout is visible
 	layout->hide( FALSE );
@@ -1441,7 +1445,7 @@ void populatePlayerInfo( Player *player, Int pos)
 	}
 	else
 		GadgetStaticTextSetText(win, player->getPlayerDisplayName());
-	ScoreScreenGraphsAddPlayer( player->getPlayerIndex(), GadgetStaticTextGetText( win ), color );
+	ScoreScreenGraphsAddPlayer( player, GadgetStaticTextGetText( win ), color );
 	win->winHide(FALSE);
 	win->winSetEnabledTextColors(color, win->winGetEnabledTextBorderColor());
 

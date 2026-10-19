@@ -18,17 +18,22 @@
 
 // FILE: ScoreScreenGraphs.cpp ////////////////////////////////////////////////////////////////////
 //
-// The score screen's Graphs button and the panel it opens: one line a player over the match for
-// money earned, the bank, the army, buildings, power and units lost, with a marker where a
-// superweapon went up or fired, a general's power was used or a general was promoted; and a build
-// order tab, every structure and the first of each unit on a timeline whose first five minutes take
-// over half the width.  Everything is drawn here from TheMatchHistory, which the logic wrote during
-// the match; the panel and its button are made in code, so no layout file changes.
+// The summary panel the score screen opens on after a multiplayer match, a skirmish or a replay: a
+// short table of the numbers that matter for each player, and below it one chart at a time (money
+// earned, army, buildings) or the build order.  A chart carries one row of small markers where a
+// superweapon went up or fired, a general's power was used or a general was promoted; markers that
+// fall close together share one picture and list all of theirs on hover.  The build order shows
+// the first of each structure and unit until asked for every build.  The Scores button beside OK
+// swaps the panel for the stock score table.  Everything is drawn here from TheMatchHistory and the
+// players' score keepers; the panel and its button are made in code, so no layout file changes.
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
 
 #include "Common/MatchHistory.h"
+#include "Common/Player.h"
+#include "Common/PlayerTemplate.h"
+#include "Common/ScoreKeeper.h"
 #include "Common/SpecialPower.h"
 #include "Common/ThingTemplate.h"
 #include "GameClient/ControlBar.h"
@@ -42,35 +47,53 @@
 #include "GameClient/GameWindowManager.h"
 #include "GameClient/Image.h"
 #include "GameClient/Mouse.h"
+#include "GameLogic/VictoryConditions.h"
 
+#include <algorithm>
 #include <vector>
 
 enum GraphTab
 {
 	GRAPH_TAB_EARNED,
-	GRAPH_TAB_BANK,
 	GRAPH_TAB_ARMY,
 	GRAPH_TAB_BUILDINGS,
-	GRAPH_TAB_POWER,
-	GRAPH_TAB_LOST,
 	GRAPH_TAB_BUILD_ORDER,
 	GRAPH_TAB_COUNT
 };
 
 static const char *const theTabLabels[ GRAPH_TAB_COUNT ] =
 {
-	"GUI:GraphEarned", "GUI:GraphBank", "GUI:GraphArmy", "GUI:GraphBuildings", "GUI:GraphPower", "GUI:GraphLost", "GUI:GraphBuildOrder"
+	"GUI:GraphEarned", "GUI:GraphArmy", "GUI:GraphBuildings", "GUI:GraphBuildOrder"
 };
 
 static const MatchSeries theTabSeries[ GRAPH_TAB_BUILD_ORDER ] =
 {
-	MATCH_SERIES_EARNED, MATCH_SERIES_BANK, MATCH_SERIES_ARMY, MATCH_SERIES_BUILDINGS, MATCH_SERIES_POWER, MATCH_SERIES_LOST
+	MATCH_SERIES_EARNED, MATCH_SERIES_ARMY, MATCH_SERIES_BUILDINGS
+};
+
+/// the summary's columns, in the stock score table's order
+enum SummaryColumn
+{
+	SUMMARY_UNITS_BUILT,
+	SUMMARY_UNITS_LOST,
+	SUMMARY_UNITS_DESTROYED,
+	SUMMARY_BUILDINGS_BUILT,
+	SUMMARY_EARNED,
+	SUMMARY_COLUMN_COUNT
+};
+
+static const char *const theColumnLabels[ SUMMARY_COLUMN_COUNT ] =
+{
+	"GUI:SummaryUnitsBuilt", "GUI:GraphLost", "GUI:SummaryUnitsDestroyed", "GUI:SummaryBuildingsBuilt", "GUI:GraphEarned"
 };
 
 static const char *const theEventLabels[ MATCH_EVENT_TYPE_COUNT ] =
 {
 	"GUI:GraphSuperweaponBuilt", "GUI:GraphSuperweaponFired", "GUI:GraphGeneralPower", "GUI:GraphPromotion"
 };
+
+/// which event's picture a group of markers shows, lowest first
+static const Int theEventRank[ MATCH_EVENT_TYPE_COUNT ] = { 1, 0, 2, 3 };
 
 /// the first five minutes take this share of the build order's width once the match ran past them
 static const Real EARLY_SHARE = 0.55f;
@@ -79,20 +102,21 @@ static const UnsignedInt EARLY_FRAMES = 5 * 60 * LOGICFRAMES_PER_SECOND;
 static const Color PANEL_FILL = GameMakeColor( 8, 12, 20, 255 );
 static const Color PANEL_EDGE = GameMakeColor( 110, 130, 160, 255 );
 static const Color TAB_FILL = GameMakeColor( 24, 32, 46, 255 );
-static const Color TAB_ACTIVE = GameMakeColor( 58, 78, 112, 255 );
 static const Color TEXT = GameMakeColor( 220, 225, 235, 255 );
 static const Color TEXT_DIM = GameMakeColor( 150, 160, 175, 255 );
-static const Color GRID = GameMakeColor( 255, 255, 255, 28 );
-static const Color AXIS = GameMakeColor( 255, 255, 255, 90 );
+static const Color GRID = GameMakeColor( 255, 255, 255, 22 );
+static const Color AXIS = GameMakeColor( 255, 255, 255, 70 );
 static const Color GOLD = GameMakeColor( 235, 190, 60, 255 );
-static const Color RED = GameMakeColor( 225, 60, 45, 255 );
 static const Color SHADOW = GameMakeColor( 0, 0, 0, 255 );
 
 struct GraphPlayer
 {
 	Int index;
 	UnicodeString name;
+	UnicodeString side;
 	Color color;
+	Bool winner;
+	Int stats[ SUMMARY_COLUMN_COUNT ];
 };
 
 struct GraphText
@@ -103,18 +127,32 @@ struct GraphText
 	Color color;
 };
 
-/** Something with a picture and a tooltip: an event marker on a chart or a build in the build order. */
+struct GraphTipLine
+{
+	UnicodeString text;
+	Color color;
+};
+
+struct GraphDrop
+{
+	Int x;
+	Color color;
+};
+
+/** Something with a picture and a tooltip: a group of event markers on a chart, a build in the build
+	* order, or a plain coloured box. */
 struct GraphMark
 {
 	IRegion2D box;
 	const Image *image;
 	Color edge;
 	Color fill;
-	Int lineX;				///< a chart marker's drop line, -1 for none
-	Int lineBottom;
-	Color lineColor;
+	Int rank;							///< theEventRank of the event whose picture it shows
 	DisplayString *label;	///< the rank number on a promotion
-	UnicodeString tip;
+	DisplayString *count;	///< how many events share the marker, when more than one
+	std::vector< GraphTipLine > tip;
+	std::vector< GraphDrop > drops;	///< a chart marker's lines down to the plot, drawn on hover
+	Int dropBottom;
 };
 
 struct GraphLine
@@ -127,7 +165,9 @@ static GameWindow *s_button = NULL;
 static GameWindow *s_panel = NULL;
 static GameFont *s_font = NULL;
 static GameFont *s_smallFont = NULL;
+static GameFont *s_tinyFont = NULL;
 static Int s_tab = GRAPH_TAB_EARNED;
+static Bool s_everyBuild = FALSE;
 static std::vector< GraphPlayer > s_players;
 static std::vector< GraphText > s_texts;
 static std::vector< GraphMark > s_marks;
@@ -136,7 +176,9 @@ static std::vector< IRegion2D > s_rules;		///< grid and axis lines, lo to hi
 static std::vector< Color > s_ruleColors;
 static IRegion2D s_tabBox[ GRAPH_TAB_COUNT ];
 static DisplayString *s_tabText[ GRAPH_TAB_COUNT ];
-static DisplayString *s_tip = NULL;
+static IRegion2D s_toggleBox;
+static DisplayString *s_toggleText = NULL;
+static std::vector< DisplayString * > s_tipText;
 static Int s_tipMark = -1;
 
 //-------------------------------------------------------------------------------------------------
@@ -173,14 +215,17 @@ static Int textWidth( DisplayString *string )
 	return width;
 }
 
-static void addText( const UnicodeString &text, GameFont *font, Int x, Int y, Color color )
+/** align: 0 puts x at the text's left, 1 at its middle, 2 at its right.  Returns the text's width. */
+static Int addText( const UnicodeString &text, GameFont *font, Int x, Int y, Color color, Int align = 0 )
 {
 	GraphText entry;
 	entry.text = newText( text, font );
-	entry.x = x;
+	const Int width = textWidth( entry.text );
+	entry.x = x - width * align / 2;
 	entry.y = y;
 	entry.color = color;
 	s_texts.push_back( entry );
+	return width;
 }
 
 static void addRule( Int x0, Int y0, Int x1, Int y1, Color color )
@@ -194,24 +239,39 @@ static void addRule( Int x0, Int y0, Int x1, Int y1, Color color )
 	s_ruleColors.push_back( color );
 }
 
-static const GraphPlayer &playerFor( Int index )
+static GraphMark newMark( Int x, Int y, Int width, Int height, Color fill, Color edge )
 {
-	for( size_t each = 0; each < s_players.size(); each++ )
-	{
-		if( s_players[ each ].index == index )
-			return s_players[ each ];
-	}
-	return s_players[ 0 ];
+	GraphMark mark;
+	mark.box.lo.x = x;
+	mark.box.lo.y = y;
+	mark.box.hi.x = x + width;
+	mark.box.hi.y = y + height;
+	mark.image = NULL;
+	mark.edge = edge;
+	mark.fill = fill;
+	mark.rank = MATCH_EVENT_TYPE_COUNT;
+	mark.label = NULL;
+	mark.count = NULL;
+	mark.dropBottom = 0;
+	return mark;
 }
 
-static Bool isShown( Int index )
+static void addTip( GraphMark &mark, const UnicodeString &text, Color color )
+{
+	GraphTipLine line;
+	line.text = text;
+	line.color = color;
+	mark.tip.push_back( line );
+}
+
+static const GraphPlayer *playerFor( Int index )
 {
 	for( size_t each = 0; each < s_players.size(); each++ )
 	{
 		if( s_players[ each ].index == index )
-			return TRUE;
+			return &s_players[ each ];
 	}
-	return FALSE;
+	return NULL;
 }
 
 /** The cameo a power is fired from; the picture lives on its command button.  InGameUI's
@@ -222,6 +282,20 @@ static const CommandButton *powerButton( const SpecialPowerTemplate *power )
 	{
 		if( button->getSpecialPowerTemplate() == power && button->getButtonImage() )
 			return button;
+	}
+	return NULL;
+}
+
+/** A build's cameo: its own, or else the one on the button that builds it (the Angry Mob has none
+	* of its own). */
+static const Image *buildImage( const ThingTemplate *thing )
+{
+	if( thing->getButtonImage() )
+		return thing->getButtonImage();
+	for( const CommandButton *button = TheControlBar->getCommandButtons(); button; button = button->getNext() )
+	{
+		if( button->getThingTemplate() == thing && button->getButtonImage() )
+			return button->getButtonImage();
 	}
 	return NULL;
 }
@@ -238,6 +312,14 @@ static UnicodeString withoutHotkey( UnicodeString text )
 }
 
 //-------------------------------------------------------------------------------------------------
+static void clearTip( void )
+{
+	for( size_t each = 0; each < s_tipText.size(); each++ )
+		TheDisplayStringManager->freeDisplayString( s_tipText[ each ] );
+	s_tipText.clear();
+	s_tipMark = -1;
+}
+
 static void clearContent( void )
 {
 	for( size_t each = 0; each < s_texts.size(); each++ )
@@ -247,30 +329,35 @@ static void clearContent( void )
 	{
 		if( s_marks[ each ].label )
 			TheDisplayStringManager->freeDisplayString( s_marks[ each ].label );
+		if( s_marks[ each ].count )
+			TheDisplayStringManager->freeDisplayString( s_marks[ each ].count );
 	}
 	s_marks.clear();
 	s_lines.clear();
 	s_rules.clear();
 	s_ruleColors.clear();
-	s_tipMark = -1;
+	clearTip();
 }
 
 /** Lanes stop two pictures that fall on the same moment from hiding each other: each goes into the
-	* first lane whose last picture it clears, or into the one that ends soonest. */
-static Int pickLane( std::vector< Int > &laneRight, Int left, Int right )
+	* first lane whose last picture it clears, or else into the one that ends soonest, moved right by
+	* up to its own width to clear it.  Only a crowd wider than that still overlaps; the tooltip keeps
+	* the exact time. */
+static Int pickLane( std::vector< Int > &laneRight, Int &left, Int width, Int gap )
 {
 	Int best = 0;
 	for( size_t lane = 0; lane < laneRight.size(); lane++ )
 	{
 		if( left >= laneRight[ lane ] )
 		{
-			laneRight[ lane ] = right;
+			laneRight[ lane ] = left + width + gap;
 			return (Int)lane;
 		}
 		if( laneRight[ lane ] < laneRight[ best ] )
 			best = (Int)lane;
 	}
-	laneRight[ best ] = right;
+	left = min( laneRight[ best ], left + width );
+	laneRight[ best ] = left + width + gap;
 	return best;
 }
 
@@ -301,60 +388,88 @@ static Int minuteStep( UnsignedInt frames, Int most )
 }
 
 //-------------------------------------------------------------------------------------------------
-/** The players in the score screen's order, each in its colour, along the bottom. */
-static void layoutLegend( Int left, Int y, Int right, Int pad )
+/** A row a player: a bar in its colour, the name in it, the side dimmed beside it, then the numbers.
+	* Returns where the table ends. */
+static Int layoutSummary( Int top, Int width, Int pad )
 {
-	Int x = left;
+	const Int smallLine = s_smallFont->height;
+	const Int line = s_font->height;
+	const Int left = pad * 2;
+	const Int right = width - pad * 2;
+	const Int namesRight = left + ( right - left ) * 2 / 5;
+	const Int column = ( right - namesRight ) / SUMMARY_COLUMN_COUNT;
+
+	for( Int each = 0; each < SUMMARY_COLUMN_COUNT; each++ )
+		addText( TheGameText->fetch( theColumnLabels[ each ] ), s_smallFont, namesRight + ( each + 1 ) * column, top, TEXT_DIM, 2 );
+	Int y = top + smallLine + pad / 2;
+	addRule( left, y, right, y, GRID );
+
+	const Int rowHeight = line + pad;
+	y += pad / 2;
 	for( size_t each = 0; each < s_players.size(); each++ )
 	{
 		const GraphPlayer &player = s_players[ each ];
-		const Int swatch = s_smallFont->height;
-		addRule( x, y + swatch / 2, x + swatch, y + swatch / 2, player.color );
-		addRule( x, y + swatch / 2 + 1, x + swatch, y + swatch / 2 + 1, player.color );
-		addText( player.name, s_smallFont, x + swatch + pad / 2, y, player.color );
-		x += swatch + pad / 2 + textWidth( s_texts.back().text ) + 2 * pad;
-		if( x > right )
-			break;
+		s_marks.push_back( newMark( left, y + pad / 2, 4, rowHeight - pad, player.color, player.color ) );
+		Int x = left + 4 + pad;
+		x += addText( player.name, s_font, x, y + pad / 2, player.color ) + pad;
+		const Int smallY = y + pad / 2 + line - smallLine - 1;
+		if( !player.side.isEmpty() )
+			x += addText( player.side, s_smallFont, x, smallY, TEXT_DIM ) + pad;
+		if( player.winner )
+			addText( TheGameText->fetch( "GUI:SummaryWinner" ), s_smallFont, x, smallY, GOLD );
+		for( Int stat = 0; stat < SUMMARY_COLUMN_COUNT; stat++ )
+		{
+			UnicodeString value;
+			value.format( u"%d", player.stats[ stat ] );
+			addText( value, s_font, namesRight + ( stat + 1 ) * column, y + pad / 2, TEXT, 2 );
+		}
+		y += rowHeight;
 	}
-}
-
-static void markEventKinds( Int left, Int y, Int pad )
-{
-	static const Color edges[ MATCH_EVENT_TYPE_COUNT ] = { GOLD, RED, TEXT, TEXT };
-	const Int size = s_smallFont->height;
-	Int x = left;
-	for( Int type = 0; type < MATCH_EVENT_TYPE_COUNT; type++ )
-	{
-		GraphMark key;
-		key.box.lo.x = x;
-		key.box.lo.y = y;
-		key.box.hi.x = x + size;
-		key.box.hi.y = y + size;
-		key.image = NULL;
-		key.edge = edges[ type ];
-		key.fill = type == MATCH_EVENT_RANK ? TEXT_DIM : TAB_FILL;
-		key.lineX = -1;
-		key.lineBottom = 0;
-		key.lineColor = 0;
-		key.label = NULL;
-		s_marks.push_back( key );
-		addText( TheGameText->fetch( theEventLabels[ type ] ), s_smallFont, x + size + pad / 2, y, TEXT_DIM );
-		x += size + pad / 2 + textWidth( s_texts.back().text ) + 2 * pad;
-	}
+	return y;
 }
 
 //-------------------------------------------------------------------------------------------------
-static void layoutChart( MatchSeries series, Int top, Int width, Int height, Int pad )
+/** Gives a marker the picture of event, which outranks whatever it showed before. */
+static void dressMark( GraphMark &mark, const MatchEvent &event, const GraphPlayer &player, const CommandButton *button )
+{
+	mark.rank = theEventRank[ event.type ];
+	mark.edge = player.color;
+	mark.fill = TAB_FILL;
+	if( mark.label )
+		TheDisplayStringManager->freeDisplayString( mark.label );
+	mark.label = NULL;
+	switch( event.type )
+	{
+		case MATCH_EVENT_SUPERWEAPON_BUILT:
+			mark.image = event.thing->getButtonImage();
+			break;
+		case MATCH_EVENT_SUPERWEAPON_FIRED:
+			mark.image = button ? button->getButtonImage() : event.thing->getButtonImage();
+			break;
+		case MATCH_EVENT_POWER:
+			mark.image = button ? button->getButtonImage() : NULL;
+			break;
+		default:
+		{
+			mark.image = NULL;
+			UnicodeString rank;
+			rank.format( u"%d", event.rank );
+			mark.label = newText( rank, s_smallFont );
+			break;
+		}
+	}
+}
+
+static void layoutChart( MatchSeries series, Int top, Int width, Int bottom, Int pad )
 {
 	const MatchHistory &history = TheMatchHistory;
 	const Int count = history.getSampleCount();
-	const Int line = s_smallFont->height;
-	const Int legendTop = height - pad - 2 * line - pad / 2;
-	const Int icon = s_font->height * 3 / 2;
-	const Int lanes = 3;
+	const Int smallLine = s_smallFont->height;
+	const Int icon = smallLine + 6;
+	const Int iconWidth = icon * 4 / 3;
 	const Int stripTop = top;
-	const Int plotTop = stripTop + lanes * ( icon + 2 ) + pad;
-	const Int plotBottom = legendTop - line - pad;
+	const Int plotTop = stripTop + icon + pad;
+	const Int plotBottom = bottom - smallLine - pad / 2;
 
 	if( count == 0 )
 	{
@@ -373,9 +488,9 @@ static void layoutChart( MatchSeries series, Int top, Int width, Int height, Int
 
 	// the value labels decide where the plot starts
 	DisplayString *widest = newText( valueText( ceiling ), s_smallFont );
-	const Int plotLeft = pad * 2 + textWidth( widest );
+	const Int plotLeft = pad * 3 + textWidth( widest );
 	TheDisplayStringManager->freeDisplayString( widest );
-	const Int plotRight = width - pad * 2;
+	const Int plotRight = width - pad * 2 - iconWidth / 2;
 	const Int plotWidth = max( plotRight - plotLeft, 1 );
 	const Int plotHeight = max( plotBottom - plotTop, 1 );
 	const UnsignedInt end = max( history.getSampleFrame( count - 1 ), (UnsignedInt)1 );
@@ -384,16 +499,14 @@ static void layoutChart( MatchSeries series, Int top, Int width, Int height, Int
 	{
 		const Int y = plotBottom - (Int)( (Real)value / ceiling * plotHeight );
 		addRule( plotLeft, y, plotRight, y, value == 0 ? AXIS : GRID );
-		addText( valueText( value ), s_smallFont, pad, y - line / 2, TEXT_DIM );
+		addText( valueText( value ), s_smallFont, plotLeft - pad, y - smallLine / 2, TEXT_DIM, 2 );
 	}
-	addRule( plotLeft, plotTop, plotLeft, plotBottom, AXIS );
 
 	const Int minutes = minuteStep( end, 8 );
 	for( UnsignedInt frame = 0; frame <= end; frame += minutes * 60 * LOGICFRAMES_PER_SECOND )
 	{
 		const Int x = plotLeft + (Int)( (Real)frame / end * plotWidth );
-		addRule( x, plotBottom, x, plotBottom + pad / 2, AXIS );
-		addText( clockText( frame ), s_smallFont, x - line, plotBottom + pad / 2, TEXT_DIM );
+		addText( clockText( frame ), s_smallFont, x, plotBottom + pad / 2, TEXT_DIM, frame == 0 ? 0 : 1 );
 	}
 
 	for( size_t each = 0; each < s_players.size(); each++ )
@@ -413,67 +526,64 @@ static void layoutChart( MatchSeries series, Int top, Int width, Int height, Int
 		s_lines.push_back( graph );
 	}
 
-	std::vector< Int > laneRight( lanes, -icon );
+	// one row of markers: an event that lands on the one before it joins that marker instead of
+	// stacking a second picture, and the marker shows the weightiest of its events
+	const size_t firstMarker = s_marks.size();
+	Int anchor = 0;
 	const std::vector< MatchEvent > &events = history.getEvents();
 	for( size_t each = 0; each < events.size(); each++ )
 	{
 		const MatchEvent &event = events[ each ];
-		if( !isShown( event.player ) )
+		const GraphPlayer *player = playerFor( event.player );
+		if( player == NULL )
 			continue;
-		const GraphPlayer &player = playerFor( event.player );
 		const Int x = plotLeft + (Int)( (Real)min( event.frame, end ) / end * plotWidth );
-		// a promotion is only a number, so it takes a narrow box and leaves room for the pictures
-		const Int iconWidth = event.type == MATCH_EVENT_RANK ? icon * 2 / 3 : icon * 4 / 3;
-		const Int lane = pickLane( laneRight, x - iconWidth / 2, x + iconWidth / 2 + 2 );
-
-		GraphMark mark;
-		mark.box.lo.x = x - iconWidth / 2;
-		mark.box.lo.y = stripTop + lane * ( icon + 2 );
-		mark.box.hi.x = mark.box.lo.x + iconWidth;
-		mark.box.hi.y = mark.box.lo.y + icon;
-		mark.image = NULL;
-		mark.edge = player.color;
-		mark.fill = TAB_FILL;
-		mark.lineX = x;
-		mark.lineBottom = plotBottom;
-		mark.lineColor = ( player.color & 0x00FFFFFF ) | 0x96000000;
-		mark.label = NULL;
+		if( s_marks.size() == firstMarker || x >= anchor + iconWidth + pad / 2 )
+		{
+			anchor = x;
+			GraphMark mark = newMark( x - iconWidth / 2, stripTop, iconWidth, icon, TAB_FILL, player->color );
+			mark.dropBottom = plotBottom;
+			s_marks.push_back( mark );
+		}
+		GraphMark &mark = s_marks.back();
+		const CommandButton *button = event.power ? powerButton( event.power ) : NULL;
+		if( theEventRank[ event.type ] < mark.rank )
+			dressMark( mark, event, *player, button );
 
 		UnicodeString what;
-		const CommandButton *button = event.power ? powerButton( event.power ) : NULL;
 		switch( event.type )
 		{
 			case MATCH_EVENT_SUPERWEAPON_BUILT:
-				mark.edge = GOLD;
-				mark.image = event.thing->getButtonImage();
 				what = event.thing->getDisplayName();
 				break;
 			case MATCH_EVENT_SUPERWEAPON_FIRED:
-				mark.edge = RED;
-				mark.image = button ? button->getButtonImage() : event.thing->getButtonImage();
 				what = button ? withoutHotkey( TheGameText->fetch( button->getTextLabel() ) ) : event.thing->getDisplayName();
 				break;
 			case MATCH_EVENT_POWER:
-				mark.image = button ? button->getButtonImage() : NULL;
 				what = button ? withoutHotkey( TheGameText->fetch( button->getTextLabel() ) ) : UnicodeString( u"?" );
 				break;
 			default:
-			{
-				mark.fill = player.color;
-				UnicodeString rank;
-				rank.format( u"%d", event.rank );
-				mark.label = newText( rank, s_font );
 				what.format( TheGameText->fetch( "GUI:GraphRank" ).str(), event.rank );
 				break;
-			}
 		}
-		mark.tip.format( u"%s  %s - %s: %s", clockText( event.frame ).str(), player.name.str(),
+		UnicodeString tip;
+		tip.format( u"%s  %s  %s: %s", clockText( event.frame ).str(), player->name.str(),
 			TheGameText->fetch( theEventLabels[ event.type ] ).str(), what.str() );
-		s_marks.push_back( mark );
+		addTip( mark, tip, player->color );
+		GraphDrop drop;
+		drop.x = x;
+		drop.color = ( player->color & 0x00FFFFFF ) | 0xB4000000;
+		mark.drops.push_back( drop );
 	}
-
-	layoutLegend( pad * 2, legendTop, width - pad * 2, pad );
-	markEventKinds( pad * 2, legendTop + line + pad / 2, pad );
+	for( size_t each = firstMarker; each < s_marks.size(); each++ )
+	{
+		if( s_marks[ each ].tip.size() > 1 )
+		{
+			UnicodeString number;
+			number.format( u"%d", (Int)s_marks[ each ].tip.size() );
+			s_marks[ each ].count = newText( number, s_tinyFont );
+		}
+	}
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -489,10 +599,10 @@ static Int buildX( UnsignedInt frame, UnsignedInt end, Int left, Int width )
 	return left + early + (Int)( (Real)( frame - EARLY_FRAMES ) / ( end - EARLY_FRAMES ) * ( width - early ) );
 }
 
-static void layoutBuildOrder( Int top, Int width, Int height, Int pad )
+static void layoutBuildOrder( Int top, Int width, Int bottom, Int pad )
 {
 	const MatchHistory &history = TheMatchHistory;
-	const Int line = s_smallFont->height;
+	const Int smallLine = s_smallFont->height;
 	if( s_players.empty() )
 		return;
 
@@ -503,19 +613,19 @@ static void layoutBuildOrder( Int top, Int width, Int height, Int pad )
 		const std::vector< MatchBuild > &builds = history.getBuilds( s_players[ each ].index );
 		if( !builds.empty() )
 			end = max( end, builds.back().frame );
-		DisplayString *name = newText( s_players[ each ].name, s_font );
+		DisplayString *name = newText( s_players[ each ].name, s_smallFont );
+		nameWidth = max( nameWidth, textWidth( name ) );
+		name->setText( s_players[ each ].side );
 		nameWidth = max( nameWidth, textWidth( name ) );
 		TheDisplayStringManager->freeDisplayString( name );
 	}
 	end = max( end, (UnsignedInt)LOGICFRAMES_PER_SECOND );
 
-	const Int axisTop = top + line + pad / 2;
-	const Int rowsTop = axisTop + line + pad;
-	const Int rowHeight = ( height - pad - rowsTop ) / (Int)s_players.size();
-	// three lanes of cameos a row, at the cameos' own 4:3, small enough that an opening's builds
-	// mostly sit side by side
-	const Int lanes = 3;
-	const Int icon = min( max( ( rowHeight - 4 ) / lanes - 2, 10 ), s_font->height * 3 / 2 );
+	const Int rowsTop = top + smallLine + pad / 2;
+	const Int rowHeight = ( bottom - rowsTop ) / (Int)s_players.size();
+	// the cameos at their own 4:3, two lanes of the first of each thing, three of every build
+	const Int lanes = s_everyBuild ? 3 : 2;
+	const Int icon = min( max( ( rowHeight - pad ) / lanes - 3, 10 ), s_font->height * 3 / 2 );
 	const Int iconWidth = icon * 4 / 3;
 	const Int left = pad * 3 + nameWidth + iconWidth / 2;
 	const Int right = width - pad * 2 - iconWidth / 2;
@@ -528,42 +638,48 @@ static void layoutBuildOrder( Int top, Int width, Int height, Int pad )
 	for( UnsignedInt frame = 0; frame <= end; frame += ( split && frame < EARLY_FRAMES ) ? minute : lateStep )
 	{
 		const Int x = buildX( frame, end, left, span );
-		addRule( x, axisTop + line, x, height - pad, frame == EARLY_FRAMES && split ? AXIS : GRID );
-		addText( clockText( frame ), s_smallFont, x - line, axisTop, TEXT_DIM );
+		addRule( x, rowsTop, x, bottom, frame == EARLY_FRAMES && split ? AXIS : GRID );
+		addText( clockText( frame ), s_smallFont, x, top, TEXT_DIM, 1 );
 		if( split && frame < EARLY_FRAMES && frame + minute > EARLY_FRAMES )
 			frame = EARLY_FRAMES - minute;
 	}
-	if( split )
-		addText( TheGameText->fetch( "GUI:GraphFirstMinutes" ), s_smallFont, left, top, TEXT );
 
 	for( size_t each = 0; each < s_players.size(); each++ )
 	{
 		const GraphPlayer &player = s_players[ each ];
 		const Int rowTop = rowsTop + (Int)each * rowHeight;
-		addRule( pad, rowTop + rowHeight - 1, right, rowTop + rowHeight - 1, GRID );
-		addText( player.name, s_font, pad * 2, rowTop + ( rowHeight - s_font->height ) / 2, player.color );
+		if( each > 0 )
+			addRule( pad * 2, rowTop, right + iconWidth / 2, rowTop, GRID );
+		const Int nameTop = rowTop + ( rowHeight - 2 * smallLine ) / 2;
+		addText( player.name, s_smallFont, pad * 2, nameTop, player.color );
+		addText( player.side, s_smallFont, pad * 2, nameTop + smallLine, TEXT_DIM );
 
 		std::vector< Int > laneRight( lanes, -iconWidth );
-		const Int lanesTop = rowTop + ( rowHeight - lanes * ( icon + 2 ) ) / 2;
+		std::vector< const ThingTemplate * > seen;
+		const Int lanesTop = rowTop + ( rowHeight - lanes * ( icon + 3 ) ) / 2;
 		const std::vector< MatchBuild > &builds = history.getBuilds( player.index );
 		for( size_t built = 0; built < builds.size(); built++ )
 		{
 			const MatchBuild &build = builds[ built ];
-			const Int x = buildX( build.frame, end, left, span );
-			const Int lane = pickLane( laneRight, x - iconWidth / 2, x + iconWidth / 2 + 1 );
-			GraphMark mark;
-			mark.box.lo.x = x - iconWidth / 2;
-			mark.box.lo.y = lanesTop + lane * ( icon + 2 );
-			mark.box.hi.x = mark.box.lo.x + iconWidth;
-			mark.box.hi.y = mark.box.lo.y + icon;
-			mark.image = build.thing->getButtonImage();
-			mark.edge = build.thing->isKindOf( KINDOF_STRUCTURE ) ? TEXT_DIM : player.color;
-			mark.fill = TAB_FILL;
-			mark.lineX = -1;
-			mark.lineBottom = 0;
-			mark.lineColor = 0;
-			mark.label = NULL;
-			mark.tip.format( u"%s  %s", clockText( build.frame ).str(), build.thing->getDisplayName().str() );
+			// a picture says what was built; something with none says nothing, and gets left out
+			const Image *image = buildImage( build.thing );
+			if( image == NULL )
+				continue;
+			if( !s_everyBuild )
+			{
+				if( std::find( seen.begin(), seen.end(), build.thing ) != seen.end() )
+					continue;
+				seen.push_back( build.thing );
+			}
+			Int x = buildX( build.frame, end, left, span ) - iconWidth / 2;
+			const Int lane = pickLane( laneRight, x, iconWidth, 3 );
+			x = min( x, right - iconWidth / 2 );	// a push never carries a picture off the timeline's end
+			GraphMark mark = newMark( x, lanesTop + lane * ( icon + 3 ), iconWidth, icon, TAB_FILL,
+				build.thing->isKindOf( KINDOF_STRUCTURE ) ? TEXT_DIM : player.color );
+			mark.image = image;
+			UnicodeString tip;
+			tip.format( u"%s  %s", clockText( build.frame ).str(), build.thing->getDisplayName().str() );
+			addTip( mark, tip, TEXT );
 			s_marks.push_back( mark );
 		}
 	}
@@ -576,24 +692,34 @@ static void layoutPanel( void )
 	Int width, height;
 	s_panel->winGetSize( &width, &height );
 	const Int pad = max( s_font->height / 2, 4 );
+	const Int smallLine = s_smallFont->height;
 
-	Int x = pad;
+	const Int tabsTop = layoutSummary( pad * 2, width, pad ) + pad * 2;
+	Int x = pad * 2;
 	for( Int tab = 0; tab < GRAPH_TAB_COUNT; tab++ )
 	{
-		const Int tabWidth = textWidth( s_tabText[ tab ] ) + 2 * pad;
-		s_tabBox[ tab ].lo.x = x;
-		s_tabBox[ tab ].lo.y = pad;
-		s_tabBox[ tab ].hi.x = x + tabWidth;
-		s_tabBox[ tab ].hi.y = pad + s_font->height + pad;
-		x += tabWidth + pad / 2;
+		s_tabBox[ tab ].lo.x = x - pad / 2;
+		s_tabBox[ tab ].lo.y = tabsTop;
+		s_tabBox[ tab ].hi.x = x + textWidth( s_tabText[ tab ] ) + pad / 2;
+		s_tabBox[ tab ].hi.y = tabsTop + smallLine + pad / 2;
+		x += textWidth( s_tabText[ tab ] ) + pad * 2;
 	}
-	const Int top = s_tabBox[ 0 ].hi.y + pad;
-	addRule( pad, top - pad / 2, width - pad, top - pad / 2, PANEL_EDGE );
+	const Int tabsBottom = s_tabBox[ 0 ].hi.y;
+	addRule( pad * 2, tabsBottom, width - pad * 2, tabsBottom, GRID );
 
+	s_toggleBox.lo.x = s_toggleBox.hi.x = 0;
+	s_toggleBox.lo.y = s_toggleBox.hi.y = 0;
 	if( s_tab == GRAPH_TAB_BUILD_ORDER )
-		layoutBuildOrder( top, width, height, pad );
+	{
+		s_toggleText->setText( TheGameText->fetch( s_everyBuild ? "GUI:BuildOrderFirsts" : "GUI:BuildOrderEvery" ) );
+		s_toggleBox.hi.x = width - pad * 2;
+		s_toggleBox.lo.x = s_toggleBox.hi.x - textWidth( s_toggleText ) - pad * 2;
+		s_toggleBox.lo.y = tabsTop - pad / 2;
+		s_toggleBox.hi.y = tabsBottom - 2;
+		layoutBuildOrder( tabsBottom + pad, width, height - pad, pad );
+	}
 	else
-		layoutChart( theTabSeries[ s_tab ], top, width, height, pad );
+		layoutChart( theTabSeries[ s_tab ], tabsBottom + pad, width, height - pad, pad );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -605,6 +731,11 @@ static void drawBox( const IRegion2D &box, Int ox, Int oy, Color fill, Color edg
 	TheDisplay->drawOpenRect( ox + box.lo.x, oy + box.lo.y, w, h, 1.0f, edge );
 }
 
+static Bool isInside( const IRegion2D &box, Int ox, Int oy, Int x, Int y )
+{
+	return x >= ox + box.lo.x && x < ox + box.hi.x && y >= oy + box.lo.y && y < oy + box.hi.y;
+}
+
 static void drawPanel( GameWindow *window, WinInstanceData *instData )
 {
 	Int ox, oy, width, height;
@@ -613,11 +744,18 @@ static void drawPanel( GameWindow *window, WinInstanceData *instData )
 	TheDisplay->drawFillRect( ox, oy, width, height, PANEL_FILL );
 	TheDisplay->drawOpenRect( ox, oy, width, height, 2.0f, PANEL_EDGE );
 
+	const Int pad = max( s_font->height / 2, 4 );
 	for( Int tab = 0; tab < GRAPH_TAB_COUNT; tab++ )
 	{
-		drawBox( s_tabBox[ tab ], ox, oy, tab == s_tab ? TAB_ACTIVE : TAB_FILL, tab == s_tab ? GOLD : PANEL_EDGE );
-		const Int pad = ( s_tabBox[ tab ].hi.y - s_tabBox[ tab ].lo.y - s_font->height ) / 2;
-		s_tabText[ tab ]->draw( ox + s_tabBox[ tab ].lo.x + pad, oy + s_tabBox[ tab ].lo.y + pad, tab == s_tab ? TEXT : TEXT_DIM, SHADOW );
+		const IRegion2D &box = s_tabBox[ tab ];
+		s_tabText[ tab ]->draw( ox + box.lo.x + pad / 2, oy + box.lo.y, tab == s_tab ? TEXT : TEXT_DIM, SHADOW );
+		if( tab == s_tab )
+			TheDisplay->drawFillRect( ox + box.lo.x, oy + box.hi.y - 2, box.hi.x - box.lo.x, 3, GOLD );
+	}
+	if( s_toggleBox.hi.x > s_toggleBox.lo.x )
+	{
+		drawBox( s_toggleBox, ox, oy, TAB_FILL, PANEL_EDGE );
+		s_toggleText->draw( ox + s_toggleBox.lo.x + pad, oy + s_toggleBox.lo.y + ( s_toggleBox.hi.y - s_toggleBox.lo.y - s_smallFont->height ) / 2, TEXT, SHADOW );
 	}
 
 	for( size_t each = 0; each < s_rules.size(); each++ )
@@ -628,11 +766,20 @@ static void drawPanel( GameWindow *window, WinInstanceData *instData )
 	for( size_t each = 0; each < s_texts.size(); each++ )
 		s_texts[ each ].text->draw( ox + s_texts[ each ].x, oy + s_texts[ each ].y, s_texts[ each ].color, SHADOW );
 
+	const ICoord2D mouse = TheMouse->getMouseStatus()->pos;
+	Int hovered = -1;
 	for( size_t each = 0; each < s_marks.size(); each++ )
 	{
-		if( s_marks[ each ].lineX >= 0 )
-			TheDisplay->drawLine( ox + s_marks[ each ].lineX, oy + s_marks[ each ].box.hi.y, ox + s_marks[ each ].lineX, oy + s_marks[ each ].lineBottom, 1.0f, s_marks[ each ].lineColor );
+		if( !s_marks[ each ].tip.empty() && isInside( s_marks[ each ].box, ox, oy, mouse.x, mouse.y ) )
+			hovered = (Int)each;
 	}
+	if( hovered >= 0 )
+	{
+		const GraphMark &mark = s_marks[ hovered ];
+		for( size_t each = 0; each < mark.drops.size(); each++ )
+			TheDisplay->drawLine( ox + mark.drops[ each ].x, oy + mark.box.hi.y, ox + mark.drops[ each ].x, oy + mark.dropBottom, 1.0f, mark.drops[ each ].color );
+	}
+
 	for( size_t each = 0; each < s_lines.size(); each++ )
 	{
 		const std::vector< ICoord2D > &points = s_lines[ each ].points;
@@ -640,8 +787,6 @@ static void drawPanel( GameWindow *window, WinInstanceData *instData )
 			TheDisplay->drawLine( ox + points[ point - 1 ].x, oy + points[ point - 1 ].y, ox + points[ point ].x, oy + points[ point ].y, 2.0f, s_lines[ each ].color );
 	}
 
-	const ICoord2D mouse = TheMouse->getMouseStatus()->pos;
-	Int hovered = -1;
 	for( size_t each = 0; each < s_marks.size(); each++ )
 	{
 		const GraphMark &mark = s_marks[ each ];
@@ -653,28 +798,41 @@ static void drawPanel( GameWindow *window, WinInstanceData *instData )
 		{
 			Int w, h;
 			mark.label->getSize( &w, &h );
-			mark.label->draw( ox + ( mark.box.lo.x + mark.box.hi.x - w ) / 2, oy + ( mark.box.lo.y + mark.box.hi.y - h ) / 2, TEXT, SHADOW );
+			mark.label->draw( ox + ( mark.box.lo.x + mark.box.hi.x - w ) / 2, oy + ( mark.box.lo.y + mark.box.hi.y - h ) / 2, mark.edge, SHADOW );
 		}
-		if( !mark.tip.isEmpty() && mouse.x >= ox + mark.box.lo.x && mouse.x < ox + mark.box.hi.x && mouse.y >= oy + mark.box.lo.y && mouse.y < oy + mark.box.hi.y )
-			hovered = (Int)each;
+		if( mark.count )
+		{
+			Int w, h;
+			mark.count->getSize( &w, &h );
+			const Int x = ox + mark.box.hi.x - w - 2;
+			const Int y = oy + mark.box.hi.y - h;
+			TheDisplay->drawFillRect( x - 2, y, w + 3, h - 1, GameMakeColor( 0, 0, 0, 200 ) );
+			mark.count->draw( x, y - 1, TEXT, SHADOW );
+		}
 	}
 
 	if( hovered >= 0 )
 	{
+		const GraphMark &mark = s_marks[ hovered ];
 		if( hovered != s_tipMark )
 		{
-			s_tip->setText( s_marks[ hovered ].tip );
+			clearTip();
+			for( size_t line = 0; line < mark.tip.size(); line++ )
+				s_tipText.push_back( newText( mark.tip[ line ].text, s_smallFont ) );
 			s_tipMark = hovered;
 		}
-		const GraphMark &mark = s_marks[ hovered ];
 		drawBox( mark.box, ox, oy, 0, GOLD );
-		Int w, h;
-		s_tip->getSize( &w, &h );
-		const Int x = min( ox + mark.box.lo.x, ox + width - w - 8 );
+		Int w = 0;
+		const Int lineHeight = s_smallFont->height + 2;
+		for( size_t line = 0; line < s_tipText.size(); line++ )
+			w = max( w, textWidth( s_tipText[ line ] ) );
+		const Int h = (Int)s_tipText.size() * lineHeight;
+		const Int x = max( min( ox + mark.box.lo.x, ox + width - w - 12 ), ox + 4 );
 		const Int y = oy + mark.box.hi.y + 4 + h + 6 < oy + height ? oy + mark.box.hi.y + 4 : oy + mark.box.lo.y - h - 10;
 		TheDisplay->drawFillRect( x, y, w + 8, h + 6, GameMakeColor( 0, 0, 0, 230 ) );
 		TheDisplay->drawOpenRect( x, y, w + 8, h + 6, 1.0f, GOLD );
-		s_tip->draw( x + 4, y + 3, TEXT, SHADOW );
+		for( size_t line = 0; line < s_tipText.size(); line++ )
+			s_tipText[ line ]->draw( x + 4, y + 3 + (Int)line * lineHeight, mark.tip[ line ].color, SHADOW );
 	}
 }
 
@@ -686,18 +844,21 @@ static WindowMsgHandledType panelInput( GameWindow *window, UnsignedInt msg, Win
 	{
 		Int ox, oy;
 		window->winGetScreenPosition( &ox, &oy );
-		ICoord2D mouse;
-		mouse.x = (Int)( mData1 & 0xFFFF );
-		mouse.y = (Int)( ( mData1 >> 16 ) & 0xFFFF );
+		const Int x = (Int)( mData1 & 0xFFFF );
+		const Int y = (Int)( ( mData1 >> 16 ) & 0xFFFF );
 		for( Int tab = 0; tab < GRAPH_TAB_COUNT; tab++ )
 		{
-			const IRegion2D &box = s_tabBox[ tab ];
-			if( tab != s_tab && mouse.x >= ox + box.lo.x && mouse.x < ox + box.hi.x && mouse.y >= oy + box.lo.y && mouse.y < oy + box.hi.y )
+			if( tab != s_tab && isInside( s_tabBox[ tab ], ox, oy, x, y ) )
 			{
 				s_tab = tab;
 				layoutPanel();
-				break;
+				return MSG_HANDLED;
 			}
+		}
+		if( isInside( s_toggleBox, ox, oy, x, y ) )
+		{
+			s_everyBuild = !s_everyBuild;
+			layoutPanel();
 		}
 	}
 	return MSG_HANDLED;
@@ -708,8 +869,11 @@ static WindowMsgHandledType panelInput( GameWindow *window, UnsignedInt msg, Win
 void ScoreScreenGraphsInit( GameWindow *parent, GameWindow *anchor )
 {
 	s_players.clear();
+	s_tab = GRAPH_TAB_EARNED;
+	s_everyBuild = FALSE;
 	s_font = anchor->winGetFont();
 	s_smallFont = TheFontLibrary->getFont( s_font->nameString, max( s_font->pointSize - 2, 8 ), FALSE );
+	s_tinyFont = TheFontLibrary->getFont( s_font->nameString, max( s_font->pointSize * 2 / 3, 7 ), TRUE );
 
 	Int parentX, parentY, parentW, parentH, anchorX, anchorY, anchorW, anchorH;
 	parent->winGetScreenPosition( &parentX, &parentY );
@@ -735,7 +899,7 @@ void ScoreScreenGraphsInit( GameWindow *parent, GameWindow *anchor )
 	mine->m_disabledText = theirs->m_disabledText;
 	mine->m_hiliteText = theirs->m_hiliteText;
 	s_button->winSetDrawFunc( anchor->winGetDrawFunc() );
-	GadgetButtonSetText( s_button, TheGameText->fetch( "GUI:ScoreGraphs" ) );
+	GadgetButtonSetText( s_button, TheGameText->fetch( "GUI:ScoreSummary" ) );
 
 	// inside the layout's blue frame, which sits about a twentieth of the screen in from each side
 	const Int marginX = parentW / 20;
@@ -746,32 +910,46 @@ void ScoreScreenGraphsInit( GameWindow *parent, GameWindow *anchor )
 	s_panel->winSetInputFunc( panelInput );
 
 	for( Int tab = 0; tab < GRAPH_TAB_COUNT; tab++ )
-		s_tabText[ tab ] = newText( TheGameText->fetch( theTabLabels[ tab ] ), s_font );
-	s_tip = newText( UnicodeString::TheEmptyString, s_smallFont );
+		s_tabText[ tab ] = newText( TheGameText->fetch( theTabLabels[ tab ] ), s_smallFont );
+	s_toggleText = newText( UnicodeString::TheEmptyString, s_smallFont );
 }
 
-void ScoreScreenGraphsAddPlayer( Int index, const UnicodeString &name, Color color )
+void ScoreScreenGraphsAddPlayer( Player *player, const UnicodeString &name, Color color )
 {
-	GraphPlayer player;
-	player.index = index;
-	player.name = name;
-	player.color = color;
-	s_players.push_back( player );
+	ScoreKeeper *score = player->getScoreKeeper();
+	const PlayerTemplate *side = player->getPlayerTemplate();
+	GraphPlayer entry;
+	entry.index = player->getPlayerIndex();
+	entry.name = name;
+	entry.side = side ? side->getDisplayName() : UnicodeString::TheEmptyString;
+	entry.color = color;
+	entry.winner = TheVictoryConditions->hasAchievedVictory( player );
+	entry.stats[ SUMMARY_UNITS_BUILT ] = score->getTotalUnitsBuilt();
+	entry.stats[ SUMMARY_UNITS_LOST ] = score->getTotalUnitsLost();
+	entry.stats[ SUMMARY_UNITS_DESTROYED ] = score->getTotalUnitsDestroyed();
+	entry.stats[ SUMMARY_BUILDINGS_BUILT ] = score->getTotalBuildingsBuilt();
+	entry.stats[ SUMMARY_EARNED ] = score->getTotalMoneyEarned();
+	s_players.push_back( entry );
 }
 
-/** TRUE when control was the Graphs button, which then opens or closes the panel. */
-Bool ScoreScreenGraphsSelected( GameWindow *control )
+/** Puts the summary over the stock score table, or takes it away. */
+void ScoreScreenGraphsShow( Bool show )
 {
-	if( s_button == NULL || control != s_button )
-		return FALSE;
-	const Bool show = s_panel->winIsHidden();
 	if( show )
 	{
 		layoutPanel();
 		s_panel->winBringToTop();
 	}
 	s_panel->winHide( !show );
-	GadgetButtonSetText( s_button, TheGameText->fetch( show ? "GUI:ScoreTable" : "GUI:ScoreGraphs" ) );
+	GadgetButtonSetText( s_button, TheGameText->fetch( show ? "GUI:ScoreTable" : "GUI:ScoreSummary" ) );
+}
+
+/** TRUE when control was the Summary/Scores button, which then swaps the two. */
+Bool ScoreScreenGraphsSelected( GameWindow *control )
+{
+	if( s_button == NULL || control != s_button )
+		return FALSE;
+	ScoreScreenGraphsShow( s_panel->winIsHidden() );
 	return TRUE;
 }
 
@@ -782,7 +960,7 @@ void ScoreScreenGraphsShutdown( void )
 	clearContent();
 	for( Int tab = 0; tab < GRAPH_TAB_COUNT; tab++ )
 		TheDisplayStringManager->freeDisplayString( s_tabText[ tab ] );
-	TheDisplayStringManager->freeDisplayString( s_tip );
+	TheDisplayStringManager->freeDisplayString( s_toggleText );
 	TheWindowManager->winDestroy( s_panel );
 	TheWindowManager->winDestroy( s_button );
 	s_panel = NULL;
