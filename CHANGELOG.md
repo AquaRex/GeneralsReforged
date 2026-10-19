@@ -15,6 +15,7 @@ found and fixed â€” EA's own, not port damage.**
 - The map's name, the kind of game, the team sizes and the starting cash head the screen. Along the bottom a tip changes every eight seconds over the load's bar and percentage.
 - Enemies who picked a random side, colour or start stay hidden as they were in the lobby. Observers and replays see every side as it is.
 - A campaign mission keeps its own picture and briefing movie. Once the movie ends, the mission number, campaign and difficulty sit above it and the same tip and bar sit below it. Generals' Challenge is unchanged.
+- It wears the menus' own lettering and blue frames, so the load looks like the lobby it came from.
 
 ## A summary and graphs on the score screen
 
@@ -22,6 +23,7 @@ found and fixed â€” EA's own, not port damage.**
 - The tabs beside Summary give a chart the whole screen, one line per player over the whole match: money earned, army size or buildings standing, with each player's colour named along the top. Army size counts infantry, vehicles and aircraft; workers and supply trucks are left out.
 - A single row of small pictures above the chart marks superweapons built and fired, general's powers and promotions, framed in the player's colour. Moments that fall close together share one picture with a count on it. Hover over it for the list, each line with its time, and a faint line down to where each one falls on the chart.
 - The Build order tab puts the first of each structure and unit each player made on a timeline whose first five minutes take over half the width, so an opening reads at a glance. Show every build adds the rest; hover over a picture for its name and time. With the whole page to itself a 4v4 keeps two strips of pictures per player, even at 1280x720.
+- The map's name heads the page, the pages sit in boxed tabs like the options screen's, and the open one is lettered green. Dark blue and purple player names are lifted so they stay readable on the panel.
 - The game records all of this as the match plays, a sample every five seconds, and it changes nothing in the match itself. A game loaded from a save only graphs what happened after the load.
 
 ## Computer players have personalities

@@ -641,6 +641,7 @@ GameEngine/Include/GameClient/Snow.h
 GameEngine/Include/GameClient/Statistics.h
 GameEngine/Include/GameClient/TerrainRoads.h
 GameEngine/Include/GameClient/TerrainVisual.h
+GameEngine/Include/GameClient/UIStyle.h
 GameEngine/Include/GameClient/UiAnimClock.h
 GameEngine/Include/GameClient/VideoPlayer.h
 GameEngine/Include/GameClient/View.h
@@ -1241,6 +1242,7 @@ GameEngine/Source/GameClient/GUI/LoadScreen.cpp
 GameEngine/Source/GameClient/GUI/ProcessAnimateWindow.cpp
 GameEngine/Source/GameClient/GUI/Shell/Shell.cpp
 GameEngine/Source/GameClient/GUI/Shell/ShellMenuScheme.cpp
+GameEngine/Source/GameClient/GUI/UIStyle.cpp
 GameEngine/Source/GameClient/GUI/WinInstanceData.cpp
 GameEngine/Source/GameClient/GUI/WindowLayout.cpp
 GameEngine/Source/GameClient/GUI/WindowVideoManager.cpp

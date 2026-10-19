@@ -88,6 +88,7 @@
 #include "GameClient/WindowLayout.h"
 #include "GameClient/WindowVideoManager.h"
 #include "GameClient/ChallengeGenerals.h"
+#include "GameClient/UIStyle.h"
 #include "GameLogic/AI.h"	// aiPersonalityName, for a computer seat's card
 #include "GameLogic/FPUControl.h"
 #include "GameLogic/GameLogic.h"
@@ -194,26 +195,14 @@ void LoadScreen::update( Int percent )
 	 Everything is laid out once, when the board is made, against a 1920x1080 picture scaled to the
 	 screen; a pass draws flat fills, the images the lobby and the challenge menu already load (the
 	 portraits share one 512 page, the crests another) and display strings made up front.  The
-	 colours are zerohour.gg's, as the -directorrecord broadcast's are, and so are its fonts' Windows
-	 stand-ins. */
+	 colours, the type and the boxes are the front end's (UIStyle.h), so the board reads as the
+	 staging room it came from. */
 
-static const Color BOARD_GROUND = GameMakeColor( 0x0c, 0x12, 0x20, 255 );
-static const Color BOARD_PANEL = GameMakeColor( 0x12, 0x1a, 0x2b, 255 );
-static const Color BOARD_LINE = GameMakeColor( 0x1f, 0x29, 0x40, 255 );
-static const Color BOARD_EDGE = GameMakeColor( 0x2f, 0x3b, 0x57, 255 );
-static const Color BOARD_INK = GameMakeColor( 0xe8, 0xea, 0xf0, 255 );
-static const Color BOARD_MUTED = GameMakeColor( 0x8e, 0x97, 0xad, 255 );
-static const Color BOARD_BLUE = GameMakeColor( 0x80, 0x95, 0xea, 255 );
-static const Color BOARD_SHADOW = GameMakeColor( 0, 0, 0, 255 );
-static const char *const BOARD_WORDS = "Segoe UI";
-static const char *const BOARD_NUMBERS = "Consolas";
-/// the picture the sizes below are given for; a smaller screen scales them down, 12 pixels the floor
+/// the picture the boxes below are given for; another screen scales them by its smaller axis
 static const Real BOARD_WIDTH = 1920.0f;
 static const Real BOARD_HEIGHT = 1080.0f;
-static const Int BOARD_SMALLEST_TEXT = 12;
 static const Int BOARD_TIP_COUNT = 10;
 static const UnsignedInt BOARD_TIP_MILLISECONDS = 8000;
-static const Int BOARD_WASH_STRIPS = 48;
 /// a middle dot between spaces, spelled out: the source is read in the machine's code page
 static const WideChar BOARD_SEPARATOR[] = { ' ', ' ', ' ', 0x00B7, ' ', ' ', ' ', 0 };
 
@@ -268,7 +257,6 @@ private:
 	void drawBriefing( void );
 	void drawCard( const BoardCard &card );
 	Int scaled( Real pixels ) const { return REAL_TO_INT( pixels * m_scale + 0.5f ); }
-	GameFont *font( const char *name, Real pixels, Bool bold ) const;
 	DisplayString *text( const UnicodeString &words, GameFont *font );
 	BoardCard *cardFor( Int slot );
 	void layoutColumn( std::vector< Int > &column, Int left, Int top, Int bottom, Bool mirrored );
@@ -338,13 +326,6 @@ LoadScreenBoard::~LoadScreenBoard( void )
 		TheDisplayStringManager->freeDisplayString( m_strings[ each ] );
 }
 
-GameFont *LoadScreenBoard::font( const char *name, Real pixels, Bool bold ) const
-{
-	// a point is 4/3 of a pixel at the 96 dots an inch the glyphs are drawn at
-	const Int height = max( BOARD_SMALLEST_TEXT, scaled( pixels ) );
-	return TheFontLibrary->getFont( AsciiString( name ), max( 1, height * 3 / 4 ), bold );
-}
-
 DisplayString *LoadScreenBoard::text( const UnicodeString &words, GameFont *font )
 {
 	DisplayString *string = TheDisplayStringManager->newDisplayString();
@@ -376,26 +357,6 @@ static Int stringHeight( DisplayString *string )
 	Int width, height;
 	string->getSize( &width, &height );
 	return height;
-}
-
-static Color withAlpha( Color color, Int alpha )
-{
-	UnsignedByte r, g, b, a;
-	GameGetColorComponents( color, &r, &g, &b, &a );
-	return GameMakeColor( r, g, b, alpha );
-}
-
-/** Blue and purple house colours are too dark for words on the panel; they are lifted part of the
-	* way to white, the bar and the map spot keep the colour itself. */
-static Color readableColor( Color color )
-{
-	UnsignedByte r, g, b, a;
-	GameGetColorComponents( color, &r, &g, &b, &a );
-	const Int luma = ( 54 * r + 183 * g + 19 * b ) / 256;
-	if( luma >= 120 )
-		return color;
-	const Int lift = 110;	// of 256
-	return GameMakeColor( r + ( 255 - r ) * lift / 256, g + ( 255 - g ) * lift / 256, b + ( 255 - b ) * lift / 256, 255 );
 }
 
 /** The side's crest from the lobby: the three 144 pixel logos on one page.  A mod's side brings its
@@ -433,13 +394,13 @@ static UnicodeString tipText( Int index )
 GameWindow *LoadScreenBoard::create( GameInfo *game, const char *modeLabel, Bool cardBars )
 {
 	m_network = cardBars;
-	GameFont *labelFont = font( BOARD_NUMBERS, 16, TRUE );
-	GameFont *centerFont = font( BOARD_WORDS, 64, TRUE );
-	GameFont *centerSmallFont = font( BOARD_WORDS, 24, TRUE );
-	GameFont *observerFont = font( BOARD_WORDS, 16, FALSE );
-	GameFont *nameFont = font( BOARD_WORDS, 26, TRUE );
-	GameFont *armyFont = font( BOARD_WORDS, 18, FALSE );
-	GameFont *detailFont = font( BOARD_WORDS, 16, FALSE );
+	GameFont *labelFont = UIStyle::font( UIStyle::TEXT_SMALL, TRUE );
+	GameFont *centerFont = UIStyle::titleFont( UIStyle::TEXT_DISPLAY );
+	GameFont *centerSmallFont = UIStyle::font( UIStyle::TEXT_HEADING, TRUE );
+	GameFont *observerFont = UIStyle::font( UIStyle::TEXT_SMALL );
+	GameFont *nameFont = UIStyle::font( UIStyle::TEXT_STRONG, TRUE );
+	GameFont *armyFont = UIStyle::font( UIStyle::TEXT_BODY );
+	GameFont *detailFont = UIStyle::font( UIStyle::TEXT_SMALL );
 
 	// a watcher, a replay's viewer among them, sees every side as it is; a player sees what the
 	// lobby let him see of his enemies
@@ -468,7 +429,7 @@ GameWindow *LoadScreenBoard::create( GameInfo *game, const char *modeLabel, Bool
 		card.slot = i;
 		const Int colorIndex = seeAll ? slot->getColor() : slot->getApparentColor();
 		card.color = TheMultiplayerSettings->getColor( colorIndex )->getColor();
-		card.nameColor = readableColor( card.color );
+		card.nameColor = UIStyle::readable( card.color );
 		card.team = slot->getTeamNumber();
 		card.startSpot = seeAll ? slot->getStartPos() : slot->getApparentStartPos();
 		card.percent = cardBars && slot->isHuman() ? 0 : -1;
@@ -684,19 +645,19 @@ GameWindow *LoadScreenBoard::create( GameInfo *game, const char *modeLabel, Bool
 /** The header's and the foot's words, the same on every board. */
 void LoadScreenBoard::prepare( const UnicodeString &title, const UnicodeString &subtitle )
 {
-	GameFont *wordmarkFont = font( BOARD_WORDS, 24, TRUE );
-	GameFont *tipFont = font( BOARD_WORDS, 18, FALSE );
-	m_title = text( title, font( BOARD_WORDS, 40, TRUE ) );
-	m_subtitle = text( subtitle, font( BOARD_WORDS, 18, FALSE ) );
+	GameFont *wordmarkFont = UIStyle::font( UIStyle::TEXT_STRONG, TRUE );
+	GameFont *tipFont = UIStyle::font( UIStyle::TEXT_BODY );
+	m_title = text( title, UIStyle::titleFont( UIStyle::TEXT_TITLE ) );
+	m_subtitle = text( subtitle, tipFont );
 	m_wordmark[ 0 ] = text( UnicodeString( u"Zero Hour" ), wordmarkFont );
 	m_wordmark[ 1 ] = text( UnicodeString( u" Reforged" ), wordmarkFont );
 
 	// the foot: a tip, the load's percentage and its bar
-	m_tipLabel = text( TheGameText->fetch( "GUI:LoadTip" ), font( BOARD_NUMBERS, 16, TRUE ) );
+	m_tipLabel = text( TheGameText->fetch( "GUI:LoadTip" ), UIStyle::font( UIStyle::TEXT_SMALL, TRUE ) );
 	m_tipIndex = (Int)( Clock_Milliseconds() % BOARD_TIP_COUNT );
 	m_tipSince = Clock_Milliseconds();
 	m_tip = text( tipText( m_tipIndex ), tipFont );
-	m_percent = text( UnicodeString( u"0%" ), font( BOARD_NUMBERS, 20, TRUE ) );
+	m_percent = text( UnicodeString( u"0%" ), UIStyle::font( UIStyle::TEXT_STRONG, TRUE ) );
 	m_waiting = text( TheGameText->fetch( "GUI:LoadWaiting" ), tipFont );
 	m_localPercent = 0;
 }
@@ -723,9 +684,9 @@ GameWindow *LoadScreenBoard::createMission( GameWindow *parent, const UnicodeStr
 	m_briefingBox.lo.x = m_left + scaled( 64 );
 	m_briefingBox.lo.y = m_top + scaled( 216 );
 	m_briefingBox.hi.x = m_briefingBox.lo.x + width;
-	m_briefingHead = text( TheGameText->fetch( "GUI:LoadBriefing" ), font( BOARD_NUMBERS, 16, TRUE ) );
+	m_briefingHead = text( TheGameText->fetch( "GUI:LoadBriefing" ), UIStyle::font( UIStyle::TEXT_SMALL, TRUE ) );
 	Int bottom = m_briefingBox.lo.y + pad + stringHeight( m_briefingHead ) + scaled( 8 );
-	GameFont *lineFont = font( BOARD_WORDS, 22, FALSE );
+	GameFont *lineFont = UIStyle::font( UIStyle::TEXT_STRONG );
 	for( Int line = 0; line < briefingLines; line++ )
 	{
 		if( briefing[ line ].isEmpty() )
@@ -797,19 +758,7 @@ void LoadScreenBoard::drawCard( const BoardCard &card )
 	const Int y0 = card.box.lo.y;
 	const Int width = card.box.hi.x - x0;
 	const Int height = card.box.hi.y - y0;
-	TheDisplay->drawFillRect( x0, y0, width, height, BOARD_PANEL );
-
-	// the player's colour washes in from the outer edge, under a solid stripe of it
-	const Int stripe = max( 3, scaled( 6 ) );
-	const Int wash = width * 9 / 20;
-	for( Int strip = 0; strip < BOARD_WASH_STRIPS; strip++ )
-	{
-		const Int from = wash * strip / BOARD_WASH_STRIPS;
-		const Int to = wash * ( strip + 1 ) / BOARD_WASH_STRIPS;
-		const Int alpha = 64 * ( BOARD_WASH_STRIPS - strip ) / BOARD_WASH_STRIPS;
-		const Int x = card.mirrored ? x0 + width - to : x0 + from;
-		TheDisplay->drawFillRect( x, y0, to - from, height, withAlpha( card.color, alpha ) );
-	}
+	UIStyle::panel( x0, y0, width, height, UIStyle::CARD );
 
 	// the side's crest, faint, at the inner end
 	if( card.watermark )
@@ -818,20 +767,21 @@ void LoadScreenBoard::drawCard( const BoardCard &card )
 		const Int x = card.mirrored ? x0 + scaled( 24 ) : x0 + width - scaled( 24 ) - size;
 		TheDisplay->drawImage( card.watermark, x, y0 + ( height - size ) / 2, x + size, y0 + ( height + size ) / 2, GameMakeColor( 255, 255, 255, 30 ) );
 	}
-	TheDisplay->drawFillRect( card.mirrored ? x0 + width - stripe : x0, y0, stripe, height, card.color );
-	TheDisplay->drawOpenRect( x0, y0, width, height, 1.0f, BOARD_EDGE );
+	// the player's colour down the outer edge
+	const Int stripe = UIStyle::stripeWidth();
+	UIStyle::stripe( card.mirrored ? x0 + width - stripe : x0, y0, height, card.color );
 
 	// the portrait, in a frame of the player's colour
 	const Int pad = scaled( 16 );
 	const Int emblem = min( height - 2 * pad, scaled( 168 ) );
 	const Int emblemX = card.mirrored ? x0 + width - stripe - pad - emblem : x0 + stripe + pad;
 	const Int emblemY = y0 + ( height - emblem ) / 2;
-	TheDisplay->drawFillRect( emblemX, emblemY, emblem, emblem, BOARD_GROUND );
+	TheDisplay->drawFillRect( emblemX, emblemY, emblem, emblem, UIStyle::GROUND );
 	if( card.emblem )
 		TheDisplay->drawImage( card.emblem, emblemX + 2, emblemY + 2, emblemX + emblem - 2, emblemY + emblem - 2 );
 	else
-		m_unknown->draw( emblemX + ( emblem - stringWidth( m_unknown ) ) / 2, emblemY + ( emblem - stringHeight( m_unknown ) ) / 2, BOARD_MUTED, BOARD_SHADOW );
-	TheDisplay->drawOpenRect( emblemX, emblemY, emblem, emblem, 1.0f, withAlpha( card.color, 200 ) );
+		m_unknown->draw( emblemX + ( emblem - stringWidth( m_unknown ) ) / 2, emblemY + ( emblem - stringHeight( m_unknown ) ) / 2, UIStyle::MUTED, UIStyle::SHADOW );
+	TheDisplay->drawOpenRect( emblemX, emblemY, emblem, emblem, 1.0f, UIStyle::withAlpha( card.color, 200 ) );
 
 	// the words, on the portrait's far side, aligned away from it
 	const Int textGap = scaled( 24 );
@@ -849,11 +799,11 @@ void LoadScreenBoard::drawCard( const BoardCard &card )
 	if( card.percent >= 0 )
 		y -= scaled( 8 );
 	DisplayString *lines[ 3 ] = { card.name, card.army, card.detail };
-	const Color colors[ 3 ] = { card.nameColor, BOARD_INK, BOARD_MUTED };
+	const Color colors[ 3 ] = { card.nameColor, UIStyle::INK, UIStyle::MUTED };
 	for( Int line = 0; line < ( hasDetail ? 3 : 2 ); line++ )
 	{
 		const Int w = stringWidth( lines[ line ] );
-		lines[ line ]->draw( card.mirrored ? textRight - w : textLeft, y, colors[ line ], BOARD_SHADOW );
+		lines[ line ]->draw( card.mirrored ? textRight - w : textLeft, y, colors[ line ], UIStyle::SHADOW );
 		if( line == 0 && card.badge )
 		{
 			const Int size = stringHeight( card.name ) * 3 / 4;
@@ -872,8 +822,8 @@ void LoadScreenBoard::drawCard( const BoardCard &card )
 		const Int tx = card.mirrored ? x0 + scaled( 14 ) : x0 + width - scaled( 14 ) - w;
 		const Int sx = card.mirrored ? tx + w + scaled( 8 ) : tx - scaled( 8 ) - swatch;
 		TheDisplay->drawFillRect( sx, ty + scaled( 2 ), swatch, swatch, LobbyTeamColor( card.team ) );
-		TheDisplay->drawOpenRect( sx, ty + scaled( 2 ), swatch, swatch, 1.0f, BOARD_EDGE );
-		card.teamText->draw( tx, ty, BOARD_MUTED, BOARD_SHADOW );
+		TheDisplay->drawOpenRect( sx, ty + scaled( 2 ), swatch, swatch, 1.0f, UIStyle::FRAME );
+		card.teamText->draw( tx, ty, UIStyle::MUTED, UIStyle::SHADOW );
 	}
 
 	// a network player's own load
@@ -884,12 +834,12 @@ void LoadScreenBoard::drawCard( const BoardCard &card )
 		const Int label = stringWidth( card.percentText ) + scaled( 12 );
 		const Int barLeft = card.mirrored ? textLeft + label : textLeft;
 		const Int barRight = card.mirrored ? textRight : textRight - label;
-		TheDisplay->drawFillRect( barLeft, barY, barRight - barLeft, barHeight, BOARD_LINE );
+		TheDisplay->drawFillRect( barLeft, barY, barRight - barLeft, barHeight, UIStyle::GRID );
 		const Int filled = ( barRight - barLeft ) * card.percent / 100;
 		TheDisplay->drawFillRect( card.mirrored ? barRight - filled : barLeft, barY, filled, barHeight, card.color );
 		const Int labelY = barY + barHeight / 2 - stringHeight( card.percentText ) / 2;
 		card.percentText->draw( card.mirrored ? textLeft : textRight - stringWidth( card.percentText ), labelY,
-			card.percent >= 100 ? BOARD_INK : BOARD_MUTED, BOARD_SHADOW );
+			card.percent >= 100 ? UIStyle::INK : UIStyle::MUTED, UIStyle::SHADOW );
 	}
 }
 
@@ -909,44 +859,41 @@ void LoadScreenBoard::draw( void )
 	const Int footTop = m_top + scaled( 952 );
 	if( m_mission )
 	{
-		const Color band = withAlpha( BOARD_GROUND, 224 );
+		const Color band = UIStyle::withAlpha( UIStyle::GROUND, 224 );
 		TheDisplay->drawFillRect( 0, 0, m_width, headerBottom, band );
 		TheDisplay->drawFillRect( 0, footTop, m_width, m_height - footTop, band );
 		drawBriefing();
 	}
 	else
 	{
-		TheDisplay->drawFillRect( 0, 0, m_width, m_height, BOARD_GROUND );
+		TheDisplay->drawFillRect( 0, 0, m_width, m_height, UIStyle::GROUND );
 		drawMatch();
 	}
 
 	// the header
 	const Int titleY = m_top + scaled( 52 );
-	m_title->draw( left, titleY, BOARD_INK, BOARD_SHADOW );
-	m_subtitle->draw( left, titleY + stringHeight( m_title ) + scaled( 4 ), BOARD_MUTED, BOARD_SHADOW );
-	const Int markWidth = stringWidth( m_wordmark[ 0 ] ) + stringWidth( m_wordmark[ 1 ] );
-	const Int markY = titleY + ( stringHeight( m_title ) - stringHeight( m_wordmark[ 0 ] ) ) / 2;
-	m_wordmark[ 0 ]->draw( right - markWidth, markY, BOARD_INK, BOARD_SHADOW );
-	m_wordmark[ 1 ]->draw( right - stringWidth( m_wordmark[ 1 ] ), markY, BOARD_BLUE, BOARD_SHADOW );
-	TheDisplay->drawFillRect( left, headerBottom, right - left, 1, BOARD_LINE );
+	m_title->draw( left, titleY, UIStyle::INK, UIStyle::SHADOW );
+	m_subtitle->draw( left, titleY + stringHeight( m_title ) + scaled( 4 ), UIStyle::MUTED, UIStyle::SHADOW );
+	UIStyle::wordmark( m_wordmark, right, titleY + ( stringHeight( m_title ) - stringHeight( m_wordmark[ 0 ] ) ) / 2 );
+	UIStyle::rule( left, headerBottom, right - left );
 
 	// the foot
 	const Int barHeight = max( 4, scaled( 8 ) );
 	const Int barY = m_top + scaled( 1016 );
 	const Int rowY = barY - scaled( 18 ) - stringHeight( m_tip );
-	TheDisplay->drawFillRect( left, footTop, right - left, 1, BOARD_LINE );
+	UIStyle::rule( left, footTop, right - left );
 	const Int chipPad = scaled( 8 );
 	const Int chipHeight = stringHeight( m_tipLabel ) + scaled( 4 );
 	const Int chipY = rowY + ( stringHeight( m_tip ) - chipHeight ) / 2;
-	TheDisplay->drawOpenRect( left, chipY, stringWidth( m_tipLabel ) + 2 * chipPad, chipHeight, 1.0f, BOARD_BLUE );
-	m_tipLabel->draw( left + chipPad, chipY + scaled( 2 ), BOARD_BLUE, BOARD_SHADOW );
-	m_tip->draw( left + stringWidth( m_tipLabel ) + 2 * chipPad + scaled( 16 ), rowY, BOARD_INK, BOARD_SHADOW );
+	TheDisplay->drawOpenRect( left, chipY, stringWidth( m_tipLabel ) + 2 * chipPad, chipHeight, 1.0f, UIStyle::FRAME );
+	m_tipLabel->draw( left + chipPad, chipY + scaled( 2 ), UIStyle::ACTIVE, UIStyle::SHADOW );
+	m_tip->draw( left + stringWidth( m_tipLabel ) + 2 * chipPad + scaled( 16 ), rowY, UIStyle::INK, UIStyle::SHADOW );
 	if( m_network && m_localPercent > 100 )
-		m_waiting->draw( right - stringWidth( m_waiting ), rowY, BOARD_MUTED, BOARD_SHADOW );
+		m_waiting->draw( right - stringWidth( m_waiting ), rowY, UIStyle::MUTED, UIStyle::SHADOW );
 	else
-		m_percent->draw( right - stringWidth( m_percent ), rowY + stringHeight( m_tip ) - stringHeight( m_percent ), BOARD_INK, BOARD_SHADOW );
-	TheDisplay->drawFillRect( left, barY, right - left, barHeight, BOARD_LINE );
-	TheDisplay->drawFillRect( left, barY, ( right - left ) * min( m_localPercent, 100 ) / 100, barHeight, BOARD_BLUE );
+		m_percent->draw( right - stringWidth( m_percent ), rowY + stringHeight( m_tip ) - stringHeight( m_percent ), UIStyle::INK, UIStyle::SHADOW );
+	TheDisplay->drawFillRect( left, barY, right - left, barHeight, UIStyle::GRID );
+	TheDisplay->drawFillRect( left, barY, ( right - left ) * min( m_localPercent, 100 ) / 100, barHeight, UIStyle::EDGE );
 }
 
 void LoadScreenBoard::drawBriefing( void )
@@ -957,16 +904,14 @@ void LoadScreenBoard::drawBriefing( void )
 	const Int width = box.hi.x - box.lo.x;
 	const Int height = box.hi.y - box.lo.y;
 	const Int pad = scaled( 28 );
-	TheDisplay->drawFillRect( box.lo.x, box.lo.y, width, height, withAlpha( BOARD_GROUND, 216 ) );
-	TheDisplay->drawFillRect( box.lo.x, box.lo.y, max( 3, scaled( 6 ) ), height, BOARD_BLUE );
-	TheDisplay->drawOpenRect( box.lo.x, box.lo.y, width, height, 1.0f, BOARD_EDGE );
+	UIStyle::panel( box.lo.x, box.lo.y, width, height, UIStyle::PANEL );
 	Int y = box.lo.y + pad;
-	m_briefingHead->draw( box.lo.x + pad, y, BOARD_BLUE, BOARD_SHADOW );
+	m_briefingHead->draw( box.lo.x + pad, y, UIStyle::ACTIVE, UIStyle::SHADOW );
 	y += stringHeight( m_briefingHead ) + scaled( 8 );
 	for( size_t each = 0; each < m_briefing.size(); each++ )
 	{
 		y += scaled( 10 );
-		m_briefing[ each ]->draw( box.lo.x + pad, y, BOARD_INK, BOARD_SHADOW );
+		m_briefing[ each ]->draw( box.lo.x + pad, y, UIStyle::INK, UIStyle::SHADOW );
 		y += stringHeight( m_briefing[ each ] );
 	}
 }
@@ -987,8 +932,8 @@ void LoadScreenBoard::drawMatch( void )
 		const Int swatch = stringHeight( m_columnHead[ side ] ) - scaled( 4 );
 		const Int sx = side == 0 ? m_columnHeadPos[ side ].x - scaled( 10 ) - swatch : m_columnHeadPos[ side ].x + stringWidth( m_columnHead[ side ] ) + scaled( 10 );
 		TheDisplay->drawFillRect( sx, m_columnHeadPos[ side ].y + scaled( 2 ), swatch, swatch, m_columnTeam[ side ] );
-		TheDisplay->drawOpenRect( sx, m_columnHeadPos[ side ].y + scaled( 2 ), swatch, swatch, 1.0f, BOARD_EDGE );
-		m_columnHead[ side ]->draw( m_columnHeadPos[ side ].x, m_columnHeadPos[ side ].y, BOARD_MUTED, BOARD_SHADOW );
+		TheDisplay->drawOpenRect( sx, m_columnHeadPos[ side ].y + scaled( 2 ), swatch, swatch, 1.0f, UIStyle::FRAME );
+		m_columnHead[ side ]->draw( m_columnHeadPos[ side ].x, m_columnHeadPos[ side ].y, UIStyle::ACTIVE, UIStyle::SHADOW );
 	}
 
 	for( size_t each = 0; each < m_cards.size(); each++ )
@@ -996,22 +941,22 @@ void LoadScreenBoard::drawMatch( void )
 
 	// the middle
 	if( m_centerLabel )
-		m_centerLabel->draw( m_centerLabelPos.x, m_centerLabelPos.y, BOARD_INK, BOARD_SHADOW );
+		m_centerLabel->draw( m_centerLabelPos.x, m_centerLabelPos.y, UIStyle::INK, UIStyle::SHADOW );
 	const Int mapSize = m_mapBox.hi.x - m_mapBox.lo.x;
-	TheDisplay->drawFillRect( m_mapBox.lo.x, m_mapBox.lo.y, mapSize, mapSize, BOARD_PANEL );
+	TheDisplay->drawFillRect( m_mapBox.lo.x, m_mapBox.lo.y, mapSize, mapSize, UIStyle::CARD );
 	if( m_mapImage )
 		TheDisplay->drawImage( m_mapImage, m_mapDrawn.lo.x, m_mapDrawn.lo.y, m_mapDrawn.hi.x, m_mapDrawn.hi.y );
-	TheDisplay->drawOpenRect( m_mapBox.lo.x - 1, m_mapBox.lo.y - 1, mapSize + 2, mapSize + 2, 1.0f, BOARD_EDGE );
+	TheDisplay->drawOpenRect( m_mapBox.lo.x - 1, m_mapBox.lo.y - 1, mapSize + 2, mapSize + 2, 1.0f, UIStyle::FRAME );
 	const Int spot = max( 8, scaled( 18 ) );
 	const Int ring = max( 2, scaled( 3 ) );
 	for( size_t each = 0; each < m_spots.size(); each++ )
 	{
 		const BoardSpot &mark = m_spots[ each ];
-		TheDisplay->drawFillRect( mark.pos.x - spot / 2 - ring, mark.pos.y - spot / 2 - ring, spot + 2 * ring, spot + 2 * ring, BOARD_GROUND );
+		TheDisplay->drawFillRect( mark.pos.x - spot / 2 - ring, mark.pos.y - spot / 2 - ring, spot + 2 * ring, spot + 2 * ring, UIStyle::GROUND );
 		TheDisplay->drawFillRect( mark.pos.x - spot / 2, mark.pos.y - spot / 2, spot, spot, mark.color );
 	}
 	if( m_observers )
-		m_observers->draw( m_observersPos.x, m_observersPos.y, BOARD_MUTED, BOARD_SHADOW );
+		m_observers->draw( m_observersPos.x, m_observersPos.y, UIStyle::MUTED, UIStyle::SHADOW );
 }
 
 

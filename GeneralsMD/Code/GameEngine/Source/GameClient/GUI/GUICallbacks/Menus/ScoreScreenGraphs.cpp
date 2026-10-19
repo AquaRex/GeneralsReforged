@@ -26,7 +26,9 @@
 // promoted; markers that fall close together share one picture and list all of theirs on hover.  The
 // build order shows the first of each structure and unit until asked for every build.  Everything is
 // drawn here from TheMatchHistory and the score keepers; the panel is made in code over the layout,
-// whose own score table ScoreScreen.cpp hides, so no layout file changes.
+// whose own score table ScoreScreen.cpp hides, so no layout file changes.  It is drawn in the front
+// end's look (UIStyle.h): the map's name and the wordmark over a rule, the tabs boxed as the options
+// screen's are.
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
@@ -46,7 +48,11 @@
 #include "GameClient/GameWindow.h"
 #include "GameClient/GameWindowManager.h"
 #include "GameClient/Image.h"
+#include "GameClient/MapUtil.h"
 #include "GameClient/Mouse.h"
+#include "GameClient/UIStyle.h"
+#include "Common/GameState.h"
+#include "Common/GlobalData.h"
 #include "GameLogic/VictoryConditions.h"
 
 #include <algorithm>
@@ -115,22 +121,13 @@ static const Int theEventRank[ MATCH_EVENT_TYPE_COUNT ] = { 1, 0, 2, 3 };
 static const Real EARLY_SHARE = 0.55f;
 static const UnsignedInt EARLY_FRAMES = 5 * 60 * LOGICFRAMES_PER_SECOND;
 
-static const Color PANEL_FILL = GameMakeColor( 8, 12, 20, 255 );
-static const Color PANEL_EDGE = GameMakeColor( 110, 130, 160, 255 );
-static const Color TAB_FILL = GameMakeColor( 24, 32, 46, 255 );
-static const Color TEXT = GameMakeColor( 220, 225, 235, 255 );
-static const Color TEXT_DIM = GameMakeColor( 150, 160, 175, 255 );
-static const Color GRID = GameMakeColor( 255, 255, 255, 22 );
-static const Color AXIS = GameMakeColor( 255, 255, 255, 70 );
-static const Color GOLD = GameMakeColor( 235, 190, 60, 255 );
-static const Color SHADOW = GameMakeColor( 0, 0, 0, 255 );
-
 struct GraphPlayer
 {
 	Int index;		///< the player's index, or -1 for a campaign's side, which only has a summary row
 	UnicodeString name;
 	UnicodeString side;
 	Color color;
+	Color nameColor;	///< the colour lifted where it is too dark to read as words
 	Bool winner;
 	Int stats[ SUMMARY_COLUMN_COUNT ];
 };
@@ -194,6 +191,9 @@ static IRegion2D s_tabBox[ GRAPH_TAB_COUNT ];
 static DisplayString *s_tabText[ GRAPH_TAB_COUNT ];
 static IRegion2D s_toggleBox;
 static DisplayString *s_toggleText = NULL;
+static DisplayString *s_title = NULL;							///< the map's name, over the tabs
+static DisplayString *s_wordmark[ 2 ] = { NULL, NULL };
+static Int s_ruleY = 0;													///< the header's rule, from the panel's top
 static std::vector< DisplayString * > s_tipText;
 static Int s_tipMark = -1;
 
@@ -460,13 +460,13 @@ static void layoutSummary( Int top, Int width, Int bottom, Int pad )
 			}
 		}
 		const Int groupLeft = columnRight[ first ] - column + pad;
-		addText( TheGameText->fetch( theGroupLabels[ group ] ), s_font, ( groupLeft + columnRight[ last ] ) / 2, top, TEXT, 1 );
-		addRule( groupLeft, subTop - pad / 4, columnRight[ last ], subTop - pad / 4, AXIS );
+		addText( TheGameText->fetch( theGroupLabels[ group ] ), s_font, ( groupLeft + columnRight[ last ] ) / 2, top, UIStyle::INK, 1 );
+		addRule( groupLeft, subTop - pad / 4, columnRight[ last ], subTop - pad / 4, UIStyle::FRAME );
 	}
 	for( Int each = 0; each < SUMMARY_COLUMN_COUNT; each++ )
-		addText( TheGameText->fetch( theColumnLabels[ each ] ), s_smallFont, columnRight[ each ], subTop, TEXT_DIM, 2 );
+		addText( TheGameText->fetch( theColumnLabels[ each ] ), s_smallFont, columnRight[ each ], subTop, UIStyle::MUTED, 2 );
 	Int y = subTop + smallLine + pad / 2;
-	addRule( left, y, right, y, AXIS );
+	addRule( left, y, right, y, UIStyle::FRAME );
 
 	// the row a column's best stands in, or -1 where two rows share it
 	Int bestRow[ SUMMARY_COLUMN_COUNT ];
@@ -497,32 +497,33 @@ static void layoutSummary( Int top, Int width, Int bottom, Int pad )
 	{
 		const GraphPlayer &player = s_players[ each ];
 		const Int nameY = y + ( rowHeight - ( sideUnder && !player.side.isEmpty() ? line + sideLine : line ) ) / 2;
-		s_marks.push_back( newMark( left, y + pad / 2, 4, rowHeight - pad, player.color, player.color ) );
-		const Int x = left + 4 + pad;
-		const Int nameWidth = addText( player.name, s_bigFont, x, nameY, player.color );
+		const Int stripe = UIStyle::stripeWidth();
+		s_marks.push_back( newMark( left, y + pad / 2, stripe, rowHeight - pad, player.color, player.color ) );
+		const Int x = left + stripe + pad;
+		const Int nameWidth = addText( player.name, s_bigFont, x, nameY, player.nameColor );
 		if( !player.side.isEmpty() )
 		{
 			if( sideUnder )
-				addText( player.side, s_font, x, nameY + line, TEXT_DIM );
+				addText( player.side, s_font, x, nameY + line, UIStyle::MUTED );
 			else
-				addText( player.side, s_smallFont, x + nameWidth + pad, nameY + line - smallLine - 1, TEXT_DIM );
+				addText( player.side, s_smallFont, x + nameWidth + pad, nameY + line - smallLine - 1, UIStyle::MUTED );
 		}
 		if( player.winner )
 		{
 			const Int tagY = y + ( rowHeight - sideLine ) / 2;
-			const Int tagWidth = addText( TheGameText->fetch( "GUI:SummaryWinner" ), s_font, namesRight - pad, tagY, GOLD, 2 );
-			s_marks.push_back( newMark( namesRight - pad * 2 - tagWidth, tagY - 3, tagWidth + pad * 2, sideLine + 6, 0, GOLD ) );
+			const Int tagWidth = addText( TheGameText->fetch( "GUI:SummaryWinner" ), s_font, namesRight - pad, tagY, UIStyle::GOLD, 2 );
+			s_marks.push_back( newMark( namesRight - pad * 2 - tagWidth, tagY - 3, tagWidth + pad * 2, sideLine + 6, 0, UIStyle::GOLD ) );
 		}
 		const Int textY = y + ( rowHeight - line ) / 2;
 		for( Int stat = 0; stat < SUMMARY_COLUMN_COUNT; stat++ )
 		{
 			UnicodeString value;
 			value.format( u"%d", player.stats[ stat ] );
-			addText( value, s_bigFont, columnRight[ stat ], textY, bestRow[ stat ] == (Int)each ? GOLD : TEXT, 2 );
+			addText( value, s_bigFont, columnRight[ stat ], textY, bestRow[ stat ] == (Int)each ? UIStyle::GOLD : UIStyle::INK, 2 );
 		}
 		y += rowHeight;
 		if( each + 1 < s_players.size() )
-			addRule( left, y, right, y, GRID );
+			addRule( left, y, right, y, UIStyle::GRID );
 	}
 }
 
@@ -532,7 +533,7 @@ static void dressMark( GraphMark &mark, const MatchEvent &event, const GraphPlay
 {
 	mark.rank = theEventRank[ event.type ];
 	mark.edge = player.color;
-	mark.fill = TAB_FILL;
+	mark.fill = UIStyle::CARD;
 	if( mark.label )
 		TheDisplayStringManager->freeDisplayString( mark.label );
 	mark.label = NULL;
@@ -571,7 +572,7 @@ static void layoutChart( MatchSeries series, Int top, Int width, Int bottom, Int
 
 	if( count == 0 )
 	{
-		addText( TheGameText->fetch( "GUI:GraphNoData" ), s_font, pad * 2, plotTop, TEXT_DIM );
+		addText( TheGameText->fetch( "GUI:GraphNoData" ), s_font, pad * 2, plotTop, UIStyle::MUTED );
 		return;
 	}
 
@@ -597,15 +598,15 @@ static void layoutChart( MatchSeries series, Int top, Int width, Int bottom, Int
 	for( Int value = 0; value <= ceiling; value += step )
 	{
 		const Int y = plotBottom - (Int)( (Real)value / ceiling * plotHeight );
-		addRule( plotLeft, y, plotRight, y, value == 0 ? AXIS : GRID );
-		addText( valueText( value ), s_smallFont, plotLeft - pad, y - smallLine / 2, TEXT_DIM, 2 );
+		addRule( plotLeft, y, plotRight, y, value == 0 ? UIStyle::FRAME : UIStyle::GRID );
+		addText( valueText( value ), s_smallFont, plotLeft - pad, y - smallLine / 2, UIStyle::MUTED, 2 );
 	}
 
 	const Int minutes = minuteStep( end, 8 );
 	for( UnsignedInt frame = 0; frame <= end; frame += minutes * 60 * LOGICFRAMES_PER_SECOND )
 	{
 		const Int x = plotLeft + (Int)( (Real)frame / end * plotWidth );
-		addText( clockText( frame ), s_smallFont, x, plotBottom + pad / 2, TEXT_DIM, frame == 0 ? 0 : 1 );
+		addText( clockText( frame ), s_smallFont, x, plotBottom + pad / 2, UIStyle::MUTED, frame == 0 ? 0 : 1 );
 	}
 
 	for( size_t each = 0; each < players.size(); each++ )
@@ -640,7 +641,7 @@ static void layoutChart( MatchSeries series, Int top, Int width, Int bottom, Int
 		if( s_marks.size() == firstMarker || x >= anchor + iconWidth + pad / 2 )
 		{
 			anchor = x;
-			GraphMark mark = newMark( x - iconWidth / 2, stripTop, iconWidth, icon, TAB_FILL, player->color );
+			GraphMark mark = newMark( x - iconWidth / 2, stripTop, iconWidth, icon, UIStyle::CARD, player->color );
 			mark.dropBottom = plotBottom;
 			s_marks.push_back( mark );
 		}
@@ -751,8 +752,8 @@ static void layoutBuildOrder( Int top, Int width, Int bottom, Int pad )
 	for( UnsignedInt frame = 0; frame <= end; frame += ( split && frame < EARLY_FRAMES ) ? minute : lateStep )
 	{
 		const Int x = buildX( frame, end, left, span );
-		addRule( x, rowsTop, x, rowsTop + (Int)players.size() * rowHeight, frame == EARLY_FRAMES && split ? AXIS : GRID );
-		addText( clockText( frame ), s_smallFont, x, top, TEXT_DIM, 1 );
+		addRule( x, rowsTop, x, rowsTop + (Int)players.size() * rowHeight, frame == EARLY_FRAMES && split ? UIStyle::FRAME : UIStyle::GRID );
+		addText( clockText( frame ), s_smallFont, x, top, UIStyle::MUTED, 1 );
 		if( split && frame < EARLY_FRAMES && frame + minute > EARLY_FRAMES )
 			frame = EARLY_FRAMES - minute;
 	}
@@ -762,11 +763,11 @@ static void layoutBuildOrder( Int top, Int width, Int bottom, Int pad )
 		const GraphPlayer &player = *players[ each ];
 		const Int rowTop = rowsTop + (Int)each * rowHeight;
 		if( each > 0 )
-			addRule( pad * 2, rowTop, right + iconWidth / 2, rowTop, GRID );
+			addRule( pad * 2, rowTop, right + iconWidth / 2, rowTop, UIStyle::GRID );
 		const Int nameTop = rowTop + ( rowHeight - ( twoLines ? 2 : 1 ) * smallLine ) / 2;
-		addText( labels[ each ], s_smallFont, pad * 2, nameTop, player.color );
+		addText( labels[ each ], s_smallFont, pad * 2, nameTop, player.nameColor );
 		if( twoLines )
-			addText( player.side, s_smallFont, pad * 2, nameTop + smallLine, TEXT_DIM );
+			addText( player.side, s_smallFont, pad * 2, nameTop + smallLine, UIStyle::MUTED );
 
 		std::vector< Int > laneRight( lanes, -iconWidth );
 		std::vector< const ThingTemplate * > seen;
@@ -788,12 +789,12 @@ static void layoutBuildOrder( Int top, Int width, Int bottom, Int pad )
 			Int x = buildX( build.frame, end, left, span ) - iconWidth / 2;
 			const Int lane = pickLane( laneRight, x, iconWidth, 3 );
 			x = min( x, right - iconWidth / 2 );	// a push never carries a picture off the timeline's end
-			GraphMark mark = newMark( x, lanesTop + lane * ( icon + 3 ), iconWidth, icon, TAB_FILL,
-				build.thing->isKindOf( KINDOF_STRUCTURE ) ? TEXT_DIM : player.color );
+			GraphMark mark = newMark( x, lanesTop + lane * ( icon + 3 ), iconWidth, icon, UIStyle::CARD,
+				build.thing->isKindOf( KINDOF_STRUCTURE ) ? UIStyle::MUTED : player.color );
 			mark.image = image;
 			UnicodeString tip;
 			tip.format( u"%s  %s", clockText( build.frame ).str(), build.thing->getDisplayName().str() );
-			addTip( mark, tip, TEXT );
+			addTip( mark, tip, UIStyle::INK );
 			s_marks.push_back( mark );
 		}
 	}
@@ -820,7 +821,7 @@ static Int layoutLegend( Int top, Int width, Int pad )
 			y += smallLine + pad / 3;
 		}
 		s_marks.push_back( newMark( x, y + 3, 4, smallLine - 6, players[ each ]->color, players[ each ]->color ) );
-		addText( label, s_smallFont, x + 4 + pad / 2, y, players[ each ]->color );
+		addText( label, s_smallFont, x + 4 + pad / 2, y, players[ each ]->nameColor );
 		x += entryWidth + pad * 2;
 	}
 	return y + smallLine;
@@ -835,18 +836,23 @@ static void layoutPanel( void )
 	const Int pad = max( s_font->height / 2, 4 );
 	const Int smallLine = s_smallFont->height;
 
-	const Int tabsTop = pad * 2;
+	// the header, as a staging room's: the map's name, the wordmark across from it, a rule under both
+	Int titleWidth, titleHeight;
+	s_title->getSize( &titleWidth, &titleHeight );
+	s_ruleY = pad * 2 + titleHeight + pad;
+
+	// the pages as the options screen's tabs, boxed, the open one lettered green
+	const Int tabsTop = s_ruleY + pad * 2;
 	Int x = pad * 2;
 	for( Int tab = 0; tab < GRAPH_TAB_COUNT; tab++ )
 	{
-		s_tabBox[ tab ].lo.x = x - pad / 2;
+		s_tabBox[ tab ].lo.x = x;
 		s_tabBox[ tab ].lo.y = tabsTop;
-		s_tabBox[ tab ].hi.x = x + textWidth( s_tabText[ tab ] ) + pad / 2;
-		s_tabBox[ tab ].hi.y = tabsTop + smallLine + pad / 2;
-		x += textWidth( s_tabText[ tab ] ) + pad * 2;
+		s_tabBox[ tab ].hi.x = x + textWidth( s_tabText[ tab ] ) + pad * 3;
+		s_tabBox[ tab ].hi.y = tabsTop + smallLine + pad;
+		x = s_tabBox[ tab ].hi.x + pad / 2;
 	}
 	const Int tabsBottom = s_tabBox[ 0 ].hi.y;
-	addRule( pad * 2, tabsBottom, width - pad * 2, tabsBottom, GRID );
 
 	s_toggleBox.lo.x = s_toggleBox.hi.x = 0;
 	s_toggleBox.lo.y = s_toggleBox.hi.y = 0;
@@ -856,9 +862,9 @@ static void layoutPanel( void )
 	{
 		s_toggleText->setText( TheGameText->fetch( s_everyBuild ? "GUI:BuildOrderFirsts" : "GUI:BuildOrderEvery" ) );
 		s_toggleBox.hi.x = width - pad * 2;
-		s_toggleBox.lo.x = s_toggleBox.hi.x - textWidth( s_toggleText ) - pad * 2;
-		s_toggleBox.lo.y = tabsTop - pad / 2;
-		s_toggleBox.hi.y = tabsBottom - 2;
+		s_toggleBox.lo.x = s_toggleBox.hi.x - textWidth( s_toggleText ) - pad * 3;
+		s_toggleBox.lo.y = tabsTop;
+		s_toggleBox.hi.y = tabsBottom;
 		layoutBuildOrder( tabsBottom + pad, width, height - pad, pad );
 	}
 	else
@@ -884,21 +890,28 @@ static void drawPanel( GameWindow *window, WinInstanceData *instData )
 	Int ox, oy, width, height;
 	window->winGetScreenPosition( &ox, &oy );
 	window->winGetSize( &width, &height );
-	TheDisplay->drawFillRect( ox, oy, width, height, PANEL_FILL );
-	TheDisplay->drawOpenRect( ox, oy, width, height, 2.0f, PANEL_EDGE );
+	UIStyle::panel( ox, oy, width, height, UIStyle::PANEL );
 
 	const Int pad = max( s_font->height / 2, 4 );
+	s_title->draw( ox + pad * 2, oy + pad * 2, UIStyle::INK, UIStyle::SHADOW );
+	Int titleWidth, titleHeight, markWidth, markHeight;
+	s_title->getSize( &titleWidth, &titleHeight );
+	s_wordmark[ 0 ]->getSize( &markWidth, &markHeight );
+	UIStyle::wordmark( s_wordmark, ox + width - pad * 2, oy + pad * 2 + ( titleHeight - markHeight ) / 2 );
+	UIStyle::rule( ox + pad * 2, oy + s_ruleY, width - pad * 4 );
+
 	for( Int tab = 0; tab < GRAPH_TAB_COUNT; tab++ )
 	{
 		const IRegion2D &box = s_tabBox[ tab ];
-		s_tabText[ tab ]->draw( ox + box.lo.x + pad / 2, oy + box.lo.y, tab == s_tab ? TEXT : TEXT_DIM, SHADOW );
-		if( tab == s_tab )
-			TheDisplay->drawFillRect( ox + box.lo.x, oy + box.hi.y - 2, box.hi.x - box.lo.x, 3, GOLD );
+		UIStyle::tab( ox + box.lo.x, oy + box.lo.y, box.hi.x - box.lo.x, box.hi.y - box.lo.y );
+		s_tabText[ tab ]->draw( ox + ( box.lo.x + box.hi.x - textWidth( s_tabText[ tab ] ) ) / 2,
+			oy + ( box.lo.y + box.hi.y - s_smallFont->height ) / 2, tab == s_tab ? UIStyle::ACTIVE : UIStyle::INK, UIStyle::SHADOW );
 	}
 	if( s_toggleBox.hi.x > s_toggleBox.lo.x )
 	{
-		drawBox( s_toggleBox, ox, oy, TAB_FILL, PANEL_EDGE );
-		s_toggleText->draw( ox + s_toggleBox.lo.x + pad, oy + s_toggleBox.lo.y + ( s_toggleBox.hi.y - s_toggleBox.lo.y - s_smallFont->height ) / 2, TEXT, SHADOW );
+		UIStyle::button( ox + s_toggleBox.lo.x, oy + s_toggleBox.lo.y, s_toggleBox.hi.x - s_toggleBox.lo.x, s_toggleBox.hi.y - s_toggleBox.lo.y );
+		s_toggleText->draw( ox + ( s_toggleBox.lo.x + s_toggleBox.hi.x - textWidth( s_toggleText ) ) / 2,
+			oy + s_toggleBox.lo.y + ( s_toggleBox.hi.y - s_toggleBox.lo.y - s_smallFont->height ) / 2, UIStyle::INK, UIStyle::SHADOW );
 	}
 
 	for( size_t each = 0; each < s_rules.size(); each++ )
@@ -907,7 +920,7 @@ static void drawPanel( GameWindow *window, WinInstanceData *instData )
 		TheDisplay->drawLine( ox + rule.lo.x, oy + rule.lo.y, ox + rule.hi.x, oy + rule.hi.y, 1.0f, s_ruleColors[ each ] );
 	}
 	for( size_t each = 0; each < s_texts.size(); each++ )
-		s_texts[ each ].text->draw( ox + s_texts[ each ].x, oy + s_texts[ each ].y, s_texts[ each ].color, SHADOW );
+		s_texts[ each ].text->draw( ox + s_texts[ each ].x, oy + s_texts[ each ].y, s_texts[ each ].color, UIStyle::SHADOW );
 
 	const ICoord2D mouse = TheMouse->getMouseStatus()->pos;
 	Int hovered = -1;
@@ -941,7 +954,7 @@ static void drawPanel( GameWindow *window, WinInstanceData *instData )
 		{
 			Int w, h;
 			mark.label->getSize( &w, &h );
-			mark.label->draw( ox + ( mark.box.lo.x + mark.box.hi.x - w ) / 2, oy + ( mark.box.lo.y + mark.box.hi.y - h ) / 2, mark.edge, SHADOW );
+			mark.label->draw( ox + ( mark.box.lo.x + mark.box.hi.x - w ) / 2, oy + ( mark.box.lo.y + mark.box.hi.y - h ) / 2, mark.edge, UIStyle::SHADOW );
 		}
 		if( mark.count )
 		{
@@ -950,7 +963,7 @@ static void drawPanel( GameWindow *window, WinInstanceData *instData )
 			const Int x = ox + mark.box.hi.x - w - 2;
 			const Int y = oy + mark.box.hi.y - h;
 			TheDisplay->drawFillRect( x - 2, y, w + 3, h - 1, GameMakeColor( 0, 0, 0, 200 ) );
-			mark.count->draw( x, y - 1, TEXT, SHADOW );
+			mark.count->draw( x, y - 1, UIStyle::INK, UIStyle::SHADOW );
 		}
 	}
 
@@ -964,7 +977,7 @@ static void drawPanel( GameWindow *window, WinInstanceData *instData )
 				s_tipText.push_back( newText( mark.tip[ line ].text, s_smallFont ) );
 			s_tipMark = hovered;
 		}
-		drawBox( mark.box, ox, oy, 0, GOLD );
+		drawBox( mark.box, ox, oy, 0, UIStyle::EDGE_LIT );
 		Int w = 0;
 		const Int lineHeight = s_smallFont->height + 2;
 		for( size_t line = 0; line < s_tipText.size(); line++ )
@@ -972,10 +985,9 @@ static void drawPanel( GameWindow *window, WinInstanceData *instData )
 		const Int h = (Int)s_tipText.size() * lineHeight;
 		const Int x = max( min( ox + mark.box.lo.x, ox + width - w - 12 ), ox + 4 );
 		const Int y = oy + mark.box.hi.y + 4 + h + 6 < oy + height ? oy + mark.box.hi.y + 4 : oy + mark.box.lo.y - h - 10;
-		TheDisplay->drawFillRect( x, y, w + 8, h + 6, GameMakeColor( 0, 0, 0, 230 ) );
-		TheDisplay->drawOpenRect( x, y, w + 8, h + 6, 1.0f, GOLD );
+		UIStyle::panel( x, y, w + 8, h + 6, UIStyle::CARD );
 		for( size_t line = 0; line < s_tipText.size(); line++ )
-			s_tipText[ line ]->draw( x + 4, y + 3 + (Int)line * lineHeight, mark.tip[ line ].color, SHADOW );
+			s_tipText[ line ]->draw( x + 4, y + 3 + (Int)line * lineHeight, mark.tip[ line ].color, UIStyle::SHADOW );
 	}
 }
 
@@ -1008,17 +1020,29 @@ static WindowMsgHandledType panelInput( GameWindow *window, UnsignedInt msg, Win
 }
 
 //-------------------------------------------------------------------------------------------------
-/** Makes the panel, hidden until ScoreScreenGraphsShow; anchor is the layout's OK button, whose font
-	* the panel takes and above which it stops. */
+/** Makes the panel, hidden until ScoreScreenGraphsShow; anchor is the layout's OK button, above which
+	* it stops. */
 void ScoreScreenGraphsInit( GameWindow *parent, GameWindow *anchor )
 {
 	s_players.clear();
 	s_tab = GRAPH_TAB_SUMMARY;
 	s_everyBuild = FALSE;
-	s_font = anchor->winGetFont();
-	s_bigFont = TheFontLibrary->getFont( s_font->nameString, s_font->pointSize + 3, FALSE );
-	s_smallFont = TheFontLibrary->getFont( s_font->nameString, max( s_font->pointSize - 2, 8 ), FALSE );
-	s_tinyFont = TheFontLibrary->getFont( s_font->nameString, max( s_font->pointSize * 2 / 3, 7 ), TRUE );
+	s_font = UIStyle::font( UIStyle::TEXT_STRONG );
+	s_bigFont = UIStyle::font( UIStyle::TEXT_HEADING );
+	s_smallFont = UIStyle::font( UIStyle::TEXT_BODY );
+	s_tinyFont = UIStyle::font( UIStyle::TEXT_SMALL, TRUE );
+
+	// the match's map names the page, as it named the load screen
+	const MapMetaData *map = TheMapCache->findMap( TheGlobalData->m_mapName );
+	UnicodeString mapName;
+	if( map )
+		mapName = map->m_displayName;
+	else
+		mapName.translate( TheGameState->getMapLeafName( TheGlobalData->m_mapName ) );
+	s_title = newText( mapName, UIStyle::titleFont( UIStyle::TEXT_TITLE ) );
+	GameFont *wordmarkFont = UIStyle::font( UIStyle::TEXT_STRONG, TRUE );
+	s_wordmark[ 0 ] = newText( UnicodeString( u"Zero Hour" ), wordmarkFont );
+	s_wordmark[ 1 ] = newText( UnicodeString( u" Reforged" ), wordmarkFont );
 
 	Int parentX, parentY, parentW, parentH, anchorX, anchorY, anchorW, anchorH;
 	parent->winGetScreenPosition( &parentX, &parentY );
@@ -1048,6 +1072,7 @@ void ScoreScreenGraphsAddPlayer( Player *player, const UnicodeString &name, Colo
 	entry.name = name;
 	entry.side = side ? side->getDisplayName() : UnicodeString::TheEmptyString;
 	entry.color = color;
+	entry.nameColor = UIStyle::readable( color );
 	entry.winner = TheVictoryConditions->hasAchievedVictory( player );
 	entry.stats[ SUMMARY_UNITS_BUILT ] = score->getTotalUnitsBuilt();
 	entry.stats[ SUMMARY_UNITS_LOST ] = score->getTotalUnitsLost();
@@ -1067,6 +1092,7 @@ void ScoreScreenGraphsAddSide( const UnicodeString &name, Color color, Int units
 	entry.index = -1;
 	entry.name = name;
 	entry.color = color;
+	entry.nameColor = UIStyle::readable( color );
 	entry.winner = FALSE;
 	entry.stats[ SUMMARY_UNITS_BUILT ] = unitsBuilt;
 	entry.stats[ SUMMARY_UNITS_LOST ] = unitsLost;
@@ -1101,6 +1127,9 @@ void ScoreScreenGraphsShutdown( void )
 	for( Int tab = 0; tab < GRAPH_TAB_COUNT; tab++ )
 		TheDisplayStringManager->freeDisplayString( s_tabText[ tab ] );
 	TheDisplayStringManager->freeDisplayString( s_toggleText );
+	TheDisplayStringManager->freeDisplayString( s_title );
+	TheDisplayStringManager->freeDisplayString( s_wordmark[ 0 ] );
+	TheDisplayStringManager->freeDisplayString( s_wordmark[ 1 ] );
 	TheWindowManager->winDestroy( s_panel );
 	s_panel = NULL;
 	s_players.clear();
