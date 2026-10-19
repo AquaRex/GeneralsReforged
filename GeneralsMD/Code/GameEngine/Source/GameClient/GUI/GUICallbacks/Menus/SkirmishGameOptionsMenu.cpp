@@ -868,8 +868,9 @@ void positionStartSpots( GameInfo *myGame, GameWindow *buttonMapStartPositions[]
 	positionStartSpots(localMapFname, buttonMapStartPositions, mapWindow);	
 }
 
-// An open start spot draws as the button it is; a taken one is a solid disc in its team's colour with
-// the seat's number on it in black or white, whichever reads better on that colour.  The colour is
+// A start spot draws as the button it is; a taken one then has its dark middle filled with its team's
+// colour, the blue ring left as it was, and the seat's number on it in black or white, whichever reads
+// better on that colour.  The colour is
 // kept here by window, not in the button's user data, which the push button's own draw reads as its
 // PushButtonData.  The skirmish, LAN or online room and the load screen each own one set of spots,
 // so two sets cover every screen that shows them.
@@ -904,17 +905,18 @@ static StartSpotFill *startSpotFill( GameWindow *spot )
 
 static void drawStartSpot( GameWindow *window, WinInstanceData *instData )
 {
+	theStartSpotButtonDraw( window, instData );
 	const Color fill = startSpotFill( window )->fill;
 	if ( fill == 0 )
-	{
-		theStartSpotButtonDraw( window, instData );
 		return;
-	}
 	Int x, y, width, height;
 	window->winGetScreenPosition( &x, &y );
 	window->winGetSize( &width, &height );
+	// the stock spot's dark middle is about 62% of the button, inside its blue ring: colour only that
+	const Int insetX = width * 19 / 100;
+	const Int insetY = height * 19 / 100;
 	TheDisplay->drawImage( TheMappedImageCollection->findImageByName( "ReforgedLobbySpot" ),
-		x, y, x + width, y + height, fill );
+		x + insetX, y + insetY, x + width - insetX, y + height - insetY, fill );
 	DisplayString *number = instData->getTextDisplayString();
 	// the number in the bold of the button's own face, so it holds up on a bright disc
 	GameFont *font = number->getFont();
