@@ -1313,6 +1313,7 @@ private:
 	PartitionCell*	m_cells;					///< array of cells
 	PartitionData*	m_dirtyModules;
 	Bool						m_updatedSinceLastReset;	///< Used to force a return of OBJECTSHROUD_INVALID before update has been called.
+	Bool						m_cellsFromSave;					///< see isKeepingCellsFromSave
 
 	std::queue<SightingInfo *> m_pendingUndoShroudReveals;	///< Anything can queue up an Undo to happen later. This is a queue, because "later" is a constant
 
@@ -1410,6 +1411,15 @@ public:
 	void unRegisterGhostObject (GhostObject *object);	///< release partition data held for ghost object.
 
 	void processEntirePendingUndoShroudRevealQueue(); ///< process every pending one regardless of timestamp
+
+	/** A load of a save from version 3 on has every cell's shroud, air sight, threat and value as
+			saved, each object's last look, shroud, threat and value with them, and the undo queue.  The
+			first update after it only notes the cell each object stands in: the cell change it sees for
+			every object would otherwise undo each sighting late, through the queue, and do it again at
+			once, so every looker counted twice for a few seconds and a look the save did not have was
+			added.  GameState clears it again after that update. */
+	Bool isKeepingCellsFromSave( void ) const { return m_cellsFromSave; }
+	void stopKeepingCellsFromSave( void ) { m_cellsFromSave = FALSE; }
 
 	/// return the number of PartitionCells in the x-dimension.
 	Int getCellCountX() { DEBUG_ASSERTCRASH(m_cellCountX != 0, ("partition not inited")); return m_cellCountX; }

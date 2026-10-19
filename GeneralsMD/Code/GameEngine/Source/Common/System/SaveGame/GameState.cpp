@@ -1664,6 +1664,10 @@ void GameState::gameStatePostProcessLoad( void )
 
 	// evil... must ensure this is updated prior to the script engine running the first time.
 	ThePartitionManager->update();
+	ThePartitionManager->stopKeepingCellsFromSave();
+
+	// last, so nothing the load did can draw from the stream after it is put back
+	TheGameLogic->restoreLoadedRandomState();
 
 }  // end loadPostProcess
 

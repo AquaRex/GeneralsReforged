@@ -40,6 +40,7 @@
 #include "Common/Snapshot.h"
 #include "Common/STLTypedefs.h"
 #include "Common/ObjectStatusTypes.h"
+#include "Common/RandomValue.h"
 #include "GameNetwork/NetworkDefs.h"
 #include "GameLogic/CRCSnapshotRing.h"
 #include "Common/STLTypedefs.h"
@@ -313,6 +314,11 @@ public:
 			and carried by a save. */
 	Int getSupplyPileLimit( void ) const { return m_supplyPileLimit; }
 
+	/** A save carries the logic random stream as it stood, but the load itself draws from the stream
+			and the engine reset before it reseeded from the clock.  GameState calls this after every
+			block's post-process, the last thing a load does, so play goes on from the saved stream. */
+	void restoreLoadedRandomState( void );
+
 #ifdef DUMP_PERF_STATS
 	void getAIMetricsStatistics( UnsignedInt *numAI, UnsignedInt *numMoving, UnsignedInt *numAttacking, UnsignedInt *numWaitingForPath, UnsignedInt *overallFailedPathfinds );
 	void resetOverallFailedPathfinds() { m_overallFailedPathfinds = 0; }
@@ -458,6 +464,14 @@ private:
 	};
 	std::vector<PendingTechBuilding> m_pendingTechBuildings;	///< in the order they died, which every machine agrees on
 	void techRespawnTick( void );
+
+	/// the logic random stream a save carried, put back once the whole load is done (restoreLoadedRandomState)
+	GameLogicRandomState m_loadedRandomState;
+	Bool m_loadedRandomPending;
+
+	/// the sleepy update heap as a save wrote it, object and behavior module index per entry, for loadPostProcess
+	std::vector< std::pair< ObjectID, Int > > m_loadedSleepyOrder;
+	Bool m_loadedSleepyPending;
 	LoadScreen *getLoadScreen( Bool loadSaveGame );
 	LoadScreen *m_loadScreen;
 	Bool m_gamePaused;

@@ -268,6 +268,8 @@ GameLogic::GameLogic( void )
 	m_incomeSharing = INCOME_SHARING_OFF;
 	m_techRespawnDelay = 0;
 	m_supplyPileLimit = 0;
+	m_loadedRandomPending = FALSE;
+	m_loadedSleepyPending = FALSE;
 	m_gamePaused = FALSE;
 	m_inputEnabledMemory = TRUE;
 	m_mouseVisibleMemory = TRUE;
@@ -458,6 +460,11 @@ void GameLogic::reset( void )
 {
 	m_thingTemplateBuildableOverrides.clear();
 	m_controlBarOverrides.clear();
+
+	// a load that failed part way must not hand its stream or heap order to the next one
+	m_loadedRandomPending = FALSE;
+	m_loadedSleepyPending = FALSE;
+	m_loadedSleepyOrder.clear();
 
 	// set the hash to be rather large. We need to optimize this value later.
 //	m_objHash.clear();
@@ -5974,13 +5981,14 @@ void GameLogic::prepareLogicForObjectLoad( void )
 	* 15: xfer m_incomeSharing
 	* 16: xfer m_techRespawnDelay and m_pendingTechBuildings
 	* 17: xfer m_supplyPileLimit
+	* 18: xfer the logic random stream and the pathfinder's request queue and flow maps
 	*/
 // ------------------------------------------------------------------------------------------------
 void GameLogic::xfer( Xfer *xfer )
 {
 
 	// version
-	const XferVersion currentVersion = 17;
+	const XferVersion currentVersion = 18;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -6404,7 +6412,66 @@ void GameLogic::xfer( Xfer *xfer )
   {
     m_supplyPileLimit = 0;
   }
+
+  // Without the stream two loads of one save go on differently: the engine reset before the load
+  // seeded it from the clock.  A save older than 18 keeps that.
+  if ( version >= 18 )
+  {
+    GameLogicRandomState state = GetGameLogicRandomState();
+    for ( Int i = 0; i < 6; ++i )
+      xfer->xferUnsignedInt( &state.seed[ i ] );
+    xfer->xferUnsignedInt( &state.baseSeed );
+    if ( xfer->getXferMode() == XFER_LOAD )
+    {
+      m_loadedRandomState = state;
+      m_loadedRandomPending = TRUE;
+    }
+
+    TheAI->pathfinder()->xferFlowState( xfer );
+
+    // The sleepy update heap as it stands.  Modules due on the same frame and phase run in the order
+    // the heap gives them up, which depends on how it was built; a heap rebuilt from the object list
+    // on load runs them in another order than the game that was saved.
+    UnsignedInt sleepyCount = (UnsignedInt)m_sleepyUpdates.size();
+    xfer->xferUnsignedInt( &sleepyCount );
+    if ( xfer->getXferMode() == XFER_SAVE )
+    {
+      std::map< UpdateModulePtr, std::pair< ObjectID, Int > > where;
+      for ( Object *owner = getFirstObject(); owner; owner = owner->getNextObject() )
+      {
+        Int moduleIndex = 0;
+        for ( BehaviorModule **b = owner->getBehaviorModules(); *b; ++b, ++moduleIndex )
+          if ( (*b)->getUpdate() )
+            where[ (UpdateModulePtr)( (*b)->getUpdate() ) ] = std::make_pair( owner->getID(), moduleIndex );
+      }
+      for ( UnsignedInt i = 0; i < sleepyCount; ++i )
+      {
+        std::pair< ObjectID, Int > entry = where[ m_sleepyUpdates[ i ].module ];
+        xfer->xferObjectID( &entry.first );
+        xfer->xferInt( &entry.second );
+      }
+    }
+    else
+    {
+      m_loadedSleepyOrder.resize( sleepyCount );
+      for ( UnsignedInt i = 0; i < sleepyCount; ++i )
+      {
+        xfer->xferObjectID( &m_loadedSleepyOrder[ i ].first );
+        xfer->xferInt( &m_loadedSleepyOrder[ i ].second );
+      }
+      m_loadedSleepyPending = TRUE;
+    }
+  }
 }  // end xfer
+
+// ------------------------------------------------------------------------------------------------
+void GameLogic::restoreLoadedRandomState( void )
+{
+  if ( !m_loadedRandomPending )
+    return;
+  SetGameLogicRandomState( m_loadedRandomState );
+  m_loadedRandomPending = FALSE;
+}
 
 // ------------------------------------------------------------------------------------------------
 /** Load post process entry point */
@@ -6440,6 +6507,24 @@ void GameLogic::loadPostProcess( void )
 		now = 1;
 #endif
 
+	// a save from version 18 on gives the heap entry by entry, which is a heap already
+	const Bool sleepyFromSave = m_loadedSleepyPending;
+	if( sleepyFromSave )
+	{
+		for( std::vector< std::pair< ObjectID, Int > >::const_iterator it = m_loadedSleepyOrder.begin(); it != m_loadedSleepyOrder.end(); ++it )
+		{
+			Object *owner = findObjectByID( it->first );
+			if( owner == NULL )
+				throw SC_INVALID_DATA;
+			UpdateModulePtr u = (UpdateModulePtr)( owner->getBehaviorModules()[ it->second ]->getUpdate() );
+			SleepyEntry e = { u->friend_getPriority(), u };
+			m_sleepyUpdates.push_back( e );
+			u->friend_setIndexInLogic( m_sleepyUpdates.size() - 1 );
+		}
+		m_loadedSleepyOrder.clear();
+		m_loadedSleepyPending = FALSE;
+	}
+
 	// go through all objects, examine each update module and put it on the appropriate update list
 	for( obj = getFirstObject(); obj; obj = obj->getNextObject() )
 	{
@@ -6455,7 +6540,11 @@ void GameLogic::loadPostProcess( void )
 #endif
 			if (!u)
 				continue;
-			
+
+			// already on the heap the save gave
+			if (sleepyFromSave && u->friend_getIndexInLogic() != -1)
+				continue;
+
 			DEBUG_ASSERTCRASH(u->friend_getIndexInLogic() == -1, ("Hmm, expected index to be -1 here"));
 
 			// check each update module
@@ -6473,17 +6562,23 @@ void GameLogic::loadPostProcess( void )
 				u->friend_setNextCallFrame(now);
 #endif
 			{
+				if (sleepyFromSave)
+				{
+					pushSleepyUpdate(u);
+					continue;
+				}
 				SleepyEntry e = { u->friend_getPriority(), u };
 				m_sleepyUpdates.push_back(e);
 				u->friend_setIndexInLogic(m_sleepyUpdates.size() - 1);
 			}
-				
+
 		}  // end for, u
 
 	}  // end for, obj
 
 	// re-sort the priority queue all at once now that all modules are on it
-	remakeSleepyUpdate();
+	if (!sleepyFromSave)
+		remakeSleepyUpdate();
 
 }  // end loadPostProcess
 

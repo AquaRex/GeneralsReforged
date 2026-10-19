@@ -2276,10 +2276,11 @@ void PartitionData::updateCellsTouched()
 	const PartitionCell *currentCell = ThePartitionManager->getCellAt( currentCellIndexX, currentCellIndexY );
 	if(obj && currentCell != m_lastCell )
 	{
-		// To not expose PartitionCells, he will think in terms of points.  He will 
-		// unlook at a point and look at the new point.  We do the rounding and the 
+		// To not expose PartitionCells, he will think in terms of points.  He will
+		// unlook at a point and look at the new point.  We do the rounding and the
 		// changing into PartitionCells
-		obj->onPartitionCellChange(); 
+		if( !ThePartitionManager->isKeepingCellsFromSave() )
+			obj->onPartitionCellChange();
 		m_lastCell = currentCell;
 	}
 
@@ -2770,6 +2771,7 @@ PartitionManager::PartitionManager()
 	m_worldExtents.hi.zero();
 	m_dirtyModules = NULL;
 	m_updatedSinceLastReset = false;
+	m_cellsFromSave = FALSE;
 #ifdef FASTER_GCO
 	m_maxGcoRadius = 0;
 #endif
@@ -2899,6 +2901,7 @@ void PartitionManager::reset()
 void PartitionManager::shutdown()
 {
 	m_updatedSinceLastReset = false;
+	m_cellsFromSave = FALSE;
 	ThePartitionManager->removeAllDirtyModules();
 
 #ifdef _DEBUG
@@ -2970,19 +2973,22 @@ void PartitionManager::update()
 				dirty->friend_updateCellsTouched();
 			}
 
-			if (collideEm && !dirty->getObject()->isKindOf(KINDOF_IMMOBILE))
+			// the update a load ends with only puts every object back in its cells: the collisions
+			// and the queued unlooks were the saved frame's, and the next frame does its own
+			if (collideEm && !dirty->getObject()->isKindOf(KINDOF_IMMOBILE) && !m_cellsFromSave)
 			{
 				dirty->addPossibleCollisions(&ctList);
 			}
 		}
-		
+
 		ctList.processContactList();
 #ifdef INTENSE_DEBUG
 		DEBUG_ASSERTLOG(cc==0,("updated partition info for %d objects\n",cc));
 #endif
 		TheContactList = NULL;
 
-		processPendingUndoShroudRevealQueue();
+		if (!m_cellsFromSave)
+			processPendingUndoShroudRevealQueue();
 	}
 
 #if defined(_DEBUG) || defined(_INTERNAL)
@@ -5175,15 +5181,20 @@ void PartitionManager::crc( Xfer *xfer )
 	* Version Info:
 	* 1: Initial version
 	* 2: m_pendingUndoShroudReveals stores Unlooks waiting to happen.
+	* 3: the cells are kept as saved through the update that ends the load
 	*/
 // ------------------------------------------------------------------------------------------------
 void PartitionManager::xfer( Xfer *xfer )
 {
 
 	// version
-	XferVersion currentVersion = 2;
+	XferVersion currentVersion = 3;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
+
+	// version 3 writes nothing new: it says the objects carry their threat and value (Object 12)
+	if( xfer->getXferMode() == XFER_LOAD )
+		m_cellsFromSave = version >= 3;
 
 	// cell size information
 	Real cellSize = m_cellSize;

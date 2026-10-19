@@ -35,6 +35,7 @@
 #include "Common/PerfTimer.h"
 #include "Common/Player.h"
 #include "Common/CRCDebug.h"
+#include "Common/GameState.h"
 #include "Common/GlobalData.h"
 #include "Common/LatchRestore.h"	 
 #include "Common/ThingTemplate.h"
@@ -397,7 +398,9 @@ void Path::xfer( Xfer *xfer )
 {
   // version
 	// 2: the cached point on the path
-  XferVersion currentVersion = 2;
+	// 3: each node's direction and distance to its next optimized node, as cached.  A node moved
+	//    after its link was set keeps the old values, and computePointOnPath reads them.
+  XferVersion currentVersion = 3;
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
@@ -421,11 +424,16 @@ void Path::xfer( Xfer *xfer )
 			Bool canOpt = node->getCanOptimize();
 			xfer->xferBool(&canOpt);
 			Int id = -1;
-			if (node->getNextOptimized()) {
+			Coord2D optDir;
+			Real optDist;
+			if (node->getNextOptimized(&optDir, &optDist)) {
 				id = node->getNextOptimized()->m_id;
 			}
 			xfer->xferInt(&id);
-			count--; 
+			xfer->xferReal(&optDir.x);
+			xfer->xferReal(&optDir.y);
+			xfer->xferReal(&optDist);
+			count--;
 			node = node->getPrevious();
 		}
 		DEBUG_ASSERTCRASH(count==0, ("Wrong data count"));
@@ -443,6 +451,13 @@ void Path::xfer( Xfer *xfer )
 			xfer->xferBool(&canOpt);
 			Int optID = -1;
 			xfer->xferInt(&optID);
+			Coord2D optDir = { 0.0f, 0.0f };
+			Real optDist = 0.0f;
+			if (version >= 3) {
+				xfer->xferReal(&optDir.x);
+				xfer->xferReal(&optDir.y);
+				xfer->xferReal(&optDist);
+			}
 			PathNode *node = newInstance(PathNode);
 			node->m_id = nodeId;
 			node->setPosition(&pos);
@@ -461,6 +476,8 @@ void Path::xfer( Xfer *xfer )
 				m_pathTail = node;
 			if (optNode) {
 				node->setNextOptimized(optNode);
+				if (version >= 3)
+					node->friend_setNextOptimizedCache(optDir, optDist);
 			}
 			count--;
 		}
@@ -469,7 +486,7 @@ void Path::xfer( Xfer *xfer )
 	xfer->xferBool(&m_isOptimized);
 	Int obsolete1 = 0;
 	xfer->xferInt(&obsolete1);	
-	UnsignedInt obsolete2;
+	UnsignedInt obsolete2 = 0;	// was written uninitialised: two saves of one path differed by stack garbage
 	xfer->xferUnsignedInt(&obsolete2);
 	xfer->xferBool(&m_blockedByAlly);
 
@@ -6076,10 +6093,14 @@ void Pathfinder::newMap( void )
 	}
 	allocateFlowMaps();
 	classifyMap();
-	// Add existing objects.
+	// Add existing objects.  Not a plan still waiting for its builder: it goes down with the first
+	// percent of work (Object::setConstructionPercent), and a loaded game, which comes through here,
+	// walled its builder out of a site the game that was saved still walked across.
 	Object *obj;
 	for( obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
 	{
+		if( Object_isAwaitingBuilder( obj->testStatus( OBJECT_STATUS_UNDER_CONSTRUCTION ), obj->getConstructionPercent() ) )
+			continue;
 		classifyObjectFootprint(obj, true);
 	}
 
@@ -13236,18 +13257,57 @@ void Pathfinder::xfer( Xfer *xfer )
 //-----------------------------------------------------------------------------
 void Pathfinder::loadPostProcess( void )
 {
-	/* None of the three flow maps is saved, and only one of them needs to be.  Clearance is a
-		 measure of the map, so it is simply recomputed from the map that has just been loaded and
-		 comes out identical to the one the save was taken from.  Traffic and claims are a few
-		 seconds of history that the game rebuilds by playing: a loaded game starts with nobody
-		 jammed and nobody's plan on the map, and is back to the same state within a second or two.
-		 The cost of that is a unit or two picking a marginally different route just after a load,
-		 which is a single-player concern - Generals has no mid-game save in a network match, so
-		 there is no second machine to disagree with. */
-	buildClearance();
-	resetClaims();
-	m_numTrafficCells = 0;
-	if (m_traffic)
-		memset(m_traffic, 0, (m_extent.hi.x+1)*(m_extent.hi.y+1)*sizeof(UnsignedByte));
 
 }  // end loadPostProcess
+
+//-----------------------------------------------------------------------------
+/** What the pathfinder carries from one frame to the next beyond the map itself: the queue of
+	* units waiting for a path, and the three flow maps.  The map loads with the save and the objects
+	* put themselves back on it, but these are history, and a loaded game that rebuilt them from
+	* nothing chose other routes for the first seconds than the game that was saved.  GameLogic
+	* writes this after the objects, since loading them touches the same maps. */
+void Pathfinder::xferFlowState( Xfer *xfer )
+{
+	xfer->xferUser( m_queuedPathfindRequests, sizeof( ObjectID ) * PATHFIND_QUEUE_LEN );
+	xfer->xferInt( &m_queuePRHead );
+	xfer->xferInt( &m_queuePRTail );
+	xfer->xferInt( &m_cumulativeCellsAllocated );
+	if( xfer->getXferMode() == XFER_LOAD )
+	{
+		// queueForPath turns away a unit already waiting by this, so it has to say who is
+		m_isQueuedForPath.assign( m_isQueuedForPath.size(), false );
+		for( Int slot = m_queuePRHead; slot != m_queuePRTail; slot = ( slot + 1 ) % PATHFIND_QUEUE_LEN )
+		{
+			const size_t id = (size_t)m_queuedPathfindRequests[ slot ];
+			if( id >= m_isQueuedForPath.size() )
+				m_isQueuedForPath.resize( id + 1024, false );
+			m_isQueuedForPath[ id ] = true;
+		}
+	}
+
+	const Int cells = (m_extent.hi.x+1) * (m_extent.hi.y+1);
+	Int savedCells = cells;
+	xfer->xferInt( &savedCells );
+	if( savedCells != cells )
+		throw SC_INVALID_DATA;
+
+	xfer->xferUser( m_clearance, cells * sizeof( UnsignedByte ) );
+	xfer->xferBool( &m_clearanceDirty );
+	xfer->xferUnsignedInt( &m_clearanceFrame );
+
+	xfer->xferUser( m_traffic, cells * sizeof( UnsignedByte ) );
+	xfer->xferInt( &m_numTrafficCells );
+	if( m_numTrafficCells < 0 || m_numTrafficCells > PF_TRAFFIC_CELLS )
+		throw SC_INVALID_DATA;
+	if( m_numTrafficCells > 0 )
+		xfer->xferUser( m_trafficCells, m_numTrafficCells * sizeof( Int ) );
+	xfer->xferUnsignedInt( &m_trafficDecayFrame );
+
+	for( Int i = 0; i < PF_CLAIM_TABLE_SIZE; ++i )
+	{
+		xfer->xferInt( &m_claims[ i ].m_cell );
+		xfer->xferUnsignedInt( &m_claims[ i ].m_bucket );
+		xfer->xferUnsignedShort( &m_claims[ i ].m_weight );
+	}
+	xfer->xferUser( m_claimTouch, cells * sizeof( UnsignedShort ) );
+}

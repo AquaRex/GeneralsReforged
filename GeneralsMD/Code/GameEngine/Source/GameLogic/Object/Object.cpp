@@ -4438,13 +4438,14 @@ void Object::crc( Xfer *xfer )
 	* 9: Extra sighting for reveal to all with different range units
 	* 10: each player's memory of it while it is out of their sight
 	* 11: the cached angle, which the matrix does not give back bit for bit
+	* 12: the last threat and value sightings
 	*/
 //-------------------------------------------------------------------------------------------------
 void Object::xfer( Xfer *xfer )
 {
 
 	// version
-	const XferVersion currentVersion = 11;
+	const XferVersion currentVersion = 12;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -4883,9 +4884,27 @@ void Object::xfer( Xfer *xfer )
 	if (version >= 5)
 	{
 		xfer->xferBool(&m_isReceivingDifficultyBonus);
-	} 
+	}
 	else
 		m_isReceivingDifficultyBonus = FALSE;
+
+	// The partition's threat and value maps are not saved, they are the sum of what every object last
+	// put on them.  So each object carries its own part and puts it back, and the load no longer
+	// has every object take its old part off and add a new one where it stands (PartitionManager::xfer).
+	if (version >= 12)
+	{
+		xfer->xferSnapshot( m_partitionLastThreat );
+		xfer->xferSnapshot( m_partitionLastValue );
+		if (xfer->getXferMode() == XFER_LOAD)
+		{
+			if (!m_partitionLastThreat->isInvalid())
+				ThePartitionManager->doThreatAffect( m_partitionLastThreat->m_where.x, m_partitionLastThreat->m_where.y,
+					m_partitionLastThreat->m_howFar, m_partitionLastThreat->m_data, m_partitionLastThreat->m_forWhom );
+			if (!m_partitionLastValue->isInvalid())
+				ThePartitionManager->doValueAffect( m_partitionLastValue->m_where.x, m_partitionLastValue->m_where.y,
+					m_partitionLastValue->m_howFar, m_partitionLastValue->m_data, m_partitionLastValue->m_forWhom );
+		}
+	}
 
 }  // end xfer
 

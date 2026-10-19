@@ -3936,6 +3936,12 @@ static void doPowerDisable( Object *obj, void *userData )
 //-------------------------------------------------------------------------------------------------
 void Player::onPowerBrownOutChange( Bool brownOut )
 {
+	// A load puts every building's power back one by one, and each step would brown the player out
+	// or in again: the radar flag and every powered object's disabled state, which the save already
+	// holds as they were, came out as the last step left them.
+	if( TheGameState->isInLoadGame() )
+		return;
+
 	// Everything that changes due to Player's power supply goes in here.
 	if( brownOut )
 		disableRadar();
@@ -4769,7 +4775,11 @@ void Player::xfer( Xfer *xfer )
 	if( xfer->getXferMode() == XFER_SAVE )
 	{
 
-		for( upgrade = m_upgradeList; upgrade; upgrade = upgrade->friend_getNext() )
+		// back to front: loading prepends each one (addUpgrade), which puts them back in this order
+		Upgrade *last = m_upgradeList;
+		while( last && last->friend_getNext() )
+			last = last->friend_getNext();
+		for( upgrade = last; upgrade; upgrade = upgrade->friend_getPrev() )
 		{
 
 			// write upgrade name

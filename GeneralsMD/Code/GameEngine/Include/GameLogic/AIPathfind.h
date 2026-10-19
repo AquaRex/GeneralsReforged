@@ -168,7 +168,10 @@ public:
 	
 	/// given a node, append to this node
 	void append( PathNode *list );
-	
+
+	/// Path::xfer puts back the direction and distance to the next optimized node exactly as saved
+	void friend_setNextOptimizedCache( const Coord2D &dir, Real dist ) { m_nextOptiDirNorm2D = dir; m_nextOptiDist2D = dist; }
+
 public:
 	mutable Int					m_id; // Used in Path::xfer() to save & recreate the path list.
 
@@ -920,6 +923,7 @@ public:
 	void crc( Xfer *xfer );
 	void xfer( Xfer *xfer );
 	void loadPostProcess( void );
+	void xferFlowState( Xfer *xfer );							///< the request queue and the flow maps, which GameLogic saves after the objects
 
 	Bool clientSafeQuickDoesPathExist( const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *to );  ///< Can we build any path at all between the locations	(terrain & buildings check - fast)
 	Bool clientSafeQuickDoesPathExistForUI( const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *to );  ///< Can we build any path at all between the locations	(terrain onlyk - fast)
