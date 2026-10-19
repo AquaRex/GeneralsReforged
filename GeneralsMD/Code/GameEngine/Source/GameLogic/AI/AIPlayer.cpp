@@ -2055,17 +2055,18 @@ static void summarizeStrike( const Coord3D *at, Int playerNdx, Real radius, Int 
 //----------------------------------------------------------------------------------------------------------
 /** What a superweapon aimed at this spot is worth to this player right now.
  *
- * The score itself is EA's - the price of everything inside the blast, with the threat weight and
- * the rung's economy weight on top (getPlayerSuperweaponValue) - and the fade on top of it
+ * The score itself is EA's - the price of everything inside the blast, with the rung's threat and
+ * economy weights on top (getPlayerSuperweaponValue) - and the fade on top of it
  * is what stops the salvo. A negative score belongs to a sneak attack, which reads defended ground
  * as a cost rather than a prize; fading that would flatter exactly the ground it is avoiding.
+ * A Challenge or mission opponent gets neither weight nor fade: it aims as retail did.
  */
 //----------------------------------------------------------------------------------------------------------
 Int AIPlayer::superweaponScore( Coord3D *center, Int playerNdx, Real radius, Bool targetMilitaryUnits )
 {
 	const Int value = getPlayerSuperweaponValue( center, playerNdx, radius, targetMilitaryUnits, m_player->getPlayerIndex(),
-																							 strikeEconomyWeight() );
-	if( value <= 0 )
+																							 strikeEconomyWeight(), strikeThreatWeight() );
+	if( value <= 0 || !isSkirmishAI() )
 		return value;
 
 	const UnsignedInt now = TheGameLogic->getFrame();
@@ -2087,11 +2088,16 @@ Int AIPlayer::superweaponScore( Coord3D *center, Int playerNdx, Real radius, Boo
 }
 
 //----------------------------------------------------------------------------------------------------------
-/** A Challenge or mission opponent aims as the map script was written for: price and threat alone. */
+/** A Challenge or mission opponent aims as the map script was written for: price alone. */
 //----------------------------------------------------------------------------------------------------------
 Real AIPlayer::strikeEconomyWeight( void )
 {
 	return isSkirmishAI() ? getSkillProfile()->m_strikeEconomyWeight : 0.0f;
+}
+
+Real AIPlayer::strikeThreatWeight( void )
+{
+	return isSkirmishAI() ? getSkillProfile()->m_strikeThreatWeight : 0.0f;
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -2227,10 +2233,12 @@ Bool AIPlayer::computeSuperweaponTarget(const SpecialPowerTemplate *power, Coord
 	// the ground his buildings are on: getPlayerStructureBounds measures structures, so the wave
 	// parked on our own doorstep was never a candidate at all - the AI could only ever shoot at
 	// real estate. Offer what we can see of his army as centres too and let the same score choose.
+	// A rung that puts no threat weight on his army (Hard) looks there only when the grid found
+	// nothing of his worth a shot; a Challenge or mission opponent never, as in retail.
 	// ponytail: a value pass per armed unit, which is only paid on a frame a superweapon is ready.
 	//
 	Player *enemy = ThePlayerList->getNthPlayer( playerNdx );
-	if( targetMilitaryUnits && enemy != NULL )
+	if( targetMilitaryUnits && enemy != NULL && isSkirmishAI() && ( strikeThreatWeight() > 0.0f || cash <= 0 ) )
 	{
 		const Int observerNdx = m_player->getPlayerIndex();
 		Player::PlayerTeamList::const_iterator teamIt;
@@ -2319,30 +2327,32 @@ Bool AIPlayer::computeSuperweaponTarget(const SpecialPowerTemplate *power, Coord
 
 }
 
-/** How much an armed target is worth on top of its price, so the shot goes where the threat is. */
-const Real SUPERWEAPON_THREAT_WEIGHT = 2.0f;
-
-/** The least an economy target counts for before the rung's weight: a captured derrick's build price
+/** The least a strategic target counts for before the rung's weight: a captured derrick's build price
 	* is next to nothing and it pays for the whole match.
 	* ponytail: one flat floor for every kind; a per-kind income estimate if derricks still go unhit. */
 const Real SUPERWEAPON_ECONOMY_FLOOR = 1000.0f;
 
-/** What pays for his army or opens his tech: a strike there is felt for the rest of the match. */
-static Bool isEconomyOrTechTarget( const Object *obj )
+/** What builds his army, powers his base, pays for it or opens his tech: a strike there is felt for
+	* the rest of the match, where the army it could have hit is rebuilt in a minute. */
+static Bool isStrategicTarget( const Object *obj )
 {
 	return obj->isKindOf( KINDOF_CASH_GENERATOR ) || obj->isKindOf( KINDOF_FS_SUPPLY_CENTER ) ||
 				 obj->isKindOf( KINDOF_FS_BLACK_MARKET ) || obj->isKindOf( KINDOF_MONEY_HACKER ) ||
 				 obj->isKindOf( KINDOF_FS_INTERNET_CENTER ) || obj->isKindOf( KINDOF_FS_SUPPLY_DROPZONE ) ||
-				 obj->isKindOf( KINDOF_FS_STRATEGY_CENTER ) || obj->isKindOf( KINDOF_FS_ADVANCED_TECH );
+				 obj->isKindOf( KINDOF_FS_STRATEGY_CENTER ) || obj->isKindOf( KINDOF_FS_ADVANCED_TECH ) ||
+				 obj->isKindOf( KINDOF_FS_FACTORY ) || obj->isKindOf( KINDOF_FS_BARRACKS ) ||
+				 obj->isKindOf( KINDOF_FS_WARFACTORY ) || obj->isKindOf( KINDOF_FS_AIRFIELD ) ||
+				 obj->isKindOf( KINDOF_FS_POWER ) || obj->isKindOf( KINDOF_FS_SUPERWEAPON );
 }
 
 //----------------------------------------------------------------------------------------------------------
 /**
- * Get the target value for structures in an area.  economyWeight is what an economy or tech target
- * (isEconomyOrTechTarget) adds on top of its price, in prices.
+ * Get the target value for structures in an area.  economyWeight is what a strategic target
+ * (isStrategicTarget) adds on top of its price, in prices; threatWeight what anything armed adds,
+ * in its combat power.  Both 0 is EA's score.
  */
 Int AIPlayer::getPlayerSuperweaponValue(Coord3D *center, Int playerNdx, Real radius, Bool includeMilitaryUnits, Int observerNdx,
-																				Real economyWeight )
+																				Real economyWeight, Real threatWeight )
 {
 	if (radius < 4*PATHFIND_CELL_SIZE_F) 
 	{
@@ -2421,19 +2431,24 @@ Int AIPlayer::getPlayerSuperweaponValue(Coord3D *center, Int playerNdx, Real rad
 							value = value / 10; // Superweapons cannot be killed by any superweapon, so we don't want to target them as highly. jba.
 					}
 					//
-					// What a superweapon is for. Price alone ranks a supply stash above the tank
-					// column parked beside it, which is why these shots landed in the money and not
-					// in the army. What can shoot is worth several times its price to be rid of:
-					// aiCombatPower reads ThingTemplate's ThreatValue where the data sets it and
-					// falls back on cost, the same weighing the retreat and the counter score use.
+					// The rung's threat weight: what can shoot is worth this many times its combat
+					// power on top of its price (aiCombatPower reads the ThreatValue where the data
+					// sets it and falls back on cost). At 2 on every rung it sent nearly every strike
+					// at the army, which the player rebuilds in a minute; Easy keeps that, Medium
+					// halves it and Hard drops it.
 					//
-					if( includeMilitaryUnits )
-						value += aiCombatPower( pObj ) * SUPERWEAPON_THREAT_WEIGHT;
+					if( includeMilitaryUnits && threatWeight > 0.0f )
+						value += aiCombatPower( pObj ) * threatWeight;
 
-					// ... and the threat weight alone sent every strike at the army. What pays for
-					// it, and the building that opens the next tier, is the hit felt all match.
-					if( economyWeight > 0.0f && !applyNegValue && isEconomyOrTechTarget( pObj ) )
-						value += economyWeight * max( (Real)pObj->getTemplate()->calcCostToBuild( pPlayer ), SUPERWEAPON_ECONOMY_FLOOR );
+					// What builds and pays for the army, powers the base and opens the next tier is
+					// the hit felt all match. A superweapon counts at the floor rather than its price:
+					// EA's note above holds, a strike damages one and seldom kills it, and its power
+					// plants are what switch it off.
+					if( economyWeight > 0.0f && !applyNegValue && isStrategicTarget( pObj ) )
+					{
+						const Real price = pObj->isKindOf( KINDOF_FS_SUPERWEAPON ) ? 0.0f : (Real)pObj->getTemplate()->calcCostToBuild( pPlayer );
+						value += economyWeight * max( price, SUPERWEAPON_ECONOMY_FLOOR );
+					}
 
 					if( applyNegValue )
 					{
@@ -7312,7 +7327,8 @@ void AIPlayer::buildAsap( const ThingTemplate *tmpl )
 	* ten seconds, reaches 75: twelve and a half minutes, or seven and a half once the enemy owns a tech
 	* building, and then one copy. A player who went seven Hard AIs against one saw a single nuke in the
 	* whole match. The owner's call: no clock. As soon as a dozer can build a superweapon, the money
-	* is in the bank and DEFENSES_PER_SUPERWEAPON guns stand, the first one goes up. More follow as the
+	* is in the bank and the rung's ration of guns stands (m_superweaponDefenses, DEFENSES_PER_SUPERWEAPON
+	* here), the first one goes up. More follow as the
 	* base grows, one per that many guns, as the guns grow with the army; unrationed, they took the money
 	* the army needed. That ration binds computer players only (Player::canBuildMoreOfType), and the
 	* lobby's superweapon setting and Pro Rules still bind beside it; canMakeUnit asks all three.
@@ -7433,7 +7449,7 @@ Bool AIPlayer::richestGroundNear( const Coord3D *spot, Real radius, Coord3D *aim
 			{
 				Player *other = ThePlayerList->getNthPlayer( p );
 				if( other != m_player && m_player->getRelationship( other->getDefaultTeam() ) == ENEMIES )
-					value += getPlayerSuperweaponValue( &pos, p, radius, TRUE, me );
+					value += getPlayerSuperweaponValue( &pos, p, radius, TRUE, me, strikeEconomyWeight(), strikeThreatWeight() );
 			}
 			const Real distance = sqrt( (Real)(x * x + y * y) ) * step;
 			const Real worth = value * (1.0f - 0.5f * distance / BEAM_STEER_REACH);

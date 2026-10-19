@@ -3383,9 +3383,9 @@ Bool UnitCapRefuses( Int unitsTowardCap, Int unitsItAdds, UnsignedInt unitCap )
 }
 
 //=============================================================================
-Bool SuperweaponDefenseCapRefuses( Int finishedDefenses, Int superweapons )
+Bool SuperweaponDefenseCapRefuses( Int finishedDefenses, Int superweapons, Int defensesPerSuperweapon )
 {
-  return superweapons >= finishedDefenses / DEFENSES_PER_SUPERWEAPON;
+  return defensesPerSuperweapon > 0 && superweapons >= finishedDefenses / defensesPerSuperweapon;
 }
 
 Bool DefenseCountsForSuperweapons( Int buildCost )
@@ -3564,12 +3564,13 @@ Bool Player::canBuildMoreOfType( const ThingTemplate *whatToBuild, Int unitsPerO
   {
     SuperweaponDefenseCount count = { 0, 0 };
     iterateObjects( countSuperweaponDefenses, &count );
-    // a Tech computer's first superweapon is its plan, and a GLA Air one's SCUD Storm, and waits for a few
-    // guns rather than twelve, Easy the most
+    // a Tech computer's first superweapon is its plan, and a GLA Air one's SCUD Storm, and waits for
+    // at most this many guns, whatever the rung's own ration asks
     static const Int TECH_FIRST_DEFENSES[ AISKILL_COUNT ] = { 8, 6, 4 };
-    const Bool techFirst = count.superweapons == 0 && m_ai && m_ai->superweaponIsPlan() &&
+    const Bool techFirst = count.superweapons == 0 && m_ai->superweaponIsPlan() &&
       count.defenses >= TECH_FIRST_DEFENSES[ getAISkillLevel() ];
-    if ( !techFirst && SuperweaponDefenseCapRefuses( count.defenses, count.superweapons ) )
+    if ( !techFirst && SuperweaponDefenseCapRefuses( count.defenses, count.superweapons,
+                                                     m_ai->getSkillProfile()->m_superweaponDefenses ) )
       return false;
   }
 

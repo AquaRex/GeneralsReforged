@@ -475,7 +475,7 @@ protected:
  		* player index and only what that player can see (or, for a building, has ever seen) is
  		* counted; -1 keeps the omniscient answer for a caller that is not a player's own thinking. */
  	static Int getPlayerSuperweaponValue( Coord3D *center, Int playerNdx, Real radius, Bool includeMilitaryUnits = TRUE, Int observerNdx = -1,
-																				Real economyWeight = 0.0f );
+																				Real economyWeight = 0.0f, Real threatWeight = 0.0f );
 // End of aiplayer interface. 
 
 protected:
@@ -536,6 +536,7 @@ protected:
 	/// what a superweapon aimed here is worth, with the shots already on their way taken off
 	Int superweaponScore( Coord3D *center, Int playerNdx, Real radius, Bool targetMilitaryUnits );
 	Real strikeEconomyWeight( void );	///< the rung's m_strikeEconomyWeight for a skirmish AI, 0 for a campaign one
+	Real strikeThreatWeight( void );	///< the rung's m_strikeThreatWeight for a skirmish AI, 0 for a campaign one
 	void noteSuperweaponAim( const Coord3D *pos );	///< remember a spot, so the next shot goes elsewhere
 
 protected:

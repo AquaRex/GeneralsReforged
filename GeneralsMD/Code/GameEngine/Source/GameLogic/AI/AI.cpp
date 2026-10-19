@@ -1305,12 +1305,25 @@ Real AI::getAdjustedVisionRangeForObject(const Object *object, Int factorsToCons
 	* on armed units sent every strike at the army; a strike on the economy is the one a player feels
 	* for the rest of the match.  Easy keeps price alone, Medium doubles it, Hard triples it.
 	*
-	*                      scoutS maxSc decis  cntr  mass   ttk  indiv team infl focus save harv expand guard hoard econ micro  gate  answer massU  bankS  floor payoff upgr    nonc  share maxF fMult push   minPow  siege  beam  strikeE */
+	* strikeT and swDef came in on 2026-10-20, from v3.1.0 players: the computer seldom built a
+	* superweapon and spent the ones it built on their army.  strikeT is the threat weight that was a
+	* flat 2 on every rung; Easy keeps it, Medium halves it, Hard drops it and looks at his army only when
+	* none of his buildings is known.  strikeE now also covers factories, power plants and superweapons
+	* (the last at the 1,000 floor, since a strike seldom kills one), and Medium's went from 1 to 2, Hard's
+	* from 2 to 3.  swDef is the guns each superweapon asks for, 12 on every rung before: over twelve
+	* four-player matches on Twilight Flame the median side peaked at 4 finished guns on Easy, 9 on Medium
+	* and 18 on Hard, so Medium
+	* built 3 superweapons in 48 sides over 25 minutes.  At 6 it built 36, and 29 of its 38 shots landed
+	* mostly on buildings.  Hard's went from 14 of 33 shots mostly on buildings to 23 of 36, and against
+	* Easy from 17 of 30 to 27 of 29.  Easy's 3 is unmeasured in play: its script clock still holds its
+	* first superweapon past 25 minutes, so none was built either way.
+	*
+	*                      scoutS maxSc decis  cntr  mass   ttk  indiv team infl focus save harv expand guard hoard econ micro  gate  answer massU  bankS  floor payoff upgr    nonc  share maxF fMult push   minPow  siege  beam  strikeE strikeT swDef */
 static const AIDifficultyProfile s_defaultSkillLadder[ AISKILL_COUNT ] =
 {
-	/* Easy      */ { 75.0f, 1,  7.0f,  0.00f, FALSE, 0.00f, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE,  FALSE, FALSE,     0, FALSE, FALSE, FALSE, FALSE, FALSE, 120.0f, 6000, 4.0f, 720.0f, 0.05f, 0.05f, 3, 0.0f, 360.0f, 1500.0f,  80.0f, 0.00f, 0.0f },
-	/* Medium    */ { 45.0f, 1,  3.0f,  0.50f, FALSE, 0.35f, TRUE,  FALSE, FALSE, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  6000, FALSE, FALSE, FALSE, FALSE, FALSE,  60.0f, 5000, 2.5f, 420.0f, 0.05f, 0.25f, 5, 3.0f, 300.0f, 2000.0f, 120.0f, 1.00f, 1.0f },
-	/* Hard      */ { 25.0f, 2,  1.5f,  1.00f, TRUE,  0.50f, TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,   4000, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  30.0f, 4000, 1.5f, 180.0f, 0.05f, 1.00f, 8, 2.0f, 240.0f, 4500.0f, 160.0f, 0.25f, 2.0f }
+	/* Easy      */ { 75.0f, 1,  7.0f,  0.00f, FALSE, 0.00f, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE,  FALSE, FALSE,     0, FALSE, FALSE, FALSE, FALSE, FALSE, 120.0f, 6000, 4.0f, 720.0f, 0.05f, 0.05f, 3, 0.0f, 360.0f, 1500.0f,  80.0f, 0.00f, 0.0f, 2.0f, 3 },
+	/* Medium    */ { 45.0f, 1,  3.0f,  0.50f, FALSE, 0.35f, TRUE,  FALSE, FALSE, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  6000, FALSE, FALSE, FALSE, FALSE, FALSE,  60.0f, 5000, 2.5f, 420.0f, 0.05f, 0.25f, 5, 3.0f, 300.0f, 2000.0f, 120.0f, 1.00f, 2.0f, 1.0f, 6 },
+	/* Hard      */ { 25.0f, 2,  1.5f,  1.00f, TRUE,  0.50f, TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,   4000, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  30.0f, 4000, 1.5f, 180.0f, 0.05f, 1.00f, 8, 2.0f, 240.0f, 4500.0f, 160.0f, 0.25f, 3.0f, 0.0f, DEFENSES_PER_SUPERWEAPON }
 };
 
 //-------------------------------------------------------------------------------------------------
@@ -2214,6 +2227,8 @@ void AI::parseSkillLevel(INI *ini, void *instance, void* /*store*/, const void* 
 		{ "SiegeTrail",								INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_siegeTrail ) },
 		{ "BeamSteerSeconds",					INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_beamSteerSeconds ) },
 		{ "StrikeEconomyWeight",			INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_strikeEconomyWeight ) },
+		{ "StrikeThreatWeight",				INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_strikeThreatWeight ) },
+		{ "SuperweaponDefenses",			INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_superweaponDefenses ) },
 		{ NULL, NULL, NULL, 0 }
 	};
 

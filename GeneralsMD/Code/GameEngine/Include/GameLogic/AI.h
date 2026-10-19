@@ -266,7 +266,9 @@ struct AIDifficultyProfile
 
 	// Superweapons
 	Real	m_beamSteerSeconds;							///< how often a firing Particle Cannon's beam is driven onto the richest ground near it; 0 = the retail S curve
-	Real	m_strikeEconomyWeight;					///< what a supply centre, black market, hacker or strategy centre is worth to a strike on top of its price, in prices; 0 = price alone
+	Real	m_strikeEconomyWeight;					///< what a factory, power plant, superweapon, supply centre, black market, hacker or strategy centre is worth to a strike on top of its price, in prices; 0 = price alone
+	Real	m_strikeThreatWeight;						///< what an armed unit or gun is worth to a strike on top of its price, in combat power; 0 = price alone, and his army is a candidate only when none of his buildings is
+	Int		m_superweaponDefenses;					///< finished base defences each superweapon asks for (Player::canBuildMoreOfType); 0 = none
 };
 
 //-------------------------------------------------------------------------------------------------

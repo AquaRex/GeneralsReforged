@@ -12844,6 +12844,18 @@ TEST(the_bank_target_and_the_upgrade_the_army_pays_for)
 	CHECK_EQ( 0.0f, data.m_skill[ AISKILL_EASY ].m_beamSteerSeconds );
 	CHECK( data.m_skill[ AISKILL_MEDIUM ].m_beamSteerSeconds > data.m_skill[ AISKILL_BRUTAL ].m_beamSteerSeconds );
 	CHECK( data.m_skill[ AISKILL_BRUTAL ].m_beamSteerSeconds > 0.0f && data.m_skill[ AISKILL_BRUTAL ].m_beamSteerSeconds < 0.5f );
+	// strikes: the higher the rung, the more a strike looks for his base over his army, and the fewer
+	// guns a lower rung needs before a superweapon, so Easy and Medium can reach one at all
+	for( Int s = 1; s < AISKILL_COUNT; ++s )
+	{
+		const AIDifficultyProfile &lower = data.m_skill[ s - 1 ];
+		const AIDifficultyProfile &upper = data.m_skill[ s ];
+		CHECK( upper.m_strikeEconomyWeight > lower.m_strikeEconomyWeight );
+		CHECK( upper.m_strikeThreatWeight < lower.m_strikeThreatWeight );
+		CHECK( upper.m_superweaponDefenses >= lower.m_superweaponDefenses );
+	}
+	CHECK_EQ( 0.0f, data.m_skill[ AISKILL_BRUTAL ].m_strikeThreatWeight );
+	CHECK_EQ( (Int)DEFENSES_PER_SUPERWEAPON, data.m_skill[ AISKILL_BRUTAL ].m_superweaponDefenses );
 }
 
 
@@ -16327,29 +16339,37 @@ TEST(an_open_dropdown_owns_the_rows_that_hang_past_its_panel)
 	CHECK( !OpenWindowOwnsPoint( TRUE, boxX, boxY, boxWidth, boxHeightOpen, 900, 660 ) );
 }
 
-/* Twelve finished base defences buy one superweapon, twenty-four buy two, whatever mix of silo,
-	 uplink and storm they go to.  Player::canBuildMoreOfType counts and asks this; the lobby's cap is
-	 checked beside it and still refuses on its own. */
+/* On Hard twelve finished base defences buy one superweapon, twenty-four buy two, whatever mix of
+	 silo, uplink and storm they go to; the lower rungs ask for fewer, from their skill profile.
+	 Player::canBuildMoreOfType counts and asks this; the lobby's cap is checked beside it and still
+	 refuses on its own. */
 TEST(twelve_finished_defenses_pay_for_each_superweapon)
 {
-	CHECK_EQ( (Int)DEFENSES_PER_SUPERWEAPON, 12 );
+	const Int H = DEFENSES_PER_SUPERWEAPON;
+	CHECK_EQ( H, 12 );
 
 	// fewer than twelve buys nothing, four included, which bought one before
-	CHECK( SuperweaponDefenseCapRefuses( 0, 0 ) );
-	CHECK( SuperweaponDefenseCapRefuses( 4, 0 ) );
-	CHECK( SuperweaponDefenseCapRefuses( 11, 0 ) );
+	CHECK( SuperweaponDefenseCapRefuses( 0, 0, H ) );
+	CHECK( SuperweaponDefenseCapRefuses( 4, 0, H ) );
+	CHECK( SuperweaponDefenseCapRefuses( 11, 0, H ) );
 
 	// twelve buy the first, and a foundation already down spends it
-	CHECK( !SuperweaponDefenseCapRefuses( 12, 0 ) );
-	CHECK( SuperweaponDefenseCapRefuses( 12, 1 ) );
-	CHECK( SuperweaponDefenseCapRefuses( 23, 1 ) );
+	CHECK( !SuperweaponDefenseCapRefuses( 12, 0, H ) );
+	CHECK( SuperweaponDefenseCapRefuses( 12, 1, H ) );
+	CHECK( SuperweaponDefenseCapRefuses( 23, 1, H ) );
 
 	// twenty-four the second
-	CHECK( !SuperweaponDefenseCapRefuses( 24, 1 ) );
-	CHECK( SuperweaponDefenseCapRefuses( 24, 2 ) );
+	CHECK( !SuperweaponDefenseCapRefuses( 24, 1, H ) );
+	CHECK( SuperweaponDefenseCapRefuses( 24, 2, H ) );
 
 	// losing defences never pulls a standing superweapon down, it only stops the next one
-	CHECK( SuperweaponDefenseCapRefuses( 12, 2 ) );
+	CHECK( SuperweaponDefenseCapRefuses( 12, 2, H ) );
+
+	// a smaller ration buys sooner, and none asks for nothing
+	CHECK( !SuperweaponDefenseCapRefuses( 4, 0, 4 ) );
+	CHECK( SuperweaponDefenseCapRefuses( 4, 1, 4 ) );
+	CHECK( !SuperweaponDefenseCapRefuses( 0, 0, 0 ) );
+	CHECK( !SuperweaponDefenseCapRefuses( 0, 5, 0 ) );
 
 	// a Sneak Attack tunnel costs nothing and buys nothing; a Tunnel Network at 800 does
 	CHECK( !DefenseCountsForSuperweapons( 0 ) );
@@ -16387,8 +16407,8 @@ TEST(superweapon_defense_allowance_binds_computer_players_only)
 	CHECK( SuperweaponNeedsDefenses( AsciiString( "AmericaParticleCannonUplink" ), FALSE, SUPERWEAPONS_LIMIT, TRUE ) );
 
 	// and for a computer a storm's waiting hole still spends the twelve towers it stood on
-	CHECK( SuperweaponDefenseCapRefuses( 12, RebuildHoleHoldsSuperweapon( TRUE, FALSE ) ? 1 : 0 ) );
-	CHECK( !SuperweaponDefenseCapRefuses( 12, RebuildHoleHoldsSuperweapon( FALSE, FALSE ) ? 1 : 0 ) );
+	CHECK( SuperweaponDefenseCapRefuses( 12, RebuildHoleHoldsSuperweapon( TRUE, FALSE ) ? 1 : 0, DEFENSES_PER_SUPERWEAPON ) );
+	CHECK( !SuperweaponDefenseCapRefuses( 12, RebuildHoleHoldsSuperweapon( FALSE, FALSE ) ? 1 : 0, DEFENSES_PER_SUPERWEAPON ) );
 }
 
 /* The superweapon rule is a mode, and what a mode leaves you depends on who you are playing.  The

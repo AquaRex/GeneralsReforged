@@ -154,14 +154,14 @@ Int UnitLimitPerPlayer( Int nonObserverPlayers );
 // Whether a build that adds unitsItAdds (a transport and its payload) goes past the share.  0 is no cap.
 Bool UnitCapRefuses( Int unitsTowardCap, Int unitsItAdds, UnsignedInt unitCap );
 
-// A computer player's superweapons are paid for in base defences: every DEFENSES_PER_SUPERWEAPON
-// finished defences it stands allow it one superweapon, counted across every type (four until
-// the owner raised it to twelve).  A human is held
-// only by the lobby's rule and Pro Rules.  Whether one more is refused,
-// given the finished defences and the superweapons he already has, foundations included.  It sits
-// on top of the lobby's rule and never loosens it.
+// A computer player's superweapons are paid for in base defences: every defensesPerSuperweapon
+// finished defences it stands allow it one superweapon, counted across every type.  The number is
+// the rung's (AIDifficultyProfile::m_superweaponDefenses), DEFENSES_PER_SUPERWEAPON on Hard, and
+// 0 asks for none.  A human is held only by the lobby's rule and Pro Rules.  Whether one more is
+// refused, given the finished defences and the superweapons he already has, foundations included.
+// It sits on top of the lobby's rule and never loosens it.
 enum { DEFENSES_PER_SUPERWEAPON = 12 };
-Bool SuperweaponDefenseCapRefuses( Int finishedDefenses, Int superweapons );
+Bool SuperweaponDefenseCapRefuses( Int finishedDefenses, Int superweapons, Int defensesPerSuperweapon );
 // Only a defence somebody paid for counts.  The Sneak Attack tunnel, its Start and every general's
 // copy are the only FS_BASE_DEFENSE templates with no BuildCost: a power drops them for free.
 Bool DefenseCountsForSuperweapons( Int buildCost );
