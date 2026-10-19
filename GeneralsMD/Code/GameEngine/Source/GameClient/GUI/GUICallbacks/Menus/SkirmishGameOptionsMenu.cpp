@@ -68,6 +68,8 @@
 #include "GameClient/MessageBox.h"
 #include "GameNetwork/GameInfo.h"
 #include "GameNetwork/GUIUtil.h"
+#include "GameClient/Display.h"
+#include "GameClient/Image.h"
 #include "GameNetwork/IPEnumeration.h"
 #include "WWDownload/Registry.h"
 
@@ -847,6 +849,23 @@ void positionStartSpots( GameInfo *myGame, GameWindow *buttonMapStartPositions[]
 	positionStartSpots(localMapFname, buttonMapStartPositions, mapWindow);	
 }
 
+// A start spot draws as the button it is, then a taken one gets a ring a third wider than the spot
+// in the colour its user data holds (a Color, 0 for none).
+static GameWinDrawFunc theStartSpotButtonDraw = NULL;
+static void drawStartSpot( GameWindow *window, WinInstanceData *instData )
+{
+	theStartSpotButtonDraw( window, instData );
+	const Color ring = (Color)(uintptr_t)window->winGetUserData();
+	if ( ring == 0 )
+		return;
+	Int x, y, width, height;
+	window->winGetScreenPosition( &x, &y );
+	window->winGetSize( &width, &height );
+	const Int grow = width / 6;
+	TheDisplay->drawImage( TheMappedImageCollection->findImageByName( "ReforgedLobbyStartRing" ),
+		x - grow, y - grow, x + width + grow, y + height + grow, ring );
+}
+
 void updateMapStartSpots( GameInfo *myGame, GameWindow *buttonMapStartPositions[], Bool onLoadScreen )
 {
 	AsciiString lowerMap = myGame->getMap();
@@ -870,6 +889,12 @@ void updateMapStartSpots( GameInfo *myGame, GameWindow *buttonMapStartPositions[
     if ( buttonMapStartPositions[i] != NULL )
     {
 		  GadgetButtonSetText(buttonMapStartPositions[i], UnicodeString::TheEmptyString);
+		  if ( buttonMapStartPositions[i]->winGetDrawFunc() != drawStartSpot )
+		  {
+			  theStartSpotButtonDraw = buttonMapStartPositions[i]->winGetDrawFunc();
+			  buttonMapStartPositions[i]->winSetDrawFunc( drawStartSpot );
+		  }
+		  buttonMapStartPositions[i]->winSetUserData( NULL );
 		  if (!onLoadScreen)
 		  {
 			  buttonMapStartPositions[i]->winSetTooltip(TheGameText->fetch("TOOLTIP:StartPosition"));
@@ -882,13 +907,14 @@ void updateMapStartSpots( GameInfo *myGame, GameWindow *buttonMapStartPositions[
       continue;
 
 		GameSlot *gs =myGame->getSlot(i);
-		// a taken spot's number wears its team's colour, or the player's without a team; the number
+		// a taken spot wears a ring in its team's colour, or the player's without a team; the number
 		// stays for whoever cannot tell the colours apart
 		const Int spot = onLoadScreen ? gs->getApparentStartPos() : gs->getStartPos();
 		if (spot >= 0 && spot < mmd.m_numPlayers && gs->getPlayerTemplate() > PLAYERTEMPLATE_MIN)
-			buttonMapStartPositions[spot]->winSetEnabledTextColors(
-				gs->getTeamNumber() >= 0 ? LobbyTeamColor(gs->getTeamNumber()) : LobbySeatColor(gs),
-				GameMakeColor(0, 0, 0, 255));
+		{
+			const Color ring = gs->getTeamNumber() >= 0 ? LobbyTeamColor(gs->getTeamNumber()) : LobbySeatColor(gs);
+			buttonMapStartPositions[spot]->winSetUserData((void *)(uintptr_t)ring);
+		}
 		if(onLoadScreen)
 		{
 			if(gs->getApparentStartPos() >=0 && gs->getApparentStartPos() < mmd.m_numPlayers && gs->getPlayerTemplate() > PLAYERTEMPLATE_MIN )

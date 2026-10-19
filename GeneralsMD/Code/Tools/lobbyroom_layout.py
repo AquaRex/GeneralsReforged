@@ -103,6 +103,7 @@ POPOVER_BORDER = (90, 120, 200, 255)
 CARD_COLOR = (8, 12, 26, 200)
 CARD_BORDER = (40, 64, 130, 255)
 EMPTY_COLOR = (48, 54, 76, 255)
+TEAM_SWATCH_BORDER = (150, 160, 190, 255)
 VEIL = (2, 4, 12, 120)
 
 # The personality column: its heading is cloned from the team heading and its combo boxes from the
@@ -284,12 +285,13 @@ def add_seat_windows(layout, menu, container, spec):
     template = need(layout, spec["container"])
     named = lambda kind, seat: "%s.wnd:%s%d" % (menu, kind, seat)
     added = {kind: [] for kind in SEAT_WINDOWS}
+    # a card has its frame; the team swatch an edge light enough to show the black team
+    borders = {"SeatCard": CARD_BORDER, "SeatTeam": TEAM_SWATCH_BORDER}
     for seat in range(SEAT_COUNT):
         for kind in SEAT_WINDOWS:
-            card = kind == "SeatCard"
             added[kind].append(plain_window(template, named(kind, seat), kind == "SeatEmblem",
-                                            CARD_COLOR if card else EMPTY_COLOR,
-                                            CARD_BORDER if card else (0, 0, 0, 0)))
+                                            CARD_COLOR if kind == "SeatCard" else EMPTY_COLOR,
+                                            borders.get(kind, (0, 0, 0, 0))))
     container.children[0:0] = [window for kind in SEAT_WINDOWS for window in added[kind]]
 
 

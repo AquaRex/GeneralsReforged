@@ -125,7 +125,7 @@ void UpdateAIPersonaComboBoxes(GameInfo *myGame, GameWindow *comboPersona[]);
 Bool HandleAIPersonaSelection(GameInfo *myGame, GameWindow *comboPersona[], NameKeyType comboPersonaID[],
 															NameKeyType controlID);
 
-// What a seat row shows beside its combo boxes: a bar and a swatch in the seat's colour, the side's
+// What a seat row shows beside its combo boxes: a bar and a swatch in the seat's colour, the general's
 // flat mark in that colour, a swatch in the team's colour, and in the network rooms a green card for
 // a player who is ready and a gold edge round the host's.  All of it is drawn from the slot on every
 // update and none of it takes input.  A layout without the windows (a stale Run/Window) leaves them

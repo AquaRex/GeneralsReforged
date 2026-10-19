@@ -45,6 +45,8 @@
 #include "GameClient/GameText.h"
 #include "GameClient/Image.h"
 #include "GameClient/Display.h"
+#include "GameClient/DisplayStringManager.h"
+#include "GameClient/GameFont.h"
 #include "GameLogic/GameLogic.h" // SUPERWEAPON_RESTRICT_COUNT
 #include "GameLogic/AI.h" // AIPersonality, for the personality column
 #include "GameNetwork/GameInfo.h"
@@ -904,18 +906,22 @@ static GameWindow *theSeatBar[MAX_SLOTS];
 static GameWindow *theSeatSwatch[MAX_SLOTS];
 static GameWindow *theSeatEmblem[MAX_SLOTS];
 static GameWindow *theSeatTeam[MAX_SLOTS];
+// a mod faction's initials, written on its disc
+static DisplayString *theSeatInitials[MAX_SLOTS];
 static Bool theSeatsShowReady;
 
 // The eight player colours (gold, red, blue, green, orange, sky blue, purple, pink) take every bright
-// hue, so the teams wear pale tints between them: white, tan, mint and lavender, light enough to
-// read as a start spot's number on a dark map.  The number itself is what a colour-blind eye goes by.
+// hue, so the teams go by lightness as much as hue: white, black, brown and a dark teal.  Even with
+// no colour vision at all white, teal, brown and black come out as four different greys, and the
+// spot's number stays besides.
 static const Color theTeamColors[] =
 {
-	GameMakeColor(240, 240, 240, 255),
-	GameMakeColor(215, 175, 110, 255),
-	GameMakeColor(140, 240, 190, 255),
-	GameMakeColor(185, 165, 255, 255),
+	GameMakeColor(245, 245, 245, 255),
+	GameMakeColor(16, 16, 20, 255),
+	GameMakeColor(150, 88, 30, 255),
+	GameMakeColor(0, 128, 128, 255),
 };
+static const Color theInitialsColor = GameMakeColor(16, 20, 32, 255);
 static const Color theSeatEmptyColor = GameMakeColor(48, 54, 76, 255);
 static const Color theSeatUnpickedColor = GameMakeColor(128, 128, 128, 255);
 static const Color theCardColor = GameMakeColor(8, 12, 26, 200);
@@ -937,13 +943,20 @@ Color LobbySeatColor(const GameSlot *slot)
 	return theSeatUnpickedColor;
 }
 
-// The seat's mark, its image drawn in the window's own colour: white art tinted per seat.
+// The seat's mark, its image drawn in the window's own colour: white art tinted per seat.  A mod
+// faction's disc carries its initials, the display string in the window's user data.
 static void drawTintedEmblem(GameWindow *window, WinInstanceData *instData)
 {
 	Int x, y, width, height;
 	window->winGetScreenPosition(&x, &y);
 	window->winGetSize(&width, &height);
 	TheDisplay->drawImage(window->winGetEnabledImage(0), x, y, x + width, y + height, window->winGetEnabledColor(0));
+	DisplayString *initials = (DisplayString *)window->winGetUserData();
+	if (initials->getTextLength() == 0)
+		return;
+	Int textWidth, textHeight;
+	initials->getSize(&textWidth, &textHeight);
+	initials->draw(x + (width - textWidth) / 2, y + (height - textHeight) / 2, theInitialsColor, 0);
 }
 
 void InitLobbySeatVisuals(GameWindow *parent, const char *layoutFilename)
@@ -958,36 +971,72 @@ void InitLobbySeatVisuals(GameWindow *parent, const char *layoutFilename)
 			windows[kind][i] = TheWindowManager->winGetWindowFromId(parent, NAMEKEY(name));
 		}
 	for (Int i = 0; i < MAX_SLOTS; ++i)
-		if (theSeatEmblem[i])
-			theSeatEmblem[i]->winSetDrawFunc(drawTintedEmblem);
+	{
+		if (theSeatEmblem[i] == NULL)
+			continue;
+		theSeatInitials[i] = TheDisplayStringManager->newDisplayString();
+		theSeatEmblem[i]->winSetUserData(theSeatInitials[i]);
+		theSeatEmblem[i]->winSetDrawFunc(drawTintedEmblem);
+	}
 	theSeatsShowReady = strcmp(layoutFilename, "SkirmishGameOptionsMenu.wnd") != 0;
 }
 
 void ShutdownLobbySeatVisuals(void)
 {
 	for (Int i = 0; i < MAX_SLOTS; ++i)
+	{
+		if (theSeatInitials[i])
+			TheDisplayStringManager->freeDisplayString(theSeatInitials[i]);
+		theSeatInitials[i] = NULL;
 		theSeatCard[i] = theSeatBar[i] = theSeatSwatch[i] = theSeatEmblem[i] = theSeatTeam[i] = NULL;
+	}
 }
 
-// A side's crest as a flat shape; Random a question mark, an observer an eye. A mod faction on a
-// side of its own keeps its side icon, drawn untinted.
-static const Image *seatEmblem(Int playerTemplate, Bool *tinted)
+static const Image *lobbyMark(const char *name)
 {
-	*tinted = TRUE;
+	AsciiString imageName;
+	imageName.format("ReforgedLobby%s", name);
+	return TheMappedImageCollection->findImageByName(imageName);
+}
+
+// Up to two letters: the first of the first two words of a faction's name.
+static UnicodeString factionInitials(const UnicodeString &name)
+{
+	UnicodeString initials;
+	Bool wordStart = TRUE;
+	for (Int i = 0; i < name.getLength() && initials.getLength() < 2; ++i)
+	{
+		const WideChar letter = name.getCharAt(i);
+		if (letter == L' ')
+			wordStart = TRUE;
+		else if (wordStart)
+		{
+			initials.concat((WideChar)towupper(letter));
+			wordStart = FALSE;
+		}
+	}
+	return initials;
+}
+
+// The general's own mark ("ReforgedLobby" + his side's name), else his base side's crest; Random a
+// question mark, an observer an eye.  A mod faction on a side of its own gets a plain disc and its
+// initials.
+static const Image *seatEmblem(Int playerTemplate, UnicodeString *initials)
+{
+	initials->clear();
 	if (playerTemplate == PLAYERTEMPLATE_OBSERVER)
-		return TheMappedImageCollection->findImageByName("ReforgedLobbyObserver");
+		return lobbyMark("Observer");
 	const PlayerTemplate *pt = playerTemplate >= 0 ? ThePlayerTemplateStore->getNthPlayerTemplate(playerTemplate) : NULL;
 	if (pt == NULL)
-		return TheMappedImageCollection->findImageByName("ReforgedLobbyRandom");
+		return lobbyMark("Random");
+	const Image *general = lobbyMark(pt->getSide().str());
+	if (general)
+		return general;
 	const AsciiString side = pt->getBaseSide();
 	if (side == "USA" || side == "China" || side == "GLA")
-	{
-		AsciiString name;
-		name.format("ReforgedLobby%s", side.str());
-		return TheMappedImageCollection->findImageByName(name);
-	}
-	*tinted = FALSE;
-	return pt->getSideIconImage() ? pt->getSideIconImage() : TheMappedImageCollection->findImageByName("ReforgedLobbyRandom");
+		return lobbyMark(side.str());
+	*initials = factionInitials(pt->getDisplayName());
+	return lobbyMark("Faction");
 }
 
 static void showColor(GameWindow *window, Color color)
@@ -1011,12 +1060,15 @@ void UpdateLobbySeatVisuals(GameInfo *myGame)
 		if (theSeatEmblem[i])
 		{
 			theSeatEmblem[i]->winHide(!occupied);
-			Bool tinted = TRUE;
+			UnicodeString initials;
 			if (occupied)
-				theSeatEmblem[i]->winSetEnabledImage(0, seatEmblem(slot->getPlayerTemplate(), &tinted));
+				theSeatEmblem[i]->winSetEnabledImage(0, seatEmblem(slot->getPlayerTemplate(), &initials));
 			// an unpicked colour draws the mark white rather than grey
-			const Bool picked = slot->getColor() >= 0;
-			theSeatEmblem[i]->winSetEnabledColor(0, tinted && picked ? color : white);
+			theSeatEmblem[i]->winSetEnabledColor(0, slot->getColor() >= 0 ? color : white);
+			Int width, height;
+			theSeatEmblem[i]->winGetSize(&width, &height);
+			theSeatInitials[i]->setFont(TheFontLibrary->getFont("Arial", max(8, height * 2 / 5), TRUE));
+			theSeatInitials[i]->setText(initials);
 		}
 
 		if (theSeatCard[i] == NULL || !theSeatsShowReady)
