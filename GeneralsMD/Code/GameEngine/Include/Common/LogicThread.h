@@ -38,9 +38,10 @@ class Drawable;
 class Player;
 
 /**
-	* `-logicthread 0` (the default) runs the tick on the main thread, as it always ran.
-	* `-logicthread 1` hands every tick to a dedicated thread and waits for it: nothing overlaps
-	* yet, so nothing can race, and any code that cares which thread it is on shows itself.
+	* `-logicthread 0` runs the tick on the main thread, as it always ran.
+	* `-logicthread 1`, the default, hands every tick to a dedicated thread; outside a network game
+	* the render draws beside it (phases 3 and 4), reading only the copies taken at the sync point.
+	* `-logicthread 2` adds jitter to the tick to shake out races.
 	*
 	* The census counts calls into the client made from the logic thread, one count per channel
 	* of LOGIC-THREAD.md section 1's table.  Each count is an entry point phase 2 has to turn into

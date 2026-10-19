@@ -425,8 +425,10 @@ void LogicThread::takeOverlapTimes( Real &tickMS, Real &waitMS )
 //-------------------------------------------------------------------------------------------------
 void LogicThread::init( void )
 {
-	char value[ 32 ];
-	if( !findEarlyCommandLineValue( L"-logicthread", value, sizeof(value) ) || atoi( value ) == 0 )
+	// 1 unless the command line asks otherwise; -logicthread 0 keeps the tick on the main thread
+	char value[ 32 ] = "1";
+	findEarlyCommandLineValue( L"-logicthread", value, sizeof(value) );
+	if( atoi( value ) == 0 )
 		return;
 
 	s_enabled = TRUE;
