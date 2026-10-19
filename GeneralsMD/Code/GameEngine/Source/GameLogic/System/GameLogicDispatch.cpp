@@ -397,6 +397,11 @@ void GameLogic::clearGameData( Bool showScoreScreen )
 		FixupScoreScreenMovieWindow();
 	}
 
+	// -jumpToFrame names a frame of the match it was given for.  The shell's blank game behind the
+	// score screen counts from frame 0 again and would race undrawn up to it, minutes of nothing.
+	if( !isInShellGame() )
+		TheWritableGlobalData->m_noDraw = 0;
+
 	TheGameEngine->reset();
 	setGameMode(GAME_NONE);
 //	m_background->bringForward();
