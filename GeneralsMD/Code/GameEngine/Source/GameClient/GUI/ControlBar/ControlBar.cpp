@@ -4397,13 +4397,23 @@ void ControlBar::setControlCommand( GameWindow *button, const CommandButton *com
 
 	setCommandBarBorder(button, commandButton->getCommandButtonMappedBorderType());
 	
+	// A builder standing in for an empty selection lends the keys its buildings and nothing else.
+	// Nobody selected it, so its orders keep no letter: H with nothing selected is the command map's
+	// (view the command center), not the GLA worker's switch to fake buildings, and S stops nothing.
+	Bool standInOrder = FALSE;
+	if( m_standInBuilderID != INVALID_DRAWABLE_ID && m_currentSelectedDrawable
+			&& m_currentSelectedDrawable->getID() == m_standInBuilderID
+			&& commandButton->getCommandType() != GUI_COMMAND_DOZER_CONSTRUCT )
+		for( Int slot = 0; slot < MAX_COMMANDS_PER_SET; slot++ )
+			standInOrder = standInOrder || m_commandWindows[ slot ] == button;
+
 	// the key is the one the player gave the button on the launcher's Hotkeys page, or else the
 	// game's own, the letter after the '&' in the button's label - the English label's in every
 	// language, so a Turkish or German player presses what an English one does - and the button
 	// wears it in its top left corner.
 	if( TheHotKeyManager )
 	{
-		const WideChar letter = HotKeyManager::playerButtonKey( commandButton->getName(),
+		const WideChar letter = standInOrder ? 0 : HotKeyManager::playerButtonKey( commandButton->getName(),
 			TheGameText ? TheGameText->fetchEnglishHotKey( commandButton->getTextLabel() ) : 0,
 			commandButton->getCommandType() );
 		if( letter != 0 )

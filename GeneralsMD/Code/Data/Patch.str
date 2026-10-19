@@ -1428,6 +1428,10 @@ GUI:HotkeysPressForceAttack
 "Press a key, or Ctrl or Alt alone. Shift cannot be the hold. Esc cancels."
 END
 
+GUI:HotkeysPressHold
+"Press a key, or Ctrl, Alt or Shift alone. Esc cancels."
+END
+
 GUI:HotkeysClash
 "%s: %s share this key. Only one of them gets it in the game: a fixed order keeps its own, and a letter you set beats the game's."
 END
@@ -1654,6 +1658,14 @@ END
 
 GUI:HotkeysCommandSIGNAL_ATTENTION
 "Signal: look here"
+END
+
+GUI:HotkeysCommandBEGIN_WAYPOINTS
+"Queue orders (hold)"
+END
+
+GUI:HotkeysCommandBEGIN_PREFER_SELECTION
+"Add to selection (hold)"
 END
 
 // Computer player personalities, picked per seat in the lobby (AIPersonality)

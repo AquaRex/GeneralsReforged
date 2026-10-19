@@ -15825,6 +15825,10 @@ GUI:HotkeysPressForceAttack
 "Bir tuşa ya da tek başına Ctrl veya Alt tuşuna basın. Shift basılı tutma tuşu olamaz. Esc vazgeçer."
 END
 
+GUI:HotkeysPressHold
+"Bir tuşa ya da tek başına Ctrl, Alt veya Shift tuşuna basın. Esc vazgeçer."
+END
+
 GUI:HotkeysClash
 "%s: %s aynı tuşu kullanıyor. Oyunda tuş yalnızca birinde çalışır: sabit emir kendi tuşunu korur, senin verdiğin harf oyununkinden önce gelir."
 END
@@ -16051,6 +16055,14 @@ END
 
 GUI:HotkeysCommandSIGNAL_ATTENTION
 "İşaret: buraya bak"
+END
+
+GUI:HotkeysCommandBEGIN_WAYPOINTS
+"Emirleri sıraya koy (basılı tut)"
+END
+
+GUI:HotkeysCommandBEGIN_PREFER_SELECTION
+"Seçime ekle (basılı tut)"
 END
 
 // Bilgisayar oyuncusu kişilikleri, lobide koltuk başına seçilir (AIPersonality)

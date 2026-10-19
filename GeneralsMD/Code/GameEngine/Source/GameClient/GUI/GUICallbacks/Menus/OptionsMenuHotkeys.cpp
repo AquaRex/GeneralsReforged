@@ -98,7 +98,7 @@ Int s_active = 0;					///< the list touched last: 0 the commands, 1 the bar
 Int s_commandRow = -1;		///< index into s_rows
 const CommandButton *s_button = NULL;
 CaptureKind s_capture = CAPTURE_NONE;
-std::string s_holdCandidate;	///< Force Attack's hold: Ctrl or Alt pressed alone so far
+std::string s_holdCandidate;	///< a hold's capture: the modifier pressed alone so far, "-" once anything else was
 Bool s_filling = FALSE;
 
 UnicodeString wide( const std::string& text )
@@ -358,7 +358,7 @@ std::vector< UnicodeString > sameChord( const HotkeyCommandRow& row )
 {
 	std::vector< UnicodeString > others;
 	const HotkeyBinding binding = bindingOf( row );
-	if( binding.key.empty() )
+	if( binding.key.empty() && binding.modifiers == "NONE" )
 		return others;
 	for( size_t each = 0; each < s_rows.size(); each++ )
 		if( !s_rows[ each ].barOnly && s_rows[ each ].id != row.id && bindingOf( s_rows[ each ] ) == binding )
@@ -508,7 +508,7 @@ void updateNote( void )
 		changed = s_file.commands.count( row.id ) != 0;
 		canChange = TRUE;
 		if( s_capture == CAPTURE_COMMAND )
-			note = TheGameText->fetch( "GUI:HotkeysPressKey" );
+			note = TheGameText->fetch( row.hold ? "GUI:HotkeysPressHold" : "GUI:HotkeysPressKey" );
 		else
 		{
 			note.format( u"%s: %s.", commandName( row ).str(), chordOf( binding ).str() );
@@ -766,26 +766,29 @@ Bool OptionsHotkeysKey( UnsignedByte key, Int state )
 	const Bool ctrlKey = key == KEY_LCTRL || key == KEY_RCTRL, altKey = key == KEY_LALT || key == KEY_RALT;
 	const Bool shiftKey = key == KEY_LSHIFT || key == KEY_RSHIFT;
 	const Bool force = s_capture == CAPTURE_BUTTON && s_button->getCommandType() == GUI_COMMAND_FORCE_ATTACK;
+	const Bool hold = force || ( s_capture == CAPTURE_COMMAND && s_rows[ s_commandRow ].hold );
 
-	if( force )
+	if( hold )
 	{
-		// Ctrl or Alt let go with no key between is the hold alone; Shift cannot be the hold
-		if( ctrlKey || altKey )
+		// a modifier let go with no key between is the hold alone.  Shift cannot be Force Attack's:
+		// Shift on top of that hold queues the circle.
+		const char *alone = ctrlKey ? "CTRL" : altKey ? "ALT" : ( shiftKey && !force ) ? "SHIFT" : NULL;
+		if( alone )
 		{
 			if( down )
-				s_holdCandidate = s_holdCandidate.empty() ? ( ctrlKey ? "CTRL" : "ALT" ) : std::string( "-" );
-			else if( s_holdCandidate == "CTRL" || s_holdCandidate == "ALT" )
+				s_holdCandidate = s_holdCandidate.empty() ? std::string( alone ) : std::string( "-" );
+			else if( s_holdCandidate == alone )
 			{
-				const HotkeyBinding hold( "", s_holdCandidate );
-				applySelected( &hold, FALSE );
+				const HotkeyBinding binding( "", alone );
+				applySelected( &binding, FALSE );
 			}
 			return TRUE;
 		}
 		const std::string name = keyName( key );
-		if( down && !shift && !name.empty() )
+		if( down && !( force && shift ) && !name.empty() )
 		{
-			const HotkeyBinding hold( name, modifierName( ctrl, alt, FALSE ) );
-			applySelected( &hold, FALSE );
+			const HotkeyBinding binding( name, modifierName( ctrl, alt, !force && shift ) );
+			applySelected( &binding, FALSE );
 		}
 		else if( down )
 			s_holdCandidate = "-";

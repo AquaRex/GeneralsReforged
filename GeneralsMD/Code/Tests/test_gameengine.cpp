@@ -1900,6 +1900,39 @@ TEST(hotkeys_names_sort_and_chords_read_as_the_launcher_has_them)
 	CHECK( Hotkeys_isKeyName( "KEY_PGDN" ) && !Hotkeys_isKeyName( "KEY_NONE" ) && !Hotkeys_isKeyName( "KEY_LCTRL" ) );
 }
 
+/* HotKey.cpp, Hotkeys_commandRows: the waypoint and prefer-selection holds are KEY_NONE and a modifier
+   in the shipped file, so the rows read from it dropped them and the Hotkeys tab had no line for them.
+   They are rows of their own now, and a key set on one writes the END_ half too: without it the mode
+   that the press switched on stays on. */
+TEST(hotkeys_waypoint_and_selection_holds_are_rows_and_keep_their_end)
+{
+	const std::vector< HotkeyCommandRow > rows = Hotkeys_commandRows( HOTKEYS_COMMAND_MAP );
+	const HotkeyCommandRow *waypoints = NULL, *prefer = NULL, *force = NULL;
+	for( size_t each = 0; each < rows.size(); each++ )
+	{
+		waypoints = rows[ each ].id == "BEGIN_WAYPOINTS" ? &rows[ each ] : waypoints;
+		prefer = rows[ each ].id == "BEGIN_PREFER_SELECTION" ? &rows[ each ] : prefer;
+		force = rows[ each ].id == "BEGIN_FORCEATTACK" ? &rows[ each ] : force;
+	}
+	CHECK( waypoints != NULL && waypoints->hold && !waypoints->barOnly && waypoints->binding == HotkeyBinding( "", "ALT" )
+		&& waypoints->pair == "END_WAYPOINTS" && waypoints->category == "CONTROL" );
+	CHECK( prefer != NULL && prefer->hold && !prefer->barOnly && prefer->binding == HotkeyBinding( "", "SHIFT" )
+		&& prefer->pair == "END_PREFER_SELECTION" );
+	CHECK( force != NULL && force->hold && force->barOnly );
+
+	// Alt's hold moved to Q, and Shift's to Ctrl alone: both halves of each in the file
+	HotkeysFile file = Hotkeys_parse( "", rows );
+	file.commands[ "BEGIN_WAYPOINTS" ] = HotkeyBinding( "KEY_Q", "NONE" );
+	file.commands[ "BEGIN_PREFER_SELECTION" ] = HotkeyBinding( "", "CTRL" );
+	const std::string text = Hotkeys_format( file, rows );
+	CHECK( text.find( "CommandMap END_WAYPOINTS\r\n  Key = KEY_Q\r\n  Transition = UP\r\n  Modifiers = NONE\r\n  UseableIn = GAME\r\n" ) != std::string::npos );
+	CHECK( text.find( "CommandMap END_PREFER_SELECTION\r\n  Key = KEY_NONE\r\n  Transition = UP\r\n  Modifiers = CTRL\r\n  UseableIn = GAME\r\n" ) != std::string::npos );
+	const HotkeysFile back = Hotkeys_parse( text, rows );
+	CHECK( back.commands.find( "BEGIN_WAYPOINTS" )->second == HotkeyBinding( "KEY_Q", "NONE" ) );
+	CHECK( back.commands.find( "BEGIN_PREFER_SELECTION" )->second == HotkeyBinding( "", "CTRL" ) );
+	CHECK( back.commands.find( "END_WAYPOINTS" ) == back.commands.end() );
+}
+
 /* HotKey.cpp: a fixed order's letter is its default, not a lock.  Players could not move Sell off N:
    the fixed letter was returned before Hotkeys.ini was asked, and the Hotkeys tab refused the capture. */
 TEST(hotkeys_every_fixed_order_takes_the_players_letter)

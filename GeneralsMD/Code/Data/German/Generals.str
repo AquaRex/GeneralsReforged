@@ -15069,6 +15069,10 @@ GUI:HotkeysPressForceAttack
 "Drücke eine Taste, oder Strg oder Alt allein. Umschalt kann nicht die Haltetaste sein. Esc bricht ab."
 END
 
+GUI:HotkeysPressHold
+"Drücke eine Taste, oder Strg, Alt oder Umschalt allein. Esc bricht ab."
+END
+
 GUI:HotkeysClash
 "%s: %s teilen sich diese Taste. Im Spiel bekommt sie nur einer davon: ein fester Befehl behält seine eigene, und ein Buchstabe von dir schlägt den des Spiels."
 END
@@ -15295,6 +15299,14 @@ END
 
 GUI:HotkeysCommandSIGNAL_ATTENTION
 "Signal: hierher schauen"
+END
+
+GUI:HotkeysCommandBEGIN_WAYPOINTS
+"Befehle einreihen (halten)"
+END
+
+GUI:HotkeysCommandBEGIN_PREFER_SELECTION
+"Zur Auswahl hinzufügen (halten)"
 END
 
 GUI:MoneyTransferTitle

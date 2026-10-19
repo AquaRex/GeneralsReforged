@@ -3972,6 +3972,7 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 		case GameMessage::MSG_META_BEGIN_WAYPOINTS:
 //			DEBUG_ASSERTCRASH( !TheInGameUI->isInWaypointMode(), ("Setting m_waypointMode but it's already set!") );
 			TheInGameUI->setWaypointMode( true );
+			DEBUG_LOG(( "HOTKEYS: waypoint mode on\n" ));	// a rebound hold reads back from the log
 			break;
 
 		//-----------------------------------------------------------------------------------------
@@ -3988,6 +3989,7 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 		case GameMessage::MSG_META_END_WAYPOINTS:
 //			DEBUG_ASSERTCRASH( TheInGameUI->isInWaypointMode(), ("Clearing m_waypointMode but it's already clear!") );
 			TheInGameUI->setWaypointMode( false );
+			DEBUG_LOG(( "HOTKEYS: waypoint mode off\n" ));
 			break;
 
 

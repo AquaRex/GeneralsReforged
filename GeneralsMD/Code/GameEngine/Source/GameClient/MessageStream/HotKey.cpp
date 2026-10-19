@@ -743,6 +743,7 @@ static HotkeyCommandRow commandRow( const std::string& id, const std::string& ca
 	row.usableIn = "GAME";
 	row.category = category;
 	row.barOnly = FALSE;
+	row.hold = FALSE;
 	row.launcherDefault = FALSE;
 	return row;
 }
@@ -798,8 +799,19 @@ std::vector< HotkeyCommandRow > Hotkeys_commandRows( const std::string& commandM
 			unbound[ each ].launcherDefault = TRUE;
 		}
 
+	// HOLD_COMMANDS: KEY_NONE and a modifier in the shipped file, which the rows above leave out.
+	// Force Attack's is set from its command bar button, the other two on the commands list.
+	static const char *const HOLDS[][ 2 ] = { { "FORCEATTACK", "CTRL" }, { "WAYPOINTS", "ALT" }, { "PREFER_SELECTION", "SHIFT" } };
+	for( size_t each = 0; each < sizeof( HOLDS ) / sizeof( HOLDS[ 0 ] ); each++ )
+	{
+		HotkeyCommandRow hold = commandRow( std::string( "BEGIN_" ) + HOLDS[ each ][ 0 ], "CONTROL", "", HOLDS[ each ][ 1 ] );
+		hold.pair = std::string( "END_" ) + HOLDS[ each ][ 0 ];
+		hold.barOnly = each == 0;
+		hold.hold = TRUE;
+		unbound.push_back( hold );
+	}
+
 	std::vector< HotkeyCommandRow > all = rows;
-	Bool forceAttack = FALSE;
 	for( size_t each = 0; each < unbound.size(); each++ )
 	{
 		Bool known = FALSE;
@@ -807,16 +819,6 @@ std::vector< HotkeyCommandRow > Hotkeys_commandRows( const std::string& commandM
 			known = known || rows[ row ].id == unbound[ each ].id;
 		if( !known )
 			all.push_back( unbound[ each ] );
-	}
-	for( size_t row = 0; row < rows.size(); row++ )
-		forceAttack = forceAttack || rows[ row ].id == "BEGIN_FORCEATTACK";
-	if( !forceAttack )
-	{
-		// FORCE_ATTACK_HOLD: KEY_NONE + Ctrl in the shipped file, set from the command bar page
-		HotkeyCommandRow hold = commandRow( "BEGIN_FORCEATTACK", "CONTROL", "", "CTRL" );
-		hold.pair = "END_FORCEATTACK";
-		hold.barOnly = TRUE;
-		all.push_back( hold );
 	}
 	return all;
 }
