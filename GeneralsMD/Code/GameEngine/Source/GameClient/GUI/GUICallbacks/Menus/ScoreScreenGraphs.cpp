@@ -653,6 +653,21 @@ static void layoutBuildOrder( Int top, Int width, Int bottom, Int pad )
 	if( players.empty() )
 		return;
 
+	const Int rowsTop = top + smallLine + pad / 2;
+	// a lone campaign player gets the height of two rows, not the whole area
+	const Int rowHeight = ( bottom - rowsTop ) / max( (Int)players.size(), 2 );
+	// a row too short for the name over the side (six players and up at 1080) gets one line: the name,
+	// or the side where names repeat, as eight "Hard AI" seats would
+	const Bool twoLines = rowHeight >= 2 * smallLine;
+	std::vector< UnicodeString > labels;
+	for( size_t each = 0; each < players.size(); each++ )
+	{
+		Bool repeated = FALSE;
+		for( size_t other = 0; other < players.size(); other++ )
+			repeated = repeated || ( other != each && players[ other ]->name == players[ each ]->name );
+		labels.push_back( twoLines || !repeated ? players[ each ]->name : players[ each ]->side );
+	}
+
 	UnsignedInt end = history.getSampleCount() > 0 ? history.getSampleFrame( history.getSampleCount() - 1 ) : 0;
 	Int nameWidth = 0;
 	for( size_t each = 0; each < players.size(); each++ )
@@ -660,19 +675,22 @@ static void layoutBuildOrder( Int top, Int width, Int bottom, Int pad )
 		const std::vector< MatchBuild > &builds = history.getBuilds( players[ each ]->index );
 		if( !builds.empty() )
 			end = max( end, builds.back().frame );
-		DisplayString *name = newText( players[ each ]->name, s_smallFont );
+		DisplayString *name = newText( labels[ each ], s_smallFont );
 		nameWidth = max( nameWidth, textWidth( name ) );
-		name->setText( players[ each ]->side );
-		nameWidth = max( nameWidth, textWidth( name ) );
+		if( twoLines )
+		{
+			name->setText( players[ each ]->side );
+			nameWidth = max( nameWidth, textWidth( name ) );
+		}
 		TheDisplayStringManager->freeDisplayString( name );
 	}
 	end = max( end, (UnsignedInt)LOGICFRAMES_PER_SECOND );
 
-	const Int rowsTop = top + smallLine + pad / 2;
-	// a lone campaign player gets the height of two rows, not the whole area
-	const Int rowHeight = ( bottom - rowsTop ) / max( (Int)players.size(), 2 );
-	// the cameos at their own 4:3, two lanes of the first of each thing, three of every build
-	const Int lanes = s_everyBuild ? 3 : 2;
+	// the cameos at their own 4:3, two lanes of the first of each thing, three of every build, and
+	// fewer lanes where that would shrink a cameo under two thirds of a line of text
+	Int lanes = s_everyBuild ? 3 : 2;
+	while( lanes > 1 && ( rowHeight - pad ) / lanes - 3 < smallLine * 2 / 3 )
+		lanes--;
 	const Int icon = min( max( ( rowHeight - pad ) / lanes - 3, 10 ), s_font->height * 3 / 2 );
 	const Int iconWidth = icon * 4 / 3;
 	const Int left = pad * 3 + nameWidth + iconWidth / 2;
@@ -698,9 +716,10 @@ static void layoutBuildOrder( Int top, Int width, Int bottom, Int pad )
 		const Int rowTop = rowsTop + (Int)each * rowHeight;
 		if( each > 0 )
 			addRule( pad * 2, rowTop, right + iconWidth / 2, rowTop, GRID );
-		const Int nameTop = rowTop + ( rowHeight - 2 * smallLine ) / 2;
-		addText( player.name, s_smallFont, pad * 2, nameTop, player.color );
-		addText( player.side, s_smallFont, pad * 2, nameTop + smallLine, TEXT_DIM );
+		const Int nameTop = rowTop + ( rowHeight - ( twoLines ? 2 : 1 ) * smallLine ) / 2;
+		addText( labels[ each ], s_smallFont, pad * 2, nameTop, player.color );
+		if( twoLines )
+			addText( player.side, s_smallFont, pad * 2, nameTop + smallLine, TEXT_DIM );
 
 		std::vector< Int > laneRight( lanes, -iconWidth );
 		std::vector< const ThingTemplate * > seen;
