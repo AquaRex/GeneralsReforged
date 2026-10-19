@@ -488,7 +488,7 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 		return false;
 	}
 	if (target == COMBINER_SHADER_TARGET_SDL3_GPU) {
-		return write_engine_pixel_program(program, pipeline, hlsl, false)
+		return write_engine_pixel_program(program, pipeline, hlsl, EngineShader_Paints_Ground(program))
 			&& SDL3_Shader_Retarget(hlsl, false);
 	}
 	return write_engine_pixel_program(program, pipeline, hlsl, true);

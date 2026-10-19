@@ -43,6 +43,7 @@
 #include "W3DDevice/GameClient/W3DSmoothMotion.h"
 #include "WW3D2/dx8wrapper.h"
 #include "WW3D2/dx11runtime.h"
+#include "Platform/SunShadow.h"
 #include "Common/JobSystem.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
@@ -1560,6 +1561,10 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 		fillJob.lightCount = gatherSmokeLights( fillJob.lights, bbox );
 	}
 	fillJob.glowAfterShade = Direct3D11_Present_Is_Enabled();
+#if defined(__linux__)
+	fillJob.glowAfterShade = fillJob.glowAfterShade
+		|| SunShadow::OwnsSceneShadows(DX8Wrapper::_Get_D3D_Device());
+#endif
 	JobSystem::parallel_for( (Int)m_billboardFills.size(), BILLBOARD_FILLS_PER_CLAIM, fillBillboards, &fillJob );
 
 	s_fieldPos.clear();

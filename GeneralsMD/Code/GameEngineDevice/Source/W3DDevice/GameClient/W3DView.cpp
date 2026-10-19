@@ -147,7 +147,8 @@ Bool W3DView::drawsDrawables( void )
 	 logic, and W3DDisplay::draw loops until the pan is done. */
 static Bool onPictureClock( View *view )
 {
-	return GameEngine_isVideoFrame() && !( view->isTimeFrozen() && !view->isCameraMovementFinished() );
+	return (GameEngine_isVideoFrame() || GameEngine_isShadowCaptureClock())
+		&& !( view->isTimeFrozen() && !view->isCameraMovementFinished() );
 }
 
 static UnsignedInt cameraClockMilliseconds( View *view )

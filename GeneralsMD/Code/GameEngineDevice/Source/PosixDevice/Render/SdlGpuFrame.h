@@ -57,6 +57,8 @@ struct SdlTarget
 	SDL_GPUTexture * Depth;
 	uint32_t Width;
 	uint32_t Height;
+	// Zero retains the scene format; independent depth-only targets name their format.
+	uint32_t DepthFormat = 0;
 };
 
 /// One draw as the flush replays it, everything by value.  The device's resolve fills it.
@@ -110,6 +112,16 @@ public:
 	/// Where the clears and draws recorded from now on go (A3d); the back buffer until told otherwise.
 	void Set_Target(const SdlTarget & target);
 	SdlTarget Back_Buffer_Target() const;
+	unsigned int Target_Depth_Format(const SdlTarget &target) const;
+	/// Sampleable sun depth, retired only after previously recorded readers are submitted.
+	bool Sun_Shadow_Target(unsigned int size, SdlTarget &target, std::string &error);
+	bool Fill_Sun_Smoke(const float *sun, const float *casters, unsigned count);
+	SDL_GPUTexture *Sun_Smoke_Texture() const;
+	SDL_GPUSampler *Sun_Smoke_Sampler() const;
+	bool Read_Sun_Smoke(std::vector<float> &moments);
+	unsigned Sun_Smoke_Count() const { return SmokeCount; }
+	/// Diagnostic scalar readback; no scene-depth snapshot or attachment mutation.
+	bool Read_Depth(SDL_GPUTexture *texture, unsigned width, unsigned height, std::vector<float> &depth);
 	/// A depth-stencil of this size for a render target the back buffer's does not fit, made once and
 	/// kept.  D3D9 lets a smaller target borrow the bigger depth surface; SDL3 GPU wants one size per pass.
 	SDL_GPUTexture * Depth_For(unsigned int width, unsigned int height);
@@ -269,6 +281,23 @@ private:
 	SDL_GPUTexture * BackBuffer;
 	SDL_GPUTexture * DepthStencil;
 	SDL_GPUTexture * FrontCopy;			///< the last presented picture
+	SDL_GPUTexture *SunShadowTexture = NULL;
+	unsigned SunShadowSize = 0;
+	struct SmokeResources;
+	SmokeResources *Smoke = NULL;
+	bool SmokeFailed = false;
+	unsigned SmokeCount = 0;
+	bool Create_Sun_Smoke();
+	void Release_Sun_Smoke();
+	bool Fail_Sun_Smoke(const char *reason);
+	// The depth reader is diagnostic-only and samples the independent sun target.
+	SDL_GPUShader *SunDepthVertex = NULL, *SunDepthPixel = NULL;
+	SDL_GPUGraphicsPipeline *SunDepthPipeline = NULL;
+	SDL_GPUSampler *SunDepthSampler = NULL;
+	bool Create_Sun_Depth_Reader();
+	bool Resolve_Sun_Depth(struct SDL_GPUCommandBuffer *commands, SDL_GPUTexture *source,
+		SDL_GPUTexture *destination, unsigned width, unsigned height);
+	void Release_Sun_Shadow();
 	bool Copy_To_Front(struct SDL_GPUCommandBuffer * commands);
 	unsigned int DepthFormat;			///< an SDL_GPUTextureFormat: D24S8 where there is one, else D32S8
 	unsigned int BackWidth;

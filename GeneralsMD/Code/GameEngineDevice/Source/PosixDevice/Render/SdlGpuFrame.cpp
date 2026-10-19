@@ -196,6 +196,8 @@ SdlGpuFrame::~SdlGpuFrame()
 	Release_Targets();
 	Commands.clear();
 	End_Batch();
+	Release_Sun_Smoke();
+	Release_Sun_Shadow();
 	if (StreamBuffer != NULL) SDL_ReleaseGPUBuffer(GpuDevice, StreamBuffer);
 	for (size_t i = 0; i < ScratchDepths.size(); ++i) SDL_ReleaseGPUTexture(GpuDevice, ScratchDepths[i].Texture);
 	for (int i = 0; i < 8; ++i) if (ClearPipelines[i] != NULL) SDL_ReleaseGPUGraphicsPipeline(GpuDevice, ClearPipelines[i]);
