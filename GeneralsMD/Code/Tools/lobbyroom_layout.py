@@ -63,6 +63,9 @@ RULE_TOP = 112
 HEADER_TOP, HEADER_HEIGHT = 122, 32
 ROW_TOP = 160
 CONTROL_HEIGHT = 40
+# a seat card three pixels taller than its combo boxes top and bottom, six between cards
+ROW_HEIGHT = CONTROL_HEIGHT + 6
+ROW_PITCH = ROW_HEIGHT + 6
 GAP = 8
 
 # a seat row: colour bar, then the columns
@@ -90,8 +93,8 @@ STATS_WIDTH = 372
 STAT_PITCH, STAT_VALUE_WIDTH = 40, 64
 
 # the skirmish room's record, over the seats
-# down to the gap under the fourth skirmish seat, so its edge never cuts a row in half
-POPOVER = (INNER_LEFT, HEADER_TOP, SEAT_RIGHT - INNER_LEFT, 160 + 3 * 96 + 84 + 6 - HEADER_TOP)
+# as tall as two rows of medals and the four career lines need; the veil dims whatever it covers
+POPOVER = (INNER_LEFT, HEADER_TOP, SEAT_RIGHT - INNER_LEFT, 416)
 POPOVER_PADDING = 24
 POPOVER_TITLE_HEIGHT = 44
 CLOSE_WIDTH = 220
@@ -163,13 +166,14 @@ GAMESPY_CHECKS = ["CheckBoxUseStats", "CheckBoxLimitArmies"] + LAN_CHECKS
 ROOMS = {
     "SkirmishGameOptionsMenu": dict(container="SubParent", rule="Line", title="StaticTextTitle",
                                     columns=SEAT_COLUMNS, rules=SKIRMISH_RULES, checks=SKIRMISH_CHECKS,
-                                    row_pitch=96, row_height=84),
+                                    row_pitch=ROW_PITCH, row_height=ROW_HEIGHT),
     "LanGameOptionsMenu": dict(container="GadgetParent", rule="LINE", title="StaticTextTitle",
                                columns=SEAT_COLUMNS, rules=NETWORK_RULES, checks=LAN_CHECKS,
-                               row_pitch=58, row_height=50, chat="ListboxChatWindowLanGame"),
+                               row_pitch=ROW_PITCH, row_height=ROW_HEIGHT, chat="ListboxChatWindowLanGame"),
     "GameSpyGameOptionsMenu": dict(container="FadeParent", rule="LINE", title="StaticTextGameName",
                                    columns=GAMESPY_COLUMNS, rules=NETWORK_RULES, checks=GAMESPY_CHECKS,
-                                   row_pitch=58, row_height=50, chat="ListboxChatWindowGameSpyGameSetup"),
+                                   row_pitch=ROW_PITCH, row_height=ROW_HEIGHT,
+                                   chat="ListboxChatWindowGameSpyGameSetup"),
 }
 
 # every window the menu code looks up, besides the per-seat ones in the columns
