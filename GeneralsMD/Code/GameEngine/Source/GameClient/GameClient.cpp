@@ -534,7 +534,7 @@ void GameClient::init( void )
 /** Reset the game client for a new game */
 void GameClient::reset( void )
 {
-	Drawable *draw, *nextDraw;
+	Drawable *draw;
 //	m_drawableHash.clear();
 //	m_drawableHash.resize(DRAWABLE_HASH_SIZE);
 
@@ -556,12 +556,18 @@ void GameClient::reset( void )
 	if (TheSelectionTranslator)
 		TheSelectionTranslator->forgetPendingSquads();
 
-	// destroy all Drawables
-	for( draw = m_drawableList; draw; draw = nextDraw )
+	// destroy all Drawables.  The clear-game tick resets from inside the tick, where what the tick
+	// destroyed before it stays on the list until the sync point; destroying one of those again queued
+	// it twice, and the flush below deleted it twice: the "Pure virtual function called" box on
+	// leaving a match.
+	std::vector<Drawable *> listed;
+	for( draw = m_drawableList; draw; draw = draw->getNextDrawable() )
 	{
-		nextDraw = draw->getNextDrawable();
-		destroyDrawable( draw );
+		if( std::find( m_destroyedInTick.begin(), m_destroyedInTick.end(), draw ) == m_destroyedInTick.end() )
+			listed.push_back( draw );
 	}
+	for( size_t i = 0; i < listed.size(); ++i )
+		destroyDrawable( listed[ i ] );
 	// the clear-game tick resets from inside the tick: what it made before that was never linked
 	for( size_t i = 0; i < m_madeInTick.size(); ++i )
 	{

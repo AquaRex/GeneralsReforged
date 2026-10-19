@@ -1736,6 +1736,7 @@ The whole HUD is on the hardware. Four colours carry it, and they mean the same 
   log on its own.
 - Closing a laptop's lid, or pulling out the drive the game is installed on, ends the game with a box saying its data is gone. The next read from the missing drive used to crash it.
 - A custom map that defines its own way for a vehicle to move no longer crashes the game with "Pure virtual function called" when the match ends. The game freed that map's movement rules and then kept reading the freed record. The shipped Hovercraft test map did it every time, and so could any map handed to you in a lobby.
+- Leaving a match from the menu no longer ends in a "Game crash: Pure virtual function called" box. Since v3.1.0 anything that died in the last instant before you left was thrown away twice as the game cleared the battlefield, which in testing was every exit from a running skirmish, and the box closed the game with an error instead of returning you to the menu.
 - A missing save folder no longer costs you maps. The game listed the folder it runs from instead, and the tidy-up after a match deleted the .map files it found there.
 - Screenshots come out straight at any width. At 1366 wide each row slid sideways, and at any width that does not divide by eight the game read past the end of the picture.
 - Quitting the Windows game under Proton, the way a Steam Deck used to run it, no longer crashes on the way out.
