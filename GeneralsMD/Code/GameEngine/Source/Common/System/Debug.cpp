@@ -83,6 +83,13 @@ extern HWND ApplicationHWnd;
 #endif
 #include <thread>		// the main thread's id off Windows (Windows uses GetCurrentThreadId); GameDataGone's yield
 #include <atomic>		// GameDataGone's state, set from whichever thread's read failed
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
+#include <new>
+#if !defined(_WIN32)
+#include <pthread.h>
+#endif
 
 extern char *gAppPrefix; /// So WB can have a different log file name.
 
@@ -119,6 +126,138 @@ extern char *gAppPrefix; /// So WB can have a different log file name.
 // ----------------------------------------------------------------------------
 #ifdef DEBUG_LOGGING
 static FILE *theLogFile = NULL;
+
+/* The log file is written by a thread of its own, never by the thread that logs.  Flushing once a
+	 second from the logging thread still put a disk write inside whichever logic frame came due, and
+	 D: here is a spinning disk: with other copies of the game, a build and a video dump writing to it,
+	 Windows holds a writer back for seconds, and one 2v2 skirmish logged a 7.8 s logic frame with all
+	 of it in the AI, the phase that logs the most.  A line goes into theLogQueue under a lock held for
+	 a copy; the writer takes the queue once a second and writes it with that lock released.
+	 fileLock keeps the writer and a crash path's flushLogQueue from reordering two batches.
+	 The log opens during static initialisation, from inside the first operator new, before this
+	 file's statics are constructed and before the memory manager exists.  So the queue is built in
+	 place in static storage when the file opens, and its text is malloc'd, never operator new. */
+struct LogQueue
+{
+	std::mutex queueLock;
+	std::recursive_mutex fileLock;		// recursive: a crash on the writer thread flushes from inside a flush
+	std::condition_variable wake;
+	char *text;
+	size_t used;
+	size_t size;
+	// a platform thread, not std::thread, whose start is an operator new before the memory manager exists
+#if defined(_WIN32)
+	HANDLE writer;
+#else
+	pthread_t writer;
+#endif
+	bool running;
+	bool quit;
+};
+alignas(LogQueue) static unsigned char theLogQueueStorage[ sizeof(LogQueue) ];
+static LogQueue *theLogQueue = NULL;
+
+static void queueLogOutput(const char *text)
+{
+	const size_t length = strlen(text);
+	std::lock_guard<std::mutex> lock(theLogQueue->queueLock);
+	if (theLogQueue->used + length > theLogQueue->size)
+	{
+		theLogQueue->size = 2 * (theLogQueue->used + length);
+		theLogQueue->text = (char *)realloc(theLogQueue->text, theLogQueue->size);
+	}
+	memcpy(theLogQueue->text + theLogQueue->used, text, length);
+	theLogQueue->used += length;
+}
+
+/// Everything queued so far into the file and flushed, on the caller's thread.  Crash paths and shutdown.
+static void flushLogQueue(void)
+{
+	if (theLogQueue == NULL)
+		return;		// a crash before the log opened
+	std::lock_guard<std::recursive_mutex> fileLock(theLogQueue->fileLock);
+	// the writer's own buffer, swapped with the queue's so a line queued meanwhile goes on the next batch
+	static char *batch = NULL;
+	static size_t batchSize = 0;
+	size_t batchUsed;
+	{
+		std::lock_guard<std::mutex> lock(theLogQueue->queueLock);
+		std::swap(batch, theLogQueue->text);
+		std::swap(batchSize, theLogQueue->size);
+		batchUsed = theLogQueue->used;
+		theLogQueue->used = 0;
+	}
+	if (theLogFile == NULL || batchUsed == 0)
+		return;
+	fwrite(batch, 1, batchUsed, theLogFile);
+	fflush(theLogFile);
+}
+
+static void logWriterMain(void)
+{
+	std::unique_lock<std::mutex> lock(theLogQueue->queueLock);
+	while (!theLogQueue->quit)
+	{
+		theLogQueue->wake.wait_for(lock, std::chrono::seconds(1));
+		lock.unlock();
+		flushLogQueue();
+		lock.lock();
+	}
+}
+
+#if defined(_WIN32)
+static DWORD WINAPI logWriterThread(LPVOID)
+{
+	logWriterMain();
+	return 0;
+}
+#else
+static void *logWriterThread(void *)
+{
+	logWriterMain();
+	return NULL;
+}
+#endif
+
+static void startLogWriter(void)
+{
+	if (theLogQueue == NULL)
+	{
+		theLogQueue = new (theLogQueueStorage) LogQueue;
+		theLogQueue->text = NULL;
+		theLogQueue->used = 0;
+		theLogQueue->size = 0;
+	}
+	theLogQueue->quit = false;
+#if defined(_WIN32)
+	theLogQueue->writer = CreateThread(NULL, 0, logWriterThread, NULL, 0, NULL);
+	theLogQueue->running = theLogQueue->writer != NULL;
+#else
+	theLogQueue->running = pthread_create(&theLogQueue->writer, NULL, logWriterThread, NULL) == 0;
+#endif
+}
+
+static void stopLogWriter(void)
+{
+	if (theLogQueue == NULL)
+		return;
+	if (theLogQueue->running)
+	{
+		{
+			std::lock_guard<std::mutex> lock(theLogQueue->queueLock);
+			theLogQueue->quit = true;
+		}
+		theLogQueue->wake.notify_one();
+#if defined(_WIN32)
+		WaitForSingleObject(theLogQueue->writer, INFINITE);
+		CloseHandle(theLogQueue->writer);
+#else
+		pthread_join(theLogQueue->writer, NULL);
+#endif
+		theLogQueue->running = false;
+	}
+	flushLogQueue();
+}
 #endif
 #define LARGE_BUFFER	8192
 static char theBuffer[ LARGE_BUFFER ];	// make it big to avoid weird overflow bugs in debug mode
@@ -238,7 +377,12 @@ int MessageBoxWrapper( const char *lpText, const char *lpCaption, unsigned int u
 	fprintf(stderr, "%s%s%s\n", lpCaption, (lpCaption && lpCaption[0]) ? ": " : "", lpText);
 #ifdef DEBUG_LOGGING
 	if (theLogFile)
-		fprintf(theLogFile, "[message box] %s%s%s\n", lpCaption, (lpCaption && lpCaption[0]) ? ": " : "", lpText);
+	{
+		char line[ 4096 ];		// no operator new here: this can run before the memory manager exists
+		snprintf(line, sizeof(line), "[message box] %s%s%s\n", lpCaption, (lpCaption && lpCaption[0]) ? ": " : "", lpText);
+		queueLogOutput(line);
+		flushLogQueue();		// a box is often the last thing before an _exit, and its reason must reach the file
+	}
 #endif
 	return (uType & MSGBOX_ABORTRETRYIGNORE)?MSGBOX_ID_IGNORE:MSGBOX_ID_YES;
 #endif
@@ -302,20 +446,8 @@ static const char *prepBuffer(const char* format, char *buffer, size_t bufferSiz
 /* The log used to be flushed after every line, which made each DEBUG_LOG inside a logic frame a
 	 synchronous write to disk. Single units in big fights logged update times of 60 to 145ms with
 	 nothing in the pathfinder, always beside a log line, and did not repeat on a rerun of the same
-	 seed. The file is flushed at most once a second now, and in full on every crash path before the
-	 process exits, so the last lines before a crash still reach it. */
-static const UnsignedInt LOG_FLUSH_INTERVAL_MS = 1000;
-static UnsignedInt theLastLogFlushMS = 0;
-
-static void flushLogFileAtMostOnceASecond(void)
-{
-	const UnsignedInt nowMS = Clock_Milliseconds_Coarse();
-	if (nowMS - theLastLogFlushMS < LOG_FLUSH_INTERVAL_MS)
-		return;
-	theLastLogFlushMS = nowMS;
-	fflush(theLogFile);
-}
-
+	 seed. The lines go to the writer thread now (theLogQueue), which writes them once a second, and
+	 every crash path writes the queue out itself before the process exits. */
 static void doLogOutput(const char *buffer)
 {
 	/* DebugLog already holds this lock around its static buffer; DebugCrash and the stack dump reach
@@ -329,10 +461,7 @@ static void doLogOutput(const char *buffer)
 	if (theDebugFlags & DEBUG_FLAG_LOG_TO_FILE)
 	{
 		if (theLogFile)
-		{
-			fprintf(theLogFile, "%s", buffer);	// note, no \n (should be there already)
-			flushLogFileAtMostOnceASecond();
-		}
+			queueLogOutput(buffer);	// note, no \n (should be there already)
 	}
 
 	// log message to dev studio output window
@@ -372,8 +501,7 @@ static int doCrashBox(const char *buffer, Bool logResult)
 #ifdef DEBUG_LOGGING
 			if (logResult)
 				DebugLog("[Abort]\n");
-			if (theLogFile)
-				fflush(theLogFile);
+			flushLogQueue();
 #endif
 			_exit(1);
 			break;
@@ -456,8 +584,7 @@ static int __cdecl unattendedCrtReport( int, char *message, int *returnValue )
 #ifdef DEBUG_STACKTRACE
 	doStackDump();
 #endif
-	if (theLogFile != NULL)
-		fflush(theLogFile);
+	flushLogQueue();
 #endif
 	if (returnValue != NULL)
 		*returnValue = 0;		// no debugger
@@ -531,6 +658,8 @@ void DebugInit(int flags)
 #endif
 		if (theLogFile != NULL)
 		{
+			startLogWriter();
+			atexit(stopLogWriter);		// exit() from anywhere still gets the last second of lines
 			DebugLog("Log %s opened: %s\n", curbuf, getCurrentTimeString());
 			if (hadPreviousLog && rotated != 0)
 				DebugLog("Could not rotate the previous log to %s: it holds an older run than this one.\n", prevbuf);
@@ -676,6 +805,7 @@ void DebugShutdown()
 	if (theLogFile)
 	{
 		DebugLog("Log closed: %s\n", getCurrentTimeString());
+		stopLogWriter();
 #if !defined(_WIN32)
 		setCrashLogDescriptor(-1);
 #endif
@@ -859,9 +989,12 @@ double SimpleProfiler::getAverageTime()
 void ReleaseCrash(const char *reason)
 {
 #ifdef DEBUG_LOGGING
-	// the debug log is flushed on a timer, and this function ends in _exit, which skips the CRT's own flush
-	if (theLogFile)
-		fflush(theLogFile);
+	// the debug log is written by its own thread once a second, and this function ends in _exit
+	flushLogQueue();
+	// From here to _exit the file is this thread's alone, so the writer cannot cut into the report
+	// with other threads' lines.  Never released; what is queued meanwhile goes out before each _exit.
+	if (theLogQueue != NULL)
+		theLogQueue->fileLock.lock();
 #endif
 	releaseCrashToLog(reason);
 
@@ -919,6 +1052,9 @@ void ReleaseCrash(const char *reason)
 		fclose(theReleaseCrashLogFile);
 		theReleaseCrashLogFile = NULL;
 	}
+#ifdef DEBUG_LOGGING
+	flushLogQueue();		// the "could not write" line above, if there was one
+#endif
 
 	hideFullScreenWindowForMessage();
 	// the log is written by now; a run nobody is watching should die rather than wait for a click
@@ -998,8 +1134,7 @@ static void gameDataGoneExit( void )
 
 	DEBUG_LOG(( "GAME DATA GONE: %s\n", text ));
 #ifdef DEBUG_LOGGING
-	if (theLogFile)
-		fflush( theLogFile );		// flushed on a timer otherwise, and _exit below skips the CRT's flush
+	flushLogQueue();		// written once a second otherwise, and _exit below skips the CRT's flush
 #endif
 	fprintf( stderr, "GAME DATA GONE: %s\n", text );
 	fflush( stderr );
@@ -1033,9 +1168,10 @@ void GameDataGoneCheck( void )
 void ReleaseCrashLocalized(const AsciiString& p, const AsciiString& m)
 {
 #ifdef DEBUG_LOGGING
-	// see ReleaseCrash: the log is flushed on a timer and _exit below skips the CRT's flush
-	if (theLogFile)
-		fflush(theLogFile);
+	// see ReleaseCrash: the log is written once a second and _exit below skips the CRT's flush
+	flushLogQueue();
+	if (theLogQueue != NULL)
+		theLogQueue->fileLock.lock();		// the report uninterrupted, as in ReleaseCrash
 #endif
 	if (!TheGameText) {
 		ReleaseCrash(m.str());
@@ -1114,6 +1250,9 @@ void ReleaseCrashLocalized(const AsciiString& p, const AsciiString& m)
 		fclose(theReleaseCrashLogFile);
 		theReleaseCrashLogFile = NULL;
 	}
+#ifdef DEBUG_LOGGING
+	flushLogQueue();
+#endif
 
 	_exit(1);
 }
