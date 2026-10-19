@@ -5804,6 +5804,11 @@ static Bool isSystemMessage( const GameMessage *msg )
 		case GameMessage::MSG_LOGIC_CRC:
 		case GameMessage::MSG_SET_REPLAY_CAMERA:
 		case GameMessage::MSG_FRAME_TICK:
+		/* A preference the logic itself posts once a second (Player::update), not an order.  Destroyed
+			 while a cinematic held input off, it got through or not on whether a client pass ran between
+			 the post and the script that disabled input, which is the machine's load: USA mission one read
+			 a different CRC in 2 of 10 runs, an AIGroup id short from the dispatch it never reached. */
+		case GameMessage::MSG_ENABLE_RETALIATION_MODE:
 			return TRUE;
 	}
 	return FALSE;
