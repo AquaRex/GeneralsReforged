@@ -98,7 +98,7 @@ public:
 
 protected:
 
-	void drawGlow( Real widthScale );
+	void drawGlow( Real widthScale, Real sinceArrivalMs );
 
 	SegmentedLineClass **m_line3D;  ///< line 3D for effect
 	SegmentedLineClass **m_glow3D;  ///< halo, pulsing body and hot core per segment, NULL for beams that do not glow
@@ -107,6 +107,10 @@ protected:
 	Vector3 m_beamEnd;
 	UnsignedInt m_birthFrame;				///< logic frame the lines were built on, for the fade in and out
 	UnsignedInt m_lifetimeFrames;		///< the template's LifetimeUpdate, 0 when it has none (no fade out)
+	UnsignedInt m_birthMs;					///< picture clock of the first draw, for the travel
+	Bool m_started;									///< drawn once, so m_birthMs and m_travels are set
+	Bool m_travels;									///< travels out from the muzzle; false when it carries on from a beam just drawn
+	Bool m_travelDrawn;							///< the last draw had the head on its way, so this one places the whole beam
 	TextureClass *m_texture;
 	Real m_textureAspectRatio;			///< aspect ratio of texture
 	Bool m_selfDirty;								// not saved

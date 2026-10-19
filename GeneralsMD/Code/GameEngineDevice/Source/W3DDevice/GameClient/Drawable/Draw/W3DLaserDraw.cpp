@@ -40,6 +40,7 @@
 #include "GameClient/Color.h"
 #include "GameClient/Drawable.h"
 #include "GameClient/GameClient.h"
+#include "GameClient/ParticleSys.h"
 #include "GameClient/RayEffect.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
@@ -69,9 +70,12 @@
 // hue with bright knots running down it from the gun to the target, and a narrow core run toward
 // white. A flare sits at each end, a glow and a white-hot heart, small at the muzzle and larger
 // where the beam lands. Everything but the knots draws through one texture made here, a falloff
-// across the width that reaches zero at the edge, so nothing has a visible border. The beam comes
-// up over two logic frames and dies away over the last third of its life, and every layer
-// flickers a little, the flares most. The core and the hearts stack past white, which the
+// across the width that reaches zero at the edge, so nothing has a visible border. A new beam
+// travels out from the muzzle with the impact flares riding its head as a hot white tip, and the
+// impact flares up when the head arrives; a beam that carries on from one just drawn between the
+// same two (the Avenger's, fired again before the last one is gone) starts whole. The damage is
+// the logic's and landed already: the travel is picture only. The beam dies away over the last
+// third of its life, and every layer flickers a little, the flares most. The core and the hearts stack past white, which the
 // Direct3D 11 bloom then picks up; under -d3d9 the halo and the flare glows are the glow. All of
 // it follows the Glow option (glowStrength), and Off draws EA's beam alone. Draw side only:
 // nothing here is read by GameLogic or parsed from INI.
@@ -102,8 +106,66 @@ static const Real FLARE_FLICKER									= 0.3f;		// share of a flare's light and
 static const Real BEAM_FLICKER									= 0.15f;	// the same for the three beam lines
 static const UnsignedInt FLICKER_STEP_MS				= 40;			// one new flicker value this often, blended between
 
-static const UnsignedInt FADE_IN_FRAMES					= 2;
+static const UnsignedInt FADE_IN_FRAMES					= 2;			// a beam that carries on, without travel
 static const Real FADE_OUT_SHARE								= 0.34f;	// of the beam's lifetime
+
+// The travel, on the picture's clock (WW3D sync time) so a slow-motion recording slows it too
+static const Real TRAVEL_SPEED									= 3000.0f;	// world units a second
+static const Real TRAVEL_MIN_MS									= 35.0f;
+static const Real TRAVEL_MAX_MS									= 90.0f;		// a long Avenger shot; a Laser Paladin's beam lives 95
+static const Real HEAD_WIDTH_SCALE							= 0.75f;		// the impact flares while they ride the head
+static const Real HEAD_GLOW_WHITEN							= 0.6f;
+static const Real ARRIVAL_KICK									= 0.8f;			// the impact flares' extra width as the head lands
+static const Real ARRIVAL_KICK_MS								= 90.0f;		// and how long that takes to settle
+static const UnsignedInt CONTINUE_MS						= 150;			// a beam between the same two this recent: no travel
+
+// The beams drawn lately, by who fired at whom, so a beam fired again before the last one is gone
+// carries on rather than travelling out once more.
+struct BeamSeen
+{
+	DrawableID parent;
+	DrawableID target;
+	UnsignedInt ms;
+};
+static const Int BEAMS_SEEN = 64;
+static BeamSeen s_beamsSeen[ BEAMS_SEEN ];
+
+// A shot at the ground has no target to tell one beam from the next, so it always travels.
+static Bool continuesBeam( DrawableID parent, DrawableID target, UnsignedInt now )
+{
+	if( parent == INVALID_DRAWABLE_ID || target == INVALID_DRAWABLE_ID )
+		return FALSE;
+	for( Int i = 0; i < BEAMS_SEEN; i++ )
+	{
+		const BeamSeen &seen = s_beamsSeen[ i ];
+		if( seen.parent == parent && seen.target == target && now - seen.ms <= CONTINUE_MS )
+			return TRUE;
+	}
+	return FALSE;
+}
+
+// ponytail: a linear walk over 64 slots each draw of each glowing beam; a map by parent if a fight
+// ever holds hundreds of beams at once
+static void markBeamSeen( DrawableID parent, DrawableID target, UnsignedInt now )
+{
+	if( parent == INVALID_DRAWABLE_ID || target == INVALID_DRAWABLE_ID )
+		return;
+	Int slot = 0;
+	for( Int i = 0; i < BEAMS_SEEN; i++ )
+	{
+		BeamSeen &seen = s_beamsSeen[ i ];
+		if( seen.parent == parent && seen.target == target )
+		{
+			slot = i;
+			break;
+		}
+		if( now - seen.ms > now - s_beamsSeen[ slot ].ms )
+			slot = i;	// the stalest so far
+	}
+	s_beamsSeen[ slot ].parent = parent;
+	s_beamsSeen[ slot ].target = target;
+	s_beamsSeen[ slot ].ms = now;
+}
 
 static TextureClass *s_glowTexture = NULL;
 static TextureClass *s_knotTexture = NULL;
@@ -354,6 +416,10 @@ W3DLaserDraw::W3DLaserDraw( Thing *thing, const ModuleData* moduleData ) :
 	m_beamEnd(0.0f, 0.0f, 0.0f),
 	m_birthFrame(0),
 	m_lifetimeFrames(0),
+	m_birthMs(0),
+	m_started(FALSE),
+	m_travels(FALSE),
+	m_travelDrawn(FALSE),
 	m_texture(NULL),
 	m_textureAspectRatio(1.0f),
 	m_selfDirty(TRUE)
@@ -544,9 +610,39 @@ void W3DLaserDraw::doDrawModule(const Matrix3D* transformMtx)
 		return;
 	}
 
-	//If the update has moved the laser, it requires a reset of the laser.
-	if (update->isDirty() || m_selfDirty)
+	// the travel: how far out the head is (1 once it has arrived, or for a beam that starts whole)
+	// and how long ago it arrived, negative while it is still on its way
+	Real reach = 1.0f;
+	Real sinceArrivalMs = ARRIVAL_KICK_MS;
+	if( m_glow3D && data->m_segments == 1 )
 	{
+		const UnsignedInt now = WW3D::Get_Sync_Time();
+		if( !m_started )
+		{
+			m_started = TRUE;
+			m_birthMs = now;
+			// Off in the Glow option is EA's beam, which never travelled
+			m_travels = glowStrength() > 0.0f && !continuesBeam( update->getParentID(), update->getFiredAtID(), now );
+		}
+		markBeamSeen( update->getParentID(), update->getFiredAtID(), now );
+		if( m_travels )
+		{
+			Coord3D full = *update->getEndPos();
+			full.sub( update->getStartPos() );
+			const Real travelMs = MIN( MAX( full.length() / TRAVEL_SPEED * 1000.0f, TRAVEL_MIN_MS ), TRAVEL_MAX_MS );
+			const Real sinceBirthMs = (Real)( now - m_birthMs );
+			sinceArrivalMs = sinceBirthMs - travelMs;
+			// a head a hair out of the muzzle on the first picture, so it has a direction to draw along
+			reach = MIN( MAX( sinceBirthMs / travelMs, 0.05f ), 1.0f );
+		}
+	}
+	const Bool travelling = reach < 1.0f;
+
+	//If the update has moved the laser, it requires a reset of the laser. So does a head on its way
+	//out, and the picture after it arrives.
+	if (update->isDirty() || m_selfDirty || travelling || m_travelDrawn)
+	{
+		m_travelDrawn = travelling;
 		update->setDirty(false);
 		m_selfDirty = false;
 
@@ -655,6 +751,9 @@ void W3DLaserDraw::doDrawModule(const Matrix3D* transformMtx)
 				laserPoints[ 1 ].Set( update->getEndPos()->x, update->getEndPos()->y, update->getEndPos()->z );
 			}
 
+			// only a single segment travels (reach is 1 otherwise): every layer stops at the head
+			laserPoints[ 1 ] = laserPoints[ 0 ] + ( laserPoints[ 1 ] - laserPoints[ 0 ] ) * reach;
+
 			//Get the color components for calculation purposes.
 			Real innerRed, innerGreen, innerBlue, innerAlpha, outerRed, outerGreen, outerBlue, outerAlpha;
 			GameGetColorComponentsReal( data->m_innerColor, &innerRed, &innerGreen, &innerBlue, &innerAlpha );
@@ -751,15 +850,27 @@ void W3DLaserDraw::doDrawModule(const Matrix3D* transformMtx)
 		}
 	}
 
+	if( m_travels )
+	{
+		// the target effect from the data holds off until the head lands; it is a continuous
+		// emitter, so it is stopped rather than moved, which would leave a trail of it on the way
+		ParticleSystem *system = TheParticleSystemManager->findParticleSystem( update->getTargetParticleSystemID() );
+		if( system && travelling )
+			system->stop();
+		else if( system )
+			system->start();
+	}
+
 	if( m_glow3D )
-		drawGlow( update->getWidthScale() );
+		drawGlow( update->getWidthScale(), sinceArrivalMs );
 }
 
 //-------------------------------------------------------------------------------------------------
 /** The glow's light on this draw: the fade in and out, the flicker, the body's width and the flares,
-	* which sit at the beam's ends and are re-placed every draw because their size flickers. */
+	* which sit at the beam's ends and are re-placed every draw because their size flickers. The
+	* impact flares are the head while sinceArrivalMs is negative, and swell as it lands. */
 //-------------------------------------------------------------------------------------------------
-void W3DLaserDraw::drawGlow( Real widthScale )
+void W3DLaserDraw::drawGlow( Real widthScale, Real sinceArrivalMs )
 {
 	const W3DLaserDrawModuleData *data = getW3DLaserDrawModuleData();
 	const Real brightness = MIN( glowStrength(), 1.0f );
@@ -773,9 +884,11 @@ void W3DLaserDraw::drawGlow( Real widthScale )
 		return;
 	}
 
-	// up over FADE_IN_FRAMES, down over the last FADE_OUT_SHARE of the template's lifetime
+	// down over the last FADE_OUT_SHARE of the template's lifetime; a beam that carries on from the
+	// last one also comes up over FADE_IN_FRAMES, so the two overlapping do not flash, where a
+	// travelling one comes up with its head
 	const Real age = (Real)( TheGameLogic->getFrame() - m_birthFrame );
-	Real fade = MIN( ( age + 1.0f ) / FADE_IN_FRAMES, 1.0f );
+	Real fade = m_travels ? 1.0f : MIN( ( age + 1.0f ) / FADE_IN_FRAMES, 1.0f );
 	if( m_lifetimeFrames > 0 )
 	{
 		const Real fadeOutFrames = MAX( m_lifetimeFrames * FADE_OUT_SHARE, 1.0f );
@@ -819,7 +932,18 @@ void W3DLaserDraw::drawGlow( Real widthScale )
 		if( f == 0 )
 			direction /= length;
 		const Real shimmer = flicker( seed + 3 + f, FLARE_FLICKER );
-		const Real width = MAX( widest * FLARE_WIDTH_SCALE[ f ], FLARE_MIN_WIDTH[ f ] ) * widthScale * shimmer * ( 0.6f + 0.4f * fade );
+		Real width = MAX( widest * FLARE_WIDTH_SCALE[ f ], FLARE_MIN_WIDTH[ f ] ) * widthScale * shimmer * ( 0.6f + 0.4f * fade );
+		Real whiten = FLARE_WHITEN[ f ];
+		if( f >= 2 && sinceArrivalMs < 0.0f )
+		{
+			// the head: smaller than the impact and white hot
+			width *= HEAD_WIDTH_SCALE;
+			whiten = MAX( whiten, HEAD_GLOW_WHITEN );
+		}
+		else if( f >= 2 )
+		{
+			width *= 1.0f + ARRIVAL_KICK * MAX( 1.0f - sinceArrivalMs / ARRIVAL_KICK_MS, 0.0f );
+		}
 		const Vector3 &at = ( f < 2 ) ? m_beamStart : m_beamEnd;
 		// a glow line with no middle is a round glow (glowTexel); its middle is kept a hair long so
 		// the line has a direction to turn its width across
@@ -829,7 +953,7 @@ void W3DLaserDraw::drawGlow( Real widthScale )
 		SegmentedLineClass *line = m_flare3D[ f ];
 		line->Set_Width( width );
 		line->Set_Points( GLOW_LINE_POINTS, flarePoints );
-		line->Set_Color( ( hue * ( 1.0f - FLARE_WHITEN[ f ] ) + white * FLARE_WHITEN[ f ] ) * MIN( light * shimmer, 1.0f ) );
+		line->Set_Color( ( hue * ( 1.0f - whiten ) + white * whiten ) * MIN( light * shimmer, 1.0f ) );
 	}
 }
 

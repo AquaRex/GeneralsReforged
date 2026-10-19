@@ -89,6 +89,12 @@ public:
 
 	Real getWidthScale() const { return m_currentWidthScalar; }
 
+	// for W3DLaserDraw's travel: who fired at whom (the target as initLaser found it, kept after a kill
+	// clears m_targetID), and the target effect it holds back until the beam's head lands
+	DrawableID getParentID() const { return m_parentID; }
+	DrawableID getFiredAtID() const { return m_firedAtID; }
+	ParticleSystemID getTargetParticleSystemID() const { return m_targetParticleSystemID; }
+
 	virtual void clientUpdate();
 
 protected:
@@ -103,6 +109,7 @@ protected:
 
 	DrawableID m_parentID;
 	DrawableID m_targetID;
+	DrawableID m_firedAtID;	///< client only, not saved: the drawing reads it in the first passes of a beam
 
 	Bool m_dirty;
 	ParticleSystemID m_particleSystemID;

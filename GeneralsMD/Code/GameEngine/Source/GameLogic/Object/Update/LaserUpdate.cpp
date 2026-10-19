@@ -95,6 +95,7 @@ LaserUpdate::LaserUpdate( Thing *thing, const ModuleData* moduleData ) : ClientU
 	m_decayFinishFrame = 0;
 	m_parentID = INVALID_DRAWABLE_ID;
 	m_targetID = INVALID_DRAWABLE_ID;
+	m_firedAtID = INVALID_DRAWABLE_ID;
 	m_parentBoneName.clear();
 } 
 
@@ -311,7 +312,7 @@ void LaserUpdate::initLaser( const Object *parent, const Object *target, const C
 	{
 		// If a target object, use it (unless we override it!)
 		if( target->getDrawable() )
-			m_targetID = target->getDrawable()->getID();
+			m_targetID = m_firedAtID = target->getDrawable()->getID();
 
 		m_endPos = *target->getPosition();
 	}
