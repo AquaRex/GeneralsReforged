@@ -912,13 +912,13 @@ static void drawStartSpot( GameWindow *window, WinInstanceData *instData )
 	Int x, y, width, height;
 	window->winGetScreenPosition( &x, &y );
 	window->winGetSize( &width, &height );
-	// the stock spot's dark middle is about 62% of the button, inside its blue ring: colour only that
-	const Int insetX = width * 19 / 100;
-	const Int insetY = height * 19 / 100;
-	// and that middle sits a pixel right of and below the button's own (two at 4K)
-	const Int holeShift = max( 1, width / 28 );
+	// Colour only the stock spot's dark middle, inside its blue ring.  EA's PlayerStart art is 25 pixels
+	// square with a drop shadow to the lower right, so the middle is not centred in it: it covers source
+	// pixels 3 to 18 both ways.  Those bounds scale with the button and round to the nearest pixel.
+	const Int artSize = 25, holeStart = 3, holeEnd = 19;
 	TheDisplay->drawImage( TheMappedImageCollection->findImageByName( "ReforgedLobbySpot" ),
-		x + insetX + holeShift, y + insetY + holeShift, x + width - insetX + holeShift, y + height - insetY + holeShift, fill );
+		x + (width * holeStart + artSize / 2) / artSize, y + (height * holeStart + artSize / 2) / artSize,
+		x + (width * holeEnd + artSize / 2) / artSize, y + (height * holeEnd + artSize / 2) / artSize, fill );
 	DisplayString *number = instData->getTextDisplayString();
 	// the number in the bold of the button's own face, so it holds up on a bright disc
 	GameFont *font = number->getFont();
