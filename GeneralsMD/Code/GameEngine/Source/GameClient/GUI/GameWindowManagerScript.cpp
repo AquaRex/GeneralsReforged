@@ -658,11 +658,11 @@ static Bool parseScreenRect( char *token, char *buffer,
 	const Bool wideShellScreen = theLayoutIsShellScreen && createRes.x * 3 > createRes.y * 4;
 	// The lettering has to shrink and grow with the fitted window, not with the 800x600 rule
 	// adjustFontSize applies: on 4:3 that rule made the text a third too big for its boxes, and its 2x
-	// cap left 4K text at half the size of the panel.  Never under the size the layout names.
+	// cap left 4K text at half the size of the panel.  Below 1080 it shrinks with the boxes too.
 	// 1.4 is the lettering the 1080-high rooms are drawn for: a 10 point face comes out 19 pixels
 	// tall at 1080p, as the stretched rooms had it, and the columns are measured for that.
 	theWideFontScale = wideShellScreen
-		? max( 1.0f, min( xScale, yScale ) * (Real)createRes.y / 1080.0f * 1.4f ) : 0.0f;
+		? min( xScale, yScale ) * (Real)createRes.y / 1080.0f * 1.4f : 0.0f;
 	if( theLayoutPlacement == LAYOUT_FIT || wideShellScreen )
 	{
 		const Bool fullAuthored = parent == NULL
