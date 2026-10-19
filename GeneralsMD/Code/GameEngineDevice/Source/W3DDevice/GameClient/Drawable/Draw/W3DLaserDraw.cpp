@@ -66,32 +66,31 @@
 
 // BEAM GLOW //////////////////////////////////////////////////////////////////////////////////////
 // Weapon lasers get three more additive lines per segment over EA's beams, whose texture leaves a
-// line three percent of each layer's width: a wide halo in the beam's own hue, a body in the same
-// hue with bright knots running down it from the gun to the target, and a narrow core run toward
-// white. A flare sits at each end, a glow and a white-hot heart, small at the muzzle and larger
-// where the beam lands. Everything but the knots draws through one texture made here, a falloff
-// across the width that reaches zero at the edge, so nothing has a visible border. A new beam
-// travels out from the muzzle with the impact flares riding its head as a hot white tip, and the
-// impact flares up when the head arrives; a beam that carries on from one just drawn between the
-// same two (the Avenger's, fired again before the last one is gone) starts whole. The damage is
-// the logic's and landed already: the travel is picture only. The beam dies away over the last
-// third of its life, and every layer flickers a little, the flares most. The core and the hearts stack past white, which the
-// Direct3D 11 bloom then picks up; under -d3d9 the halo and the flare glows are the glow. All of
-// it follows the Glow option (glowStrength), and Off draws EA's beam alone. Draw side only:
+// line three percent of each layer's width: a faint halo in the beam's own hue, a tight glow in
+// the same hue, and a thin core run nearly to white. A small flare sits at each end, a glow and a
+// hot heart: a point at the muzzle and a burn point where the beam lands. All of it draws through
+// one texture made here, a falloff across the width that reaches zero at the edge, so nothing has
+// a visible border. A new beam streaks out from the muzzle in a few hundredths of a second with
+// the impact flares riding its head as a small bright edge, and burns in where it lands; a beam
+// that carries on from one just drawn between the same two (the Avenger's, fired again before the
+// last one is gone) starts whole. The damage is the logic's and landed already: the travel is
+// picture only. The beam dies away over the last third of its life, and every layer flickers a
+// little. The owner judged the first look, a wide red band, a whitened body with knots and white
+// balls at both ends, as glaring (2026-10-19): the widths and lights below are the realistic one,
+// a hot thin line in a narrow glow, kept under the Direct3D 11 bloom rather than feeding it. All
+// of it follows the Glow option (glowStrength), and Off draws EA's beam alone. Draw side only:
 // nothing here is read by GameLogic or parsed from INI.
-static const Real GLOW_HALO_WIDTH_SCALE	= 2.4f;		// halo width over the beam's widest layer
-static const Real GLOW_HALO_MIN_WIDTH		= 16.0f;
-static const Real GLOW_HALO_INTENSITY		= 0.3f;
-static const Real GLOW_HALO_SPREAD			= 0.5f;		// halo width gained per unit of strength past Medium
-static const Real GLOW_BODY_WIDTH_SCALE	= 0.9f;
-static const Real GLOW_BODY_MIN_WIDTH		= 8.0f;
-static const Real GLOW_BODY_INTENSITY		= 0.7f;		// with BEAM_FLICKER on top it stays under one
-static const Real GLOW_BODY_WHITEN			= 0.5f;		// a red beam's red is spent on the halo; the knots show in white
-static const Real GLOW_BODY_KNOT_SPACING	= 22.0f;	// world units from one bright knot to the next
-static const Real GLOW_BODY_KNOT_SPEED	= -30.0f;	// knots a second, toward the target
-static const Real GLOW_CORE_WIDTH_SCALE	= 0.2f;
-static const Real GLOW_CORE_MIN_WIDTH		= 2.5f;
-static const Real GLOW_CORE_WHITEN			= 0.85f;	// how far the core's hue is run toward white
+static const Real GLOW_HALO_WIDTH_SCALE	= 1.4f;		// halo width over the beam's widest layer
+static const Real GLOW_HALO_MIN_WIDTH		= 10.0f;
+static const Real GLOW_HALO_INTENSITY		= 0.12f;
+static const Real GLOW_HALO_SPREAD			= 0.3f;		// halo width gained per unit of strength past Medium
+static const Real GLOW_BODY_WIDTH_SCALE	= 0.45f;
+static const Real GLOW_BODY_MIN_WIDTH		= 5.0f;
+static const Real GLOW_BODY_INTENSITY		= 0.55f;
+static const Real GLOW_BODY_WHITEN			= 0.15f;
+static const Real GLOW_CORE_WIDTH_SCALE	= 0.12f;
+static const Real GLOW_CORE_MIN_WIDTH		= 1.5f;
+static const Real GLOW_CORE_WHITEN			= 0.7f;		// how far the core's hue is run toward white
 static const Int GLOW_LAYERS						= 3;			// [0] halo, [1] body, [2] core
 static const Int GLOW_TEXTURE_SIZE			= 64;
 static const Int GLOW_LINE_POINTS				= 4;			// cap tip, start, end, cap tip
@@ -99,24 +98,27 @@ static const Int GLOW_LINE_POINTS				= 4;			// cap tip, start, end, cap tip
 // [0] muzzle glow, [1] muzzle heart, [2] impact glow, [3] impact heart: width over the beam's widest
 // layer, the least width, and how far toward white
 static const Int FLARE_COUNT						= 4;
-static const Real FLARE_WIDTH_SCALE[ FLARE_COUNT ]	= { 1.6f, 0.6f, 2.6f, 1.0f };
-static const Real FLARE_MIN_WIDTH[ FLARE_COUNT ]		= { 16.0f, 6.0f, 26.0f, 10.0f };
-static const Real FLARE_WHITEN[ FLARE_COUNT ]				= { 0.2f, 0.9f, 0.2f, 0.9f };
-static const Real FLARE_FLICKER									= 0.3f;		// share of a flare's light and width that flickers
-static const Real BEAM_FLICKER									= 0.15f;	// the same for the three beam lines
+static const Real FLARE_WIDTH_SCALE[ FLARE_COUNT ]	= { 0.5f, 0.2f, 0.9f, 0.35f };
+static const Real FLARE_MIN_WIDTH[ FLARE_COUNT ]		= { 6.0f, 2.5f, 10.0f, 4.0f };
+static const Real FLARE_WHITEN[ FLARE_COUNT ]				= { 0.3f, 0.85f, 0.3f, 0.85f };
+static const Real FLARE_FLICKER									= 0.2f;		// share of a flare's light and width that flickers
+static const Real BEAM_FLICKER									= 0.06f;	// the same for the three beam lines' light
 static const UnsignedInt FLICKER_STEP_MS				= 40;			// one new flicker value this often, blended between
 
 static const UnsignedInt FADE_IN_FRAMES					= 2;			// a beam that carries on, without travel
 static const Real FADE_OUT_SHARE								= 0.34f;	// of the beam's lifetime
 
-// The travel, on the picture's clock (WW3D sync time) so a slow-motion recording slows it too
-static const Real TRAVEL_SPEED									= 3000.0f;	// world units a second
-static const Real TRAVEL_MIN_MS									= 35.0f;
-static const Real TRAVEL_MAX_MS									= 90.0f;		// a long Avenger shot; a Laser Paladin's beam lives 95
-static const Real HEAD_WIDTH_SCALE							= 0.75f;		// the impact flares while they ride the head
+// The travel, on the picture's clock (WW3D sync time) so a slow-motion recording slows it too. Live
+// at 60 pictures a second it is a picture or two, a short streak and then the whole beam; a
+// -recordfps picture between two logic frames places it again (smoothMotionApply), where the
+// drawables are otherwise drawn on the first picture only, so footage moves on every picture.
+static const Real TRAVEL_SPEED									= 8000.0f;	// world units a second
+static const Real TRAVEL_MIN_MS									= 12.0f;
+static const Real TRAVEL_MAX_MS									= 30.0f;
+static const Real HEAD_WIDTH_SCALE							= 0.6f;			// the impact flares while they ride the head
 static const Real HEAD_GLOW_WHITEN							= 0.6f;
-static const Real ARRIVAL_KICK									= 0.8f;			// the impact flares' extra width as the head lands
-static const Real ARRIVAL_KICK_MS								= 90.0f;		// and how long that takes to settle
+static const Real ARRIVAL_KICK									= 0.3f;			// the impact flares' extra width as the head lands
+static const Real ARRIVAL_KICK_MS								= 60.0f;		// and how long that takes to settle
 static const UnsignedInt CONTINUE_MS						= 150;			// a beam between the same two this recent: no travel
 
 // The beams drawn lately, by who fired at whom, so a beam fired again before the last one is gone
@@ -168,7 +170,6 @@ static void markBeamSeen( DrawableID parent, DrawableID target, UnsignedInt now 
 }
 
 static TextureClass *s_glowTexture = NULL;
-static TextureClass *s_knotTexture = NULL;
 
 // ponytail: chosen by template name so no INI field and no checksum change; a "Glow" field in
 // W3DLaserDraw is the upgrade if a mod ever wants it per beam. Every weapon laser in ZH ends in
@@ -201,20 +202,13 @@ static Real glowTexel( Real across, Real along )
 	return glowFalloff( across ) * glowFalloff( MAX( cap, 0.0f ) );
 }
 
-// The body's texture tiles along the beam, one knot a tile: a bright swelling over a dim floor.
-static Real knotTexel( Real across, Real along )
-{
-	Real wave = 0.5f + 0.5f * cosf( 2.0f * PI * along );
-	return glowFalloff( across ) * ( 0.25f + 0.75f * wave * wave * wave );
-}
-
 // u is -1..1 across the beam, v 0..1 along it
-static TextureClass *acquireBeamTexture( TextureClass *&slot, Real (*texel)( Real across, Real along ), Bool wrapAlong )
+static TextureClass *acquireGlowTexture()
 {
-	if( !slot )
+	if( !s_glowTexture )
 	{
-		slot = MSGNEW("TextureClass") TextureClass( GLOW_TEXTURE_SIZE, GLOW_TEXTURE_SIZE, WW3D_FORMAT_A8R8G8B8, MIP_LEVELS_1 );
-		SurfaceClass *surf = slot->Get_Surface_Level();
+		s_glowTexture = MSGNEW("TextureClass") TextureClass( GLOW_TEXTURE_SIZE, GLOW_TEXTURE_SIZE, WW3D_FORMAT_A8R8G8B8, MIP_LEVELS_1 );
+		SurfaceClass *surf = s_glowTexture->Get_Surface_Level();
 		Int pitch;
 		UnsignedByte *pData = (UnsignedByte*)surf->Lock( &pitch );
 		for( Int y = 0; y < GLOW_TEXTURE_SIZE; y++ )
@@ -224,25 +218,25 @@ static TextureClass *acquireBeamTexture( TextureClass *&slot, Real (*texel)( Rea
 			for( Int x = 0; x < GLOW_TEXTURE_SIZE; x++ )
 			{
 				Real across = ( x + 0.5f ) / GLOW_TEXTURE_SIZE * 2.0f - 1.0f;
-				UnsignedInt c = (UnsignedInt)( texel( across, along ) * 255.0f + 0.5f );
+				UnsignedInt c = (UnsignedInt)( glowTexel( across, along ) * 255.0f + 0.5f );
 				row[ x ] = ( c << 24 ) | ( c << 16 ) | ( c << 8 ) | c;
 			}
 		}
 		surf->Unlock();
 		REF_PTR_RELEASE( surf );
-		slot->Get_Filter().Set_U_Addr_Mode( TextureFilterClass::TEXTURE_ADDRESS_CLAMP );
-		slot->Get_Filter().Set_V_Addr_Mode( wrapAlong ? TextureFilterClass::TEXTURE_ADDRESS_REPEAT : TextureFilterClass::TEXTURE_ADDRESS_CLAMP );
+		s_glowTexture->Get_Filter().Set_U_Addr_Mode( TextureFilterClass::TEXTURE_ADDRESS_CLAMP );
+		s_glowTexture->Get_Filter().Set_V_Addr_Mode( TextureFilterClass::TEXTURE_ADDRESS_CLAMP );
 	}
-	slot->Add_Ref();
-	return slot;
+	s_glowTexture->Add_Ref();
+	return s_glowTexture;
 }
 
-static void releaseBeamTexture( TextureClass *&slot )
+static void releaseGlowTexture()
 {
 	// the static pointer holds one reference of its own; the last beam takes it with it
-	slot->Release_Ref();
-	if( slot->Num_Refs() == 1 )
-		REF_PTR_RELEASE( slot );
+	s_glowTexture->Release_Ref();
+	if( s_glowTexture->Num_Refs() == 1 )
+		REF_PTR_RELEASE( s_glowTexture );
 }
 
 // A flicker of one on average, varying by up to depth: a value per FLICKER_STEP_MS for each seed,
@@ -508,9 +502,8 @@ void W3DLaserDraw::buildRenderObjects( Bool madeInTick )
 
 	if( beamGlows( getDrawable() ) )
 	{
-		// this beam's references on both textures are given back by releaseBeamTexture in the destructor
-		TextureClass *glowTexture = acquireBeamTexture( s_glowTexture, glowTexel, FALSE );
-		TextureClass *knotTexture = acquireBeamTexture( s_knotTexture, knotTexel, TRUE );
+		// this beam's reference on the texture is given back by releaseGlowTexture in the destructor
+		TextureClass *glowTexture = acquireGlowTexture();
 
 		const Int glowCount = (Int)data->m_segments * GLOW_LAYERS;
 		m_glow3D = NEW SegmentedLineClass *[ glowCount ];
@@ -522,20 +515,10 @@ void W3DLaserDraw::buildRenderObjects( Bool madeInTick )
 			else
 				m_flare3D[ g - glowCount ] = line;
 			line->Set_Shader( glowingAdditiveShader() );
+			// u across the width, v a third further at each of the four points (glowTexel)
+			line->Set_Texture( glowTexture );
 			line->Set_Texture_Mapping_Mode( SegLineRendererClass::TILED_TEXTURE_MAP );
-			if( g < glowCount && g % GLOW_LAYERS == 1 )
-			{
-				// the body: two points, the knots tiled along it (tile factor set with the points) and
-				// running toward the target
-				line->Set_Texture( knotTexture );
-				line->Set_UV_Offset_Rate( Vector2( 0.0f, GLOW_BODY_KNOT_SPEED ) );
-			}
-			else
-			{
-				// u across the width, v a third further at each of the four points (glowTexel)
-				line->Set_Texture( glowTexture );
-				line->Set_Texture_Tile_Factor( 1.0f / ( GLOW_LINE_POINTS - 1 ) );
-			}
+			line->Set_Texture_Tile_Factor( 1.0f / ( GLOW_LINE_POINTS - 1 ) );
 			W3DDisplay::m_3DScene->Add_Render_Object( line );
 			line->Set_Visible( 0 );
 		}
@@ -579,8 +562,7 @@ W3DLaserDraw::~W3DLaserDraw( void )
 			W3DDisplay::m_3DScene->Remove_Render_Object( m_flare3D[ f ] );
 			REF_PTR_RELEASE( m_flare3D[ f ] );
 		}
-		releaseBeamTexture( s_glowTexture );
-		releaseBeamTexture( s_knotTexture );
+		releaseGlowTexture();
 	}
 }
 
@@ -805,14 +787,14 @@ void W3DLaserDraw::doDrawModule(const Matrix3D* transformMtx)
 			if( m_glow3D )
 			{
 				// set with the points rather than once, so a change of the Glow option reaches the
-				// next beam drawn; the colours and the body's width are set on every draw, below
+				// next beam drawn; the colours are set on every draw, below
 				const Real spread = 1.0f + GLOW_HALO_SPREAD * MAX( glowStrength() - 1.0f, 0.0f );
 				Real widest = MAX( data->m_innerBeamWidth, data->m_outerBeamWidth );
 				Real widthScale = update->getWidthScale();
 				Real widths[ GLOW_LAYERS ] =
 				{
 					MAX( widest * GLOW_HALO_WIDTH_SCALE, GLOW_HALO_MIN_WIDTH ) * widthScale * spread,
-					0.0f,
+					MAX( widest * GLOW_BODY_WIDTH_SCALE, GLOW_BODY_MIN_WIDTH ) * widthScale,
 					MAX( widest * GLOW_CORE_WIDTH_SCALE, GLOW_CORE_MIN_WIDTH ) * widthScale
 				};
 				// ponytail: every segment gets its own caps, so an arc of several segments would double
@@ -822,12 +804,6 @@ void W3DLaserDraw::doDrawModule(const Matrix3D* transformMtx)
 				for( Int g = 0; g < GLOW_LAYERS; g++ )
 				{
 					SegmentedLineClass *line = m_glow3D[ segment * GLOW_LAYERS + g ];
-					if( g == 1 )
-					{
-						line->Set_Texture_Tile_Factor( length / GLOW_BODY_KNOT_SPACING );
-						line->Set_Points( 2, &laserPoints[0] );
-						continue;
-					}
 					line->Set_Width( widths[ g ] );
 					if( length > 0.0f )
 					{
@@ -866,7 +842,20 @@ void W3DLaserDraw::doDrawModule(const Matrix3D* transformMtx)
 }
 
 //-------------------------------------------------------------------------------------------------
-/** The glow's light on this draw: the fade in and out, the flicker, the body's width and the flares,
+/** Drawables are only drawn on a logic frame's first -recordfps picture, while W3D's clock moves on
+	* every one; drawing the beam again here keeps the head and the flicker on that clock, where
+	* otherwise they would step once per logic frame in the footage. Every drawable comes through here,
+	* so the test Drawable::draw makes is made again: a beam in the fog given points here would show. */
+//-------------------------------------------------------------------------------------------------
+void W3DLaserDraw::smoothMotionApply( Real alpha )
+{
+	Drawable *draw = getDrawable();
+	if( m_glow3D && !draw->isDrawableEffectivelyHidden() && !draw->getFullyObscuredByShroud() )
+		doDrawModule( NULL );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The glow's light on this draw: the fade in and out, the flicker and the flares,
 	* which sit at the beam's ends and are re-placed every draw because their size flickers. The
 	* impact flares are the head while sinceArrivalMs is negative, and swell as it lands. */
 //-------------------------------------------------------------------------------------------------
@@ -908,12 +897,10 @@ void W3DLaserDraw::drawGlow( Real widthScale, Real sinceArrivalMs )
 		( hue * ( 1.0f - GLOW_CORE_WHITEN ) + white * GLOW_CORE_WHITEN ) * light
 	};
 	const Real widest = MAX( data->m_innerBeamWidth, data->m_outerBeamWidth );
-	const Real bodyWidth = MAX( widest * GLOW_BODY_WIDTH_SCALE, GLOW_BODY_MIN_WIDTH ) * widthScale * flicker( seed + 2, BEAM_FLICKER );
 	for( Int segment = 0; segment < (Int)data->m_segments; segment++ )
 	{
 		for( Int g = 0; g < GLOW_LAYERS; g++ )
 			m_glow3D[ segment * GLOW_LAYERS + g ]->Set_Color( colors[ g ] );
-		m_glow3D[ segment * GLOW_LAYERS + 1 ]->Set_Width( bodyWidth );
 		// EA's layers come up and go down with the rest
 		for( Int i = 0; i < (Int)data->m_numBeams; i++ )
 			m_line3D[ segment * data->m_numBeams + i ]->Set_Color( beamLayerColor( data, i ) * fade );

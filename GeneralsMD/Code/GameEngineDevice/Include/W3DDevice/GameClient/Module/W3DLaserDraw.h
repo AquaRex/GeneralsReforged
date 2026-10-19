@@ -83,6 +83,7 @@ public:
 	// virtual destructor prototype provided by memory pool declaration
 
 	virtual void doDrawModule(const Matrix3D* transformMtx);
+	virtual void smoothMotionApply(Real alpha);	///< every -recordfps picture: the head and the flicker move on W3D's clock
 	virtual void buildRenderObjects( Bool madeInTick );
 	virtual void releaseShadows(void) {};	///< we don't care about preserving temporary shadows.	
 	virtual void allocateShadows(void) {};	///< we don't care about preserving temporary shadows.
@@ -101,7 +102,7 @@ protected:
 	void drawGlow( Real widthScale, Real sinceArrivalMs );
 
 	SegmentedLineClass **m_line3D;  ///< line 3D for effect
-	SegmentedLineClass **m_glow3D;  ///< halo, pulsing body and hot core per segment, NULL for beams that do not glow
+	SegmentedLineClass **m_glow3D;  ///< halo, body and hot core per segment, NULL for beams that do not glow
 	SegmentedLineClass *m_flare3D[ 4 ];	///< muzzle glow and core, impact glow and core; made beside m_glow3D
 	Vector3 m_beamStart;						///< the first segment's start and the last one's end, for the flares
 	Vector3 m_beamEnd;
