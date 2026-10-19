@@ -70,6 +70,7 @@
 #include "GameNetwork/GUIUtil.h"
 #include "GameClient/Display.h"
 #include "GameClient/Image.h"
+#include "GameClient/GameFont.h"
 #include "GameNetwork/IPEnumeration.h"
 #include "WWDownload/Registry.h"
 
@@ -915,6 +916,10 @@ static void drawStartSpot( GameWindow *window, WinInstanceData *instData )
 	TheDisplay->drawImage( TheMappedImageCollection->findImageByName( "ReforgedLobbySpot" ),
 		x, y, x + width, y + height, fill );
 	DisplayString *number = instData->getTextDisplayString();
+	// the number in the bold of the button's own face, so it holds up on a bright disc
+	GameFont *font = number->getFont();
+	if ( !font->bold )
+		number->setFont( TheFontLibrary->getFont( font->nameString, font->pointSize, TRUE ) );
 	Int textWidth, textHeight;
 	number->getSize( &textWidth, &textHeight );
 	number->draw( x + (width - textWidth) / 2, y + (height - textHeight) / 2, LobbyTextColorOn( fill ), 0 );

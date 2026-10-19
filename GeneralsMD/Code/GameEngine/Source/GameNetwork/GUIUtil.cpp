@@ -44,6 +44,7 @@
 #include "GameClient/GadgetPushButton.h"
 #include "GameClient/GameText.h"
 #include "GameClient/Display.h"
+#include "GameClient/Image.h"
 #include "GameLogic/GameLogic.h" // SUPERWEAPON_RESTRICT_COUNT
 #include "GameLogic/AI.h" // AIPersonality, for the personality column
 #include "GameNetwork/GameInfo.h"
@@ -915,8 +916,6 @@ static const Color theTeamColors[] =
 	GameMakeColor(150, 88, 30, 255),
 	GameMakeColor(0, 128, 128, 255),
 };
-// the check boxes' own frame colour, so a swatch reads as one of them
-static const Color theSwatchFrameColor = GameMakeColor(90, 100, 230, 255);
 static const Color theSeatEmptyColor = GameMakeColor(48, 54, 76, 255);
 static const Color theSeatUnpickedColor = GameMakeColor(128, 128, 128, 255);
 static const Color theCardColor = GameMakeColor(8, 12, 26, 200);
@@ -956,16 +955,15 @@ Color LobbyTextColorOn(Color fill)
 	return blackContrast > whiteContrast ? GameMakeColor(0, 0, 0, 255) : GameMakeColor(255, 255, 255, 255);
 }
 
-// A colour swatch drawn like the rules page's check boxes: their frame, and the colour inside it
-// with a little room between.
+// A colour swatch drawn as one of the rules page's check boxes: their own empty box, and the colour
+// inside its bevel with a little room between.
 static void drawSwatch(GameWindow *window, WinInstanceData *instData)
 {
 	Int x, y, width, height;
 	window->winGetScreenPosition(&x, &y);
 	window->winGetSize(&width, &height);
-	const Int frame = max(1, width / 13);
-	const Int padding = frame * 2;
-	TheDisplay->drawOpenRect(x, y, width, height, (Real)frame, theSwatchFrameColor);
+	TheDisplay->drawImage(TheMappedImageCollection->findImageByName("Active-Unchecked"), x, y, x + width, y + height);
+	const Int padding = max(2, width / 5);
 	TheDisplay->drawFillRect(x + padding, y + padding, width - 2 * padding, height - 2 * padding,
 		window->winGetEnabledColor(0));
 }
