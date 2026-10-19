@@ -15070,7 +15070,7 @@ GUI:HotkeysPressForceAttack
 END
 
 GUI:HotkeysClash
-"%s: %s teilen sich diese Taste. Im Spiel bekommt sie nur einer davon, und ein fester Befehl behält seine eigene."
+"%s: %s teilen sich diese Taste. Im Spiel bekommt sie nur einer davon: ein fester Befehl behält seine eigene, und ein Buchstabe von dir schlägt den des Spiels."
 END
 
 GUI:HotkeysAlsoOn
@@ -15078,7 +15078,7 @@ GUI:HotkeysAlsoOn
 END
 
 GUI:HotkeysFixed
-"Feste Tasten auf jeder Leiste: A Angriffsmarsch, S Stopp, G Bewachen, Y Sammelpunkt, V Evakuieren, C Abseilen, N Verkaufen, H Minen, Tarnnetz und der Wechsel zur Attrappe."
+"Dieselbe Vorgabe auf jeder Leiste: A Angriffsmarsch, S Stopp, G Bewachen, Y Sammelpunkt, V Evakuieren, C Abseilen, N Verkaufen, H Minen, Tarnnetz und der Wechsel zur Attrappe. Ändern verlegt sie."
 END
 
 GUI:HotkeysGameKey

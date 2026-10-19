@@ -1900,6 +1900,36 @@ TEST(hotkeys_names_sort_and_chords_read_as_the_launcher_has_them)
 	CHECK( Hotkeys_isKeyName( "KEY_PGDN" ) && !Hotkeys_isKeyName( "KEY_NONE" ) && !Hotkeys_isKeyName( "KEY_LCTRL" ) );
 }
 
+/* HotKey.cpp: a fixed order's letter is its default, not a lock.  Players could not move Sell off N:
+   the fixed letter was returned before Hotkeys.ini was asked, and the Hotkeys tab refused the capture. */
+TEST(hotkeys_every_fixed_order_takes_the_players_letter)
+{
+	static const struct { const char *button; Int type; WideChar fixed; } ORDERS[] =
+	{
+		{ "Command_AttackMove", GUI_COMMAND_ATTACK_MOVE, 'A' }, { "Command_Stop", GUI_COMMAND_STOP, 'S' },
+		{ "Command_Guard", GUI_COMMAND_GUARD, 'G' }, { "Command_SetRallyPoint", GUI_COMMAND_SET_RALLY_POINT, 'Y' },
+		{ "Command_Evacuate", GUI_COMMAND_EVACUATE, 'V' }, { "Command_Sell", GUI_COMMAND_SELL, 'N' },
+		{ "Command_CombatDrop", GUI_COMMAND_COMBATDROP, 'C' },
+		{ "Command_UpgradeChinaMines", GUI_COMMAND_PLAYER_UPGRADE, 'H' }, { "Command_UpgradeEMPMines", GUI_COMMAND_PLAYER_UPGRADE, 'H' },
+		{ "Command_UpgradeCamoNetting", GUI_COMMAND_PLAYER_UPGRADE, 'H' }, { "Command_UpgradeGLACamoNetting", GUI_COMMAND_PLAYER_UPGRADE, 'H' },
+		{ "Command_UpgradeGLAWorkerFakeCommandSet", GUI_COMMAND_OBJECT_UPGRADE, 'H' },
+		{ "Command_UpgradeGLAWorkerRealCommandSet", GUI_COMMAND_OBJECT_UPGRADE, 'H' },
+		{ "Command_BecomeRealGLABarracks", GUI_COMMAND_OBJECT_UPGRADE, 'H' },
+	};
+	for( size_t each = 0; each < sizeof( ORDERS ) / sizeof( ORDERS[ 0 ] ); each++ )
+	{
+		const AsciiString name( ORDERS[ each ].button );
+		AsciiString lower = name;
+		lower.toLower();
+		std::map< std::string, WideChar > keys;
+		CHECK_EQ( HotKeyManager::buttonKeyIn( name, 'Q', ORDERS[ each ].type, keys ), ORDERS[ each ].fixed );
+		keys[ lower.str() ] = 'K';
+		CHECK_EQ( HotKeyManager::buttonKeyIn( name, 'Q', ORDERS[ each ].type, keys ), (WideChar)'K' );
+		keys[ lower.str() ] = 0;	// Key = NONE in Hotkeys.ini
+		CHECK_EQ( HotKeyManager::buttonKeyIn( name, 'Q', ORDERS[ each ].type, keys ), 0 );
+	}
+}
+
 /* GlobalData.h: which button orders.  The classic mouse is 1.04's left button, or the right under EA's
    Alternate Mouse Setup (UseAlternateMouse, off out of the box); Reforged is the right whatever Options.ini says. */
 TEST(alternate_mouse_moves_the_order_button_in_classic_only)

@@ -115,9 +115,10 @@ public:
 	/** The key a command button gets: the one the player gave it in Hotkeys.ini (the launcher's
 		* Hotkeys page writes it, INI::parseCommandButtonHotKeyDefinition reads it), 0 where the player
 		* took the key away, and labelKey, the letter after the label's '&', where the player left the
-		* button alone; upper case.  Attack move, stop, guard, rally point, evacuate and sell have their
-		* fixed letters; another button gets one only from the player, and loses it to the fixed order
-		* on a bar holding both (addHotKey).  Force Attack is 0: it is Ctrl, painted on the
+		* button alone; upper case.  Attack move, stop, guard, rally point, evacuate and sell have fixed
+		* letters in place of the label's, which the player's own letter still overrides; another button
+		* gets one only from the player, and loses it to the fixed order on a bar holding both
+		* (addHotKey).  Force Attack is 0: it is Ctrl, painted on the
 		* cameo, never a letter. */
 	static WideChar playerButtonKey( const AsciiString& button, WideChar labelKey, Int commandType );
 	/// playerButtonKey over `keys` (lower case button name to letter, 0 for none) in place of the file's

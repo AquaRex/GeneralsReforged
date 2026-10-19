@@ -15826,7 +15826,7 @@ GUI:HotkeysPressForceAttack
 END
 
 GUI:HotkeysClash
-"%s: %s aynı tuşu kullanıyor. Oyunda tuş yalnızca birinde çalışır, sabit emir kendi tuşunu korur."
+"%s: %s aynı tuşu kullanıyor. Oyunda tuş yalnızca birinde çalışır: sabit emir kendi tuşunu korur, senin verdiğin harf oyununkinden önce gelir."
 END
 
 GUI:HotkeysAlsoOn
@@ -15834,7 +15834,7 @@ GUI:HotkeysAlsoOn
 END
 
 GUI:HotkeysFixed
-"Her çubukta sabit tuş: A saldırarak ilerle, S dur, G koru, Y toplanma noktası, V boşalt, C çatışma inişi, N sat, H mayın, kamuflaj ağı ve sahte bina geçişi."
+"Her çubukta aynı varsayılan tuş: A saldırarak ilerle, S dur, G koru, Y toplanma noktası, V boşalt, C çatışma inişi, N sat, H mayın, kamuflaj ağı ve sahte bina geçişi. Değiştir ile taşınır."
 END
 
 GUI:HotkeysGameKey

@@ -1429,7 +1429,7 @@ GUI:HotkeysPressForceAttack
 END
 
 GUI:HotkeysClash
-"%s: %s share this key. Only one of them gets it in the game, and a fixed order keeps its own."
+"%s: %s share this key. Only one of them gets it in the game: a fixed order keeps its own, and a letter you set beats the game's."
 END
 
 GUI:HotkeysAlsoOn
@@ -1437,7 +1437,7 @@ GUI:HotkeysAlsoOn
 END
 
 GUI:HotkeysFixed
-"A fixed key on every bar: A attack move, S stop, G guard, Y rally point, V evacuate, C combat drop, N sell, H mines, camo netting and the fake switch."
+"The same default on every bar: A attack move, S stop, G guard, Y rally point, V evacuate, C combat drop, N sell, H mines, camo netting and the fake switch. Change moves it."
 END
 
 GUI:HotkeysGameKey

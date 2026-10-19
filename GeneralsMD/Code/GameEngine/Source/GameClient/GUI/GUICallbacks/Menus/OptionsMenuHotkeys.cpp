@@ -536,21 +536,21 @@ void updateNote( void )
 	else if( s_active == 1 && s_button )
 	{
 		const Bool force = s_button->getCommandType() == GUI_COMMAND_FORCE_ATTACK;
-		const Bool fixed = !force && HotKeyManager::fixedKey( s_button->getName(), s_button->getCommandType() ) != 0;
+		const WideChar fixed = force ? 0 : HotKeyManager::fixedKey( s_button->getName(), s_button->getCommandType() );
 		const std::string name = HotKeyManager::fileButtonName( s_button->getName() );
 		changed = force ? s_file.commands.count( "BEGIN_FORCEATTACK" ) != 0 : s_file.buttons.count( name ) != 0;
-		canChange = !fixed;
+		canChange = TRUE;
 		if( s_capture == CAPTURE_BUTTON )
 			note = TheGameText->fetch( force ? "GUI:HotkeysPressForceAttack" : "GUI:HotkeysPressLetter" );
-		else if( fixed )
-			note = TheGameText->fetch( "GUI:HotkeysFixed" );
 		else if( force )
 			note = TheGameText->fetch( "GUI:HotkeysForceAttack" );
 		else if( changed )
 		{
-			const UnicodeString key = letterText( TheGameText->fetchEnglishHotKey( s_button->getTextLabel() ) );
+			const UnicodeString key = letterText( fixed != 0 ? fixed : TheGameText->fetchEnglishHotKey( s_button->getTextLabel() ) );
 			note.format( TheGameText->fetch( "GUI:HotkeysGameKey" ), key.isEmpty() ? TheGameText->fetch( "GUI:HotkeysNone" ).str() : key.str() );
 		}
+		else if( fixed != 0 )
+			note = TheGameText->fetch( "GUI:HotkeysFixed" );
 		else if( s_launcherButtons.count( name ) )
 			note = TheGameText->fetch( "GUI:HotkeysButtonMoved" );
 	}
@@ -587,8 +587,7 @@ void startCapture( void )
 {
 	if( s_active == 0 && s_commandRow >= 0 )
 		s_capture = CAPTURE_COMMAND;
-	else if( s_active == 1 && s_button && ( s_button->getCommandType() == GUI_COMMAND_FORCE_ATTACK
-			|| HotKeyManager::fixedKey( s_button->getName(), s_button->getCommandType() ) == 0 ) )
+	else if( s_active == 1 && s_button )
 		s_capture = CAPTURE_BUTTON;
 	else
 		return;
