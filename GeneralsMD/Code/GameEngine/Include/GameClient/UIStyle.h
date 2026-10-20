@@ -64,9 +64,33 @@ namespace UIStyle
 	extern const Color GOLD;						///< results only: the winner, a column's best
 	extern const Color WORDMARK_BLUE;		///< "Reforged" in the wordmark, nowhere else
 	extern const Color SHADOW;
+	extern const Color SHELL_DIM;				///< the staging rooms' dimming of what stands behind their panel
+
+	/// the staging rooms' geometry on the 1920x1080 board (Tools/lobbyroom_layout.py): the panel on
+	/// the score screen's ruler frame's bright line, the title, the header line, the seat inset and
+	/// the button row; the load and score screens stand on it too
+	const Real ROOM_PANEL_LEFT = 96.0f;
+	const Real ROOM_PANEL_TOP = 72.0f;
+	const Real ROOM_PANEL_RIGHT = 1824.0f;
+	const Real ROOM_PANEL_BOTTOM = 1008.0f;
+	const Real ROOM_TITLE_LEFT = 120.0f;
+	const Real ROOM_TITLE_MIDDLE = 112.0f;
+	const Real ROOM_HEADER_LINE = 147.0f;
+	const Real ROOM_INSET = 124.0f;
+	const Real ROOM_BUTTON_TOP = 932.0f;
+	const Real ROOM_BUTTON_BOTTOM = 988.0f;
+	const Real ROOM_BUTTON_GAP = 16.0f;
+	const Real ROOM_BUTTON_WIDTH = 300.0f;				///< Main Menu's
+	const Real ROOM_WIDE_BUTTON_WIDTH = 488.0f;		///< Play Game's
 
 	/// a length given for 1920x1080, on this screen (the smaller axis, as the layouts stretch)
 	Int px( Real at1080 );
+	/// a 1920x1080 board point on this screen, the board centred on a squarer one
+	Int boardX( Real at1080 );
+	Int boardY( Real at1080 );
+	/// the whole screen: the shell's still, as a staging room stands on it without its map, dimmed,
+	/// and the score screen's ruler frame over the board
+	void shell( void );
 	/// Arial at a layout's point size, grown for the screen the way a layout's text is
 	GameFont *font( Int points, Bool bold = FALSE );
 	/// the "Generals" face the layouts' titles and buttons are set in

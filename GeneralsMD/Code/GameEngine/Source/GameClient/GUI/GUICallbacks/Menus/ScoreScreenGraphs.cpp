@@ -39,6 +39,7 @@
 #include "Common/ScoreKeeper.h"
 #include "Common/SpecialPower.h"
 #include "Common/ThingTemplate.h"
+#include "GameClient/CampaignManager.h"
 #include "GameClient/ControlBar.h"
 #include "GameClient/Display.h"
 #include "GameClient/DisplayString.h"
@@ -53,6 +54,7 @@
 #include "GameClient/UIStyle.h"
 #include "Common/GameState.h"
 #include "Common/GlobalData.h"
+#include "GameLogic/GameLogic.h"
 #include "GameLogic/VictoryConditions.h"
 
 #include <algorithm>
@@ -194,6 +196,7 @@ static DisplayString *s_toggleText = NULL;
 static DisplayString *s_title = NULL;							///< the map's name, over the tabs
 static DisplayString *s_wordmark[ 2 ] = { NULL, NULL };
 static Int s_ruleY = 0;													///< the header's rule, from the panel's top
+static Int s_contentBottom = 0;									///< where the pages stop, from the panel's top: over the buttons and any chat
 static std::vector< DisplayString * > s_tipText;
 static Int s_tipMark = -1;
 
@@ -837,9 +840,7 @@ static void layoutPanel( void )
 	const Int smallLine = s_smallFont->height;
 
 	// the header, as a staging room's: the map's name, the wordmark across from it, a rule under both
-	Int titleWidth, titleHeight;
-	s_title->getSize( &titleWidth, &titleHeight );
-	s_ruleY = pad * 2 + titleHeight + pad;
+	s_ruleY = UIStyle::px( UIStyle::ROOM_HEADER_LINE - UIStyle::ROOM_PANEL_TOP );
 
 	// the pages as the options screen's tabs, boxed, the open one lettered green
 	const Int tabsTop = s_ruleY + pad * 2;
@@ -856,8 +857,9 @@ static void layoutPanel( void )
 
 	s_toggleBox.lo.x = s_toggleBox.hi.x = 0;
 	s_toggleBox.lo.y = s_toggleBox.hi.y = 0;
+	const Int bottom = s_contentBottom;
 	if( s_tab == GRAPH_TAB_SUMMARY )
-		layoutSummary( tabsBottom + pad * 2, width, height - pad, pad );
+		layoutSummary( tabsBottom + pad * 2, width, bottom, pad );
 	else if( s_tab == GRAPH_TAB_BUILD_ORDER )
 	{
 		s_toggleText->setText( TheGameText->fetch( s_everyBuild ? "GUI:BuildOrderFirsts" : "GUI:BuildOrderEvery" ) );
@@ -865,10 +867,10 @@ static void layoutPanel( void )
 		s_toggleBox.lo.x = s_toggleBox.hi.x - textWidth( s_toggleText ) - pad * 3;
 		s_toggleBox.lo.y = tabsTop;
 		s_toggleBox.hi.y = tabsBottom;
-		layoutBuildOrder( tabsBottom + pad, width, height - pad, pad );
+		layoutBuildOrder( tabsBottom + pad, width, bottom, pad );
 	}
 	else
-		layoutChart( theTabSeries[ s_tab - GRAPH_TAB_EARNED ], layoutLegend( tabsBottom + pad, width, pad ) + pad, width, height - pad, pad );
+		layoutChart( theTabSeries[ s_tab - GRAPH_TAB_EARNED ], layoutLegend( tabsBottom + pad, width, pad ) + pad, width, bottom, pad );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -890,15 +892,16 @@ static void drawPanel( GameWindow *window, WinInstanceData *instData )
 	Int ox, oy, width, height;
 	window->winGetScreenPosition( &ox, &oy );
 	window->winGetSize( &width, &height );
+	// on the layout's ruler frame, the staging room's panel, its title's place and its header line
 	UIStyle::panel( ox, oy, width, height, UIStyle::PANEL );
 
-	const Int pad = max( s_font->height / 2, 4 );
-	s_title->draw( ox + pad * 2, oy + pad * 2, UIStyle::INK, UIStyle::SHADOW );
 	Int titleWidth, titleHeight, markWidth, markHeight;
 	s_title->getSize( &titleWidth, &titleHeight );
 	s_wordmark[ 0 ]->getSize( &markWidth, &markHeight );
-	UIStyle::wordmark( s_wordmark, ox + width - pad * 2, oy + pad * 2 + ( titleHeight - markHeight ) / 2 );
-	UIStyle::rule( ox + pad * 2, oy + s_ruleY, width - pad * 4 );
+	const Int titleMiddle = oy + UIStyle::px( UIStyle::ROOM_TITLE_MIDDLE - UIStyle::ROOM_PANEL_TOP );
+	s_title->draw( ox + UIStyle::px( UIStyle::ROOM_TITLE_LEFT - UIStyle::ROOM_PANEL_LEFT ), titleMiddle - titleHeight / 2, UIStyle::INK, UIStyle::SHADOW );
+	UIStyle::wordmark( s_wordmark, ox + width - UIStyle::px( UIStyle::ROOM_INSET - UIStyle::ROOM_PANEL_LEFT ), titleMiddle - markHeight / 2 );
+	UIStyle::rule( ox, oy + s_ruleY, width );
 
 	for( Int tab = 0; tab < GRAPH_TAB_COUNT; tab++ )
 	{
@@ -1020,9 +1023,8 @@ static WindowMsgHandledType panelInput( GameWindow *window, UnsignedInt msg, Win
 }
 
 //-------------------------------------------------------------------------------------------------
-/** Makes the panel, hidden until ScoreScreenGraphsShow; anchor is the layout's OK button, above which
-	* it stops. */
-void ScoreScreenGraphsInit( GameWindow *parent, GameWindow *anchor )
+/** Makes the panel, hidden until ScoreScreenGraphsShow, on the layout's backdrop. */
+void ScoreScreenGraphsInit( GameWindow *backdrop )
 {
 	s_players.clear();
 	s_tab = GRAPH_TAB_SUMMARY;
@@ -1032,10 +1034,16 @@ void ScoreScreenGraphsInit( GameWindow *parent, GameWindow *anchor )
 	s_smallFont = UIStyle::font( UIStyle::TEXT_BODY );
 	s_tinyFont = UIStyle::font( UIStyle::TEXT_SMALL, TRUE );
 
-	// the match's map names the page, as it named the load screen
+	// the match's map names the page, as it named the load screen; a campaign mission's map has no
+	// name of its own, so the mission's place or number does, as on its load screen
 	const MapMetaData *map = TheMapCache->findMap( TheGlobalData->m_mapName );
+	const Mission *mission = TheGameLogic->getGameMode() == GAME_SINGLE_PLAYER ? TheCampaignManager->getCurrentMission() : NULL;
 	UnicodeString mapName;
-	if( map )
+	if( mission && !mission->m_locationNameLabel.isEmpty() )
+		mapName = TheGameText->fetch( mission->m_locationNameLabel );
+	else if( mission )
+		mapName.format( TheGameText->fetch( "GUI:LoadMission" ), TheCampaignManager->getCurrentMissionNumber() + 1 );
+	else if( map )
 		mapName = map->m_displayName;
 	else
 		mapName.translate( TheGameState->getMapLeafName( TheGlobalData->m_mapName ) );
@@ -1044,17 +1052,18 @@ void ScoreScreenGraphsInit( GameWindow *parent, GameWindow *anchor )
 	s_wordmark[ 0 ] = newText( UnicodeString( u"Zero Hour" ), wordmarkFont );
 	s_wordmark[ 1 ] = newText( UnicodeString( u" Reforged" ), wordmarkFont );
 
-	Int parentX, parentY, parentW, parentH, anchorX, anchorY, anchorW, anchorH;
-	parent->winGetScreenPosition( &parentX, &parentY );
-	parent->winGetSize( &parentW, &parentH );
-	anchor->winGetScreenPosition( &anchorX, &anchorY );
-	anchor->winGetSize( &anchorW, &anchorH );
-
-	// inside the layout's blue frame, which sits about a twentieth of the screen in from each side
-	const Int marginX = parentW / 20;
-	const Int marginY = parentH / 16;
-	s_panel = TheWindowManager->winCreate( parent, WIN_STATUS_ENABLED | WIN_STATUS_HIDDEN, marginX, marginY,
-		parentW - 2 * marginX, anchorY - parentY - marginY - anchorH / 2, GameWinDefaultSystem );
+	// the skirmish room's panel, its button row inside; the last of the backdrop's children, so the
+	// chat after a network match draws over it and the hidden score table's windows give it the clicks
+	Int backdropX, backdropY;
+	backdrop->winGetScreenPosition( &backdropX, &backdropY );
+	const Int panelX = UIStyle::boardX( UIStyle::ROOM_PANEL_LEFT );
+	const Int panelY = UIStyle::boardY( UIStyle::ROOM_PANEL_TOP );
+	s_panel = TheWindowManager->winCreate( backdrop, WIN_STATUS_ENABLED | WIN_STATUS_HIDDEN, panelX - backdropX, panelY - backdropY,
+		UIStyle::px( UIStyle::ROOM_PANEL_RIGHT - UIStyle::ROOM_PANEL_LEFT ), UIStyle::px( UIStyle::ROOM_PANEL_BOTTOM - UIStyle::ROOM_PANEL_TOP ),
+		GameWinDefaultSystem );
+	TheWindowManager->unlinkChildWindow( s_panel );
+	TheWindowManager->addWindowToParentAtEnd( s_panel, backdrop );
+	s_contentBottom = UIStyle::boardY( UIStyle::ROOM_BUTTON_TOP ) - panelY - s_font->height / 2;
 	s_panel->winSetDrawFunc( drawPanel );
 	s_panel->winSetInputFunc( panelInput );
 
@@ -1110,14 +1119,12 @@ void ScoreScreenGraphsShow( GameWindow *floor )
 {
 	if( floor )
 	{
-		Int panelX, panelY, floorX, floorY, width, height;
+		Int panelX, panelY, floorX, floorY;
 		s_panel->winGetScreenPosition( &panelX, &panelY );
 		floor->winGetScreenPosition( &floorX, &floorY );
-		s_panel->winGetSize( &width, &height );
-		s_panel->winSetSize( width, min( height, floorY - panelY - s_font->height / 2 ) );
+		s_contentBottom = min( s_contentBottom, floorY - panelY - s_font->height / 2 );
 	}
 	layoutPanel();
-	s_panel->winBringToTop();
 	s_panel->winHide( FALSE );
 }
 

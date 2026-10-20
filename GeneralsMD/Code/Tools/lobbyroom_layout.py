@@ -51,17 +51,22 @@ WIDE = (1920, 1080)
 OLD = (800, 600)
 SEAT_COUNT = 8
 
+# The score screen's blue ruler frame (MappedImage MainMenuRuler, the art EA's rooms and score screen
+# stood in) drawn over the whole 1920x1080 grid: its bright line runs at 96,72 to 1824,1008 and the
+# art is clear inside it. The panel sits on that line, as the score screen's does.
+RULER_IMAGE = "MainMenuRuler"
+RULER_WINDOW = "RulerFrame"
 # the panel and its two tracks
-FRAME = (40, 36, 1840, 1008)
-INNER_LEFT, INNER_RIGHT = 72, 1848
-SEAT_RIGHT = 1336
+FRAME = (96, 72, 1728, 936)
+INNER_LEFT, INNER_RIGHT = 124, 1796
+SEAT_RIGHT = 1284
 COLUMN_LEFT = INNER_RIGHT - 488   # the map and rules column
 # a static text draws its first glyph a few pixels inside its rectangle
 TEXT_NUDGE = 10
-TITLE = (INNER_LEFT - TEXT_NUDGE, 50, 900, 52)
-RULE_TOP = 112
-HEADER_TOP, HEADER_HEIGHT = 122, 32
-ROW_TOP = 160
+TITLE = (INNER_LEFT - TEXT_NUDGE, 86, 900, 52)
+RULE_TOP = 148
+HEADER_TOP, HEADER_HEIGHT = 158, 32
+ROW_TOP = 196
 CONTROL_HEIGHT = 40
 # a seat card three pixels taller than its combo boxes top and bottom, six between cards
 ROW_HEIGHT = CONTROL_HEIGHT + 6
@@ -78,18 +83,18 @@ SEAT_COLUMNS_LEFT = INNER_LEFT + BAR_WIDTH + 16
 SWATCH = 26
 PING = 24
 
-MAP_TOP = 160
+MAP_TOP = ROW_TOP
 # "HARITA SEC" in the button's own face needs about 220 at 1080
 SELECT_MAP_WIDTH = 240
-PAGE_BOTTOM = 956
+PAGE_BOTTOM = 920
 PAGE_PADDING = 12
 SETTING_PITCH, SETTING_HEIGHT = 38, 34
 SETTING_LABEL_WIDTH = 170
 CHECK_WIDTH = 228
 SPOT = 28
 
-UNDER_SEATS_BOTTOM = 952
-BUTTON_TOP, BUTTON_HEIGHT = 968, 56
+UNDER_SEATS_BOTTOM = 916
+BUTTON_TOP, BUTTON_HEIGHT = 932, 56
 BACK_WIDTH, BUDDIES_WIDTH = 300, 260
 EMOTE_WIDTH = 64
 STATS_WIDTH = 372
@@ -274,7 +279,7 @@ def widen(layout):
     node.rect = (0, 0) + WIDE + WIDE
     # EA's root draws the shell's ruler art, a 4:3 frame of its own: spread over a wide screen behind
     # the fitted panel it left a second outline and a stray title line. A plain veil darkens the
-    # shell map instead.
+    # shell map instead, and the ruler comes back as a fitted window of its own (add_ruler).
     node.set_prop("STATUS", "ENABLED+NOFOCUS")
     node.set_prop("ENABLEDDRAWDATA", draw_data(VEIL, (0, 0, 0, 0)))
 
@@ -291,6 +296,17 @@ def plain_window(template, name, image, color, border):
     window.put_prop("SYSTEMCALLBACK", '"[None]"')
     window.set_prop("ENABLEDDRAWDATA", draw_data(color, border))
     return window
+
+
+def add_ruler(layout, menu, container):
+    """The score screen's ruler frame over the whole grid, first under the root so it draws beneath
+    the panel; fitted with the rest, so it hugs the panel on any screen. A second run finds it."""
+    if layout.find(RULER_WINDOW) is None:
+        ruler = plain_window(container, "%s.wnd:%s" % (menu, RULER_WINDOW), True, (0, 0, 0, 255), (0, 0, 0, 255))
+        layout.root.children.insert(0, ruler)
+    ruler = need(layout, RULER_WINDOW)
+    ruler.place(0, 0, WIDE[0], WIDE[1])
+    ruler.set_prop("ENABLEDDRAWDATA", draw_data((0, 0, 0, 255), (0, 0, 0, 255), RULER_IMAGE))
 
 
 def add_seat_windows(layout, menu, container, spec):
@@ -511,6 +527,7 @@ def build(layout, menu):
     remove(layout, TABS + GAME_SPEED_DROPDOWN)
     add_turbo_box(layout)
     container = need(layout, spec["container"])
+    add_ruler(layout, menu, container)
     add_seat_windows(layout, menu, container, spec)
     place_frame(layout, spec)
     seats_bottom = place_seats(layout, spec, "TextEntryPlayerName" if menu == "SkirmishGameOptionsMenu" else None)

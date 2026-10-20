@@ -205,20 +205,10 @@ static const Int BOARD_TIP_COUNT = 10;
 static const UnsignedInt BOARD_TIP_MILLISECONDS = 8000;
 /// a middle dot between spaces, spelled out: the source is read in the machine's code page
 static const WideChar BOARD_SEPARATOR[] = { ' ', ' ', ' ', 0x00B7, ' ', ' ', ' ', 0 };
-/// the skirmish lobby's panel, title, header line, seat inset and button row
-/// (SkirmishGameOptionsMenu.wnd), so the load stands where the lobby stood
-static const Real BOARD_PANEL_LEFT = 40.0f;
-static const Real BOARD_PANEL_TOP = 36.0f;
-static const Real BOARD_PANEL_RIGHT = 1880.0f;
-static const Real BOARD_PANEL_BOTTOM = 1044.0f;
-static const Real BOARD_TITLE_LEFT = 68.0f;
-static const Real BOARD_TITLE_MIDDLE = 76.0f;
-static const Real BOARD_HEADER_LINE = 111.0f;
-static const Real BOARD_INSET = 72.0f;
-static const Real BOARD_BUTTON_TOP = 968.0f;
-static const Real BOARD_BUTTON_BOTTOM = 1024.0f;
-/// the lobby's dimming of the shell behind its panel
-static const Color BOARD_SHELL_DIM = GameMakeColor( 2, 4, 12, 120 );
+/// a column of cards, and the band between the header line and the tip over the button row
+static const Real BOARD_COLUMN_WIDTH = 600.0f;
+static const Real BOARD_BAND_TOP = 176.0f;
+static const Real BOARD_BAND_BOTTOM = 866.0f;
 
 /// one player's card
 struct BoardCard
@@ -283,7 +273,6 @@ private:
 	std::vector< BoardSpot > m_spots;
 	std::vector< DisplayString * > m_strings;
 	Bool m_mission;
-	const Image *m_shell;			///< the shell's still the lobby stands on without its map
 	DisplayString *m_briefingHead;
 	std::vector< DisplayString * > m_briefing;
 	IRegion2D m_briefingBox;
@@ -319,7 +308,6 @@ LoadScreenBoard::LoadScreenBoard( void )
 	m_left = ( m_width - scaled( BOARD_WIDTH ) ) / 2;
 	m_top = ( m_height - scaled( BOARD_HEIGHT ) ) / 2;
 	m_mission = FALSE;
-	m_shell = TheMappedImageCollection->findImageByName( "MainMenuBackdrop" );
 	m_briefingHead = NULL;
 	m_title = m_subtitle = m_centerLabel = m_observers = m_unknown = NULL;
 	m_wordmark[ 0 ] = m_wordmark[ 1 ] = NULL;
@@ -538,9 +526,9 @@ GameWindow *LoadScreenBoard::create( GameInfo *game, const char *modeLabel, Bool
 	// the cards: two columns with the map between, as tall as four cards a side allow
 	m_unknown = text( UnicodeString( u"?" ), centerFont );
 
-	const Int columnWidth = scaled( 640 );
-	const Int bandTop = m_top + scaled( 160 );
-	const Int bandBottom = m_top + scaled( 880 );
+	const Int columnWidth = scaled( BOARD_COLUMN_WIDTH );
+	const Int bandTop = m_top + scaled( BOARD_BAND_TOP );
+	const Int bandBottom = m_top + scaled( BOARD_BAND_BOTTOM );
 	Int cardsTop = bandTop;
 	for( Int side = 0; side < 2; side++ )
 	{
@@ -553,8 +541,8 @@ GameWindow *LoadScreenBoard::create( GameInfo *game, const char *modeLabel, Bool
 		m_columnTeam[ side ] = LobbyTeamColor( teamOf[ side ] );
 		cardsTop = bandTop + stringHeight( m_columnHead[ side ] ) + scaled( 12 );
 	}
-	const Int leftX = m_left + scaled( BOARD_INSET );
-	const Int rightX = m_left + scaled( BOARD_PANEL_RIGHT + BOARD_PANEL_LEFT - BOARD_INSET ) - columnWidth;
+	const Int leftX = m_left + scaled( UIStyle::ROOM_INSET );
+	const Int rightX = m_left + scaled( UIStyle::ROOM_PANEL_RIGHT + UIStyle::ROOM_PANEL_LEFT - UIStyle::ROOM_INSET ) - columnWidth;
 	layoutColumn( columns[ 0 ], leftX, cardsTop, bandBottom, FALSE );
 	layoutColumn( columns[ 1 ], rightX, cardsTop, bandBottom, TRUE );
 	// a team's name sits over its first card, the swatch on the outer edge
@@ -674,9 +662,9 @@ GameWindow *LoadScreenBoard::createMission( GameWindow *parent, const UnicodeStr
 	prepare( title, subtitle );
 
 	const Int pad = scaled( 28 );
-	const Int width = scaled( 640 );
-	m_briefingBox.lo.x = m_left + scaled( BOARD_INSET );
-	m_briefingBox.lo.y = m_top + scaled( 152 );
+	const Int width = scaled( BOARD_COLUMN_WIDTH );
+	m_briefingBox.lo.x = m_left + scaled( UIStyle::ROOM_INSET );
+	m_briefingBox.lo.y = m_top + scaled( BOARD_BAND_TOP );
 	m_briefingBox.hi.x = m_briefingBox.lo.x + width;
 	m_briefingHead = text( TheGameText->fetch( "GUI:LoadBriefing" ), UIStyle::font( UIStyle::TEXT_SMALL, TRUE ) );
 	Int bottom = m_briefingBox.lo.y + pad + stringHeight( m_briefingHead ) + scaled( 8 );
@@ -709,7 +697,7 @@ void LoadScreenBoard::layoutColumn( std::vector< Int > &column, Int left, Int to
 		card.mirrored = mirrored;
 		card.box.lo.x = left;
 		card.box.lo.y = y;
-		card.box.hi.x = left + scaled( 640 );
+		card.box.hi.x = left + scaled( BOARD_COLUMN_WIDTH );
 		card.box.hi.y = y + height;
 		y += height + gap;
 	}
@@ -838,15 +826,15 @@ void LoadScreenBoard::draw( void )
 		m_tip->setText( tipText( m_tipIndex ) );
 	}
 
-	const Int panelLeft = m_left + scaled( BOARD_PANEL_LEFT );
-	const Int panelTop = m_top + scaled( BOARD_PANEL_TOP );
-	const Int panelWidth = scaled( BOARD_PANEL_RIGHT - BOARD_PANEL_LEFT );
-	const Int panelBottom = m_top + scaled( BOARD_PANEL_BOTTOM );
-	const Int headerLine = m_top + scaled( BOARD_HEADER_LINE );
-	const Int left = m_left + scaled( BOARD_INSET );
-	const Int right = m_left + scaled( BOARD_PANEL_RIGHT + BOARD_PANEL_LEFT - BOARD_INSET );
-	const Int buttonTop = m_top + scaled( BOARD_BUTTON_TOP );
-	const Int buttonHeight = scaled( BOARD_BUTTON_BOTTOM - BOARD_BUTTON_TOP );
+	const Int panelLeft = m_left + scaled( UIStyle::ROOM_PANEL_LEFT );
+	const Int panelTop = m_top + scaled( UIStyle::ROOM_PANEL_TOP );
+	const Int panelWidth = scaled( UIStyle::ROOM_PANEL_RIGHT - UIStyle::ROOM_PANEL_LEFT );
+	const Int panelBottom = m_top + scaled( UIStyle::ROOM_PANEL_BOTTOM );
+	const Int headerLine = m_top + scaled( UIStyle::ROOM_HEADER_LINE );
+	const Int left = m_left + scaled( UIStyle::ROOM_INSET );
+	const Int right = m_left + scaled( UIStyle::ROOM_PANEL_RIGHT + UIStyle::ROOM_PANEL_LEFT - UIStyle::ROOM_INSET );
+	const Int buttonTop = m_top + scaled( UIStyle::ROOM_BUTTON_TOP );
+	const Int buttonHeight = scaled( UIStyle::ROOM_BUTTON_BOTTOM - UIStyle::ROOM_BUTTON_TOP );
 	const Int rowY = buttonTop - scaled( 24 ) - stringHeight( m_tip );
 	if( m_mission )
 	{
@@ -859,19 +847,14 @@ void LoadScreenBoard::draw( void )
 	else
 	{
 		// the shell's still, dimmed as the lobby dims its map, under the lobby's panel
-		// (a mod's archives may leave the still out)
-		if( m_shell )
-			TheDisplay->drawImage( m_shell, 0, 0, m_width, m_height );
-		else
-			TheDisplay->drawFillRect( 0, 0, m_width, m_height, UIStyle::GROUND );
-		TheDisplay->drawFillRect( 0, 0, m_width, m_height, BOARD_SHELL_DIM );
+		UIStyle::shell();
 		UIStyle::panel( panelLeft, panelTop, panelWidth, panelBottom - panelTop, UIStyle::PANEL );
 		drawMatch();
 	}
 
 	// the header: the title where the lobby's stands, what kind of game after it, the wordmark across
-	const Int titleMiddle = m_top + scaled( BOARD_TITLE_MIDDLE );
-	const Int titleLeft = m_left + scaled( BOARD_TITLE_LEFT );
+	const Int titleMiddle = m_top + scaled( UIStyle::ROOM_TITLE_MIDDLE );
+	const Int titleLeft = m_left + scaled( UIStyle::ROOM_TITLE_LEFT );
 	const Int titleY = titleMiddle - stringHeight( m_title ) / 2;
 	m_title->draw( titleLeft, titleY, UIStyle::INK, UIStyle::SHADOW );
 	m_subtitle->draw( titleLeft + stringWidth( m_title ) + scaled( 32 ), titleY + stringHeight( m_title ) - stringHeight( m_subtitle ),

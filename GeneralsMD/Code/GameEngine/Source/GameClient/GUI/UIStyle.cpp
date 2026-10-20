@@ -28,6 +28,7 @@
 #include "GameClient/DisplayString.h"
 #include "GameClient/GameFont.h"
 #include "GameClient/GlobalLanguage.h"
+#include "GameClient/Image.h"
 #include "Lib/WideCharFns.h"
 
 namespace UIStyle
@@ -49,11 +50,38 @@ const Color ACTIVE = GameMakeColor( 0xba, 0xff, 0x0c, 255 );
 const Color GOLD = GameMakeColor( 0xf2, 0xc2, 0x30, 255 );
 const Color WORDMARK_BLUE = GameMakeColor( 0x80, 0x95, 0xea, 255 );
 const Color SHADOW = GameMakeColor( 0, 0, 0, 255 );
+const Color SHELL_DIM = GameMakeColor( 2, 4, 12, 120 );
 
 Int px( Real at1080 )
 {
 	const Real scale = min( TheDisplay->getWidth() / 1920.0f, TheDisplay->getHeight() / 1080.0f );
 	return REAL_TO_INT( at1080 * scale + 0.5f );
+}
+
+Int boardX( Real at1080 )
+{
+	return ( TheDisplay->getWidth() - px( 1920.0f ) ) / 2 + px( at1080 );
+}
+
+Int boardY( Real at1080 )
+{
+	return ( TheDisplay->getHeight() - px( 1080.0f ) ) / 2 + px( at1080 );
+}
+
+void shell( void )
+{
+	const Int width = TheDisplay->getWidth();
+	const Int height = TheDisplay->getHeight();
+	// both are retail art a mod's archives may leave out
+	const Image *still = TheMappedImageCollection->findImageByName( "MainMenuBackdrop" );
+	if( still )
+		TheDisplay->drawImage( still, 0, 0, width, height );
+	else
+		TheDisplay->drawFillRect( 0, 0, width, height, GROUND );
+	TheDisplay->drawFillRect( 0, 0, width, height, SHELL_DIM );
+	const Image *ruler = TheMappedImageCollection->findImageByName( "MainMenuRuler" );
+	if( ruler )
+		TheDisplay->drawImage( ruler, boardX( 0.0f ), boardY( 0.0f ), boardX( 1920.0f ), boardY( 1080.0f ) );
 }
 
 GameFont *font( Int points, Bool bold )

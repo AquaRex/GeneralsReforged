@@ -103,6 +103,7 @@
 #include "GameNetwork/GameSpy/PersistentStorageThread.h"
 #include "GameClient/InGameUI.h"
 #include "GameClient/ChallengeGenerals.h"
+#include "GameClient/UIStyle.h"
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -150,7 +151,7 @@ std::string LastReplayFileName;
 static Bool canSaveReplay = FALSE;
 extern void PopupReplayUpdate(WindowLayout *layout, void *userData);
 // the summary and graphs panel that replaces the layout's score table, ScoreScreenGraphs.cpp
-extern void ScoreScreenGraphsInit( GameWindow *parent, GameWindow *anchor );
+extern void ScoreScreenGraphsInit( GameWindow *backdrop );
 extern void ScoreScreenGraphsAddPlayer( Player *player, const UnicodeString &name, Color color );
 extern void ScoreScreenGraphsAddSide( const UnicodeString &name, Color color, Int unitsBuilt, Int unitsLost, Int unitsDestroyed,
 	Int buildingsBuilt, Int buildingsLost, Int buildingsDestroyed, Int earned );
@@ -171,6 +172,7 @@ void initReplaySinglePlayer(void);
 void grabMultiPlayerInfo( void );
 void grabSinglePlayerInfo( void );
 static void hideScoreTable( void );
+static void placeButtonRow( void );
 void ScoreScreenEnableControls(Bool enable);
 void displayChallengewinLoss( Image *imageGeneral, AsciiString strGeneral );
 enum {
@@ -319,7 +321,7 @@ void ScoreScreenInit( WindowLayout *layout, void *userData )
 		buttonSaveReplay->winEnable(FALSE);
 
 	s_needToFinishSinglePlayerInit = FALSE;
-	ScoreScreenGraphsInit( parent, buttonOk );
+	ScoreScreenGraphsInit( backdrop );
 	if (TheGameLogic->isInReplayGame())
 	{
 		if (buttonSaveReplay)
@@ -370,6 +372,8 @@ void ScoreScreenInit( WindowLayout *layout, void *userData )
 	// finishSinglePlayerInit puts where the table was.  The panel stops above the chat after a
 	// network match and above the "game saved" line after a mission.
 	hideScoreTable();
+	if (!isChallengeCampaign)
+		placeButtonRow();
 	if (screenType == SCORESCREEN_SINGLEPLAYER)
 	{
 		if (!isChallengeCampaign)
@@ -972,6 +976,10 @@ void finishSinglePlayerInit( void )
 		buttonBuddies->winHide(TRUE);
 //	if (buttonRehost)
 //		buttonRehost->winHide(TRUE);
+
+	// Continue is back, so the row is laid out again; a Challenge keeps its own page
+	if (!TheCampaignManager->getCurrentCampaign() || !TheCampaignManager->getCurrentCampaign()->isChallengeCampaign())
+		placeButtonRow();
 }
 
 /** Special Init path for making this a single player replay Score Screen */
@@ -2037,6 +2045,11 @@ static void hideScoreTable( void )
 	};
 	for( Int each = 0; each < ARRAY_SIZE( tableWindows ); ++each )
 		TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey( tableWindows[ each ] ) )->winHide( TRUE );
+	// the rows' frame and the table's header box, which EA left unnamed; and the backdrop's own
+	// darkening, which the panel replaces
+	gadgetParent->winHide( TRUE );
+	TheWindowManager->winGetWindowFromId( backdrop, TheNameKeyGenerator->nameToKey( "ScoreScreen.wnd:" ) )->winHide( TRUE );
+	backdrop->winSetEnabledColor( 0, GameMakeColor( 0, 0, 0, 0 ) );
 
 	// and its rows, one a slot
 	static const char *const rowWindows[] =
@@ -2054,6 +2067,58 @@ static void hideScoreTable( void )
 			winName.format( rowWindows[ each ], i );
 			TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey( winName ) )->winHide( TRUE );
 		}
+	}
+}
+
+/** The staging rooms' button row, inside the panel on the ruler frame: Save Replay and Buddies from
+	* the left where a room has Back and Record, Continue (or the way out alone) wide at the right where
+	* it has Start. The chat line and the "game saved" line sat where the row stands now and move up
+	* over it, the chat above them along. Laid out again once Continue is shown, so it runs twice. */
+static void placeButtonRow( void )
+{
+	const Int top = UIStyle::boardY( UIStyle::ROOM_BUTTON_TOP );
+	const Int height = UIStyle::px( UIStyle::ROOM_BUTTON_BOTTOM - UIStyle::ROOM_BUTTON_TOP );
+	const Int gap = UIStyle::px( UIStyle::ROOM_BUTTON_GAP );
+	const Int width = UIStyle::px( UIStyle::ROOM_BUTTON_WIDTH );
+
+	GameWindow *fromLeft[] = { TheWindowManager->winGetWindowFromId( parent, buttonSaveReplayID ), buttonBuddies };
+	Int x = UIStyle::boardX( UIStyle::ROOM_INSET );
+	for( Int each = 0; each < ARRAY_SIZE( fromLeft ); ++each )
+	{
+		if( fromLeft[ each ]->winIsHidden() )
+			continue;
+		fromLeft[ each ]->winSetPosition( x, top );
+		fromLeft[ each ]->winSetSize( width, height );
+		x += width + gap;
+	}
+
+	GameWindow *fromRight[] = { buttonContinue, buttonOk };
+	x = UIStyle::boardX( UIStyle::ROOM_PANEL_RIGHT + UIStyle::ROOM_PANEL_LEFT - UIStyle::ROOM_INSET );
+	Bool first = TRUE;
+	for( Int each = 0; each < ARRAY_SIZE( fromRight ); ++each )
+	{
+		if( fromRight[ each ]->winIsHidden() )
+			continue;
+		const Int buttonWidth = first ? UIStyle::px( UIStyle::ROOM_WIDE_BUTTON_WIDTH ) : width;
+		x -= buttonWidth;
+		fromRight[ each ]->winSetPosition( x, top );
+		fromRight[ each ]->winSetSize( buttonWidth, height );
+		x -= gap;
+		first = FALSE;
+	}
+
+	Int entryX, entryY, entryWidth, entryHeight;
+	textEntryChat->winGetScreenPosition( &entryX, &entryY );
+	textEntryChat->winGetSize( &entryWidth, &entryHeight );
+	const Int lift = entryY + entryHeight - ( top - gap );
+	if( lift <= 0 )
+		return;
+	GameWindow *foot[] = { textEntryChat, buttonEmote, staticTextGameSaved, listboxChatWindowScoreScreen };
+	for( Int each = 0; each < ARRAY_SIZE( foot ); ++each )
+	{
+		Int footX, footY;
+		foot[ each ]->winGetPosition( &footX, &footY );
+		foot[ each ]->winSetPosition( footX, footY - lift );
 	}
 }
 
