@@ -2246,6 +2246,13 @@ The whole HUD is on the hardware. Four colours carry it, and they mean the same 
 - Streets stop at the water. A road paves whatever is under it, lake bed included, so a town on a
   bank used to run its high street into the lake; now the street ends at the shore and the town
   keeps its shape.
+- Town streets meet in real junctions. Each street used to be one long strip laid straight over
+  the others, so every crossing was two strips of tarmac on top of each other, the ends stuck out
+  past the last street and the water left scraps of road a few yards long lying by the bank. The
+  streets now join the way they do on the shipped maps: crossroads inside the town, T-junctions
+  along its edge and a rounded corner where the outer streets turn. Over nine test maps the 70
+  overlaps are gone and in their place are 33 T-junctions, 14 crossroads and 20 corners. A random
+  map from an older version is a different map from the same number.
 - Nothing stands on a slope. The ground under every building, every supply dock and every oil
   derrick is levelled before it goes down and eased back into the hillside around it, so you do not
   arrive at a dock sunk into a bank or a house hanging off a ledge.

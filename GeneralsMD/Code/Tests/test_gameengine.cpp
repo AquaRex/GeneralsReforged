@@ -10285,6 +10285,127 @@ TEST(a_town_is_rolled_rather_than_stamped)
 }
 
 //-------------------------------------------------------------------------------------------------
+/** W3DRoadBuffer only builds a junction where segments share an end point exactly: three ends on
+	one point are a tee, four a crossroads, two at an angle a curve. Two streets that cross half way
+	along are drawn as two strips of tarmac laid over each other. So a town's streets are split at
+	every crossing, nothing touches another street anywhere but at a shared end, and the water no
+	longer leaves a few cells of street lying on their own: a street that reaches the bank keeps the
+	run from its crossing, and only if that run is long enough to read as a street. */
+//-------------------------------------------------------------------------------------------------
+TEST(town_streets_meet_only_at_shared_ends_so_the_renderer_builds_junctions)
+{
+	CHECK( bootOnce() );
+
+	const Real shortestStreet = 12.0f * MAP_XY_FACTOR;	// RMG_ROAD_MIN_RUN
+	Int tees = 0, crossroads = 0, bends = 0, crossings = 0, stubs = 0, loose = 0, segmentsSeen = 0;
+
+	static const Int thePlayers[] = { 2, 4, 8 };
+	for( Int p = 0; p < 3; p++ )
+	{
+		for( Int seed = 1; seed <= 3; seed++ )
+		{
+			RandomMapSettings settings;
+			settings.m_seed = seed;
+			settings.m_numPlayers = thePlayers[p];
+			settings.m_playableCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_NORMAL, thePlayers[p] );
+
+			std::vector<char> bytes;
+			RandomMapGenerator::generate( settings, bytes );
+			parseGeneratedMap( bytes );
+
+			std::vector<Coord3D> from, to;
+			for( Int i = 0; i + 1 < (Int)theRMGParse.m_objectNames.size(); i++ )
+			{
+				if( (theRMGParse.m_objectFlags[i] & FLAG_ROAD_POINT1) == 0 )
+					continue;
+				CHECK( (theRMGParse.m_objectFlags[i + 1] & FLAG_ROAD_POINT2) != 0 );
+				from.push_back( theRMGParse.m_objectPositions[i] );
+				to.push_back( theRMGParse.m_objectPositions[i + 1] );
+			}
+			segmentsSeen += (Int)from.size();
+
+			std::map< std::pair<Real, Real>, std::vector<Int> > ends;	// end point to the segments there
+			for( Int s = 0; s < (Int)from.size(); s++ )
+			{
+				ends[std::make_pair( from[s].x, from[s].y )].push_back( s );
+				ends[std::make_pair( to[s].x, to[s].y )].push_back( s );
+
+				Real dx = to[s].x - from[s].x, dy = to[s].y - from[s].y;
+				if( sqrtf( dx * dx + dy * dy ) < shortestStreet - 1.0f )
+					stubs++;
+			}
+
+			// a piece of street that shares neither end with another lies on its own
+			for( Int s = 0; s < (Int)from.size(); s++ )
+			{
+				if( ends[std::make_pair( from[s].x, from[s].y )].size() == 1 &&
+						ends[std::make_pair( to[s].x, to[s].y )].size() == 1 )
+					loose++;
+			}
+
+			for( std::map< std::pair<Real, Real>, std::vector<Int> >::const_iterator it = ends.begin(); it != ends.end(); ++it )
+			{
+				const Int degree = (Int)it->second.size();
+				if( degree == 3 )
+					tees++;
+				else if( degree == 4 )
+					crossroads++;
+				else if( degree == 2 )
+				{
+					// the two ways out of the point; a turn of 30 degrees or more gets a curve
+					Real way[2][2];
+					for( Int k = 0; k < 2; k++ )
+					{
+						const Int s = it->second[k];
+						const Bool atFrom = from[s].x == it->first.first && from[s].y == it->first.second;
+						const Coord3D& away = atFrom ? to[s] : from[s];
+						Real dx = away.x - it->first.first, dy = away.y - it->first.second;
+						Real length = sqrtf( dx * dx + dy * dy );
+						way[k][0] = dx / length;
+						way[k][1] = dy / length;
+					}
+					if( way[0][0] * way[1][0] + way[0][1] * way[1][1] > -0.866f )
+						bends++;
+				}
+			}
+
+			// any touch away from an end both segments share is a crossing the renderer cannot join
+			for( Int a = 0; a < (Int)from.size(); a++ )
+			{
+				for( Int b = a + 1; b < (Int)from.size(); b++ )
+				{
+					Real rx = to[a].x - from[a].x, ry = to[a].y - from[a].y;
+					Real sx = to[b].x - from[b].x, sy = to[b].y - from[b].y;
+					Real denom = rx * sy - ry * sx;
+					if( fabsf( denom ) < 1.0e-3f )
+						continue;
+					Real qx = from[b].x - from[a].x, qy = from[b].y - from[a].y;
+					Real t = (qx * sy - qy * sx) / denom;
+					Real u = (qx * ry - qy * rx) / denom;
+					if( t < -1.0e-4f || t > 1.0f + 1.0e-4f || u < -1.0e-4f || u > 1.0f + 1.0e-4f )
+						continue;
+					const Bool shared =
+						( from[a].x == from[b].x && from[a].y == from[b].y ) || ( from[a].x == to[b].x && from[a].y == to[b].y ) ||
+						( to[a].x == from[b].x && to[a].y == from[b].y ) || ( to[a].x == to[b].x && to[a].y == to[b].y );
+					if( !shared )
+						crossings++;
+				}
+			}
+		}
+	}
+
+	printf( "  town streets: %d segments, %d tees, %d crossroads, %d bends, %d crossings, %d stubs, %d loose\n",
+		segmentsSeen, tees, crossroads, bends, crossings, stubs, loose );
+	CHECK( segmentsSeen > 0 );
+	CHECK_EQ( crossings, 0 );
+	CHECK_EQ( stubs, 0 );
+	CHECK_EQ( loose, 0 );
+	CHECK( tees > 0 );
+	CHECK( crossroads > 0 );
+	CHECK( bends > 0 );
+}
+
+//-------------------------------------------------------------------------------------------------
 /** A map has to hold the players it is generated for.  The three sizes are three different maps
 	for the same game, and every one of them grows with the number of players rather than packing
 	eight bases into a duel map. */
@@ -10828,14 +10949,14 @@ TEST(the_generator_still_turns_a_seed_into_the_bytes_it_used_to)
 {
 	CHECK( bootOnce() );
 
-	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 14 );
+	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 15 );
 
 	struct RMGFingerprint { Int m_seed, m_players, m_cells; UnsignedInt m_crc; };
 	static const RMGFingerprint theFingerprints[] =
 	{
-		{ 0, 2, 64, 0x47855C63 },
-		{ 12345, 4, 96, 0x2863C7C9 },
-		{ 7, 8, 128, 0x297288D3 },
+		{ 0, 2, 64, 0x47856063 },
+		{ 12345, 4, 96, 0x2863C7D9 },
+		{ 7, 8, 128, 0x2D7288D3 },
 	};
 	const Int numFingerprints = sizeof(theFingerprints) / sizeof(theFingerprints[0]);
 
