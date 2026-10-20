@@ -203,18 +203,12 @@ void ScriptActions::closeWindows( Bool suppressNewWindows )
 	m_suppressNewWindows = suppressNewWindows;
 
 	// the window is the client's: after the tick, in order with the one doVictory opens
-	auto close = []{
+	LogicThread::callAfterTick( []{
 		if (m_messageWindow) {
 			TheWindowManager->winDestroy(m_messageWindow);
 			m_messageWindow = NULL;
 		}
-	};
-	// except while the game is cleared: that tick runs on the main thread and GameEngine::reset
-	// discards what it queued, which left the victory banner over the shell
-	if (TheGameLogic->isClearingGameData())
-		close();
-	else
-		LogicThread::callAfterTick( close );
+	} );
 }
 
 //-------------------------------------------------------------------------------------------------

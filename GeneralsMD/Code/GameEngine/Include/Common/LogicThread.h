@@ -188,7 +188,7 @@ namespace LogicThread
 		* systems) wait in one queue, in the order the tick asked for them, and runTick runs them on the
 		* main thread after the drawables' deferred work, so every drawable they attach to has its render
 		* objects.  Keyed on isInGameLogicUpdate past the map load, like the drawables, so -logicthread 0
-		* and 1 run one path. */
+		* and 1 run one path.  A tick clearing the game runs its calls at once, as a map load does. */
 	Bool defersEffects( void );
 
 	/** Inside a tick, queue `call` for after it; anywhere else, run it now. */

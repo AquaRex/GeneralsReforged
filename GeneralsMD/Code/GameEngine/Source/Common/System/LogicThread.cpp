@@ -520,7 +520,11 @@ void LogicThread::runTick( void )
 //-------------------------------------------------------------------------------------------------
 Bool LogicThread::defersEffects( void )
 {
-	return TheGameLogic != NULL && TheGameLogic->isInGameLogicUpdate() && !TheGameLogic->isLoadingMap();
+	/* Nor while the game is cleared.  That tick runs on the main thread (tickNeedsMainThread), and
+		 GameEngine::reset discards the queue: the closers clearGameData and the resets call were lost
+		 with it, which left the victory banner and a script's popup message over the shell. */
+	return TheGameLogic != NULL && TheGameLogic->isInGameLogicUpdate() && !TheGameLogic->isLoadingMap()
+		&& !TheGameLogic->isClearingGameData();
 }
 
 //-------------------------------------------------------------------------------------------------
