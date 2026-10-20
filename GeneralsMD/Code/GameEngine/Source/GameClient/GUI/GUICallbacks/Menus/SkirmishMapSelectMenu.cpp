@@ -212,8 +212,10 @@ static void mapListTooltipFunc(GameWindow *window,
 void positionStartSpots( AsciiString mapName, GameWindow *buttonMapStartPositions[], GameWindow *mapWindow);
 void skirmishPositionStartSpots( void );
 void skirmishUpdateSlotList( void );
-// The map list is see-through over the seat table, so the whole table goes while it is open, the
-// seat cards and swatches the stock list never knew included, and the record button with it.
+// The map list takes the seat table's place and its preview, Accept and Cancel take the map's, its
+// name's and Select Map's (Tools/mapselect_layout.py), so all of those go while it is open, the seat
+// cards and swatches the stock list never knew included, and the record button with them.  The Map
+// Preview heading stays over the list's own preview.
 static const char *gadgetsToHide[] =
 {
 	"MapWindow",
@@ -226,7 +228,6 @@ static const char *gadgetsToHide[] =
 	"ButtonSelectMap",
 	"ButtonStart",
 	"ButtonRecord",
-	"StaticTextMapPreview",
 	NULL // keep this last
 };
 static const char *perPlayerGadgetsToHide[] =
@@ -287,6 +288,8 @@ void SkirmishMapSelectMenuInit( WindowLayout *layout, void *userData )
 	radioButtonUserMapsID = TheNameKeyGenerator->nameToKey( "SkirmishMapSelectMenu.wnd:RadioButtonUserMaps" );
 	GameWindow *radioButtonSystemMaps = TheWindowManager->winGetWindowFromId( parent, radioButtonSystemMapsID );
 	GameWindow *radioButtonUserMaps = TheWindowManager->winGetWindowFromId( parent, radioButtonUserMapsID );
+	radioButtonSystemMaps->winSetDrawFunc( DrawMapListTab );
+	radioButtonUserMaps->winSetDrawFunc( DrawMapListTab );
 	if (usesSystemMapDir)
 		GadgetRadioSetSelection( radioButtonSystemMaps, FALSE );
 	else

@@ -373,12 +373,15 @@ Data/Window/Menus/Defeat.wnd
 Data/Window/Menus/DisconnectScreen.wnd
 Data/Window/Menus/GameSpyGameOptionsMenu.wnd
 Data/Window/Menus/LanGameOptionsMenu.wnd
+Data/Window/Menus/LanMapSelectMenu.wnd
 Data/Window/Menus/LocalDefeat.wnd
 Data/Window/Menus/MainMenu.wnd
 Data/Window/Menus/ObserverQuit.wnd
 Data/Window/Menus/OptionsMenuClassic.wnd
 Data/Window/Menus/SkirmishGameOptionsMenu.wnd
+Data/Window/Menus/SkirmishMapSelectMenu.wnd
 Data/Window/Menus/Victorious.wnd
+Data/Window/Menus/WOLMapSelectMenu.wnd
 Data/Window/ReplayControl.wnd
 Data/Window/Trainer.wnd
 Data/dx11shaders.shipped
@@ -3946,6 +3949,7 @@ Tools/mangler/wnet/tcp.cpp
 Tools/mangler/wnet/tcp.h
 Tools/mangler/wnet/udp.cpp
 Tools/mangler/wnet/udp.h
+Tools/mapselect_layout.py
 Tools/matchbot/debug.cpp
 Tools/matchbot/debug.h
 Tools/matchbot/encrypt.cpp

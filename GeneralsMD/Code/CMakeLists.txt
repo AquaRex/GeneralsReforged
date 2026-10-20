@@ -2672,6 +2672,12 @@ if(Python3_Interpreter_FOUND)
            COMMAND ${Python3_EXECUTABLE}
                    ${CMAKE_CURRENT_SOURCE_DIR}/Tools/lobbyroom_layout.py selfcheck)
 
+  # The map pickers stand where the rooms' seat table and map preview stand, read from the rooms'
+  # own layouts, so a room laid out again without the pickers following is caught here.
+  add_test(NAME mapselect_selfcheck
+           COMMAND ${Python3_EXECUTABLE}
+                   ${CMAKE_CURRENT_SOURCE_DIR}/Tools/mapselect_layout.py selfcheck)
+
   # A translation is a .str of thousands of lines, and one printf directive lost or reordered in any
   # of them reads the wrong argument the moment that line is formatted.  The check parses the tracked
   # Turkish and German masters the way GameText.cpp does, and against Run/EnglishZH.big when it is

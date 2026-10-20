@@ -87,7 +87,8 @@ static void NullifyControls(void)
 
 static const char *layoutFilename = "GameSpyGameOptionsMenu.wnd";
 static const char *parentName = "GameSpyGameOptionsMenuParent";
-// the map list is see-through over the seat table, so the whole table goes while it is open
+// the map list takes the seat table's place and the map's (Tools/mapselect_layout.py), so the whole
+// table, the map, its name and Select Map go while it is open; the Map Preview heading stays
 static const char *gadgetsToHide[] =
 {
 	"MapWindow",
@@ -99,7 +100,6 @@ static const char *gadgetsToHide[] =
 	"TextEntryMapDisplay",
 	"ButtonSelectMap",
 	"ButtonStart",
-	"StaticTextMapPreview",
 
 	NULL // keep this last
 };
@@ -171,6 +171,8 @@ void WOLMapSelectMenuInit( WindowLayout *layout, void *userData )
 
 	GameWindow *radioButtonSystemMaps = TheWindowManager->winGetWindowFromId( parent, radioButtonSystemMapsID );
 	GameWindow *radioButtonUserMaps = TheWindowManager->winGetWindowFromId( parent, radioButtonUserMapsID );
+	radioButtonSystemMaps->winSetDrawFunc( DrawMapListTab );
+	radioButtonUserMaps->winSetDrawFunc( DrawMapListTab );
 	if( TheGameSpyInfo->getCurrentStagingRoom()->getUseStats() )
 	{	//disable unofficial maps if stats are being recorded
 		GadgetRadioSetSelection( radioButtonSystemMaps, FALSE );

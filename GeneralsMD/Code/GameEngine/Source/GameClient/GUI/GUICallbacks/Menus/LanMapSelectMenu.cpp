@@ -73,7 +73,8 @@ static NameKeyType buttonMapStartPositionID[MAX_SLOTS] = { NAMEKEY_INVALID,NAMEK
 void positionStartSpots( AsciiString mapName, GameWindow *buttonMapStartPositions[], GameWindow *mapWindow);
 static const char *layoutFilename = "LanGameOptionsMenu.wnd";
 static const char *parentName = "LanGameOptionsMenuParent";
-// the map list is see-through over the seat table, so the whole table goes while it is open
+// the map list takes the seat table's place and the map's (Tools/mapselect_layout.py), so the whole
+// table, the map, its name and Select Map go while it is open; the Map Preview heading stays
 static const char *gadgetsToHide[] =
 {
 	"MapWindow",
@@ -85,7 +86,6 @@ static const char *gadgetsToHide[] =
 	"TextEntryMapDisplay",
 	"ButtonSelectMap",
 	"ButtonStart",
-	"StaticTextMapPreview",
 
 	NULL // keep this last
 };
@@ -160,6 +160,8 @@ void LanMapSelectMenuInit( WindowLayout *layout, void *userData )
 	GameWindow *radioButtonSystemMaps = TheWindowManager->winGetWindowFromId( parent, radioButtonSystemMapsID );
 	GameWindow *radioButtonUserMaps = TheWindowManager->winGetWindowFromId( parent, radioButtonUserMapsID );
 	winMapPreview = TheWindowManager->winGetWindowFromId(parent, winMapPreviewID);
+	radioButtonSystemMaps->winSetDrawFunc( DrawMapListTab );
+	radioButtonUserMaps->winSetDrawFunc( DrawMapListTab );
 	if (usesSystemMapDir)
 		GadgetRadioSetSelection( radioButtonSystemMaps, FALSE );
 	else

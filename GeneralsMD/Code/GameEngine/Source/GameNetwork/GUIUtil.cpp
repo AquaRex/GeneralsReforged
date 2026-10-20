@@ -1044,6 +1044,25 @@ static void drawSwatch(GameWindow *window, WinInstanceData *instData)
 		height - 2 * padding, window->winGetEnabledColor(0));
 }
 
+void DrawMapListTab(GameWindow *window, WinInstanceData *instData)
+{
+	Int x, y, width, height;
+	window->winGetScreenPosition(&x, &y);
+	window->winGetSize(&width, &height);
+	UIStyle::tab(x, y, width, height);
+	DisplayString *text = instData->getTextDisplayString();
+	if (text->getFont() != window->winGetFont())
+		text->setFont(window->winGetFont());
+	Color color = UIStyle::INK;
+	if (!BitTest(window->winGetStatus(), WIN_STATUS_ENABLED))
+		color = UIStyle::MUTED;
+	else if (BitTest(instData->getState(), WIN_STATE_SELECTED))
+		color = UIStyle::ACTIVE;
+	Int textWidth, textHeight;
+	text->getSize(&textWidth, &textHeight);
+	text->draw(x + (width - textWidth) / 2, y + (height - textHeight) / 2, color, UIStyle::SHADOW);
+}
+
 void InitLobbySeatVisuals(GameWindow *parent, const char *layoutFilename)
 {
 	GameWindow **const windows[] = { theSeatCard, theSeatBar, theSeatSwatch, theSeatTeam };
