@@ -154,6 +154,21 @@ static void parseAllVetLevelsAsciiString( INI* ini, void* /*instance*/, void * s
 }
 
 //-------------------------------------------------------------------------------------------------
+/* The laser object is looked up when the weapon fires, so a name nothing defines draws no beam.  A
+	 patch file loads after every object: one naming a laser the loaded data lacks (FixesReforged.ini's
+	 Lazr_PatriotLaserBeam under Contra) leaves the weapon the beam it had. */
+static void parseLaserName( INI* ini, void* /*instance*/, void * store, const void* /*userData*/ )
+{
+	AsciiString name = ini->getNextAsciiString();
+	if (ini->getLoadType() == INI_LOAD_MULTIFILE && name.isNotEmpty() && TheThingFactory->findTemplate(name, FALSE) == NULL)
+	{
+		DEBUG_LOG(("[LINE: %d in '%s'] laser '%s' does not exist; the weapon keeps its own.\n", ini->getLineNum(), ini->getFilename().str(), name.str()));
+		return;
+	}
+	*(AsciiString*)store = name;
+}
+
+//-------------------------------------------------------------------------------------------------
 static void parsePerVetLevelFXList( INI* ini, void* /*instance*/, void * store, const void* /*userData*/ )
 {
 	typedef const FXList* ConstFXListPtr;
@@ -267,7 +282,7 @@ const FieldParse WeaponTemplate::TheWeaponTemplateFieldParseTable[] =
 	{ "AntiBallisticMissile",			INI::parseBitInInt32,										(void*)WEAPON_ANTI_BALLISTIC_MISSILE, offsetof(WeaponTemplate, m_antiMask) },
 	{ "AutoReloadsClip",					INI::parseIndexList,										TheWeaponReloadNames,							offsetof(WeaponTemplate, m_reloadType) },		
 	{ "ProjectileStreamName",			INI::parseAsciiString,									NULL,							offsetof(WeaponTemplate, m_projectileStreamName) },
-	{ "LaserName",								INI::parseAsciiString,									NULL,							offsetof(WeaponTemplate, m_laserName) },
+	{ "LaserName",								parseLaserName,													NULL,						offsetof(WeaponTemplate, m_laserName) },
 	{ "LaserBoneName",						INI::parseAsciiString,									NULL,							offsetof(WeaponTemplate, m_laserBoneName) },
 	{ "WeaponBonus",							WeaponTemplate::parseWeaponBonusSet,		NULL,							0 },		
 	{ "HistoricBonusTime",				INI::parseDurationUnsignedInt,					NULL,							offsetof(WeaponTemplate, m_historicBonusTime) },		

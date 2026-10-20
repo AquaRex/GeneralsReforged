@@ -184,6 +184,7 @@ static int GetSystemMetrics( int which )
 #include "Common/BuildAssistant.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/Weapon.h"
+#include "GameLogic/ObjectCreationList.h"
 #include "GameClient/CommandXlat.h"
 #include "Common/ActionManager.h"
 #include "GameLogic/PartitionManager.h"
@@ -1086,6 +1087,94 @@ TEST(patch_module_with_a_missing_special_power_is_skipped)
 	{
 		CHECK_EQ( probe->getBehaviorModuleInfo().getCount(), 1 );
 		CHECK_EQ( probe->friend_getBuildCost(), 900 );
+	}
+
+	remove( TEST_INI );
+	if( savedGlobals == NULL )
+	{
+		delete TheWritableGlobalData;
+		TheWritableGlobalData = NULL;
+	}
+}
+
+/* Under Contra FixesReforged.ini gave the Laser Turret's anti-air weapon Zero Hour's
+	 Lazr_PatriotLaserBeam, which Contra does not have, so the beam vanished, and gave the Emperor an
+	 upgrade naming Tank_OCL_OverlordGattlingCannon, which it does not have either.  A patch naming
+	 something the loaded data lacks keeps what was there: the weapon its own beam, and a replaced
+	 module the module it replaced. */
+TEST(patch_naming_a_missing_laser_or_list_keeps_the_mods_own)
+{
+	CHECK( bootOnce() );
+
+	GlobalData *savedGlobals = TheWritableGlobalData;
+	if( savedGlobals == NULL )
+		TheWritableGlobalData = NEW GlobalData;
+	if( TheModuleFactory == NULL )
+	{
+		TheModuleFactory = NEW ModuleFactory;
+		TheModuleFactory->init();
+	}
+	if( TheThingFactory == NULL )
+		TheThingFactory = NEW ThingFactory;
+	if( TheWeaponStore == NULL )
+		TheWeaponStore = NEW WeaponStore;
+	if( TheObjectCreationListStore == NULL )
+		TheObjectCreationListStore = NEW ObjectCreationListStore;
+
+	writeFile( TEST_INI,
+		"Object MissingLaserProbeBeam\r\n"
+		"End\r\n"
+		"Weapon MissingLaserProbeGun\r\n"
+		"  LaserName = MissingLaserProbeBeam\r\n"
+		"End\r\n"
+		"Object MissingListProbe\r\n"
+		"  Behavior = DestroyDie ModuleTag_07\r\n"
+		"  End\r\n"
+		"End\r\n" );
+	CHECK( loadIni( TEST_INI ) );
+
+	writeFile( TEST_INI,
+		"Weapon MissingLaserProbeGun\r\n"
+		"  LaserName = MissingLaserProbeAbsentBeam\r\n"
+		"End\r\n"
+		"Object MissingListProbe\r\n"
+		"  ReplaceModule ModuleTag_07\r\n"
+		"    Behavior = ObjectCreationUpgrade ModuleTag_07_Fix\r\n"
+		"      UpgradeObject = MissingListProbeAbsentList\r\n"
+		"      TriggeredBy   = Upgrade_MissingListProbe\r\n"
+		"    End\r\n"
+		"  End\r\n"
+		"  BuildCost = 700\r\n"
+		"End\r\n" );
+	Bool threw = FALSE;
+	try
+	{
+		INI patch;
+		patch.load( AsciiString( TEST_INI ), INI_LOAD_MULTIFILE, NULL );
+	}
+	catch( ... )
+	{
+		threw = TRUE;
+	}
+	CHECK( threw == FALSE );
+
+	const WeaponTemplate *gun = TheWeaponStore->findWeaponTemplate( "MissingLaserProbeGun" );
+	CHECK( gun != NULL );
+	if( gun != NULL )
+		CHECK_STR( gun->getLaserName().str(), "MissingLaserProbeBeam" );
+
+	const ThingTemplate *probe = TheThingFactory->findTemplate( "MissingListProbe" );
+	CHECK( probe != NULL );
+	if( probe != NULL )
+	{
+		const ModuleInfo &modules = probe->getBehaviorModuleInfo();
+		CHECK_EQ( modules.getCount(), 1 );
+		if( modules.getCount() == 1 )
+		{
+			CHECK( modules.getNthTag( 0 ) == "ModuleTag_07" );
+			CHECK( modules.getNthName( 0 ) == "DestroyDie" );
+		}
+		CHECK_EQ( probe->friend_getBuildCost(), 700 );
 	}
 
 	remove( TEST_INI );

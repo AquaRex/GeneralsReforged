@@ -332,10 +332,11 @@ public:
 		name is logged and its line skipped instead of throwing. */
 	inline void setSkipUnknownFields( Bool skip ) { m_skipUnknownFields = skip; }
 
-	/** A patch INI loaded over a mod can name a special power the mod does not have. The reference
-		raises this, and ThingTemplate::parseModuleName drops the module it was read into. */
-	inline void setMissingSpecialPower( Bool missing ) { m_missingSpecialPower = missing; }
-	inline Bool hasMissingSpecialPower( void ) const { return m_missingSpecialPower; }
+	/** A patch INI loaded over a mod can name a special power or an object creation list the mod
+		does not have. The reference raises this, and ThingTemplate::parseModuleName drops the module
+		it was read into. */
+	inline void setMissingReference( Bool missing ) { m_missingReference = missing; }
+	inline Bool hasMissingReference( void ) const { return m_missingReference; }
 
 	/** -modfactions prefixes every word a mod names a block with, and a mod can name one after an
 		engine word: The Power of the West has a ParticleSystem "Explosion", so "DamageType = Explosion"
@@ -529,7 +530,7 @@ protected:
 	const char *m_blockEndToken;							///< token to represent end of data block
 	Bool m_endOfFile;													///< TRUE when we've hit EOF
 	Bool m_skipUnknownFields;									///< log and skip an unknown field instead of throwing
-	Bool m_missingSpecialPower;								///< a patch named a special power that does not exist
+	Bool m_missingReference;									///< a patch named a special power or OCL that does not exist
 #if defined(_DEBUG) || defined(_INTERNAL)
 	char m_curBlockStart[ INI_MAX_CHARS_PER_PREFIXED_LINE+1 ];	///< first line of cur block, a copy of m_buffer
 #endif
