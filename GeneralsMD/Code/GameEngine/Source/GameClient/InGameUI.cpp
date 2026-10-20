@@ -121,6 +121,7 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/RankInfo.h"
 #include "GameLogic/GameLogic.h"
+#include "GameLogic/GhostObject.h"
 #include "GameLogic/PartitionManager.h"
 #include "GameLogic/PolygonTrigger.h"
 #include "GameLogic/TerrainLogic.h"
@@ -5876,6 +5877,24 @@ void InGameUI::snapPlacementToNeighbour( Coord3D *world, const ThingTemplate *wh
 		PlacementBox standing;
 		placementFootprint( obj->getTemplate(), obj->getPosition(), obj->getOrientation(), &standing );
 		neighbours.push_back( standing );
+	}
+
+	// and one that died in his fog, which he still sees standing in its ghost.  The ghost keeps no
+	// template, so its box is the bare geometry, without a factory's bib.
+	enum { MAX_GHOSTS = 16 };
+	const GhostObject *ghosts[ MAX_GHOSTS ];
+	const Int ghostCount = BuildAssistant_findDeadGhostsInFog( world, searchRadius, ghosts, MAX_GHOSTS );
+	for( Int g = 0; g < ghostCount; g++ )
+	{
+		PlacementBox remembered;
+		remembered.x = ghosts[ g ]->getParentPosition()->x;
+		remembered.y = ghosts[ g ]->getParentPosition()->y;
+		remembered.c = (Real)Cos( ghosts[ g ]->getParentAngle() );
+		remembered.s = (Real)Sin( ghosts[ g ]->getParentAngle() );
+		remembered.halfMajor = ghosts[ g ]->getGeometryMajorRadius();
+		remembered.halfMinor = ghosts[ g ]->getGeometryType() == GEOMETRY_BOX ?
+													 ghosts[ g ]->getGeometryMinorRadius() : remembered.halfMajor;
+		neighbours.push_back( remembered );
 	}
 
 	for( size_t i = 0; i < neighbours.size(); i++ )

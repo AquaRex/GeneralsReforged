@@ -44,6 +44,7 @@
 #include "GameLogic/AIPathfind.h"
 #include "GameLogic/TerrainLogic.h"
 #include "GameLogic/GameLogic.h"
+#include "GameLogic/GhostObject.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/PartitionManager.h"
 #include "GameLogic/Module/AIUpdate.h"
@@ -1018,7 +1019,8 @@ void W3DInGameUI::drawBuildGrid( void )
 	* the sync point.  The pathfinder marks every structure the moment it is placed, the enemy's in the
 	* shroud included, so its cells alone drew enemy foundations into the dark: a cell held by
 	* something the local player has no picture of stays clear here, and so does rubble under the
-	* shroud.  Water, cliffs and plain impassable ground are the map's own and always show. */
+	* shroud, while a building he still sees standing in the fog after it died is washed from its
+	* ghost.  Water, cliffs and plain impassable ground are the map's own and always show. */
 //-------------------------------------------------------------------------------------------------
 void W3DInGameUI::takeBuildGrid( void )
 {
@@ -1053,6 +1055,33 @@ void W3DInGameUI::takeBuildGrid( void )
 			}
 
 			m_buildGridBlocked[ iy ][ ix ] = blocked;
+		}
+	}
+
+	// A building that died in his fog still stands there for him, drawn from its ghost, but the
+	// pathfinder let go of its cells the moment it died: wash the footprint the ghost remembers, or
+	// bare ground under the ghost tells him it is gone.
+	enum { MAX_GHOSTS = 16 };
+	const GhostObject *ghosts[ MAX_GHOSTS ];
+	const Int ghostCount = BuildAssistant_findDeadGhostsInFog( center, BUILD_GRID_RADIUS * PATHFIND_CELL_SIZE_F,
+																														 ghosts, MAX_GHOSTS );
+	for( Int g = 0; g < ghostCount; ++g )
+	{
+		const Coord3D *at = ghosts[ g ]->getParentPosition();
+		const Real reach = ghosts[ g ]->getGeometryMajorRadius() + ghosts[ g ]->getGeometryMinorRadius() +
+											 PATHFIND_CELL_SIZE_F;	// a round one reaches four tenths of a cell past its radius
+		const Int loX = max( 0, REAL_TO_INT_FLOOR( (at->x - reach) / PATHFIND_CELL_SIZE_F ) - m_buildGridCellX );
+		const Int loY = max( 0, REAL_TO_INT_FLOOR( (at->y - reach) / PATHFIND_CELL_SIZE_F ) - m_buildGridCellY );
+		const Int hiX = min( BUILD_GRID_CELLS - 1, REAL_TO_INT_FLOOR( (at->x + reach) / PATHFIND_CELL_SIZE_F ) - m_buildGridCellX );
+		const Int hiY = min( BUILD_GRID_CELLS - 1, REAL_TO_INT_FLOOR( (at->y + reach) / PATHFIND_CELL_SIZE_F ) - m_buildGridCellY );
+
+		for( Int iy = loY; iy <= hiY; ++iy )
+		{
+			for( Int ix = loX; ix <= hiX; ++ix )
+			{
+				if( BuildAssistant_ghostCoversCell( ghosts[ g ], m_buildGridCellX + ix, m_buildGridCellY + iy ) )
+					m_buildGridBlocked[ iy ][ ix ] = TRUE;
+			}
 		}
 	}
 

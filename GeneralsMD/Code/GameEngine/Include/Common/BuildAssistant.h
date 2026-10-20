@@ -45,6 +45,7 @@
 class ThingTemplate;
 class Player;
 class Object;
+class GhostObject;
 
 // ------------------------------------------------------------------------------------------------
 // this enum is used for the construction percent of objects
@@ -113,6 +114,22 @@ extern Bool BuildAssistant_shroudBlocksBuilding( CellShroudStatus status );
 	* status it reads is filled per machine and is not lockstep. */
 //-------------------------------------------------------------------------------------------------
 extern Bool BuildAssistant_isHiddenFromLocalPlayer( const Object *obj );
+
+//-------------------------------------------------------------------------------------------------
+/** The other half of that picture: a building that died where the local player could not see it
+	* is still drawn for him from its ghost, and its footprint stands until he looks there again.
+	* Fills ghosts with up to maxGhosts such ghosts touching the partition cells within radius of
+	* center and returns how many.  Client only, like the test above. */
+//-------------------------------------------------------------------------------------------------
+extern Int BuildAssistant_findDeadGhostsInFog( const Coord3D *center, Real radius,
+																							 const GhostObject **ghosts, Int maxGhosts );
+
+/// does the footprint a dead building's ghost remembers overlap this shape on the ground?
+extern Bool BuildAssistant_ghostOverlaps( const GhostObject *ghost, const Coord3D *pos,
+																					const GeometryInfo &geom, Real angle );
+
+/// does the placement grid wash this pathfinder cell red for that ghost?
+extern Bool BuildAssistant_ghostCoversCell( const GhostObject *ghost, Int cellX, Int cellY );
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------

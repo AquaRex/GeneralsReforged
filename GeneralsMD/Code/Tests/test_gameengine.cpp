@@ -188,6 +188,7 @@ static int GetSystemMetrics( int which )
 #include "GameClient/CommandXlat.h"
 #include "Common/ActionManager.h"
 #include "GameLogic/PartitionManager.h"
+#include "GameLogic/GhostObject.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -8588,6 +8589,63 @@ TEST(a_base_can_be_planned_into_fog_but_not_into_shroud)
 	CHECK( BuildAssistant_shroudBlocksBuilding( CELLSHROUD_CLEAR ) == FALSE );
 	CHECK( BuildAssistant_shroudBlocksBuilding( CELLSHROUD_FOGGED ) == FALSE );
 	CHECK( BuildAssistant_shroudBlocksBuilding( CELLSHROUD_SHROUDED ) == TRUE );
+}
+
+/** A ghost with nothing behind it but its remembered footprint, the shape a building that died in
+	 the fog leaves in the partition manager. */
+class FootprintOnlyGhost : public GhostObject
+{
+public:
+	FootprintOnlyGhost( GeometryType type, Real major, Real minor, Real x, Real y, Real angle )
+	{
+		m_parentGeometryType = type;
+		m_parentGeometryIsSmall = FALSE;
+		m_parentGeometryMajorRadius = major;
+		m_parentGeometryminorRadius = minor;
+		m_parentAngle = angle;
+		m_parentPosition.x = x;
+		m_parentPosition.y = y;
+	}
+	virtual void snapShot( int ) {}
+	virtual void updateParentObject( Object *, PartitionData * ) {}
+	virtual void freeSnapShot( int ) {}
+	virtual Bool hasSnapShot( int ) const { return TRUE; }
+};
+
+/** A building that died in the player's fog still stands there for him, drawn from its ghost, and
+	 the placement grid washes the cells under that ghost red as it did while the building stood:
+	 bare ground there told him it was gone.  A pathfinder cell spans [10x - 0.5, 10x + 9.5), and the
+	 pathfinder's own footprint takes a cell the near edge reaches and leaves one the far edge only
+	 grazes, so a 60 by 40 box from x 70 to 130 covers cells 7 to 12 and not 13. */
+TEST(a_building_dead_in_the_fog_keeps_its_cells_on_the_placement_grid)
+{
+	ThePartitionManager = NEW PartitionManager;	// only for its geometry test
+
+	const FootprintOnlyGhost box( GEOMETRY_BOX, 30.0f, 20.0f, 100.0f, 100.0f, 0.0f );	// x 70..130, y 80..120
+	CHECK( BuildAssistant_ghostCoversCell( &box, 7, 8 ) == TRUE );
+	CHECK( BuildAssistant_ghostCoversCell( &box, 12, 11 ) == TRUE );
+	CHECK( BuildAssistant_ghostCoversCell( &box, 6, 10 ) == FALSE );
+	CHECK( BuildAssistant_ghostCoversCell( &box, 13, 10 ) == FALSE );
+	CHECK( BuildAssistant_ghostCoversCell( &box, 10, 7 ) == FALSE );
+	CHECK( BuildAssistant_ghostCoversCell( &box, 10, 12 ) == FALSE );
+
+	// the same box turned a quarter: x 80..120, y 70..130
+	const FootprintOnlyGhost turned( GEOMETRY_BOX, 30.0f, 20.0f, 100.0f, 100.0f, PI / 2.0f );
+	CHECK( BuildAssistant_ghostCoversCell( &turned, 7, 10 ) == FALSE );
+	CHECK( BuildAssistant_ghostCoversCell( &turned, 10, 7 ) == TRUE );
+	CHECK( BuildAssistant_ghostCoversCell( &turned, 10, 12 ) == TRUE );
+
+	// a round one of radius 25 round 200, 200 is the pathfinder's circle, a cell centre within 29
+	// of it, not the square the collision test makes of a circle: the corner cell 17,17 is out
+	const FootprintOnlyGhost round( GEOMETRY_CYLINDER, 25.0f, 25.0f, 200.0f, 200.0f, 0.0f );
+	CHECK( BuildAssistant_ghostCoversCell( &round, 19, 19 ) == TRUE );
+	CHECK( BuildAssistant_ghostCoversCell( &round, 22, 19 ) == TRUE );
+	CHECK( BuildAssistant_ghostCoversCell( &round, 17, 19 ) == TRUE );
+	CHECK( BuildAssistant_ghostCoversCell( &round, 23, 19 ) == FALSE );
+	CHECK( BuildAssistant_ghostCoversCell( &round, 17, 17 ) == FALSE );
+
+	delete ThePartitionManager;	// its shutdown asks the global
+	ThePartitionManager = NULL;
 }
 
 /** A plan is not a scout.  A structure that has been placed but not started opens no shroud at all,
