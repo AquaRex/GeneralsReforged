@@ -459,10 +459,10 @@ GameMessageDisposition LookAtTranslator::translateGameMessage(const GameMessage 
 			m_lastMouseMoveFrame = TheGameLogic->getFrame();
 			m_anchor = msg->getArgument( 0 )->pixel;
 
-			// where the right button gives the move order it also draws the order lines and the attack
-			// circle (CommandXlat, SelectionXlat), and a drag that draws one does not pan as well
-			if( TheInGameUI->isOrderDragButton( TRUE )
-					&& ( TheInGameUI->wantsDragLine() || TheInGameUI->wantsDragCircle() ) )
+			// where the right button gives the move order it also draws Shift's move line (CommandXlat),
+			// and a drag that draws it does not pan as well.  An armed key's lines and the circle are
+			// the left button's in every mouse, so with one armed this press pans
+			if( TheInGameUI->isOrderDragButton( TRUE ) && TheInGameUI->wantsDragLine() )
 			{
 				m_rightPanArmed = false;
 				break;

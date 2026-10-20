@@ -49,7 +49,6 @@ private:
 
 	Bool m_leftMouseButtonIsDown;
 	Bool m_dragSelecting;
-	Bool m_circleOnRight;								///< the attack circle being drawn belongs to the right button, where that is the move button (fork)
 	Bool m_leftDragIsLine;							///< latched at the press: this left drag draws an order line, so no box grows (fork)
 	Bool m_dragOrderJustIssued;					///< an attack circle or a left-drawn order line just went out, so eat the click that ends it (fork)
 	UnsignedInt m_lastGroupSelTime;

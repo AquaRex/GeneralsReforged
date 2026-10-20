@@ -4153,18 +4153,19 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			m_mouseRightDown = (UnsignedInt) msg->getArgument( 2 )->integer;
 
 			// a plain right drag pans the camera (LookAtXlat).  Where the right button gives the move
-			// order, a drag with a line wanted draws the line instead, and LookAtXlat leaves it alone
+			// order, a drag with Shift's move line wanted draws that line instead, and LookAtXlat leaves
+			// it alone.  An armed key's line is the left button's in every mouse
 			if( TheInGameUI->isOrderDragButton( TRUE ) )
 				armFormationDrag( msg->getArgument( 0 )->pixel, TRUE );
 			break;
 		}
 
 		//-----------------------------------------------------------------------------
-		// A formation line is drawn with the button that gives the move order, the left one in the
-		// default mouse, and only once the move, attack move or guard key is armed: a drag without one
-		// is a selection box.  The attack key and the Force Attack hold keep their drag for the attack
-		// circle; shift on the hold draws the attack line here instead, aimed at the enemies near it.
-		// Shift alone draws the move line.
+		// A formation line is drawn with the left button in every mouse once the move, attack move or
+		// guard key is armed: a drag without one is a selection box.  The attack key and the Force
+		// Attack hold keep their drag for the attack circle; shift on the hold draws the attack line
+		// here instead, aimed at the enemies near it.  Shift alone draws the move line, with the button
+		// that gives the move order.
 		case GameMessage::MSG_RAW_MOUSE_LEFT_DOUBLE_CLICK:
 		case GameMessage::MSG_RAW_MOUSE_LEFT_BUTTON_DOWN:
 		{
@@ -4353,7 +4354,8 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
  												|| command->getCommandType() == GUI_COMMAND_FIRE_WEAPON
 												|| command->getCommandType() == GUI_COMMAND_COMBATDROP
 												|| command->getCommandType() == GUICOMMANDMODE_HIJACK_VEHICLE
-												|| command->getCommandType() == GUICOMMANDMODE_CONVERT_TO_CARBOMB));
+												|| command->getCommandType() == GUICOMMANDMODE_CONVERT_TO_CARBOMB
+												|| command->getCommandType() == GUICOMMANDMODE_SABOTAGE_BUILDING));
 
 			// Where the right button gives the orders (Reforged, and Classic under EA's Alternate Mouse
 			// Setup) the left button selects and nothing else.  The exceptions are a GUI command that is

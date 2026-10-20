@@ -5027,12 +5027,16 @@ Bool InGameUI::wantsDragCircle( void ) const
 }
 
 //-------------------------------------------------------------------------------------------------
-/** Every line and the circle are drawn with the button a click on the ground moves with: the left
-	* in the default Classic mouse, the right under the Alternate Mouse Setup and the Reforged mouse.
-	* The other button keeps its drag: the selection box on the left, the camera pan on the right. */
+/** An armed key's line (move, attack move, guard), the attack key's and Ctrl's circle and Ctrl+Shift's
+	* attack line are drawn with the left button in every mouse, the button their clicks are aimed with;
+	* the right one pans then, and its click puts the key down.  Shift's move line is a plain move and is
+	* drawn with the button a click on the ground moves with: the left in the default Classic mouse, the
+	* right under the Alternate Mouse Setup and the Reforged mouse, where the left drag stays the box. */
 //-------------------------------------------------------------------------------------------------
 Bool InGameUI::isOrderDragButton( Bool rightButton ) const
 {
+	if( isOrderKeyArmed() || m_forceAttackMode )
+		return !rightButton;
 	return rightButton ? TheGlobalData->rightButtonOrders() : TheGlobalData->leftButtonOrders();
 }
 

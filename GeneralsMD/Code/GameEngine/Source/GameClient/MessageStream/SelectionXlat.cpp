@@ -303,7 +303,6 @@ SelectionTranslator::SelectionTranslator()
 {
 	m_leftMouseButtonIsDown = FALSE;
 	m_dragSelecting = FALSE;
-	m_circleOnRight = FALSE;
 	m_leftDragIsLine = FALSE;
 	m_dragOrderJustIssued = FALSE;
 	m_lastGroupSelTime = 0;
@@ -457,7 +456,7 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 			}
 
 			// a left drag that draws an order line over in CommandXlat grows no selection box under it.
-			// A drag with no line wanted, or with the right button drawing the lines, is the box
+			// A drag with no line wanted, or Shift's move line where the right button draws it, is the box
 			const Bool leftDragIsOrder = m_leftDragIsLine && TheInGameUI->getSelectCount() > 0;
 			if (m_leftMouseButtonIsDown && !leftDragIsOrder)
 			{
@@ -1105,19 +1104,16 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 			m_selectFeedbackAnchor = msg->getArgument( 0 )->pixel;
 
 			// latched here, the same moment CommandXlat latches the line, so letting go of shift
-			// mid-drag cannot grow a box under a line that is already being drawn.  Lines and the circle
-			// belong to the button that moves; where that is the right one, the left drag is the box
+			// mid-drag cannot grow a box under a line that is already being drawn.  Shift's move line
+			// belongs to the button that moves; where that is the right one, the left drag is the box
 			m_leftDragIsLine = TheInGameUI->isOrderDragButton( FALSE ) && TheInGameUI->wantsDragLine();
 
-			// with the attack key armed or the Force Attack hold down the button draws a circle
-			// instead of a selection box, and everything hostile inside it becomes a target list.  An
-			// armed line key (move, attack move, guard) keeps its line under the hold, and shift on top
-			// of the hold draws the attack line over in CommandXlat instead.
+			// with the attack key armed or the Force Attack hold down the left button draws a circle
+			// in every mouse instead of a selection box, and everything hostile inside it becomes a
+			// target list.  An armed line key (move, attack move, guard) keeps its line under the hold,
+			// and shift on top of the hold draws the attack line over in CommandXlat instead.
 			if( TheInGameUI->isOrderDragButton( FALSE ) && TheInGameUI->wantsDragCircle() )
-			{
 				TheInGameUI->beginAttackCircle( m_selectFeedbackAnchor );
-				m_circleOnRight = FALSE;
-			}
 			break;
 		}
 
@@ -1129,9 +1125,9 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 		{
 			m_leftMouseButtonIsDown = FALSE;
 
-			// the circle is finished on the same button that drew it: the targets go out here, and the
+			// the circle is finished on the button that drew it: the targets go out here, and the
 			// click that follows this release has to be eaten or it would reselect under the anchor
-			if( TheInGameUI->isAttackCircling() && !m_circleOnRight )
+			if( TheInGameUI->isAttackCircling() )
 			{
 				// a circle Ctrl started belongs to no key: undragged, the press was an ordinary Ctrl click
 				const Bool keyed = TheInGameUI->isOrderKeyArmed() || TheInGameUI->getGUICommand() != NULL;
@@ -1218,31 +1214,12 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 			m_deselectFeedbackAnchor = msg->getArgument( 0 )->pixel;
 			m_lastClick = (UnsignedInt) msg->getArgument( 2 )->integer;
 			TheTacticalView->getPosition( &m_deselectDownCameraPosition );
-
-			// where the right button moves, it draws the attack circle as well (LookAtXlat holds its pan)
-			if( TheInGameUI->isOrderDragButton( TRUE ) && TheInGameUI->wantsDragCircle() )
-			{
-				TheInGameUI->beginAttackCircle( m_deselectFeedbackAnchor );
-				m_circleOnRight = TRUE;
-			}
 			break;
 		}
 
 		//-----------------------------------------------------------------------------
 		case GameMessage::MSG_RAW_MOUSE_RIGHT_BUTTON_UP:
 		{
-			// a circle drawn with the right button goes out on its release.  A circle that was never
-			// dragged was a right click, which falls through to what a right click does under force fire
-			if( m_circleOnRight && TheInGameUI->isAttackCircling() )
-			{
-				m_circleOnRight = FALSE;
-				if( TheInGameUI->issueAttackCircle() )
-				{
-					TheInGameUI->spendOrderKey();
-					break;
-				}
-			}
-
 			// Classic is 1.04's right release.  Only a click counts: the press is the scroll as well
 			// (LookAtXlat), so a release that travelled, was held, or rode the camera too far is not one.
 			// The click takes back a waiting GUI command and nothing else, and eats the release, which

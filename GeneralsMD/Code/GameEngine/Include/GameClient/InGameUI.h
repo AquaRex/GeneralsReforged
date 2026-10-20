@@ -1148,7 +1148,7 @@ public:  // ********************************************************************
 	Bool isMoveLineHeld( void ) const;				///< shift alone over a selection that can walk: a left drag draws the move line, not the box
 	Bool wantsDragLine( void ) const;					///< a drag of the order button now draws an order line
 	Bool wantsDragCircle( void ) const;				///< a drag of the order button now draws the attack circle
-	Bool isOrderDragButton( Bool rightButton ) const;	///< lines and circles are drawn with the button that gives the move order
+	Bool isOrderDragButton( Bool rightButton ) const;	///< which button draws the line or circle wanted now: the left for an armed key or Ctrl, else the one that moves
 	
 	// zeroing the repeat clock makes the first quantized step happen on the very next update, so a
 	// tap of the key is one eighth and a hold is one eighth every CAMERA_SNAP_REPEAT_MS.
