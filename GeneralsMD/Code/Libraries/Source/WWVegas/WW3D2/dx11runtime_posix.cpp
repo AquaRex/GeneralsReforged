@@ -78,6 +78,13 @@ void Direct3D11_Set_Smoke_Glow(bool) {}
 void Direct3D11_Set_Draw_Effect(unsigned, const float [4]) {}
 bool Direct3D11_Draw_Effects() { return false; }
 void Direct3D11_Allow_Draw_Effects(bool) {}
+bool Direct3D11_Takes_Draw_Effect(unsigned) { return false; }
+unsigned Direct3D11_Requested_Draw_Effect(float parameters[4])
+{
+	parameters[0] = parameters[1] = parameters[2] = parameters[3] = 0.0f;
+	return 0;
+}
+void Direct3D11_Occlude_Scene() {}
 void Direct3D11_Set_Glow_Draw(bool) {}
 void Direct3D11_Set_Scene_Stand_In(struct IDirect3DBaseTexture9 *, struct IDirect3DSurface9 *) {}
 

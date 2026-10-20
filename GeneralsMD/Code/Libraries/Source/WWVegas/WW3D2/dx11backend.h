@@ -240,6 +240,23 @@ public:
 	// A draw it does not suit takes none (Draw_Effect).
 	void Set_Draw_Effect(unsigned effect, const float parameters[4]);
 
+	// The look Set_Draw_Effect last asked for and its numbers (zeros with none), for the sorting
+	// pool: a sorted mesh is drawn after its object's draws have put the look back to none.
+	unsigned Requested_Draw_Effect(float parameters[4]) const;
+
+	// Whether a look asked for now would be drawn at all, for the scene to ask before it leaves an
+	// object's heat vision pass or disabled tint out for it: only into the scene's own target, not
+	// a screen filter's texture, a mirror or the sun's map, and the cloak only where the device
+	// makes the copy of the scene it bends.  A single draw can still refuse one (Draw_Effect).
+	bool Takes_Draw_Effect(unsigned effect);
+
+	// Whether the draws are going into the scene's own target.
+	bool Draws_Into_Scene() const;
+
+	// The scene's target, its depth and the draws' viewport bound again after a pass that bound
+	// its own on the context mid-scene (the post chain's occlusion).
+	void Resume_Scene();
+
 	// What an additive draw (ONE, ONE) into the scene is worth, for the Glow option: the blend
 	// takes the draw's colour times this through the blend factor, so fire, muzzle flashes and
 	// laser cores pass white in the half float scene and the bloom's bright pass finds them, where
@@ -543,6 +560,7 @@ private:
 	ID3D11ShaderResourceView * SceneColourCopyView;
 	bool SceneColourStale;
 	bool SceneColourRefused;
+	bool Make_Scene_Colour();
 	bool Take_Scene_Colour();
 	void Release_Scene_Colour();
 	float AdditiveGain;

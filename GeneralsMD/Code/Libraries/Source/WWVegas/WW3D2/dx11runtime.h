@@ -177,9 +177,23 @@ void Direct3D11_Set_Smoke_Glow(bool glow);
 void Direct3D11_Set_Draw_Effect(unsigned effect, const float parameters[4]);
 
 // Whether the looks are drawn at all: a Direct3D 11 frame is presenting and the Classic graphics
-// setting is off.  The scene asks before it leaves the heat vision pass out for one of them.
+// setting is off.
 bool Direct3D11_Draw_Effects();
 void Direct3D11_Allow_Draw_Effects(bool allowed);
+
+// Whether one look asked for now would be drawn (DX11BackendClass::Takes_Draw_Effect).  The scene
+// asks before it leaves the heat vision pass or the disabled tint out for it.
+bool Direct3D11_Takes_Draw_Effect(unsigned effect);
+
+// The look the mesh renderer has set and its numbers, zero and zeros with none.  The sorting pool
+// keeps it with a sorted mesh's triangles and sets it again when it draws them.
+unsigned Direct3D11_Requested_Draw_Effect(float parameters[4]);
+
+// The post chain's ambient occlusion, applied to the scene where it stands, once a frame: called
+// after the opaque world and before the particles, so fire and smoke, which write no depth, are
+// not shaded by the corners of what is behind them.  The chain then skips its own occlusion pass.
+// Nothing happens without "ao" in the chain or while a filter or a mirror holds the target.
+void Direct3D11_Occlude_Scene();
 
 // Whether the draws that follow take the Glow option's additive gain (DX11BackendClass::
 // Set_Glow_Draw).  ShaderClass::Apply sends it from the shader's GLOW_ENABLE bit.

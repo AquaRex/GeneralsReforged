@@ -109,11 +109,12 @@ static Bool wearsCloak( const Drawable *draw )
 		// mines force opacity 0 and must not become a lens on the ground
 		if( draw->isKindOf( KINDOF_MINE ) )
 			return FALSE;
-		return TRUE;
+		// a frame that cannot draw the cloak (a screen filter holds the target) draws him by opacity
+		return Direct3D11_Takes_Draw_Effect( DRAW_EFFECT_CLOAK );
 	}
 	// revealed fades in the translucent pass so the heat can come up from nothing
 	if( look == STEALTHLOOK_VISIBLE_DETECTED && fade < 0.99f )
-		return TRUE;
+		return Direct3D11_Takes_Draw_Effect( DRAW_EFFECT_REVEALED );
 	return FALSE;
 }
 
@@ -704,6 +705,11 @@ static unsigned chooseDrawEffect( const Drawable *draw, Bool translucentPass, fl
 			effect = DRAW_EFFECT_OUTAGE;
 	}
 
+	// A frame the backend would draw the look in nowhere (a screen filter or a mirror holds the
+	// target, or the device made no copy for the cloak) keeps the heat vision and the tint instead.
+	if ( effect != DRAW_EFFECT_NONE && !Direct3D11_Takes_Draw_Effect( effect ) )
+		return DRAW_EFFECT_NONE;
+
 	if ( effect != DRAW_EFFECT_NONE )
 	{
 		// an hour of seconds keeps the sines' arguments small enough for single precision
@@ -1044,7 +1050,13 @@ void RTS3DScene::Flush(RenderInfoClass & rinfo)
 
 		//don't draw transparent in this mode because they interfere with destination alpha
 		if (m_customPassMode == SCENE_PASS_DEFAULT && Get_Extra_Pass_Polygon_Mode() == EXTRA_PASS_DISABLE)
+		{
+			// The Direct3D 11 chain's ambient occlusion goes on here, over the world with every
+			// corner in its depth and under the fire and smoke, which write none: put on the
+			// finished frame it shaded a fireball by the chimneys and trees behind it.
+			Direct3D11_Occlude_Scene();
 			DoParticles(rinfo);	//queue up particles for rendering.
+		}
 
 		SortingRendererClass::Flush();	//draw sorted translucent polys like particles.
 #ifdef DEBUG_LOGGING

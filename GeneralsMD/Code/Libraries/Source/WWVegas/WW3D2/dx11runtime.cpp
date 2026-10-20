@@ -636,6 +636,27 @@ bool Direct3D11_Draw_Effects()
 	return Active && DrawEffectsAllowed;
 }
 
+bool Direct3D11_Takes_Draw_Effect(unsigned effect)
+{
+	return Active && DrawEffectsAllowed && Backend.Takes_Draw_Effect(effect);
+}
+
+unsigned Direct3D11_Requested_Draw_Effect(float parameters[4])
+{
+	if (Active && DrawEffectsAllowed) {
+		return Backend.Requested_Draw_Effect(parameters);
+	}
+	parameters[0] = parameters[1] = parameters[2] = parameters[3] = 0.0f;
+	return 0;
+}
+
+void Direct3D11_Occlude_Scene()
+{
+	if (Active && Backend.Draws_Into_Scene() && Post.Occlude_Scene(Device.Get_Depth_Texture())) {
+		Backend.Resume_Scene();
+	}
+}
+
 void Direct3D11_Allow_Draw_Effects(bool allowed)
 {
 	DrawEffectsAllowed = allowed;
@@ -807,6 +828,7 @@ void Direct3D11_Begin_Scene()
 		// first of them is the top of the frame.
 		if (!FrameOpen) {
 			begin_frame();
+			Post.Open_Frame();
 		}
 		// Before the backend binds anything: the scene goes wherever this says it goes, and a frame
 		// that asked for a chain and could not have one falls back to the swap chain here rather

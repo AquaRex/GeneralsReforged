@@ -1081,6 +1081,40 @@ void DX11BackendClass::Set_Draw_Effect(unsigned effect, const float parameters[4
 	}
 }
 
+unsigned DX11BackendClass::Requested_Draw_Effect(float parameters[4]) const
+{
+	if (DrawEffect == DRAW_EFFECT_NONE) {
+		memset(parameters, 0, sizeof(DrawEffectNumbers));
+	} else {
+		memcpy(parameters, DrawEffectNumbers, sizeof(DrawEffectNumbers));
+	}
+	return DrawEffect;
+}
+
+bool DX11BackendClass::Draws_Into_Scene() const
+{
+	return CurrentTarget == NULL && !ShadowMapBound;
+}
+
+/** The black and white view, the motion blur and the cross fade draw the whole scene into a target
+		of their own, and Draw_Effect refuses every look there; asked first, the scene keeps the heat
+		vision and the disabled tint for those frames instead of drawing the object plain. */
+bool DX11BackendClass::Takes_Draw_Effect(unsigned effect)
+{
+	if (!Draws_Into_Scene()) {
+		return false;
+	}
+	return effect != DRAW_EFFECT_CLOAK || Make_Scene_Colour();
+}
+
+void DX11BackendClass::Resume_Scene()
+{
+	const unsigned width = ViewportWidth;
+	const unsigned height = ViewportHeight;
+	Set_Render_Target(NULL);
+	Set_Viewport(0, 0, width, height);
+}
+
 /** Which look the current draw takes.  Only the scene's own world draws, and in the sun's map only
 		the cloak's thinned shadow: not a mirror or a filter target, not a screen space quad and not a transcribed program.  A draw
 		adding light (ONE as either factor) takes the outage alone, which puts a building's glow cards
@@ -1127,16 +1161,15 @@ void DX11BackendClass::Release_Scene_Colour()
 	SceneColourStale = true;
 }
 
-/** The scene's colour for the cloak, copied once a frame at the first cloaked draw: made at the
-		scene target's own size and format and made again when a resize changes either.  A multisampled
-		target cannot be copied into a texture that is read by pixel, so that refuses the cloak. */
-bool DX11BackendClass::Take_Scene_Colour()
+/** The texture the cloak's copy of the scene goes into, made at the scene target's own size and
+		format and made again when a resize changes either.  A multisampled target cannot be copied
+		into a texture that is read by pixel, so that refuses the cloak.  Asked by the scene for each
+		cloaked object before it decides on the look (Takes_Draw_Effect), so a refusal is known
+		before the first such object goes without its heat vision. */
+bool DX11BackendClass::Make_Scene_Colour()
 {
 	if (SceneColourRefused) {
 		return false;
-	}
-	if (!SceneColourStale) {
-		return true;
 	}
 	ID3D11Resource * source = NULL;
 	Device->Get_Scene_View()->GetResource(&source);
@@ -1174,6 +1207,21 @@ bool DX11BackendClass::Take_Scene_Colour()
 			return false;
 		}
 	}
+	source->Release();
+	return true;
+}
+
+/** The scene's colour for the cloak, copied once a frame at the first cloaked draw. */
+bool DX11BackendClass::Take_Scene_Colour()
+{
+	if (!Make_Scene_Colour()) {
+		return false;
+	}
+	if (!SceneColourStale) {
+		return true;
+	}
+	ID3D11Resource * source = NULL;
+	Device->Get_Scene_View()->GetResource(&source);
 	Device->Get_Context()->CopyResource(SceneColourCopy, source);
 	SceneColourStale = false;
 	++FrameDepthCopies;		// counted with the depth copies, so DX11 FRAME COST sees it
