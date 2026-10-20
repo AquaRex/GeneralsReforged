@@ -823,6 +823,7 @@ Locomotor::Locomotor(const LocomotorTemplate* tmpl)
 	m_preferredHeight = m_template->m_preferredHeight;
 	m_preferredHeightDamping = m_template->m_preferredHeightDamping;
 	m_diveDistance = 0.0f;
+	m_chaseOffset.zero();
 
 	m_angleOffset = GameLogicRandomValueReal(-PI/6, PI/6);
 	m_offsetIncrement = (PI/40) * (GameLogicRandomValueReal(0.8f, 1.2f)/m_template->m_wanderLengthFactor);
@@ -860,6 +861,7 @@ Locomotor::Locomotor(const Locomotor& that)
 	m_preferredHeight = that.m_preferredHeight;
 	m_preferredHeightDamping = that.m_preferredHeightDamping;
 	m_diveDistance = that.m_diveDistance;
+	m_chaseOffset = that.m_chaseOffset;
 	m_angleOffset = that.m_angleOffset;
 	m_offsetIncrement = that.m_offsetIncrement;
 	m_yawRate = that.m_yawRate;
@@ -889,6 +891,7 @@ Locomotor& Locomotor::operator=(const Locomotor& that)
 		m_preferredHeight = that.m_preferredHeight;
 		m_preferredHeightDamping = that.m_preferredHeightDamping;
 		m_diveDistance = that.m_diveDistance;
+		m_chaseOffset = that.m_chaseOffset;
 		m_yawRate = that.m_yawRate;
 		m_driveAccelX = that.m_driveAccelX;
 		m_driveAccelY = that.m_driveAccelY;
@@ -1205,10 +1208,15 @@ Real Locomotor::calcWheelTurnRadius(const Object* obj) const
 }
 
 //-------------------------------------------------------------------------------------------------
-void Locomotor::locoUpdate_moveTowardsPosition(Object* obj, const Coord3D& goalPos,
+void Locomotor::locoUpdate_moveTowardsPosition(Object* obj, const Coord3D& chasedPos,
 																							 Real onPathDistToGoal, Real desiredSpeed, Bool *blocked,
 																							 const Coord3D *faceTarget, Bool fighting, Real bendDist, Real bendCos)
 {
+	// spent by this move, so a locomotor the set switches away from carries none into a later one
+	Coord3D goalPos = chasedPos;
+	goalPos.add(&m_chaseOffset);
+	m_chaseOffset.zero();
+
 	setFlag(MAINTAIN_POS_IS_VALID, false);
 
 	BodyDamageType bdt = obj->getBodyModule()->getDamageState();

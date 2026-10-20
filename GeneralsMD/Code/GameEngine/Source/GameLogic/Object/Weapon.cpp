@@ -986,11 +986,22 @@ UnsignedInt WeaponTemplate::fireWeaponTemplate
 		}
 	}
 
+	// where on the victim this shot lands (Weapon::randomPointOnBody); a bridge keeps its attack point.
+	// Drawn whether or not anything is drawn, as it comes from the logic stream.
+	Coord3D aimPos;
+	const Bool aimsOnBody = victimObj != NULL && !victimObj->isKindOf( KINDOF_BRIDGE );
+	if( aimsOnBody )
+		Weapon::randomPointOnBody( victimObj, aimPos );
+
 	// call this even if FXList is null, because this also handles stuff like Gun Barrel Recoil
 	if (sourceObj && sourceObj->getDrawable())
 	{
 		Coord3D targetPos;
-		if( victimObj )
+		if( aimsOnBody )
+		{
+			targetPos = aimPos;
+		}
+		else if( victimObj )
 		{
 			victimObj->getGeometryInfo().getCenterPosition( *victimObj->getPosition(), targetPos );
 		}
@@ -1223,7 +1234,8 @@ UnsignedInt WeaponTemplate::fireWeaponTemplate
 			}
 			else
 			{
-				pui->projectileLaunchAtObjectOrPosition(victimObj, &projectileDestination, sourceObj, wslot, specificBarrelToUse, this, m_projectileExhausts[v]);
+				// a projectile that follows its victim flies to the shot's point on it
+				pui->projectileLaunchAtObjectOrPosition(victimObj, aimsOnBody ? &aimPos : &projectileDestination, sourceObj, wslot, specificBarrelToUse, this, m_projectileExhausts[v]);
 			}
 			if( victimObj )
 				pui->projectileLeadVictim( victimObj );
@@ -3384,6 +3396,51 @@ void Weapon::processRequestAssistance( const Object *requestingObject, Object *v
 		launcherPhys->transferVelocityTo(missilePhys);
 		missilePhys->setIgnoreCollisionsWith(launcher);
 	}
+}
+
+//-------------------------------------------------------------------------------------------------
+// A shot at an object used to aim at one spot of it, its foot or its middle, so every rocket, shell
+// and tracer at a tank met it in the same place. Each shot now picks a point of its own inside the
+// object's geometry, kept off the box's edges and corners, which are mostly air round a real model:
+// seven tenths of the footprint and the middle seven tenths of the height. Only where it lands moves.
+// A small object spreads its shots over a small body.
+//-------------------------------------------------------------------------------------------------
+/*static*/ void Weapon::randomPointOnBody(const Object* victim, Coord3D& point)
+{
+	const Real FOOTPRINT_SHARE = 0.7f;
+	const Real HEIGHT_MARGIN = 0.15f;
+	const GeometryInfo& geom = victim->getGeometryInfo();
+	Coord3D local;
+	geom.makeRandomOffsetWithinFootprint(local);
+	local.x *= FOOTPRINT_SHARE;
+	local.y *= FOOTPRINT_SHARE;
+	Real low = -geom.getMaxHeightBelowPosition();
+	Real high = geom.getMaxHeightAbovePosition();
+	local.z = GameLogicRandomValueReal(low + (high - low) * HEIGHT_MARGIN, high - (high - low) * HEIGHT_MARGIN);
+	pointFromBodyOffset(victim, local, point);
+}
+
+//-------------------------------------------------------------------------------------------------
+/*static*/ void Weapon::bodyOffsetFromPoint(const Object* victim, const Coord3D& point, Coord3D& offset)
+{
+	Real c = Cos(victim->getOrientation());
+	Real s = Sin(victim->getOrientation());
+	Real dx = point.x - victim->getPosition()->x;
+	Real dy = point.y - victim->getPosition()->y;
+	offset.x = dx * c + dy * s;
+	offset.y = dy * c - dx * s;
+	offset.z = point.z - victim->getPosition()->z;
+}
+
+//-------------------------------------------------------------------------------------------------
+/*static*/ void Weapon::pointFromBodyOffset(const Object* victim, const Coord3D& offset, Coord3D& point)
+{
+	Real c = Cos(victim->getOrientation());
+	Real s = Sin(victim->getOrientation());
+	point = *victim->getPosition();
+	point.x += offset.x * c - offset.y * s;
+	point.y += offset.x * s + offset.y * c;
+	point.z += offset.z;
 }
 
 //-------------------------------------------------------------------------------------------------

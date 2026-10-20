@@ -392,6 +392,13 @@ public:
 	inline void setDiveDistance(Real dist) { m_diveDistance = dist; }
 
 	/**
+		a projectile flies to its goal moved by this much: the shot's point on its victim and a missile's
+		sway. MissileAIUpdate sets it every frame before the missile moves and the move spends it, so it
+		is not saved.
+	*/
+	inline void setChaseOffset(const Coord3D& offset) { m_chaseOffset = offset; }
+
+	/**
     when off (the default), units slow down as they approach their target. 
 
     when on, units go full speed till the end, and may overshoot their target.
@@ -526,6 +533,7 @@ private:
 	Real				m_preferredHeight;
 	Real				m_preferredHeightDamping;
 	Real				m_diveDistance;					///< see setDiveDistance
+	Coord3D			m_chaseOffset;					///< see setChaseOffset
 
 	Real				m_angleOffset;
 	Real				m_offsetIncrement;
