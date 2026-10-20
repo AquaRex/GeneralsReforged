@@ -28,6 +28,7 @@
 #include "GameClient/DisplayString.h"
 #include "GameClient/GameFont.h"
 #include "GameClient/GlobalLanguage.h"
+#include "Lib/WideCharFns.h"
 
 namespace UIStyle
 {
@@ -79,6 +80,11 @@ void rule( Int x, Int y, Int width )
 void button( Int x, Int y, Int width, Int height )
 {
 	TheDisplay->drawFillRect( x, y, width, height, PANEL );
+	edge( x, y, width, height );
+}
+
+void edge( Int x, Int y, Int width, Int height )
+{
 	TheDisplay->drawOpenRect( x, y, width, height, 1.0f, EDGE );
 	TheDisplay->drawOpenRect( x + 1, y + 1, width - 2, height - 2, 1.0f, EDGE_LIT );
 	TheDisplay->drawOpenRect( x + 2, y + 2, width - 4, height - 4, 1.0f, EDGE );
@@ -107,6 +113,14 @@ void wordmark( DisplayString *words[ 2 ], Int right, Int y )
 	words[ 1 ]->getSize( &second, &height );
 	words[ 0 ]->draw( right - first - second, y, INK, SHADOW );
 	words[ 1 ]->draw( right - second, y, WORDMARK_BLUE, SHADOW );
+}
+
+UnicodeString capitals( const UnicodeString &words )
+{
+	UnicodeString result;
+	for( Int each = 0; each < words.getLength(); each++ )
+		result.concat( (WideChar)WideCharToUpper( words.getCharAt( each ) ) );
+	return result;
 }
 
 /** Blue and purple house colours are too dark for words on a panel; they are lifted part of the way

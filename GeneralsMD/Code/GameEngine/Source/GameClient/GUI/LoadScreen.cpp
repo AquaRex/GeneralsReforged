@@ -205,6 +205,20 @@ static const Int BOARD_TIP_COUNT = 10;
 static const UnsignedInt BOARD_TIP_MILLISECONDS = 8000;
 /// a middle dot between spaces, spelled out: the source is read in the machine's code page
 static const WideChar BOARD_SEPARATOR[] = { ' ', ' ', ' ', 0x00B7, ' ', ' ', ' ', 0 };
+/// the skirmish lobby's panel, title, header line, seat inset and button row
+/// (SkirmishGameOptionsMenu.wnd), so the load stands where the lobby stood
+static const Real BOARD_PANEL_LEFT = 40.0f;
+static const Real BOARD_PANEL_TOP = 36.0f;
+static const Real BOARD_PANEL_RIGHT = 1880.0f;
+static const Real BOARD_PANEL_BOTTOM = 1044.0f;
+static const Real BOARD_TITLE_LEFT = 68.0f;
+static const Real BOARD_TITLE_MIDDLE = 76.0f;
+static const Real BOARD_HEADER_LINE = 111.0f;
+static const Real BOARD_INSET = 72.0f;
+static const Real BOARD_BUTTON_TOP = 968.0f;
+static const Real BOARD_BUTTON_BOTTOM = 1024.0f;
+/// the lobby's dimming of the shell behind its panel
+static const Color BOARD_SHELL_DIM = GameMakeColor( 2, 4, 12, 120 );
 
 /// one player's card
 struct BoardCard
@@ -217,7 +231,6 @@ struct BoardCard
 	Int percent;							///< this player's own load, -1 on a card without a bar
 	Bool mirrored;						///< the right column's cards face left
 	const Image *emblem;			///< the general's portrait or the side's crest, NULL for a hidden or random side
-	const Image *watermark;		///< the side's flag, faint behind the words
 	const Image *badge;				///< an online player's rank
 	DisplayString *name;
 	DisplayString *army;
@@ -270,6 +283,7 @@ private:
 	std::vector< BoardSpot > m_spots;
 	std::vector< DisplayString * > m_strings;
 	Bool m_mission;
+	const Image *m_shell;			///< the shell's still the lobby stands on without its map
 	DisplayString *m_briefingHead;
 	std::vector< DisplayString * > m_briefing;
 	IRegion2D m_briefingBox;
@@ -277,8 +291,6 @@ private:
 	DisplayString *m_subtitle;
 	DisplayString *m_wordmark[ 2 ];
 	DisplayString *m_columnHead[ 2 ];
-	const Image *m_backdrop[ 2 ];
-	IRegion2D m_backdropBox[ 2 ];
 	Color m_columnTeam[ 2 ];
 	ICoord2D m_columnHeadPos[ 2 ];
 	DisplayString *m_centerLabel;
@@ -307,11 +319,11 @@ LoadScreenBoard::LoadScreenBoard( void )
 	m_left = ( m_width - scaled( BOARD_WIDTH ) ) / 2;
 	m_top = ( m_height - scaled( BOARD_HEIGHT ) ) / 2;
 	m_mission = FALSE;
+	m_shell = TheMappedImageCollection->findImageByName( "MainMenuBackdrop" );
 	m_briefingHead = NULL;
 	m_title = m_subtitle = m_centerLabel = m_observers = m_unknown = NULL;
 	m_wordmark[ 0 ] = m_wordmark[ 1 ] = NULL;
 	m_columnHead[ 0 ] = m_columnHead[ 1 ] = NULL;
-	m_backdrop[ 0 ] = m_backdrop[ 1 ] = NULL;
 	m_mapImage = NULL;
 	m_tipLabel = m_tip = m_percent = m_waiting = NULL;
 	m_tipIndex = 0;
@@ -436,15 +448,12 @@ GameWindow *LoadScreenBoard::create( GameInfo *game, const char *modeLabel, Bool
 		card.mirrored = FALSE;
 		card.badge = NULL;
 		card.emblem = NULL;
-		card.watermark = NULL;
 		const Int sideIndex = seeAll ? slot->getPlayerTemplate() : slot->getApparentPlayerTemplate();
 		UnicodeString army = TheGameText->fetch( "GUI:Random" );
 		if( sideIndex >= 0 )
 		{
 			const PlayerTemplate *side = ThePlayerTemplateStore->getNthPlayerTemplate( sideIndex );
 			card.emblem = sideEmblem( side );
-			// a plain side's emblem is its crest already
-			card.watermark = card.emblem == sideCrest( side ) ? NULL : sideCrest( side );
 			army = side->getDisplayName();
 		}
 		card.name = text( slot->getName(), nameFont );
@@ -514,7 +523,6 @@ GameWindow *LoadScreenBoard::create( GameInfo *game, const char *modeLabel, Bool
 		mapName = map->m_displayName;
 	else
 		mapName.translate( TheGameState->getMapLeafName( game->getMap() ) );
-	const Int margin = scaled( 64 );
 	UnicodeString subtitle = TheGameText->fetch( modeLabel );
 	if( !makeup.isEmpty() )
 	{
@@ -531,8 +539,8 @@ GameWindow *LoadScreenBoard::create( GameInfo *game, const char *modeLabel, Bool
 	m_unknown = text( UnicodeString( u"?" ), centerFont );
 
 	const Int columnWidth = scaled( 640 );
-	const Int bandTop = m_top + scaled( 200 );
-	const Int bandBottom = m_top + scaled( 920 );
+	const Int bandTop = m_top + scaled( 160 );
+	const Int bandBottom = m_top + scaled( 880 );
 	Int cardsTop = bandTop;
 	for( Int side = 0; side < 2; side++ )
 	{
@@ -545,25 +553,10 @@ GameWindow *LoadScreenBoard::create( GameInfo *game, const char *modeLabel, Bool
 		m_columnTeam[ side ] = LobbyTeamColor( teamOf[ side ] );
 		cardsTop = bandTop + stringHeight( m_columnHead[ side ] ) + scaled( 12 );
 	}
-	const Int leftX = m_left + margin;
-	const Int rightX = m_left + scaled( BOARD_WIDTH ) - margin - columnWidth;
+	const Int leftX = m_left + scaled( BOARD_INSET );
+	const Int rightX = m_left + scaled( BOARD_PANEL_RIGHT + BOARD_PANEL_LEFT - BOARD_INSET ) - columnWidth;
 	layoutColumn( columns[ 0 ], leftX, cardsTop, bandBottom, FALSE );
 	layoutColumn( columns[ 1 ], rightX, cardsTop, bandBottom, TRUE );
-	// behind each column, large and faint, the crest of the side its first card plays
-	for( Int side = 0; side < 2; side++ )
-	{
-		m_backdrop[ side ] = NULL;
-		if( columns[ side ].empty() )
-			continue;
-		const BoardCard &first = m_cards[ columns[ side ][ 0 ] ];
-		m_backdrop[ side ] = first.watermark ? first.watermark : first.emblem;
-		const Int size = scaled( 760 );
-		const Int centerX = ( side == 0 ? leftX : rightX ) + columnWidth / 2;
-		m_backdropBox[ side ].lo.x = centerX - size / 2;
-		m_backdropBox[ side ].lo.y = ( bandTop + bandBottom - size ) / 2;
-		m_backdropBox[ side ].hi.x = centerX + size / 2;
-		m_backdropBox[ side ].hi.y = m_backdropBox[ side ].lo.y + size;
-	}
 	// a team's name sits over its first card, the swatch on the outer edge
 	for( Int side = 0; side < 2; side++ )
 	{
@@ -647,7 +640,7 @@ void LoadScreenBoard::prepare( const UnicodeString &title, const UnicodeString &
 {
 	GameFont *wordmarkFont = UIStyle::font( UIStyle::TEXT_STRONG, TRUE );
 	GameFont *tipFont = UIStyle::font( UIStyle::TEXT_BODY );
-	m_title = text( title, UIStyle::titleFont( UIStyle::TEXT_TITLE ) );
+	m_title = text( UIStyle::capitals( title ), UIStyle::titleFont( UIStyle::TEXT_TITLE ) );
 	m_subtitle = text( subtitle, tipFont );
 	m_wordmark[ 0 ] = text( UnicodeString( u"Zero Hour" ), wordmarkFont );
 	m_wordmark[ 1 ] = text( UnicodeString( u" Reforged" ), wordmarkFont );
@@ -657,8 +650,9 @@ void LoadScreenBoard::prepare( const UnicodeString &title, const UnicodeString &
 	m_tipIndex = (Int)( Clock_Milliseconds() % BOARD_TIP_COUNT );
 	m_tipSince = Clock_Milliseconds();
 	m_tip = text( tipText( m_tipIndex ), tipFont );
-	m_percent = text( UnicodeString( u"0%" ), UIStyle::font( UIStyle::TEXT_STRONG, TRUE ) );
-	m_waiting = text( TheGameText->fetch( "GUI:LoadWaiting" ), tipFont );
+	// lettered as a lobby button's label
+	m_percent = text( UnicodeString( u"0%" ), UIStyle::titleFont( UIStyle::TEXT_HEADING ) );
+	m_waiting = text( UIStyle::capitals( TheGameText->fetch( "GUI:LoadWaiting" ) ), UIStyle::titleFont( UIStyle::TEXT_HEADING ) );
 	m_localPercent = 0;
 }
 
@@ -681,8 +675,8 @@ GameWindow *LoadScreenBoard::createMission( GameWindow *parent, const UnicodeStr
 
 	const Int pad = scaled( 28 );
 	const Int width = scaled( 640 );
-	m_briefingBox.lo.x = m_left + scaled( 64 );
-	m_briefingBox.lo.y = m_top + scaled( 216 );
+	m_briefingBox.lo.x = m_left + scaled( BOARD_INSET );
+	m_briefingBox.lo.y = m_top + scaled( 152 );
 	m_briefingBox.hi.x = m_briefingBox.lo.x + width;
 	m_briefingHead = text( TheGameText->fetch( "GUI:LoadBriefing" ), UIStyle::font( UIStyle::TEXT_SMALL, TRUE ) );
 	Int bottom = m_briefingBox.lo.y + pad + stringHeight( m_briefingHead ) + scaled( 8 );
@@ -758,16 +752,8 @@ void LoadScreenBoard::drawCard( const BoardCard &card )
 	const Int y0 = card.box.lo.y;
 	const Int width = card.box.hi.x - x0;
 	const Int height = card.box.hi.y - y0;
-	UIStyle::panel( x0, y0, width, height, UIStyle::CARD );
-
-	// the side's crest, faint, at the inner end
-	if( card.watermark )
-	{
-		const Int size = height - scaled( 16 );
-		const Int x = card.mirrored ? x0 + scaled( 24 ) : x0 + width - scaled( 24 ) - size;
-		TheDisplay->drawImage( card.watermark, x, y0 + ( height - size ) / 2, x + size, y0 + ( height + size ) / 2, GameMakeColor( 255, 255, 255, 30 ) );
-	}
-	// the player's colour down the outer edge
+	// a lobby seat's row: the panel's black, its blue line, the player's colour down the outer edge
+	UIStyle::panel( x0, y0, width, height, UIStyle::PANEL );
 	const Int stripe = UIStyle::stripeWidth();
 	UIStyle::stripe( card.mirrored ? x0 + width - stripe : x0, y0, height, card.color );
 
@@ -852,48 +838,63 @@ void LoadScreenBoard::draw( void )
 		m_tip->setText( tipText( m_tipIndex ) );
 	}
 
-	const Int margin = scaled( 64 );
-	const Int left = m_left + margin;
-	const Int right = m_left + scaled( BOARD_WIDTH ) - margin;
-	const Int headerBottom = m_top + scaled( 168 );
-	const Int footTop = m_top + scaled( 952 );
+	const Int panelLeft = m_left + scaled( BOARD_PANEL_LEFT );
+	const Int panelTop = m_top + scaled( BOARD_PANEL_TOP );
+	const Int panelWidth = scaled( BOARD_PANEL_RIGHT - BOARD_PANEL_LEFT );
+	const Int panelBottom = m_top + scaled( BOARD_PANEL_BOTTOM );
+	const Int headerLine = m_top + scaled( BOARD_HEADER_LINE );
+	const Int left = m_left + scaled( BOARD_INSET );
+	const Int right = m_left + scaled( BOARD_PANEL_RIGHT + BOARD_PANEL_LEFT - BOARD_INSET );
+	const Int buttonTop = m_top + scaled( BOARD_BUTTON_TOP );
+	const Int buttonHeight = scaled( BOARD_BUTTON_BOTTOM - BOARD_BUTTON_TOP );
+	const Int rowY = buttonTop - scaled( 24 ) - stringHeight( m_tip );
 	if( m_mission )
 	{
-		const Color band = UIStyle::withAlpha( UIStyle::GROUND, 224 );
-		TheDisplay->drawFillRect( 0, 0, m_width, headerBottom, band );
-		TheDisplay->drawFillRect( 0, footTop, m_width, m_height - footTop, band );
+		// the mission's own picture stays; the lobby's panel frames only its header and its foot
+		const Int footTop = rowY - scaled( 24 );
+		UIStyle::panel( panelLeft, panelTop, panelWidth, headerLine - panelTop, UIStyle::PANEL );
+		UIStyle::panel( panelLeft, footTop, panelWidth, panelBottom - footTop, UIStyle::PANEL );
 		drawBriefing();
 	}
 	else
 	{
-		TheDisplay->drawFillRect( 0, 0, m_width, m_height, UIStyle::GROUND );
+		// the shell's still, dimmed as the lobby dims its map, under the lobby's panel
+		// (a mod's archives may leave the still out)
+		if( m_shell )
+			TheDisplay->drawImage( m_shell, 0, 0, m_width, m_height );
+		else
+			TheDisplay->drawFillRect( 0, 0, m_width, m_height, UIStyle::GROUND );
+		TheDisplay->drawFillRect( 0, 0, m_width, m_height, BOARD_SHELL_DIM );
+		UIStyle::panel( panelLeft, panelTop, panelWidth, panelBottom - panelTop, UIStyle::PANEL );
 		drawMatch();
 	}
 
-	// the header
-	const Int titleY = m_top + scaled( 52 );
-	m_title->draw( left, titleY, UIStyle::INK, UIStyle::SHADOW );
-	m_subtitle->draw( left, titleY + stringHeight( m_title ) + scaled( 4 ), UIStyle::MUTED, UIStyle::SHADOW );
-	UIStyle::wordmark( m_wordmark, right, titleY + ( stringHeight( m_title ) - stringHeight( m_wordmark[ 0 ] ) ) / 2 );
-	UIStyle::rule( left, headerBottom, right - left );
+	// the header: the title where the lobby's stands, what kind of game after it, the wordmark across
+	const Int titleMiddle = m_top + scaled( BOARD_TITLE_MIDDLE );
+	const Int titleLeft = m_left + scaled( BOARD_TITLE_LEFT );
+	const Int titleY = titleMiddle - stringHeight( m_title ) / 2;
+	m_title->draw( titleLeft, titleY, UIStyle::INK, UIStyle::SHADOW );
+	m_subtitle->draw( titleLeft + stringWidth( m_title ) + scaled( 32 ), titleY + stringHeight( m_title ) - stringHeight( m_subtitle ),
+		UIStyle::MUTED, UIStyle::SHADOW );
+	// a mission's picture is the game's own logo art, and the wordmark never stands beside EA's logo
+	if( !m_mission )
+		UIStyle::wordmark( m_wordmark, right, titleMiddle - stringHeight( m_wordmark[ 0 ] ) / 2 );
+	UIStyle::rule( panelLeft, headerLine, panelWidth );
 
-	// the foot
-	const Int barHeight = max( 4, scaled( 8 ) );
-	const Int barY = m_top + scaled( 1016 );
-	const Int rowY = barY - scaled( 18 ) - stringHeight( m_tip );
-	UIStyle::rule( left, footTop, right - left );
+	// the foot: a tip over the lobby's button row, whose one wide button fills as the game loads
 	const Int chipPad = scaled( 8 );
 	const Int chipHeight = stringHeight( m_tipLabel ) + scaled( 4 );
 	const Int chipY = rowY + ( stringHeight( m_tip ) - chipHeight ) / 2;
 	TheDisplay->drawOpenRect( left, chipY, stringWidth( m_tipLabel ) + 2 * chipPad, chipHeight, 1.0f, UIStyle::FRAME );
 	m_tipLabel->draw( left + chipPad, chipY + scaled( 2 ), UIStyle::ACTIVE, UIStyle::SHADOW );
 	m_tip->draw( left + stringWidth( m_tipLabel ) + 2 * chipPad + scaled( 16 ), rowY, UIStyle::INK, UIStyle::SHADOW );
-	if( m_network && m_localPercent > 100 )
-		m_waiting->draw( right - stringWidth( m_waiting ), rowY, UIStyle::MUTED, UIStyle::SHADOW );
-	else
-		m_percent->draw( right - stringWidth( m_percent ), rowY + stringHeight( m_tip ) - stringHeight( m_percent ), UIStyle::INK, UIStyle::SHADOW );
-	TheDisplay->drawFillRect( left, barY, right - left, barHeight, UIStyle::GRID );
-	TheDisplay->drawFillRect( left, barY, ( right - left ) * min( m_localPercent, 100 ) / 100, barHeight, UIStyle::EDGE );
+	UIStyle::button( left, buttonTop, right - left, buttonHeight );
+	const Int edge = 3;
+	const Int filled = ( right - left - 2 * edge ) * min( m_localPercent, 100 ) / 100;
+	TheDisplay->drawFillRect( left + edge, buttonTop + edge, filled, buttonHeight - 2 * edge, UIStyle::withAlpha( UIStyle::EDGE, 110 ) );
+	DisplayString *label = m_network && m_localPercent > 100 ? m_waiting : m_percent;
+	label->draw( ( left + right - stringWidth( label ) ) / 2, buttonTop + ( buttonHeight - stringHeight( label ) ) / 2,
+		UIStyle::INK, UIStyle::SHADOW );
 }
 
 void LoadScreenBoard::drawBriefing( void )
@@ -920,13 +921,6 @@ void LoadScreenBoard::drawMatch( void )
 {
 	for( Int side = 0; side < 2; side++ )
 	{
-		const IRegion2D &box = m_backdropBox[ side ];
-		if( m_backdrop[ side ] )
-			TheDisplay->drawImage( m_backdrop[ side ], box.lo.x, box.lo.y, box.hi.x, box.hi.y, GameMakeColor( 255, 255, 255, 14 ) );
-	}
-
-	for( Int side = 0; side < 2; side++ )
-	{
 		if( m_columnHead[ side ] == NULL )
 			continue;
 		const Int swatch = stringHeight( m_columnHead[ side ] ) - scaled( 4 );
@@ -943,10 +937,11 @@ void LoadScreenBoard::drawMatch( void )
 	if( m_centerLabel )
 		m_centerLabel->draw( m_centerLabelPos.x, m_centerLabelPos.y, UIStyle::INK, UIStyle::SHADOW );
 	const Int mapSize = m_mapBox.hi.x - m_mapBox.lo.x;
-	TheDisplay->drawFillRect( m_mapBox.lo.x, m_mapBox.lo.y, mapSize, mapSize, UIStyle::CARD );
+	TheDisplay->drawFillRect( m_mapBox.lo.x, m_mapBox.lo.y, mapSize, mapSize, UIStyle::GROUND );
 	if( m_mapImage )
 		TheDisplay->drawImage( m_mapImage, m_mapDrawn.lo.x, m_mapDrawn.lo.y, m_mapDrawn.hi.x, m_mapDrawn.hi.y );
-	TheDisplay->drawOpenRect( m_mapBox.lo.x - 1, m_mapBox.lo.y - 1, mapSize + 2, mapSize + 2, 1.0f, UIStyle::FRAME );
+	// the lobby's map preview wears a button's edge
+	UIStyle::edge( m_mapBox.lo.x - 3, m_mapBox.lo.y - 3, mapSize + 6, mapSize + 6 );
 	const Int spot = max( 8, scaled( 18 ) );
 	const Int ring = max( 2, scaled( 3 ) );
 	for( size_t each = 0; each < m_spots.size(); each++ )

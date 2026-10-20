@@ -32,6 +32,7 @@
 
 #include "Lib/BaseType.h"
 #include "GameClient/Color.h"
+#include "Common/UnicodeString.h"
 
 class GameFont;
 class DisplayString;
@@ -77,6 +78,8 @@ namespace UIStyle
 	void rule( Int x, Int y, Int width );
 	/// a layout button's box: the panel's black under a blue, cyan, blue edge
 	void button( Int x, Int y, Int width, Int height );
+	/// that blue, cyan, blue edge alone, round a map preview or a progress bar
+	void edge( Int x, Int y, Int width, Int height );
 	/// a tab's box; the label in it is ACTIVE when the tab is open, INK when not
 	void tab( Int x, Int y, Int width, Int height );
 	/// the player's colour down the edge of his row or card, stripeWidth() wide
@@ -84,6 +87,8 @@ namespace UIStyle
 	Int stripeWidth( void );
 	/// "Zero Hour Reforged" with its right edge at right; words are "Zero Hour" and " Reforged"
 	void wordmark( DisplayString *words[ 2 ], Int right, Int y );
+	/// a screen's title in capitals, as the layouts letter theirs
+	UnicodeString capitals( const UnicodeString &words );
 
 	/// a house colour lifted toward white where it is too dark to read as words on a panel
 	Color readable( Color player );
