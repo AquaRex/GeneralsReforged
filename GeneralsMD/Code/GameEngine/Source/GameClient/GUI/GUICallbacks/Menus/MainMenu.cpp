@@ -1375,6 +1375,11 @@ WindowMsgHandledType MainMenuSystem( GameWindow *window, UnsignedInt msg,
 			
 			if(buttonPushed)
 				break;
+
+			// the press that brought this click cut the transitions (Shell::cutAnimations), so the
+			// panel it was waiting on is in place: take the click now rather than on the next update
+			if(dontAllowTransitions && TheTransitionHandler->isFinished())
+				dontAllowTransitions = FALSE;
 #if defined _DEBUG || defined _INTERNAL || defined _PROFILE
 			if( control == buttonCampaign )
 			{
