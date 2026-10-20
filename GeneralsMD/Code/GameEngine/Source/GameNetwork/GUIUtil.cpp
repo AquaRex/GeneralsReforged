@@ -955,6 +955,17 @@ Color LobbyTextColorOn(Color fill)
 	return blackContrast > whiteContrast ? GameMakeColor(0, 0, 0, 255) : GameMakeColor(255, 255, 255, 255);
 }
 
+void LobbyStartSpotFill(Int x, Int y, Int width, Int height, Color fill)
+{
+	// EA's PlayerStart art is 25 pixels square with a drop shadow to the lower right, so its dark middle
+	// is not centred in it: it covers source pixels 3 to 18 both ways.  Those bounds scale with the
+	// rectangle and round to the nearest pixel.
+	const Int artSize = 25, holeStart = 3, holeEnd = 19;
+	TheDisplay->drawImage(TheMappedImageCollection->findImageByName("ReforgedLobbySpot"),
+		x + (width * holeStart + artSize / 2) / artSize, y + (height * holeStart + artSize / 2) / artSize,
+		x + (width * holeEnd + artSize / 2) / artSize, y + (height * holeEnd + artSize / 2) / artSize, fill);
+}
+
 // A colour swatch drawn as one of the rules page's check boxes: their own empty box, and the colour
 // inside its bevel with a little room between.
 static void drawSwatch(GameWindow *window, WinInstanceData *instData)

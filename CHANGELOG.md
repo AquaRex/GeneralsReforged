@@ -10,7 +10,7 @@ found and fixed â€” EA's own, not port damage.**
 
 ## A new loading screen
 
-- Skirmish, LAN, online and replay loads show every player on a card: the general's portrait, or the side's crest for a plain side, the name in the player's colour, the army, and for a computer seat its difficulty and personality. Teams face each other in two columns with the map and its start spots between them. Three teams or more share the columns, and a game where everyone plays alone says Free for all.
+- Skirmish, LAN, online and replay loads show every player on a card: the general's portrait, or the side's crest for a plain side, the name in the player's colour, the army, and for a computer seat its difficulty and personality. Teams face each other in two columns with the map between them, its start spots drawn as the room draws them: the blue ring, filled with the player's colour and his seat number where the others may see who starts there. Three teams or more share the columns, and a game where everyone plays alone says Free for all.
 - In a LAN or online game each player's card carries his own load bar, so you see who the match is waiting for.
 - The map's name, the kind of game, the team sizes and the starting cash head the screen. Along the bottom a tip changes every eight seconds over the load's bar and percentage.
 - Enemies who picked a random side, colour or start stay hidden as they were in the lobby. Observers and replays see every side as it is.

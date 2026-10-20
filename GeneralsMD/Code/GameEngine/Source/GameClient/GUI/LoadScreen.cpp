@@ -209,6 +209,10 @@ static const WideChar BOARD_SEPARATOR[] = { ' ', ' ', ' ', 0x00B7, ' ', ' ', ' '
 static const Real BOARD_COLUMN_WIDTH = 600.0f;
 static const Real BOARD_BAND_TOP = 176.0f;
 static const Real BOARD_BAND_BOTTOM = 866.0f;
+/// the rooms' start spot button against their map preview (SkirmishGameOptionsMenu.wnd), so the spots
+/// keep the room's size on a preview of another size
+static const Int LOBBY_START_SPOT = 28;
+static const Int LOBBY_MAP_PREVIEW = 410;
 
 /// one player's card
 struct BoardCard
@@ -230,10 +234,12 @@ struct BoardCard
 	IRegion2D box;
 };
 
+/// one of the map's start spots, drawn as the room draws it
 struct BoardSpot
 {
 	ICoord2D pos;
-	Color color;
+	Color color;							///< the player's on it, 0 for a spot open or hidden
+	DisplayString *number;		///< the player's seat, NULL with the colour
 };
 
 class LoadScreenBoard
@@ -598,24 +604,36 @@ GameWindow *LoadScreenBoard::create( GameInfo *game, const char *modeLabel, Bool
 		m_observersPos.y = y;
 	}
 
-	// the preview the lobby showed, at the map's own shape, and every start spot that is not hidden
+	// the preview the lobby showed, at the map's own shape, and every start spot as the room shows it:
+	// the player's colour and seat on a spot the others may see, the ring alone on the rest
 	m_mapImage = getMapPreviewImage( game->getMap() );
 	if( map )
 	{
 		findDrawPositions( m_mapBox.lo.x, m_mapBox.lo.y, mapSize, mapSize, map->m_extent, &m_mapDrawn.lo, &m_mapDrawn.hi );
-		for( size_t each = 0; each < m_cards.size(); each++ )
+		GameFont *numberFont = UIStyle::font( UIStyle::TEXT_SMALL, TRUE );
+		for( Int start = 0; start < map->m_numPlayers && map->m_isMultiplayer; start++ )
 		{
 			AsciiString waypoint;
-			waypoint.format( "Player_%d_Start", m_cards[ each ].startSpot + 1 );
+			waypoint.format( "Player_%d_Start", start + 1 );
 			WaypointMap::const_iterator it = map->m_waypoints.find( waypoint );
-			if( m_cards[ each ].startSpot < 0 || it == map->m_waypoints.end() )
+			if( it == map->m_waypoints.end() )
 				continue;
 			const Real across = ( it->second.x - map->m_extent.lo.x ) / map->m_extent.width();
 			const Real down = 1.0f - ( it->second.y - map->m_extent.lo.y ) / map->m_extent.height();
 			BoardSpot spot;
 			spot.pos.x = m_mapDrawn.lo.x + REAL_TO_INT( across * ( m_mapDrawn.hi.x - m_mapDrawn.lo.x ) );
 			spot.pos.y = m_mapDrawn.lo.y + REAL_TO_INT( down * ( m_mapDrawn.hi.y - m_mapDrawn.lo.y ) );
-			spot.color = m_cards[ each ].color;
+			spot.color = 0;
+			spot.number = NULL;
+			for( size_t each = 0; each < m_cards.size(); each++ )
+			{
+				if( m_cards[ each ].startSpot != start )
+					continue;
+				AsciiString seat;
+				seat.format( "NUMBER:%d", m_cards[ each ].slot + 1 );
+				spot.color = m_cards[ each ].color;
+				spot.number = text( TheGameText->fetch( seat ), numberFont );
+			}
 			m_spots.push_back( spot );
 		}
 	}
@@ -925,13 +943,21 @@ void LoadScreenBoard::drawMatch( void )
 		TheDisplay->drawImage( m_mapImage, m_mapDrawn.lo.x, m_mapDrawn.lo.y, m_mapDrawn.hi.x, m_mapDrawn.hi.y );
 	// the lobby's map preview wears a button's edge
 	UIStyle::edge( m_mapBox.lo.x - 3, m_mapBox.lo.y - 3, mapSize + 6, mapSize + 6 );
-	const Int spot = max( 8, scaled( 18 ) );
-	const Int ring = max( 2, scaled( 3 ) );
+	// the room's start spot: EA's ring (a mod's archives may leave it out), the colour in its middle
+	const Int spot = mapSize * LOBBY_START_SPOT / LOBBY_MAP_PREVIEW;
+	const Image *ring = TheMappedImageCollection->findImageByName( "PlayerStart" );
 	for( size_t each = 0; each < m_spots.size(); each++ )
 	{
 		const BoardSpot &mark = m_spots[ each ];
-		TheDisplay->drawFillRect( mark.pos.x - spot / 2 - ring, mark.pos.y - spot / 2 - ring, spot + 2 * ring, spot + 2 * ring, UIStyle::GROUND );
-		TheDisplay->drawFillRect( mark.pos.x - spot / 2, mark.pos.y - spot / 2, spot, spot, mark.color );
+		const Int x = mark.pos.x - spot / 2;
+		const Int y = mark.pos.y - spot / 2;
+		if( ring )
+			TheDisplay->drawImage( ring, x, y, x + spot, y + spot );
+		if( mark.number == NULL )
+			continue;
+		LobbyStartSpotFill( x, y, spot, spot, mark.color );
+		mark.number->draw( x + ( spot - stringWidth( mark.number ) ) / 2, y + ( spot - stringHeight( mark.number ) ) / 2,
+			LobbyTextColorOn( mark.color ), 0 );
 	}
 	if( m_observers )
 		m_observers->draw( m_observersPos.x, m_observersPos.y, UIStyle::MUTED, UIStyle::SHADOW );
