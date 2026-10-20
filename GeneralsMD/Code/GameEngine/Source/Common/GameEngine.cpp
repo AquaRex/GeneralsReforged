@@ -1915,6 +1915,16 @@ static Real thePassLogicMS = 0.0f;
 static Int thePassLogicTicks = 0;
 static FrameTimeHistogram theTickPass, theTickSync, theTickRender, theTickLogic;
 static FrameTimeHistogram theRenderPass, theRenderSync, theRenderRender, theOverlapped;
+#ifdef DEBUG_LOGGING
+/* The sun's depth pass a picture (W3DVolumetricShadowManager::renderShadowMap), for HEADLESS SHADOWMAP:
+	 the scene timer holds it and cannot say how much of it, and a crowd's tail is in it. */
+static FrameTimeHistogram theShadowPassTimes;
+static double theShadowCasterSum = 0.0;
+static double theShadowDrawSum = 0.0;
+static Real theShadowNotedMS = 0.0f;			///< what this pass's earlier pictures noted, zeroed with the pass's counters
+static Int theShadowNotedCasters = 0;
+static UnsignedInt theShadowNotedDraws = 0;
+#endif
 static Int64 thePassStart = 0;			///< execute's pass start, moved on by every extra picture
 static Int thePassPictures = 0;			///< the extra pictures this pass presented before its last
 
@@ -1967,6 +1977,15 @@ void GameEngine_noteFrameTime( Real ms, UnsignedInt logicFrame )
 	if( !theFrameTimesStarted )
 		return;
 	theFrameTimes.note( ms, logicFrame );
+#ifdef DEBUG_LOGGING
+	// the sun's depth pass of this picture alone: an extra picture noted its share of the pass already
+	theShadowPassTimes.note( TheShadowMapMS - theShadowNotedMS, logicFrame );
+	theShadowCasterSum += TheShadowMapCasters - theShadowNotedCasters;
+	theShadowDrawSum += TheShadowMapDraws - theShadowNotedDraws;
+	theShadowNotedMS = TheShadowMapMS;
+	theShadowNotedCasters = TheShadowMapCasters;
+	theShadowNotedDraws = TheShadowMapDraws;
+#endif
 
 	const Real render = TheOverlapWindowMS;
 	const Real sync = ms - thePassLogicMS - render;
@@ -2027,6 +2046,8 @@ static void startFrameTimeStats( void )
 	theFrameTimesStarted = TRUE;
 #ifdef DEBUG_LOGGING
 	memset( &theParticleCost, 0, sizeof(theParticleCost) );
+	theShadowPassTimes.reset();
+	theShadowCasterSum = theShadowDrawSum = 0.0;
 #endif
 }
 
@@ -2082,6 +2103,16 @@ static void reportFrameTimeStats( void )
 	}
 
 #ifdef DEBUG_LOGGING
+	if( theShadowPassTimes.count() > 0 )
+	{
+		DEBUG_LOG(("HEADLESS SHADOWMAP: %d pictures | mean %.2f p50 %.2f p95 %.2f p99 %.2f worst %.2f ms (frame %d) | %.0f casters, %.0f draws a picture\n",
+							 theShadowPassTimes.count(), theShadowPassTimes.meanMS(),
+							 theShadowPassTimes.percentileMS( 0.50f ), theShadowPassTimes.percentileMS( 0.95f ),
+							 theShadowPassTimes.percentileMS( 0.99f ), theShadowPassTimes.worstMS(),
+							 theShadowPassTimes.worstAtFrame(),
+							 theShadowCasterSum / theShadowPassTimes.count(),
+							 theShadowDrawSum / theShadowPassTimes.count()));
+	}
 	if( theParticleCost.m_passes > 0 )
 	{
 		const double passes = (double)theParticleCost.m_passes;
@@ -2993,6 +3024,9 @@ void GameEngine::update( void )
 		TheSortingEntries = 0;
 		TheShadowMapCasters = 0;
 		TheShadowMapDraws = TheSceneDrawCalls = 0;
+		theShadowNotedMS = 0.0f;
+		theShadowNotedCasters = 0;
+		theShadowNotedDraws = 0;
 		tClientStart = Clock_Ticks();
 #endif
 
