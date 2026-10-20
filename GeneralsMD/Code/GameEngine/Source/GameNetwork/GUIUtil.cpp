@@ -1030,18 +1030,24 @@ void LobbyStartSpotFill(Int x, Int y, Int width, Int height, Color fill)
 }
 
 // A colour swatch drawn as one of the rules page's check boxes: their own empty box, and the colour
-// inside its bevel with a little room between.
+// inside its hole with the same room on all four sides.
 static void drawSwatch(GameWindow *window, WinInstanceData *instData)
 {
 	Int x, y, width, height;
 	window->winGetScreenPosition(&x, &y);
 	window->winGetSize(&width, &height);
 	TheDisplay->drawImage(TheMappedImageCollection->findImageByName("Active-Unchecked"), x, y, x + width, y + height);
-	const Int padding = max(2, width / 5);
-	// the box art's hole sits a pixel left of and below its middle at 26 pixels (two at 4K)
-	const Int holeShift = max(1, width / 26);
-	TheDisplay->drawFillRect(x + padding - holeShift, y + padding + holeShift, width - 2 * padding,
-		height - 2 * padding, window->winGetEnabledColor(0));
+	// the art is a 22 pixel cell whose black hole runs from 3 to 17 on both axes, up and left of the
+	// middle because the drop shadow takes the last two; each edge is rounded on its own so the hole
+	// is found again at whatever size the room was scaled to
+	const Int CELL = 22, HOLE_START = 3, HOLE_END = 17;
+	const Int holeLeft = x + (HOLE_START * width + CELL / 2) / CELL;
+	const Int holeRight = x + (HOLE_END * width + CELL / 2) / CELL;
+	const Int holeTop = y + (HOLE_START * height + CELL / 2) / CELL;
+	const Int holeBottom = y + (HOLE_END * height + CELL / 2) / CELL;
+	const Int gap = max(1, min(holeRight - holeLeft, holeBottom - holeTop) / 8);
+	TheDisplay->drawFillRect(holeLeft + gap, holeTop + gap, holeRight - holeLeft - 2 * gap,
+		holeBottom - holeTop - 2 * gap, window->winGetEnabledColor(0));
 }
 
 void DrawMapListTab(GameWindow *window, WinInstanceData *instData)
