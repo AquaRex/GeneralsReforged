@@ -930,7 +930,7 @@ GUI:SendDelay
 END
 
 GUI:FirewallRefresh
-"NAT'ı Yenile"
+"NAT'I YENİLE"
 END
 
 GUI:Exit
@@ -15786,15 +15786,15 @@ GUI:HotkeysCommandBar
 END
 
 GUI:HotkeysChange
-"Değiştir"
+"DEĞİŞTİR"
 END
 
 GUI:HotkeysClear
-"Tuş yok"
+"TUŞ YOK"
 END
 
 GUI:HotkeysDefault
-"Oyunun tuşu"
+"OYUNUN TUŞU"
 END
 
 TOOLTIP:HotkeyChange

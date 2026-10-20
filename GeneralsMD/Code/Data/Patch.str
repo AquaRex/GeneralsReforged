@@ -1389,15 +1389,19 @@ GUI:HotkeysCommandBar
 END
 
 GUI:HotkeysChange
-"Change"
+"CHANGE"
 END
 
 GUI:HotkeysClear
-"No key"
+"NO KEY"
 END
 
 GUI:HotkeysDefault
-"Game's key"
+"GAME'S KEY"
+END
+
+GUI:FirewallRefresh
+"REFRESH NAT"
 END
 
 TOOLTIP:HotkeyChange

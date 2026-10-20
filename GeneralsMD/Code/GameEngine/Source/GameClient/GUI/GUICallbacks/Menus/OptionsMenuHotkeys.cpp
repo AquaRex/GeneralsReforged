@@ -47,6 +47,7 @@
 #include "GameClient/HotKey.h"
 #include "GameClient/KeyDefs.h"
 #include "GameClient/MetaEvent.h"
+#include "GameClient/UIStyle.h"
 
 namespace
 {
@@ -70,11 +71,13 @@ enum CaptureKind { CAPTURE_NONE, CAPTURE_COMMAND, CAPTURE_BUTTON };
 
 typedef std::basic_string< WideChar > KeyText;	///< a key as the page shows it, for a map
 
-const Color TEXT_COLOR = GameMakeColor( 254, 254, 254, 255 );
-const Color HEADING_COLOR = GameMakeColor( 186, 255, 12, 255 );
-const Color CHANGED_COLOR = GameMakeColor( 255, 214, 92, 255 );
+// The front end's tokens (UI-STYLE.md).  References, so they read UIStyle's values whatever order
+// the two files' statics are built in.  A clash keeps its own red, the one error on the page.
+const Color &TEXT_COLOR = UIStyle::INK;
+const Color &HEADING_COLOR = UIStyle::ACTIVE;
+const Color &CHANGED_COLOR = UIStyle::GOLD;
 const Color CLASH_COLOR = GameMakeColor( 255, 104, 72, 255 );
-const Color QUIET_COLOR = GameMakeColor( 150, 150, 150, 255 );
+const Color &QUIET_COLOR = UIStyle::MUTED;
 const WideChar WAITING[] = u"...";	///< the key cell while a key is awaited; the note under the lists says what to press
 
 GameWindow *s_parent = NULL;

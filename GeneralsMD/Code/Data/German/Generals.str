@@ -870,7 +870,7 @@ GUI:SendDelay
 END
 
 GUI:FirewallRefresh
-"NAT aktualisieren"
+"NAT AKTUALISIEREN"
 END
 
 GUI:Exit
@@ -15030,15 +15030,15 @@ GUI:HotkeysCommandBar
 END
 
 GUI:HotkeysChange
-"Ändern"
+"ÄNDERN"
 END
 
 GUI:HotkeysClear
-"Keine Taste"
+"KEINE TASTE"
 END
 
 GUI:HotkeysDefault
-"Standard"
+"STANDARD"
 END
 
 TOOLTIP:HotkeyChange
