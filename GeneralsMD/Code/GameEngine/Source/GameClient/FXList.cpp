@@ -969,8 +969,16 @@ void FXList::doFXObjNow(const FXObjectView* primary, const FXObjectView* seconda
 			for (size_t i = 0; i < ARRAY_SIZE(footprint) && hidden; ++i)
 				hidden = ThePartitionManager->getShroudStatusForPlayer(shroudPlayer, &footprint[i]) != CELLSHROUD_CLEAR;
 		}
+		// An enemy's stealth this screen has not found plays nothing either, or the sparks, flare and
+		// light pulse of a hit mark the empty spot.  Its drawable's look is the screen's answer, the
+		// one its attached fire and smoke follow.  A dying one plays, as StealthUpdate shows it.
+		if (!hidden && primaryObject && !primaryObject->isEffectivelyDead())
+		{
+			const Drawable *draw = primaryObject->getDrawable();
+			hidden = draw && draw->getStealthLook() == STEALTHLOOK_INVISIBLE;
+		}
 		if (hidden)
-			return;	//the primary object is fogged or shrouded so don't bother with the effect.
+			return;	//the primary object is fogged, shrouded or unseen stealth so don't bother with the effect.
 	}
 
 	for (FXNuggetList::const_iterator it = m_nuggets.begin(); it != m_nuggets.end(); ++it)
