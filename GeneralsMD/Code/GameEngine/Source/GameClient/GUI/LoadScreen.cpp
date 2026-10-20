@@ -209,6 +209,11 @@ static const WideChar BOARD_SEPARATOR[] = { ' ', ' ', ' ', 0x00B7, ' ', ' ', ' '
 static const Real BOARD_COLUMN_WIDTH = 600.0f;
 static const Real BOARD_BAND_TOP = 176.0f;
 static const Real BOARD_BAND_BOTTOM = 866.0f;
+/// a card's inset and the room between its portrait and its words
+static const Real BOARD_CARD_PAD = 16.0f;
+static const Real BOARD_CARD_TEXT_GAP = 24.0f;
+/// U+2026 by number, for the same reason as the separator
+static const WideChar BOARD_ELLIPSIS[] = { 0x2026, 0 };
 /// the rooms' start spot button against their map preview (SkirmishGameOptionsMenu.wnd), so the spots
 /// keep the room's size on a preview of another size
 static const Int LOBBY_START_SPOT = 28;
@@ -266,6 +271,7 @@ private:
 	void drawBriefing( void );
 	void drawCard( const BoardCard &card );
 	Int scaled( Real pixels ) const { return REAL_TO_INT( pixels * m_scale + 0.5f ); }
+	Int emblemSize( Int cardHeight ) const { return min( cardHeight - 2 * scaled( BOARD_CARD_PAD ), scaled( 168 ) ); }
 	DisplayString *text( const UnicodeString &words, GameFont *font );
 	BoardCard *cardFor( Int slot );
 	void layoutColumn( std::vector< Int > &column, Int left, Int top, Int bottom, Bool mirrored );
@@ -363,6 +369,21 @@ static Int stringHeight( DisplayString *string )
 	Int width, height;
 	string->getSize( &width, &height );
 	return height;
+}
+
+/** The words cut to widest pixels with an ellipsis after what fits, left whole when they fit. */
+static void fitWidth( DisplayString *string, Int widest )
+{
+	if( string->getWidth() <= widest )
+		return;
+	UnicodeString words = string->getText();
+	do
+	{
+		words.removeLastChar();
+		UnicodeString cut = words;
+		cut.concat( BOARD_ELLIPSIS );
+		string->setText( cut );
+	} while( words.getLength() > 0 && string->getWidth() > widest );
 }
 
 /** The side's crest from the lobby: the three 144 pixel logos on one page.  A mod's side brings its
@@ -560,6 +581,18 @@ GameWindow *LoadScreenBoard::create( GameInfo *game, const char *modeLabel, Bool
 		m_columnHeadPos[ side ].y = m_cards[ columns[ side ][ 0 ] ].box.lo.y - stringHeight( m_columnHead[ side ] ) - scaled( 12 );
 		m_columnHeadPos[ side ].x = side == 0 ? leftX + swatch + scaled( 10 ) : rightX + columnWidth - stringWidth( m_columnHead[ side ] ) - swatch - scaled( 10 );
 	}
+	// words wider than a card's are cut; a bar card's name leaves room for the percentage, which a
+	// short card moves to the end of the name's line
+	DisplayString *fullPercent = text( UnicodeString( u"100%" ), labelFont );
+	for( size_t each = 0; each < m_cards.size(); each++ )
+	{
+		BoardCard &card = m_cards[ each ];
+		const Int words = columnWidth - UIStyle::stripeWidth() - 2 * scaled( BOARD_CARD_PAD )
+			- emblemSize( card.box.hi.y - card.box.lo.y ) - scaled( BOARD_CARD_TEXT_GAP );
+		fitWidth( card.name, card.percent >= 0 ? words - stringWidth( fullPercent ) - scaled( 12 ) : words );
+		fitWidth( card.army, words );
+		fitWidth( card.detail, words );
+	}
 
 	// the middle: VS or free for all over the map, the watchers under it
 	m_centerLabel = NULL;
@@ -706,7 +739,8 @@ void LoadScreenBoard::layoutColumn( std::vector< Int > &column, Int left, Int to
 	if( column.empty() )
 		return;
 	const Int count = (Int)column.size();
-	const Int gap = scaled( 16 );
+	// five or more to a column close up, so six or seven cards keep room for a bar under the words
+	const Int gap = scaled( count > 4 ? 8 : 16 );
 	const Int height = min( scaled( 220 ), ( bottom - top - gap * ( count - 1 ) ) / count );
 	Int y = top + ( bottom - top - ( height * count + gap * ( count - 1 ) ) ) / 2;
 	for( Int each = 0; each < count; each++ )
@@ -764,8 +798,8 @@ void LoadScreenBoard::drawCard( const BoardCard &card )
 	UIStyle::stripe( card.mirrored ? x0 + width - stripe : x0, y0, height, card.color );
 
 	// the portrait, in a frame of the player's colour
-	const Int pad = scaled( 16 );
-	const Int emblem = min( height - 2 * pad, scaled( 168 ) );
+	const Int pad = scaled( BOARD_CARD_PAD );
+	const Int emblem = emblemSize( height );
 	const Int emblemX = card.mirrored ? x0 + width - stripe - pad - emblem : x0 + stripe + pad;
 	const Int emblemY = y0 + ( height - emblem ) / 2;
 	TheDisplay->drawFillRect( emblemX, emblemY, emblem, emblem, UIStyle::GROUND );
@@ -776,7 +810,7 @@ void LoadScreenBoard::drawCard( const BoardCard &card )
 	TheDisplay->drawOpenRect( emblemX, emblemY, emblem, emblem, 1.0f, UIStyle::withAlpha( card.color, 200 ) );
 
 	// the words, on the portrait's far side, aligned away from it
-	const Int textGap = scaled( 24 );
+	const Int textGap = scaled( BOARD_CARD_TEXT_GAP );
 	const Int textLeft = card.mirrored ? x0 + pad : emblemX + emblem + textGap;
 	const Int textRight = card.mirrored ? emblemX - textGap : x0 + width - pad;
 	const Int lineGap = scaled( 4 );
@@ -787,9 +821,26 @@ void LoadScreenBoard::drawCard( const BoardCard &card )
 		&& block + lineGap + stringHeight( card.detail ) + barRoom <= height - 2 * scaled( 8 );
 	if( hasDetail )
 		block += lineGap + stringHeight( card.detail );
+	// a network player's bar sits on the card's foot with its percentage beside it; where the words
+	// would reach that percentage (six or seven cards to a column) the bar goes under the army, the
+	// whole stack centred, and the percentage to the end of the name's line
+	const Int barHeight = max( 3, scaled( 5 ) );
+	Int barY = y0 + height - pad - barHeight;
+	Bool stacked = FALSE;
 	Int y = y0 + ( height - block ) / 2;
 	if( card.percent >= 0 )
+	{
 		y -= scaled( 8 );
+		const Int percentTop = barY + barHeight / 2 - stringHeight( card.percentText ) / 2;
+		if( y + block + scaled( 6 ) > percentTop )
+		{
+			stacked = TRUE;
+			const Int barGap = scaled( 8 );
+			y = y0 + ( height - block - barGap - barHeight ) / 2;
+			barY = y + block + barGap;
+		}
+	}
+	const Int nameY = y;
 	DisplayString *lines[ 3 ] = { card.name, card.army, card.detail };
 	const Color colors[ 3 ] = { card.nameColor, UIStyle::INK, UIStyle::MUTED };
 	for( Int line = 0; line < ( hasDetail ? 3 : 2 ); line++ )
@@ -821,15 +872,14 @@ void LoadScreenBoard::drawCard( const BoardCard &card )
 	// a network player's own load
 	if( card.percent >= 0 )
 	{
-		const Int barHeight = max( 3, scaled( 5 ) );
-		const Int barY = y0 + height - pad - barHeight;
-		const Int label = stringWidth( card.percentText ) + scaled( 12 );
+		const Int label = stacked ? 0 : stringWidth( card.percentText ) + scaled( 12 );
 		const Int barLeft = card.mirrored ? textLeft + label : textLeft;
 		const Int barRight = card.mirrored ? textRight : textRight - label;
 		TheDisplay->drawFillRect( barLeft, barY, barRight - barLeft, barHeight, UIStyle::GRID );
 		const Int filled = ( barRight - barLeft ) * card.percent / 100;
 		TheDisplay->drawFillRect( card.mirrored ? barRight - filled : barLeft, barY, filled, barHeight, card.color );
-		const Int labelY = barY + barHeight / 2 - stringHeight( card.percentText ) / 2;
+		const Int labelY = stacked ? nameY + ( stringHeight( card.name ) - stringHeight( card.percentText ) ) / 2
+			: barY + barHeight / 2 - stringHeight( card.percentText ) / 2;
 		card.percentText->draw( card.mirrored ? textLeft : textRight - stringWidth( card.percentText ), labelY,
 			card.percent >= 100 ? UIStyle::INK : UIStyle::MUTED, UIStyle::SHADOW );
 	}
