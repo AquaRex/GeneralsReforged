@@ -1383,7 +1383,6 @@ static const char *gadgetsToHide[] =
 	"StaticTextColor",
 	"StaticTextTeam",
 	"StaticTextFaction",
-	"StaticTextAIPersona",
 	NULL // keep this last
 };
 static const char *perPlayerGadgetsToHide[] =

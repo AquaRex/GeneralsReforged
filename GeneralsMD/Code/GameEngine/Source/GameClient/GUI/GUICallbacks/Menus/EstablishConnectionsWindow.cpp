@@ -78,7 +78,6 @@ static const char *gadgetsToHide[] =
 	"StaticTextFaction",
 	"StaticTextColor",
 	"StaticTextPlayers",
-	"StaticTextAIPersona",
 	"TextEntryMapDisplay",
 	"ButtonSelectMap",
 	"ButtonStart",

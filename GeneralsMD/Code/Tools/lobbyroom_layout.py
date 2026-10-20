@@ -10,7 +10,9 @@ than 4:3 at one scale (GameWindowManagerScript.cpp, parseScreenRect): exact on 1
 One grid drives all three rooms. The seat table takes the left of the panel, one row a seat: a
 colour bar, the player (or the computer's level) and the computer's personality, the army, a colour
 swatch and the colour, a team swatch and the team; the swatches are the rules page's check boxes'
-size, framed like them. A player who is
+size, framed like them. The personality column has no heading: only a computer's row fills it, and
+on every other row the menu code widens the player box over it (InitAIPersonaComboBoxes in
+GUIUtil.cpp). A player who is
 ready turns his row green, so the network rooms need no status column; their ready lights are kept
 at no size, since the menu code still sets them. The online room puts a ping light ahead of the row.
 The right column is the map preview, the map's name and Select Map, and the match rules page, always
@@ -126,10 +128,10 @@ CARD_BORDER = FRAME_COLOR
 EMPTY_COLOR = (48, 54, 76, 255)
 VEIL = (2, 4, 12, 120)
 
-# The personality column: its heading is cloned from the team heading and its combo boxes from the
-# faction ones, so both keep EA's art.
-PERSONA_HEADING, PERSONA_PREFIX = "StaticTextAIPersona", "ComboBoxAIPersona"
-PERSONA_HEADING_TEXT, PERSONA_TOOLTIP = "GUI:AIPersona", "GUI:AIPersonaTooltip"
+# The personality column: its combo boxes are cloned from the faction ones, so they keep EA's art.
+# The heading an earlier grid gave it comes out again.
+PERSONA_PREFIX, PERSONA_TOOLTIP = "ComboBoxAIPersona", "GUI:AIPersonaTooltip"
+RETIRED_PERSONA_HEADING = "StaticTextAIPersona"
 
 # Turbo mode replaced the skirmish room's game speed dropdown: a box cloned from the unit limit's,
 # which every room has, so it inherits that box's art and lettering.
@@ -156,7 +158,7 @@ STAT_ROWS = [
 # Generali" 258, colour "Camgöbeği" 98, team "Keins" 49.
 SEAT_COLUMNS = [
     ("StaticTextPlayers", ("ComboBoxPlayer",), 190),
-    (PERSONA_HEADING, (PERSONA_PREFIX,), 210),
+    (None, (PERSONA_PREFIX,), 210),
     ("StaticTextFaction", ("ComboBoxPlayerTemplate",), None),
     ("StaticTextColor", ("SeatSwatch",), SWATCH),
     (None, ("ComboBoxColor",), 170),
@@ -248,16 +250,14 @@ def remove(layout, names):
 
 
 def add_persona_column(layout, menu):
-    """The personality heading and one combo box a seat, cloned in once and ahead of the team
-    heading, seat 7 first like EA's columns. A layout that already has them is left alone."""
-    if layout.find(PERSONA_HEADING) is not None:
+    """One personality combo box a seat, cloned in once and ahead of the team heading, seat 7 first
+    like EA's columns. A layout that already has them is left alone."""
+    if layout.find(PERSONA_PREFIX + "0") is not None:
         return
     named = lambda name: "%s.wnd:%s" % (menu, name)
     team = need(layout, "StaticTextTeam")
     container = layout.root.parent_of(team)
-    heading = clone(team, named(PERSONA_HEADING))
-    heading.put_prop("TEXT", '"%s"' % PERSONA_HEADING_TEXT)
-    added = [heading]
+    added = []
     for seat in reversed(range(SEAT_COUNT)):
         combo = clone(need(layout, "ComboBoxPlayerTemplate%d" % seat), named("%s%d" % (PERSONA_PREFIX, seat)))
         combo.put_prop("TOOLTIPTEXT", '"%s"' % PERSONA_TOOLTIP)
@@ -524,7 +524,7 @@ def build(layout, menu):
     spec = ROOMS[menu]
     widen(layout)
     add_persona_column(layout, menu)
-    remove(layout, TABS + GAME_SPEED_DROPDOWN)
+    remove(layout, TABS + GAME_SPEED_DROPDOWN + (RETIRED_PERSONA_HEADING,))
     add_turbo_box(layout)
     container = need(layout, spec["container"])
     add_ruler(layout, menu, container)

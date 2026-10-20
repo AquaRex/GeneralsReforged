@@ -815,6 +815,56 @@ void ShutdownLobbyTabs(void)
 
 // -----------------------------------------------------------------------------
 
+// The personality column has no heading and only a computer's seat fills it; on any other seat the
+// player box (and the online room's name over it) reaches across it.  The two widths are taken from
+// the persona box and the army box after it, which never move, so a second init of a layout whose
+// boxes are already wide measures the same.
+static GameWindow *thePersonaSeatPlayer[MAX_SLOTS];
+static GameWindow *thePersonaSeatName[MAX_SLOTS];
+static Int thePersonaSeatNarrow[MAX_SLOTS];
+static Int thePersonaSeatWide[MAX_SLOTS];
+
+static GameWindow *findSeatWindow(GameWindow *parent, const char *layoutFilename, const char *name, Int seat)
+{
+	AsciiString full;
+	full.format("%s:%s%d", layoutFilename, name, seat);
+	return TheWindowManager->winGetWindowFromId(parent, NAMEKEY(full));
+}
+
+static void measurePersonaSeat(GameWindow *parent, const char *layoutFilename, GameWindow *persona, Int seat)
+{
+	GameWindow *player = findSeatWindow(parent, layoutFilename, "ComboBoxPlayer", seat);
+	if (!player)
+	{
+		// the skirmish room's own seat is a text entry
+		AsciiString full;
+		full.format("%s:TextEntryPlayerName", layoutFilename);
+		player = TheWindowManager->winGetWindowFromId(parent, NAMEKEY(full));
+	}
+	thePersonaSeatPlayer[seat] = player;
+	thePersonaSeatName[seat] = findSeatWindow(parent, layoutFilename, "StaticTextPlayer", seat);
+	GameWindow *army = findSeatWindow(parent, layoutFilename, "ComboBoxPlayerTemplate", seat);
+
+	Int playerX, personaX, armyX, y, personaWidth, height;
+	player->winGetScreenPosition(&playerX, &y);
+	persona->winGetScreenPosition(&personaX, &y);
+	persona->winGetSize(&personaWidth, &height);
+	army->winGetScreenPosition(&armyX, &y);
+	const Int gap = armyX - (personaX + personaWidth);
+	thePersonaSeatNarrow[seat] = personaX - gap - playerX;
+	thePersonaSeatWide[seat] = personaX + personaWidth - playerX;
+}
+
+static void setSeatPlayerWidth(GameWindow *window, Int width)
+{
+	if (!window)
+		return;	// only the online room has a name over the box
+	Int oldWidth, height;
+	window->winGetSize(&oldWidth, &height);
+	if (oldWidth != width)
+		window->winSetSize(width, height);
+}
+
 void InitAIPersonaComboBoxes(GameWindow *parent, const char *layoutFilename,
 														 GameWindow *comboPersona[], NameKeyType comboPersonaID[])
 {
@@ -826,6 +876,7 @@ void InitAIPersonaComboBoxes(GameWindow *parent, const char *layoutFilename,
 		comboPersona[i] = TheWindowManager->winGetWindowFromId(parent, comboPersonaID[i]);
 		if (!comboPersona[i])
 			continue;	// a layout from before the column
+		measurePersonaSeat(parent, layoutFilename, comboPersona[i], i);
 
 		// make room for the whole list before the first add, as PopulatePlayerSlotComboBox does
 		GameWindow *listBox = GadgetComboBoxGetListBox(comboPersona[i]);
@@ -860,6 +911,9 @@ void UpdateAIPersonaComboBoxes(GameInfo *myGame, GameWindow *comboPersona[])
 		// a takeover seat has no AI behind it, so nothing for a personality to steer
 		const Bool computer = slot->isAI() && !slot->isTakeover();
 		comboPersona[i]->winHide(!computer);
+		const Int width = computer ? thePersonaSeatNarrow[i] : thePersonaSeatWide[i];
+		setSeatPlayerWidth(thePersonaSeatPlayer[i], width);
+		setSeatPlayerWidth(thePersonaSeatName[i], width);
 		if (!computer)
 			continue;
 		comboPersona[i]->winEnable(myGame->amIHost());
