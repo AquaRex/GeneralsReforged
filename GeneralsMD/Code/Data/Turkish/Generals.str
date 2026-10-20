@@ -16466,6 +16466,18 @@ TOOLTIP:MoneyTransfer
 "Miktarı tekerlekle ya da - ve + ile seç: adım 100, Ctrl ile 1.000, Shift ile 10.000, ikisiyle 100.000. Gönder parayı oyuncuya verir."
 END
 
+GUI:DiplomacyPing
+"Ping"
+END
+
+GUI:DiplomacyFps
+"FPS"
+END
+
+TOOLTIP:DiplomacyNet
+"Ping, oyuncunun kurucuya gidip dönüş süresidir (milisaniye; kurucunun kendisi için boş). FPS, makinesinin saniyede yetiştirebildiği oyun karesidir. Sarı sayılar en yavaş oyuncuyu gösterir ve bütün maç onun hızında oynar."
+END
+
 GUI:LobbyRecord
 "Kariyer"
 END
