@@ -18123,3 +18123,41 @@ TEST(ai_persona_rides_the_slot_entry_and_normal_leaves_it_unchanged)
 	delete TheWritableGlobalData;
 	TheWritableGlobalData = saved;
 }
+
+// The debug log's cap: the head and the last whole lines survive, in one file still open for writing.
+TEST(debug_log_cut_keeps_the_head_and_the_last_whole_lines)
+{
+	const std::string path = (std::filesystem::temp_directory_path() / "zh_logcut_test.txt").string();
+	FILE *log = fopen( path.c_str(), "w" );		// text mode, as the game opens it
+	fputs( "head one\nhead two\n", log );
+	fflush( log );
+	const long headEnd = ftell( log );
+	char line[ 32 ];
+	for( Int i = 0; i < 1000; ++i )
+	{
+		snprintf( line, sizeof( line ), "line %04d\n", i );
+		fputs( line, log );
+	}
+	const long before = ftell( log );
+	const long after = DebugCutLogFile( log, path.c_str(), headEnd, 100 );
+	fputs( "written after the cut\n", log );
+	fclose( log );
+
+	FILE *in = fopen( path.c_str(), "r" );
+	std::string text;
+	char buffer[ 4096 ];
+	size_t got;
+	while( (got = fread( buffer, 1, sizeof( buffer ), in )) > 0 )
+		text.append( buffer, got );
+	fclose( in );
+	std::filesystem::remove( path );
+
+	CHECK( after < before );
+	CHECK( text.compare( 0, 18, "head one\nhead two\n" ) == 0 );
+	CHECK( text.find( "cut here" ) != std::string::npos );
+	CHECK( text.find( "line 0989" ) == std::string::npos );
+	CHECK( text.find( "\nline 0991\n" ) != std::string::npos );		// a whole line, never half of one
+	CHECK( text.find( '\r' ) == std::string::npos );						// no \r\r\n from the text-mode rewrite
+	const std::string ending = "line 0999\nwritten after the cut\n";
+	CHECK( text.compare( text.size() - ending.size(), ending.size(), ending ) == 0 );
+}

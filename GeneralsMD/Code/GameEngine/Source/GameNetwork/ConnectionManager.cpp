@@ -1203,7 +1203,10 @@ void ConnectionManager::sendRemoteCommand(NetCommandRef *msg) {
 		return;
 	}
 
-	DEBUG_LOG(("ConnectionManager::sendRemoteCommand - sending net command %d of type %s from player %d, relay is 0x%x\n",
+	/* The per-command and per-frame lines of the network code are DEBUG_LOG_DEV: in a Release log
+		 they were nearly all of it, 60 MB in a 100 s three-player match, and most of the 0.5-19 GB logs
+		 players sent.  The Debug build still writes them. */
+	DEBUG_LOG_DEV(("ConnectionManager::sendRemoteCommand - sending net command %d of type %s from player %d, relay is 0x%x\n",
 		msg->getCommand()->getID(), GetAsciiNetCommandType(msg->getCommand()->getNetCommandType()).str(), msg->getCommand()->getPlayerID(), msg->getRelay()));
 
 	UnsignedByte relay = msg->getRelay();
@@ -1212,14 +1215,14 @@ void ConnectionManager::sendRemoteCommand(NetCommandRef *msg) {
 	FrameDataManager *senderFrameData = (senderID < MAX_SLOTS) ? m_frameData[senderID] : NULL;
 	if ((relay & (1 << m_localSlot)) && (senderFrameData != NULL)) {
 		if (IsCommandSynchronized(msg->getCommand()->getNetCommandType())) {
-			DEBUG_LOG(("ConnectionManager::sendRemoteCommand - adding net command of type %s to player %d for frame %d\n", GetAsciiNetCommandType(msg->getCommand()->getNetCommandType()).str(), msg->getCommand()->getPlayerID(), msg->getCommand()->getExecutionFrame()));
+			DEBUG_LOG_DEV(("ConnectionManager::sendRemoteCommand - adding net command of type %s to player %d for frame %d\n", GetAsciiNetCommandType(msg->getCommand()->getNetCommandType()).str(), msg->getCommand()->getPlayerID(), msg->getCommand()->getExecutionFrame()));
 			senderFrameData->addNetCommandMsg(msg->getCommand());
 		}
 	}
 
 	for (Int i = 0; i < MAX_SLOTS; ++i) {
 		if ((relay & (1 << i)) && ((m_connections[i] != NULL) && (m_connections[i]->isQuitting() == FALSE))) {
-			DEBUG_LOG(("ConnectionManager::sendRemoteCommand - relaying command %d to player %d\n", msg->getCommand()->getID(), i));
+			DEBUG_LOG_DEV(("ConnectionManager::sendRemoteCommand - relaying command %d to player %d\n", msg->getCommand()->getID(), i));
 			m_connections[i]->sendNetCommandMsg(msg->getCommand(), 1 << i);
 			actualRelay = actualRelay | (1 << i);
 		}
@@ -1519,7 +1522,7 @@ void ConnectionManager::processFrameTick(UnsignedInt frame) {
 	if ((Int)frame > m_lastFrameTickSent)
 		m_lastFrameTickSent = (Int)frame;
 
-	DEBUG_LOG(("ConnectionManager::processFrameTick - sending frame info for frame %d, ID %d, command count %d\n", frame, msg->getID(), commandCount));
+	DEBUG_LOG_DEV(("ConnectionManager::processFrameTick - sending frame info for frame %d, ID %d, command count %d\n", frame, msg->getID(), commandCount));
 
 	sendLocalCommand(msg, 0xff & ~(1 << m_localSlot));
 
@@ -1582,11 +1585,11 @@ void ConnectionManager::sendLocalCommand(NetCommandMsg *msg, UnsignedByte relay 
 	}
 	msg->attach();
 
-	DEBUG_LOG(("ConnectionManager::sendLocalCommand - sending net command %d of type %s\n", msg->getID(),
+	DEBUG_LOG_DEV(("ConnectionManager::sendLocalCommand - sending net command %d of type %s\n", msg->getID(),
 		GetAsciiNetCommandType(msg->getNetCommandType()).str()));
 
 	if (relay & (1 << m_localSlot)) {
-		DEBUG_LOG(("ConnectionManager::sendLocalCommand - adding net command of type %s to player %d for frame %d\n", GetAsciiNetCommandType(msg->getNetCommandType()).str(), msg->getPlayerID(), msg->getExecutionFrame()));
+		DEBUG_LOG_DEV(("ConnectionManager::sendLocalCommand - adding net command of type %s to player %d for frame %d\n", GetAsciiNetCommandType(msg->getNetCommandType()).str(), msg->getPlayerID(), msg->getExecutionFrame()));
 		m_frameData[m_localSlot]->addNetCommandMsg(msg);
 	}
 
@@ -1630,7 +1633,7 @@ void ConnectionManager::sendLocalCommandDirect(NetCommandMsg *msg, UnsignedByte 
 
 	if (((relay & (1 << m_localSlot)) != 0) && (m_frameData[m_localSlot] != NULL)) {
 		if (IsCommandSynchronized(msg->getNetCommandType()) == TRUE) {
-			DEBUG_LOG(("ConnectionManager::sendLocalCommandDirect - adding net command of type %s to player %d for frame %d\n", GetAsciiNetCommandType(msg->getNetCommandType()).str(), msg->getPlayerID(), msg->getExecutionFrame()));
+			DEBUG_LOG_DEV(("ConnectionManager::sendLocalCommandDirect - adding net command of type %s to player %d for frame %d\n", GetAsciiNetCommandType(msg->getNetCommandType()).str(), msg->getPlayerID(), msg->getExecutionFrame()));
 			m_frameData[m_localSlot]->addNetCommandMsg(msg);
 		}
 	}
@@ -1640,7 +1643,7 @@ void ConnectionManager::sendLocalCommandDirect(NetCommandMsg *msg, UnsignedByte 
 			if ((m_connections[i] != NULL) && (m_connections[i]->isQuitting() == FALSE)) {
 				UnsignedByte temprelay = 1 << i;
 				m_connections[i]->sendNetCommandMsg(msg, temprelay);
-				DEBUG_LOG(("ConnectionManager::sendLocalCommandDirect - Sending direct command %d of type %s to player %d\n", msg->getID(), GetAsciiNetCommandType(msg->getNetCommandType()).str(), i));
+				DEBUG_LOG_DEV(("ConnectionManager::sendLocalCommandDirect - Sending direct command %d of type %s to player %d\n", msg->getID(), GetAsciiNetCommandType(msg->getNetCommandType()).str(), i));
 			}
 		}
 	}
@@ -1782,7 +1785,7 @@ NetCommandList *ConnectionManager::getFrameCommandList(UnsignedInt frame)
 				m_frameData[i]->resetFrame(frame - FRAMES_TO_KEEP);	// After getting the commands for that frame from this
 													// FrameDataManager object, we need to tell it that we're
 													// done with the messages for that frame.
-				DEBUG_LOG(("getFrameCommandList - called reset frame on player %d for frame %d\n", i, frame - FRAMES_TO_KEEP));
+				DEBUG_LOG_DEV(("getFrameCommandList - called reset frame on player %d for frame %d\n", i, frame - FRAMES_TO_KEEP));
 			}
 		}
 	}

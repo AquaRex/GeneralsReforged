@@ -87,8 +87,11 @@ extern HWND ApplicationHWnd;
 #include <condition_variable>
 #include <mutex>
 #include <new>
-#if !defined(_WIN32)
+#if defined(_WIN32)
+#include <io.h>				// _chsize_s, DebugCutLogFile
+#else
 #include <pthread.h>
+#include <unistd.h>		// ftruncate, DebugCutLogFile
 #endif
 
 extern char *gAppPrefix; /// So WB can have a different log file name.
@@ -124,8 +127,58 @@ extern char *gAppPrefix; /// So WB can have a different log file name.
 // ----------------------------------------------------------------------------
 // PRIVATE DATA 
 // ----------------------------------------------------------------------------
+long DebugCutLogFile(FILE *file, const char *path, long headEnd, long keep)
+{
+	fflush(file);
+	const long size = ftell(file);
+	// A second handle reads the tail: the log is opened "w", and in text mode on Windows.
+	FILE *reader = zh_fopen(path, "rb");
+	if (reader == NULL)
+		return size;		// something else holds the file shut; it grows until the next try
+	char *tail = (char *)malloc(keep);
+	fseek(reader, size - keep, SEEK_SET);
+	const size_t got = fread(tail, 1, keep, reader);
+	fclose(reader);
+
+	// From the first whole line, with each \r\n back to \n, which the text-mode write expands again.
+	const char *newline = (const char *)memchr(tail, '\n', got);
+	const size_t start = (newline != NULL) ? (size_t)(newline - tail) + 1 : got;
+	size_t length = 0;
+	for (size_t i = start; i < got; ++i)
+	{
+		if (tail[i] == '\r' && i + 1 < got && tail[i + 1] == '\n')
+			continue;
+		tail[length++] = tail[i];
+	}
+
+	fseek(file, headEnd, SEEK_SET);
+	fprintf(file, "\n==== The log passed %ld MB and %ld bytes of it were cut here: the start of the run is above, its latest lines below ====\n\n",
+		size / (1024 * 1024), size - keep + (long)start - headEnd);
+	fwrite(tail, 1, length, file);
+	free(tail);
+	fflush(file);
+	const long end = ftell(file);
+#if defined(_WIN32)
+	_chsize_s(_fileno(file), end);
+#else
+	ftruncate(fileno(file), end);
+#endif
+	return end;
+}
+
 #ifdef DEBUG_LOGGING
 static FILE *theLogFile = NULL;
+
+/* The log has a cap.  It used to grow for as long as the game ran, and players sent reports from
+	 logs of 0.5 to 19 GB, which fill a disk and which the launcher could not read.  Past
+	 LOG_CAP_BYTES the writer cuts it back to its first LOG_HEAD_BYTES (the launch: versions,
+	 hardware, settings, the first load) and its latest LOG_KEEP_BYTES, in place, so the name, the
+	 open file and the tail the launcher and a crash report read all stay as they were. */
+static const long LOG_CAP_BYTES = 64 * 1024 * 1024;
+static const long LOG_HEAD_BYTES = 8 * 1024 * 1024;
+static const long LOG_KEEP_BYTES = 24 * 1024 * 1024;
+static char theLogPath[ _MAX_PATH ];
+static long theLogHeadEnd = 0;		// where the head ends: the end of the batch that took the file past LOG_HEAD_BYTES
 
 /* The log file is written by a thread of its own, never by the thread that logs.  Flushing once a
 	 second from the logging thread still put a disk write inside whichever logic frame came due, and
@@ -191,6 +244,11 @@ static void flushLogQueue(void)
 		return;
 	fwrite(batch, 1, batchUsed, theLogFile);
 	fflush(theLogFile);
+	const long size = ftell(theLogFile);
+	if (theLogHeadEnd == 0 && size >= LOG_HEAD_BYTES)
+		theLogHeadEnd = size;
+	if (size > LOG_CAP_BYTES)
+		DebugCutLogFile(theLogFile, theLogPath, theLogHeadEnd, LOG_KEEP_BYTES);
 }
 
 static void logWriterMain(void)
@@ -652,6 +710,7 @@ void DebugInit(int flags)
 
 		const int rotated = zh_rename(curbuf, prevbuf);
 		theLogFile = zh_fopen(curbuf, "w");
+		strlcpy(theLogPath, curbuf, ARRAY_SIZE(theLogPath));
 #if !defined(_WIN32)
 		// The crash handler writes its report into the log too, and may only use the descriptor.
 		setCrashLogDescriptor(theLogFile != NULL ? fileno(theLogFile) : -1);
