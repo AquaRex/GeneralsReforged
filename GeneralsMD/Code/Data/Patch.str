@@ -2081,8 +2081,12 @@ GUI:LobbyRecord
 "Record"
 END
 
+GUI:LobbyRecordButton
+"RECORD"
+END
+
 GUI:LobbyRecordClose
-"Close"
+"CLOSE"
 END
 
 // The score screen's summary panel (ScoreScreenGraphs.cpp)

@@ -45,6 +45,7 @@
 #include "GameClient/GameText.h"
 #include "GameClient/Display.h"
 #include "GameClient/Image.h"
+#include "GameClient/UIStyle.h"
 #include "GameLogic/GameLogic.h" // SUPERWEAPON_RESTRICT_COUNT
 #include "GameLogic/AI.h" // AIPersonality, for the personality column
 #include "GameNetwork/GameInfo.h"
@@ -285,7 +286,8 @@ void PopulateColorComboBox(Int comboBox, GameWindow *comboArray[], GameInfo *myG
 			continue;
 
 		colorName = TheGameText->fetch(def->getTooltipName().str());
-		newIndex = GadgetComboBoxAddEntry(comboArray[comboBox], colorName, def->getColor());
+		// a colour's name is words in that colour; the swatch beside it keeps the colour itself
+		newIndex = GadgetComboBoxAddEntry(comboArray[comboBox], colorName, UIStyle::readable(def->getColor()));
 		GadgetComboBoxSetItemData(comboArray[comboBox], newIndex, (void *)(intptr_t)c);
 	}
 	if (wasObserver)
@@ -918,10 +920,8 @@ static const Color theTeamColors[] =
 };
 static const Color theSeatEmptyColor = GameMakeColor(48, 54, 76, 255);
 static const Color theSeatUnpickedColor = GameMakeColor(128, 128, 128, 255);
-static const Color theCardColor = GameMakeColor(8, 12, 26, 200);
+// a card is UIStyle's panel in its frame, the host's framed in gold; ready is a state of its own
 static const Color theCardReadyColor = GameMakeColor(22, 74, 40, 210);
-static const Color theCardBorderColor = GameMakeColor(40, 64, 130, 255);
-static const Color theCardHostBorderColor = GameMakeColor(196, 156, 48, 255);
 
 Color LobbyTeamColor(Int team)
 {
@@ -1019,8 +1019,8 @@ void UpdateLobbySeatVisuals(GameInfo *myGame)
 		// the host always sits in the first seat of a network room and is never asked to ready up
 		const Bool host = i == 0 && slot->isHuman();
 		const Bool ready = slot->isHuman() && !host && slot->isAccepted();
-		theSeatCard[i]->winSetEnabledColor(0, ready ? theCardReadyColor : theCardColor);
-		theSeatCard[i]->winSetEnabledBorderColor(0, host ? theCardHostBorderColor : theCardBorderColor);
+		theSeatCard[i]->winSetEnabledColor(0, ready ? theCardReadyColor : UIStyle::PANEL);
+		theSeatCard[i]->winSetEnabledBorderColor(0, host ? UIStyle::GOLD : UIStyle::FRAME);
 	}
 }
 

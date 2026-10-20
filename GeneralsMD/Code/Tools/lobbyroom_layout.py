@@ -70,8 +70,9 @@ ROW_PITCH = ROW_HEIGHT + 6
 COLUMNS_RIGHT = SEAT_RIGHT - (ROW_HEIGHT - CONTROL_HEIGHT) // 2
 GAP = 8
 
-# a seat row: colour bar, then the columns
-BAR_WIDTH = 6
+# a seat row: colour bar, then the columns; the bar's fill is drawn a pixel inside each edge, so
+# eight here is UIStyle's six pixel stripe on screen
+BAR_WIDTH = 8
 SEAT_COLUMNS_LEFT = INNER_LEFT + BAR_WIDTH + 16
 # the rules page's check boxes draw a 26 pixel box at 1080; the swatches match it
 SWATCH = 26
@@ -103,12 +104,20 @@ CLOSE_WIDTH = 220
 RECORD_WINDOWS = ("RecordVeil", "RecordPopover", "StaticTextRecordTitle", "ButtonRecordClose")
 # the open record dims the whole room behind it
 RECORD_VEIL = (0, 0, 0, 160)
-RECORD_TEXT, CLOSE_TEXT = "GUI:LobbyRecord", "GUI:LobbyRecordClose"
-POPOVER_COLOR = (6, 10, 22, 255)
-POPOVER_BORDER = (90, 120, 200, 255)
+# the button's label is in capitals like every layout button's; GUI:LobbyRecord titles the popover
+RECORD_TEXT, RECORD_BUTTON_TEXT, CLOSE_TEXT = "GUI:LobbyRecord", "GUI:LobbyRecordButton", "GUI:LobbyRecordClose"
 
-CARD_COLOR = (8, 12, 26, 200)
-CARD_BORDER = (40, 64, 130, 255)
+# UIStyle's tokens (UIStyle.cpp, UI-STYLE.md in the wrapper's docs/reference)
+PANEL = (0, 0, 0, 200)
+CARD = (10, 12, 22, 255)
+FRAME_COLOR = (47, 55, 168, 255)
+ACTIVE = (186, 255, 12, 255)
+
+POPOVER_COLOR = CARD
+POPOVER_BORDER = FRAME_COLOR
+# GUIUtil.cpp gives a network room's cards the same, and turns them green or gold
+CARD_COLOR = PANEL
+CARD_BORDER = FRAME_COLOR
 EMPTY_COLOR = (48, 54, 76, 255)
 VEIL = (2, 4, 12, 120)
 
@@ -391,11 +400,17 @@ def place_rules(layout, rules, checks):
 
 
 def place_frame(layout, spec):
-    need(layout, spec["container"]).place(*FRAME)
+    """EA framed the skirmish panel and drew its rule in FRAME blue, but left the network rooms'
+    panels unframed under a paler rule; all three take the skirmish room's."""
+    container = need(layout, spec["container"])
+    container.place(*FRAME)
+    container.set_prop("ENABLEDDRAWDATA", draw_data(PANEL, FRAME_COLOR))
     title = need(layout, spec["title"])
     title.place(*TITLE)
     left_align(title)
-    need(layout, spec["rule"]).place(FRAME[0], RULE_TOP, FRAME[2], 0)
+    rule = need(layout, spec["rule"])
+    rule.place(FRAME[0], RULE_TOP, FRAME[2], 0)
+    rule.set_prop("ENABLEDDRAWDATA", draw_data((0, 0, 0, 0), FRAME_COLOR))
     need(layout, "ButtonBack").place(INNER_LEFT, BUTTON_TOP, BACK_WIDTH, BUTTON_HEIGHT)
     need(layout, "ButtonStart").place(COLUMN_LEFT, BUTTON_TOP, INNER_RIGHT - COLUMN_LEFT, BUTTON_HEIGHT)
 
@@ -463,6 +478,9 @@ def place_record(layout, menu, container):
     title = need(layout, "StaticTextRecordTitle")
     title.place(left + POPOVER_PADDING - TEXT_NUDGE, top + POPOVER_PADDING, width // 2, POPOVER_TITLE_HEIGHT)
     left_align(title)
+    # a heading inside a panel is ACTIVE, as the options pages' are
+    title.set_prop("TEXTCOLOR", "ENABLED: %d %d %d %d, ENABLEDBORDER: 0 0 0 255, DISABLED: 192 192 192 255, "
+                   "DISABLEDBORDER: 64 64 64 255, HILITE: 128 128 255 255, HILITEBORDER: 0 0 128 255" % ACTIVE)
     close_top = bottom - BUTTON_HEIGHT
     need(layout, "ButtonRecordClose").place(right - CLOSE_WIDTH, close_top, CLOSE_WIDTH, BUTTON_HEIGHT)
 
@@ -481,7 +499,9 @@ def place_record(layout, menu, container):
         label.place(stats_left + 16 - TEXT_NUDGE, row_top, value_left - stats_left - 16, CONTROL_HEIGHT)
         left_align(label)
         need(layout, value_name).place(value_left, row_top, STAT_VALUE_WIDTH, CONTROL_HEIGHT)
-    need(layout, "ButtonRecord").place(INNER_LEFT + BACK_WIDTH + 16, BUTTON_TOP, BUDDIES_WIDTH, BUTTON_HEIGHT)
+    record = need(layout, "ButtonRecord")
+    record.place(INNER_LEFT + BACK_WIDTH + 16, BUTTON_TOP, BUDDIES_WIDTH, BUTTON_HEIGHT)
+    record.set_prop("TEXT", '"%s"' % RECORD_BUTTON_TEXT)
 
 
 def build(layout, menu):

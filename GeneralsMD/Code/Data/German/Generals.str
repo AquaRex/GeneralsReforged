@@ -15337,6 +15337,10 @@ GUI:LobbyRecord
 "Bilanz"
 END
 
+GUI:LobbyRecordButton
+"BILANZ"
+END
+
 GUI:LobbyRecordClose
-"Schließen"
+"SCHLIESSEN"
 END
