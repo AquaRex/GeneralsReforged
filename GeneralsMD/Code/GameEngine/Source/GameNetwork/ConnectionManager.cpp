@@ -2484,11 +2484,17 @@ Real ConnectionManager::getSlotAverageLatency(Int slot) {
 	return m_latencyAverages[slot];
 }
 
-/// the player whose frame rate sets the room's speed, as the packet router picks him, or -1
+/// the player whose frame rate sets the room's speed, as the packet router picks him, or -1 when
+/// he keeps up with the match anyway
 Int ConnectionManager::getSlowestSlot( void ) {
 	Int minFps;
 	Int minFpsPlayer;
 	getMinimumFps(minFps, minFpsPlayer);
+	// nobody is holding the room back while everyone keeps within 10 % of the match's speed; a frame
+	// or two of jitter under the cap would otherwise light a different player every half second
+	if (minFps * 10 >= getMatchFps() * 9) {
+		return -1;
+	}
 	return minFpsPlayer;
 }
 
