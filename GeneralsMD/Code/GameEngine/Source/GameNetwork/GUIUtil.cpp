@@ -1011,13 +1011,11 @@ Color LobbyTextColorOn(Color fill)
 
 void LobbyStartSpotFill(Int x, Int y, Int width, Int height, Color fill)
 {
-	// EA's PlayerStart art is 25 pixels square with a drop shadow to the lower right, so its dark middle
-	// is not centred in it: it covers source pixels 3 to 18 both ways.  Those bounds scale with the
-	// rectangle and round to the nearest pixel.
-	const Int artSize = 25, holeStart = 3, holeEnd = 19;
-	TheDisplay->drawImage(TheMappedImageCollection->findImageByName("ReforgedLobbySpot"),
-		x + (width * holeStart + artSize / 2) / artSize, y + (height * holeStart + artSize / 2) / artSize,
-		x + (width * holeEnd + artSize / 2) / artSize, y + (height * holeEnd + artSize / 2) / artSize, fill);
+	// both halves are cut from EA's PlayerStart cell (Tools/lobby_spot.py), so they lie on it pixel for
+	// pixel: the white middle multiplied by the colour, then the ring over it untinted, its inner edge
+	// fading into the colour as it faded into the black
+	TheDisplay->drawImage(TheMappedImageCollection->findImageByName("ReforgedLobbySpot"), x, y, x + width, y + height, fill);
+	TheDisplay->drawImage(TheMappedImageCollection->findImageByName("ReforgedLobbySpotRing"), x, y, x + width, y + height);
 }
 
 // A colour swatch drawn as one of the rules page's check boxes: their own empty box, and the colour

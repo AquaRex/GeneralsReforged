@@ -141,8 +141,8 @@ Color LobbyTeamColor(Int team);
 Color LobbySeatColor(const GameSlot *slot);
 // Black or white, whichever has the higher WCAG contrast on this fill.
 Color LobbyTextColorOn(Color fill);
-// A taken start spot's colour, laid in the dark middle of EA's PlayerStart ring drawn over this
-// rectangle; the room's spot buttons and the load screen's map both draw it.
+// A taken start spot over EA's PlayerStart drawn in this rectangle: its middle in the colour and its
+// ring as EA drew it.  The room's spot buttons and the load screen's map both draw it.
 void LobbyStartSpotFill(Int x, Int y, Int width, Int height, Color fill);
 
 void EnableSlotListUpdates( Bool val );
