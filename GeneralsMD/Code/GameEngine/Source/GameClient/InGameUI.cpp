@@ -9314,13 +9314,25 @@ void InGameUI::drawHudOverlay( void )
 	WallClockTime wallClock;
 	getLocalWallClock( &wallClock );
 
+	// Turbo mode runs twice the logic frames a second, so its rate reads as the normal rate it is
+	// doubling, marked TURBO, with the frame rate after it.  A replay's 1x is the rate its match was
+	// played at; the speed keys move the engine's limit but not that
+	const Int turboFps = GameEngine_matchFramesPerSecond( TRUE );
+	const Int matchFps = TheRecorder->getMode() == RECORDERMODETYPE_PLAYBACK
+		? replayNormalFramesPerSecond() : TheGameEngine->getFramesPerSecondLimit();
+	UnicodeString rateText;
+	if( matchFps == turboFps )
+		rateText.format( u"%dhz(TURBO) %dfps", m_hudLogicHz.shown * GameEngine_matchFramesPerSecond( FALSE ) / turboFps,
+										 m_hudFps.shown );
+	else
+		rateText.format( u"%dhz(%dfps)", m_hudLogicHz.shown, m_hudFps.shown );
+
 	UnicodeString text;
-	text.format( u"%02d:%02d   %02d:%02d:%02d(%02d:%02d:%02d)   %dhz(%dfps) %s",
+	text.format( u"%02d:%02d   %02d:%02d:%02d(%02d:%02d:%02d)   %s %s",
 							 wallClock.wHour, wallClock.wMinute,
 							 gameSecs / 3600, (gameSecs / 60) % 60, gameSecs % 60,
 							 realSecs / 3600, (realSecs / 60) % 60, realSecs % 60,
-							 m_hudLogicHz.shown, m_hudFps.shown,
-							 TheDisplay->getRendererName() );
+							 rateText.str(), TheDisplay->getRendererName() );
 
 	UnicodeString frameText;
 	frameText.format( u"   frame %d", (Int)logicFrame );

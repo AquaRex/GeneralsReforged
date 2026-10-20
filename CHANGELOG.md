@@ -58,6 +58,7 @@ found and fixed â€” EA's own, not port damage.**
 - In a network game the host ticks the box and every machine in the room plays at that speed, so nobody falls out of step. A recorded stats game online plays at normal speed. A replay plays back at the speed its match had, and its speed buttons still work from there.
 - Campaign and Generals' Challenge missions have the box in Options, under Interface: Turbo Mode in Missions. Ticked in the middle of a mission, it speeds that mission up at once.
 - A skirmish lobby or a saved game left on x0.5 or x0.75 comes back at normal speed. A map script can no longer change how fast a match runs, and the speed console command picks between normal and turbo.
+- In a turbo match the corner readout says 60hz(TURBO) and the frame rate after it, where it said 120hz. The battle still steps 60 times for every second of battle; turbo fits two of those seconds into each real one, and 120hz read as if the step itself had changed.
 
 ## A lobby built for your screen
 
