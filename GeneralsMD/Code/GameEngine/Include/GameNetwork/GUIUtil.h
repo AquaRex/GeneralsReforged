@@ -37,6 +37,8 @@ class GameWindow;
 class GameInfo;
 class GameSlot;
 
+// Hides the named windows of a room while a popup (a map list) lies over them; showing brings back
+// only the ones the last hide took down, so a box hidden for its own reason stays hidden.
 void ShowUnderlyingGUIElements( Bool show, const char *layoutFilename, const char *parentName,
 															 const char **gadgetsToHide, const char **perPlayerGadgetsToHide );
 

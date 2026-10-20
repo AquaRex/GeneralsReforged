@@ -142,6 +142,20 @@ void EnableAcceptControls(Bool Enabled, GameInfo *myGame, GameWindow *comboPlaye
 
 // -----------------------------------------------------------------------------
 
+// What the hiding took down, so showing brings back exactly that: a seat's personality box, ready
+// mark or ping that was already hidden for its own reason stays hidden.  Kept by name, since the
+// windows can be destroyed while the list waits.
+static std::vector<NameKeyType> theUnderlyingHidden;
+
+static void hideUnderlying( GameWindow *parent, NameKeyType id )
+{
+	GameWindow *win = TheWindowManager->winGetWindowFromId( parent, id );
+	if (win == NULL || win->winIsHidden())
+		return;
+	win->winHide( TRUE );
+	theUnderlyingHidden.push_back( id );
+}
+
 void ShowUnderlyingGUIElements( Bool show, const char *layoutFilename, const char *parentName,
 															 const char **gadgetsToHide, const char **perPlayerGadgetsToHide )
 {
@@ -155,41 +169,34 @@ void ShowUnderlyingGUIElements( Bool show, const char *layoutFilename, const cha
 		return;
 	}
 
-	// hide some GUI elements of the screen underneath
-	GameWindow *win;
+	if (show)
+	{
+		for (size_t i = 0; i < theUnderlyingHidden.size(); ++i)
+		{
+			GameWindow *win = TheWindowManager->winGetWindowFromId( parent, theUnderlyingHidden[i] );
+			if (win)
+				win->winHide( FALSE );
+		}
+		theUnderlyingHidden.clear();
+		return;
+	}
 
-	Int player;
-	const char **text;
-
-	text = gadgetsToHide;
-	while (*text)
+	// hide some GUI elements of the screen underneath; a window the layout does not have is skipped
+	for (const char **text = gadgetsToHide; *text; ++text)
 	{
 		AsciiString gadgetName;
 		gadgetName.format("%s:%s", layoutFilename, *text);
-		win	= TheWindowManager->winGetWindowFromId( parent, NAMEKEY(gadgetName) );
-		//DEBUG_ASSERTCRASH(win, ("Cannot find %s to show/hide it", gadgetName.str()));
-		if (win)
-		{
-			win->winHide( !show );
-		}
-		++text;
+		hideUnderlying( parent, NAMEKEY(gadgetName) );
 	}
 
-	text = perPlayerGadgetsToHide;
-	while (*text)
+	for (const char **text = perPlayerGadgetsToHide; *text; ++text)
 	{
-		for (player = 0; player < MAX_SLOTS; ++player)
+		for (Int player = 0; player < MAX_SLOTS; ++player)
 		{
 			AsciiString gadgetName;
 			gadgetName.format("%s:%s%d", layoutFilename, *text, player);
-			win	= TheWindowManager->winGetWindowFromId( parent, NAMEKEY(gadgetName) );
-			//DEBUG_ASSERTCRASH(win, ("Cannot find %s to show/hide it", gadgetName.str()));
-			if (win)
-			{
-				win->winHide( !show );
-			}
+			hideUnderlying( parent, NAMEKEY(gadgetName) );
 		}
-		++text;
 	}
 }
 
@@ -821,6 +828,7 @@ void ShutdownLobbyTabs(void)
 // boxes are already wide measures the same.
 static GameWindow *thePersonaSeatPlayer[MAX_SLOTS];
 static GameWindow *thePersonaSeatName[MAX_SLOTS];
+static GameWindow *thePersonaSeatArmy[MAX_SLOTS];
 static Int thePersonaSeatNarrow[MAX_SLOTS];
 static Int thePersonaSeatWide[MAX_SLOTS];
 
@@ -844,6 +852,7 @@ static void measurePersonaSeat(GameWindow *parent, const char *layoutFilename, G
 	thePersonaSeatPlayer[seat] = player;
 	thePersonaSeatName[seat] = findSeatWindow(parent, layoutFilename, "StaticTextPlayer", seat);
 	GameWindow *army = findSeatWindow(parent, layoutFilename, "ComboBoxPlayerTemplate", seat);
+	thePersonaSeatArmy[seat] = army;
 
 	Int playerX, personaX, armyX, y, personaWidth, height;
 	player->winGetScreenPosition(&playerX, &y);
@@ -910,7 +919,9 @@ void UpdateAIPersonaComboBoxes(GameInfo *myGame, GameWindow *comboPersona[])
 		const GameSlot *slot = myGame->getConstSlot(i);
 		// a takeover seat has no AI behind it, so nothing for a personality to steer
 		const Bool computer = slot->isAI() && !slot->isTakeover();
-		comboPersona[i]->winHide(!computer);
+		// the personality goes with the seat's army box, which ShowUnderlyingGUIElements hides while a
+		// map list lies over the seats, so a network update then cannot bring it back through the list
+		comboPersona[i]->winHide(!computer || thePersonaSeatArmy[i]->winIsHidden());
 		const Int width = computer ? thePersonaSeatNarrow[i] : thePersonaSeatWide[i];
 		setSeatPlayerWidth(thePersonaSeatPlayer[i], width);
 		setSeatPlayerWidth(thePersonaSeatName[i], width);

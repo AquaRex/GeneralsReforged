@@ -87,10 +87,12 @@ static void NullifyControls(void)
 
 static const char *layoutFilename = "GameSpyGameOptionsMenu.wnd";
 static const char *parentName = "GameSpyGameOptionsMenuParent";
+// the map list is see-through over the seat table, so the whole table goes while it is open
 static const char *gadgetsToHide[] =
 {
 	"MapWindow",
 	//"StaticTextGameName",
+	"StaticTextPlayers",
 	"StaticTextTeam",
 	"StaticTextFaction",
 	"StaticTextColor",
@@ -103,6 +105,14 @@ static const char *gadgetsToHide[] =
 };
 static const char *perPlayerGadgetsToHide[] =
 {
+	"SeatCard",
+	"SeatBar",
+	"SeatSwatch",
+	"SeatTeam",
+	"ButtonAccept",
+	"GenericPing",
+	"StaticTextPlayer",
+	"ComboBoxPlayer",
 	"ComboBoxTeam",
 	"ComboBoxColor",
 	"ComboBoxPlayerTemplate",
@@ -116,7 +126,7 @@ static void showGameSpyGameOptionsUnderlyingGUIElements( Bool show )
 {
 	ShowUnderlyingGUIElements( show, layoutFilename, parentName, gadgetsToHide, perPlayerGadgetsToHide );
 	if (show)
-		WOLDisplaySlotList();	// showing brought back every seat's personality box, a human's included
+		WOLDisplaySlotList();	// a seat that changed hands while the list was up gets its own boxes
 	GameWindow *win	= TheWindowManager->winGetWindowFromId( NULL, TheNameKeyGenerator->nameToKey("GameSpyGameOptionsMenu.wnd:ButtonBack") );
 	if(win)
 		win->winEnable( show );

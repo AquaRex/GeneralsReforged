@@ -141,6 +141,14 @@ static NameKeyType buttonRecordCloseID = NAMEKEY_INVALID;
 
 static void showRecord( Bool show )
 {
+	// A combo box that has dropped its list moves itself to the front of the seat table for good
+	// (GadgetComboBox's bringComboToFront), past the veil and the record declared after it, so they
+	// come back to the front each time they open.
+	if ( show )
+	{
+		recordVeil->winBringToTop();
+		recordPopover->winBringToTop();
+	}
 	recordVeil->winHide( !show );
 	recordPopover->winHide( !show );
 }
@@ -1221,6 +1229,9 @@ void InitSkirmishGameGadgets( void )
 	recordPopover = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, NAMEKEY( "SkirmishGameOptionsMenu.wnd:RecordPopover" ) );
 	recordVeil = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, NAMEKEY( "SkirmishGameOptionsMenu.wnd:RecordVeil" ) );
 	recordPopover->winSetInputFunc( recordPopoverInput );
+	// Close's press goes to its parent, the record, which hands it up to the room; the layout gives
+	// the record no system callback, and the press died there
+	recordPopover->winSetSystemFunc( PassMessagesToParentSystem );
 	recordVeil->winSetInputFunc( recordVeilInput );
 	showRecord( FALSE );
 	textEntryMapDisplay =TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, textEntryMapDisplayID );

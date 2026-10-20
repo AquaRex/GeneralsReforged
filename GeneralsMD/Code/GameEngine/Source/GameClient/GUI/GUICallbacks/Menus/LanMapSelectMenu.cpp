@@ -73,10 +73,12 @@ static NameKeyType buttonMapStartPositionID[MAX_SLOTS] = { NAMEKEY_INVALID,NAMEK
 void positionStartSpots( AsciiString mapName, GameWindow *buttonMapStartPositions[], GameWindow *mapWindow);
 static const char *layoutFilename = "LanGameOptionsMenu.wnd";
 static const char *parentName = "LanGameOptionsMenuParent";
+// the map list is see-through over the seat table, so the whole table goes while it is open
 static const char *gadgetsToHide[] =
 {
 	"MapWindow",
 	//"StaticTextTitle",
+	"StaticTextPlayers",
 	"StaticTextTeam",
 	"StaticTextFaction",
 	"StaticTextColor",
@@ -89,6 +91,12 @@ static const char *gadgetsToHide[] =
 };
 static const char *perPlayerGadgetsToHide[] =
 {
+	"SeatCard",
+	"SeatBar",
+	"SeatSwatch",
+	"SeatTeam",
+	"ButtonAccept",
+	"ComboBoxPlayer",
 	"ComboBoxTeam",
 	"ComboBoxColor",
 	"ComboBoxPlayerTemplate",
@@ -100,7 +108,7 @@ static void showLANGameOptionsUnderlyingGUIElements( Bool show )
 {
 	ShowUnderlyingGUIElements( show, layoutFilename, parentName, gadgetsToHide, perPlayerGadgetsToHide );
 	if (show)
-		lanUpdateSlotList();	// showing brought back every seat's personality box, a human's included
+		lanUpdateSlotList();	// a seat that changed hands while the list was up gets its own boxes
 	GameWindow *win	= TheWindowManager->winGetWindowFromId( NULL, TheNameKeyGenerator->nameToKey("LanGameOptionsMenu.wnd:ButtonBack") );
 	if(win)
 		win->winEnable( show );

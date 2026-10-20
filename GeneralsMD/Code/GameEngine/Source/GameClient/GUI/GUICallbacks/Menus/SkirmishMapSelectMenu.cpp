@@ -46,6 +46,7 @@
 #include "GameClient/GadgetRadioButton.h"
 #include "GameClient/GadgetStaticText.h"
 #include "GameNetwork/LANAPICallbacks.h"
+#include "GameNetwork/GUIUtil.h"
 #include "GameClient/MapUtil.h"
 #include "Common/RandomMapGenerator.h"
 
@@ -211,120 +212,44 @@ static void mapListTooltipFunc(GameWindow *window,
 void positionStartSpots( AsciiString mapName, GameWindow *buttonMapStartPositions[], GameWindow *mapWindow);
 void skirmishPositionStartSpots( void );
 void skirmishUpdateSlotList( void );
+// The map list is see-through over the seat table, so the whole table goes while it is open, the
+// seat cards and swatches the stock list never knew included, and the record button with it.
+static const char *gadgetsToHide[] =
+{
+	"MapWindow",
+	"StaticTextPlayers",
+	"StaticTextTeam",
+	"StaticTextFaction",
+	"StaticTextColor",
+	"TextEntryPlayerName",
+	"TextEntryMapDisplay",
+	"ButtonSelectMap",
+	"ButtonStart",
+	"ButtonRecord",
+	"StaticTextMapPreview",
+	NULL // keep this last
+};
+static const char *perPlayerGadgetsToHide[] =
+{
+	"SeatCard",
+	"SeatBar",
+	"SeatSwatch",
+	"SeatTeam",
+	"ComboBoxPlayer",
+	"ComboBoxAIPersona",
+	"ComboBoxTeam",
+	"ComboBoxColor",
+	"ComboBoxPlayerTemplate",
+	NULL // keep this last
+};
+
 void showSkirmishGameOptionsUnderlyingGUIElements( Bool show )
-{                          
-	AsciiString parentName( "SkirmishGameOptionsMenu.wnd:SkirmishGameOptionsMenuParent" );
-	NameKeyType parentID = TheNameKeyGenerator->nameToKey( parentName );
-	GameWindow *parent = TheWindowManager->winGetWindowFromId( NULL, parentID );
-	if (!parent)
-		return;
+{
+	ShowUnderlyingGUIElements( show, "SkirmishGameOptionsMenu.wnd", "SkirmishGameOptionsMenuParent", gadgetsToHide, perPlayerGadgetsToHide );
 
-	// hide some GUI elements of the screen underneath
-	GameWindow *win;
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:MapWindow") );
-	win->winHide( !show );
-
-	//win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:StaticTextTitle") );
-	//win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:StaticTextTeam") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:StaticTextFaction") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:StaticTextColor") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ComboBoxTeam0") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ComboBoxTeam1") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ComboBoxTeam2") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ComboBoxTeam3") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ComboBoxTeam4") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ComboBoxTeam5") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ComboBoxTeam6") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ComboBoxTeam7") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ComboBoxColor0") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ComboBoxColor1") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ComboBoxColor2") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ComboBoxColor3") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ComboBoxColor4") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ComboBoxColor5") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ComboBoxColor6") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ComboBoxColor7") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ComboBoxPlayerTemplate0") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ComboBoxPlayerTemplate1") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ComboBoxPlayerTemplate2") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ComboBoxPlayerTemplate3") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ComboBoxPlayerTemplate4") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ComboBoxPlayerTemplate5") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ComboBoxPlayerTemplate6") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ComboBoxPlayerTemplate7") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:TextEntryMapDisplay") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ButtonSelectMap") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ButtonStart") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:StaticTextMapPreview") );
-	win->winHide( !show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ButtonReset") );
+	GameWindow *win	= TheWindowManager->winGetWindowFromId( NULL, NAMEKEY("SkirmishGameOptionsMenu.wnd:ButtonReset") );
 	win->winEnable( show );
-
-	win	= TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey("SkirmishGameOptionsMenu.wnd:ButtonBack") );
+	win	= TheWindowManager->winGetWindowFromId( NULL, NAMEKEY("SkirmishGameOptionsMenu.wnd:ButtonBack") );
 	win->winEnable( show );
 }
 

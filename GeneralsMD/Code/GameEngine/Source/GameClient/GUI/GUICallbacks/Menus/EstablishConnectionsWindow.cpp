@@ -93,6 +93,11 @@ static const char *perPlayerGadgetsToHide[] =
 	"ComboBoxPlayer",
 	"ButtonAccept",
 	"GenericPing",
+	"StaticTextPlayer",
+	"SeatCard",
+	"SeatBar",
+	"SeatSwatch",
+	"SeatTeam",
 	//"ButtonStartPosition",
 	NULL // keep this last
 };
