@@ -34,6 +34,7 @@
 #include "Common/INIException.h"
 #include "Common/STLTypedefs.h"
 #include "Common/DataChunk.h"
+#include "Common/FileWriteQueue.h"
 #include "Common/MapObject.h"
 #include "Common/RandomMapGenerator.h"
 #include "Common/StackDump.h"
@@ -18160,4 +18161,60 @@ TEST(debug_log_cut_keeps_the_head_and_the_last_whole_lines)
 	CHECK( text.find( '\r' ) == std::string::npos );						// no \r\r\n from the text-mode rewrite
 	const std::string ending = "line 0999\nwritten after the cut\n";
 	CHECK( text.compare( text.size() - ending.size(), ending.size(), ending ) == 0 );
+}
+
+// The replay's writer: appends and header patches through the queue leave the bytes the same calls
+// made straight on the FILE did, the way RecorderClass makes them.
+TEST(file_write_queue_writes_what_the_file_calls_wrote)
+{
+	const std::string queued = (std::filesystem::temp_directory_path() / "zh_fwq_queued.bin").string();
+	const std::string direct = (std::filesystem::temp_directory_path() / "zh_fwq_direct.bin").string();
+
+	FILE *d = fopen( direct.c_str(), "wb" );
+	FileWriteQueue queue;
+	FILE *q = fopen( queued.c_str(), "wb" );
+	queue.start( q );
+	const char head[] = "GENREP\0\0\0\0";
+	fwrite( head, 1, 10, d );
+	queue.write( head, 10 );
+	const UnsignedInt patch = 0x11223344;
+	long end = ftell( d );		// a patch before the first flush, as logGameStart's
+	fseek( d, 6, SEEK_SET );
+	fwrite( &patch, sizeof( patch ), 1, d );
+	fseek( d, end, SEEK_SET );
+	queue.writeAt( 6, &patch, sizeof( patch ) );
+	for( UnsignedInt frame = 0; frame < 5000; ++frame )
+	{
+		fwrite( &frame, sizeof( frame ), 1, d );
+		queue.write( &frame, sizeof( frame ) );
+		if( frame == 2500 )
+			queue.flush();		// a batch boundary in the middle
+	}
+	const unsigned char flag = 1;
+	end = ftell( d );
+	fseek( d, 9, SEEK_SET );
+	fwrite( &flag, 1, 1, d );
+	fseek( d, end, SEEK_SET );
+	queue.writeAt( 9, &flag, 1 );
+	fwrite( "tail", 1, 4, d );
+	queue.write( "tail", 4 );
+	queue.stop();
+	queue.write( "dropped", 7 );		// a stopped queue takes nothing
+	fclose( q );
+	fclose( d );
+
+	CHECK( std::filesystem::file_size( queued ) == std::filesystem::file_size( direct ) );
+	FILE *a = fopen( queued.c_str(), "rb" );
+	FILE *b = fopen( direct.c_str(), "rb" );
+	Int ca, cb;
+	do
+	{
+		ca = fgetc( a );
+		cb = fgetc( b );
+	} while( ca == cb && ca != EOF );
+	fclose( a );
+	fclose( b );
+	std::filesystem::remove( queued );
+	std::filesystem::remove( direct );
+	CHECK( ca == cb );
 }
