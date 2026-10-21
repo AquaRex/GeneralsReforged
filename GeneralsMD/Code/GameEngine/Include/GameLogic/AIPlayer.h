@@ -364,13 +364,13 @@ protected:
 
 	/** The spend rule, on every rung with a bank target.  Measures the income, and with the bank past
 		* aiBankTarget spends what is over it: upgrades at half the payoff, extra units from idle factories
-		* within aiSurplusBudget, and another factory when the bank has not come down over an income window
-		* (aiWantsMoreProduction).  Upgrades that pay for the army are bought below the target as well,
-		* through the purchase queue. */
+		* within aiSurplusBudget.  Another factory of any kind whose every factory stays busy, whatever the
+		* bank.  Upgrades that pay for the army are bought below the target as well, through the purchase
+		* queue. */
 	void doSpending(void);
 	Int bankTarget(void);																	///< what the bank keeps, from the income measured last
 	void buyUpgradesForArmy(Bool overTarget);								///< the player upgrade the standing army gets the most out of
-	void addProductionForIncome(Int bank, Int bankWindowAgo, Int target);	///< another factory, while what stands does not bring the bank down
+	void addProductionForQueues(void);											///< another factory of each kind whose every factory has stayed busy
 	void trainSurplus(Int budget);												///< a unit from each idle factory, within budget
 	void trainFavoured(void);															///< a personality's favoured units, below the bank target as well
 	void buyPersonaTransports(void);											///< an Infantry AI's ground transports, a few by rung
@@ -380,7 +380,7 @@ protected:
 	Int					m_bankMark;							///< ... and the bank then
 	Real				m_incomePerSecond;			///< smoothed over the windows measured so far
 	Int					m_startFortune;					///< what the match started with over the default starting cash, 0 at the default
-	UnsignedInt	m_factoryBackedUpSince[ 3 ];	///< per war factory, barracks, airfield: the frame every finished one was first seen with a unit waiting, 0 for not
+	UnsignedInt	m_factoryBackedUpSince[ 3 ];	///< per war factory, barracks, airfield: the frame every finished one was first seen busy with none going up, 0 for not
 	Bool purchaseAllowed(Int key, Int cost, AIPurchaseKind kind, Bool startable, const AsciiString &what, Int scoreOffset = 0);
 	void purchased(Int key, Int cost, AIPurchaseKind kind, const AsciiString &what);
 	Bool buyUnit(ProductionUpdateInterface *pu, const ThingTemplate *unit, AIPurchaseKind kind);	///< queueCreateUnit through the queue

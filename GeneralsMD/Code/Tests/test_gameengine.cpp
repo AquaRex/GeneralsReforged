@@ -12621,31 +12621,48 @@ TEST(ground_flood_goes_round_the_wall_nearest_first)
 	CHECK_EQ( count, 3 );		// the source and its two side neighbours
 }
 
-/** Another factory only when every one standing has kept a unit waiting for AI_FACTORY_BACKLOG_SECONDS,
-	 and another tech building until three are standing. */
+/** Another factory only when every one standing has stayed busy for the rung's backlog, with no cap on
+	 how many, and another tech building until three are standing. */
 TEST(extra_factory_follows_the_queue_and_tech_stops_at_three)
 {
-	const UnsignedInt BACKLOG = AI_FACTORY_BACKLOG_SECONDS * LOGICFRAMES_PER_SECOND;
+	TAiData data;
+	for( Int s = 0; s < AISKILL_COUNT; ++s )
+	{
+		// every rung waits, Hard the shortest
+		CHECK( data.m_skill[ s ].m_factoryBacklogSeconds > 0.0f );
+		if( s > 0 )
+			CHECK( data.m_skill[ s ].m_factoryBacklogSeconds < data.m_skill[ s - 1 ].m_factoryBacklogSeconds );
+	}
+	const UnsignedInt BACKLOG = (UnsignedInt)REAL_TO_INT( data.m_skill[ AISKILL_BRUTAL ].m_factoryBacklogSeconds * LOGICFRAMES_PER_SECOND );
 
 	// nothing left standing: put one back
-	CHECK( aiWantsAnotherFactory( 0, 0, 0, 0 ) );
+	CHECK( aiWantsAnotherFactory( 0, 0, 0, 0, BACKLOG ) );
 
 	// one already going up is the building this would ask for
-	CHECK( !aiWantsAnotherFactory( 0, 1, 0, 0 ) );
-	CHECK( !aiWantsAnotherFactory( 2, 1, 4, BACKLOG ) );
+	CHECK( !aiWantsAnotherFactory( 0, 1, 0, 0, BACKLOG ) );
+	CHECK( !aiWantsAnotherFactory( 2, 1, 4, BACKLOG, BACKLOG ) );
 
-	// one with an empty queue, or only the unit it is building, has room
-	CHECK( !aiWantsAnotherFactory( 2, 0, 0, BACKLOG ) );
-	CHECK( !aiWantsAnotherFactory( 1, 0, 1, BACKLOG ) );
+	// one with an empty queue is the spare
+	CHECK( !aiWantsAnotherFactory( 2, 0, 0, BACKLOG, BACKLOG ) );
 
 	// a team landing in the queue all at once is a batch, not a factory falling behind: the
-	// opening's training no longer buys a second barracks
-	CHECK( !aiWantsAnotherFactory( 1, 0, 5, 0 ) );
-	CHECK( !aiWantsAnotherFactory( 1, 0, 5, BACKLOG - 1 ) );
+	// opening's training does not buy a second barracks
+	CHECK( !aiWantsAnotherFactory( 1, 0, 5, 0, BACKLOG ) );
+	CHECK( !aiWantsAnotherFactory( 1, 0, 1, BACKLOG - 1, BACKLOG ) );
 
-	// every finished one has kept a unit waiting the whole time
-	CHECK( aiWantsAnotherFactory( 1, 0, 2, BACKLOG ) );
-	CHECK( aiWantsAnotherFactory( 3, 0, 2, BACKLOG + 600 ) );
+	// busy the whole time, only the unit it builds in the queue, is enough: the scripts never queue
+	// behind it, and a second factory never went up
+	CHECK( aiWantsAnotherFactory( 1, 0, 1, BACKLOG, BACKLOG ) );
+	CHECK( aiWantsAnotherFactory( 1, 0, 2, BACKLOG, BACKLOG ) );
+
+	// a third once both stay busy, and past any plan's count: no cap
+	CHECK( aiWantsAnotherFactory( 2, 0, 1, BACKLOG, BACKLOG ) );
+	CHECK( aiWantsAnotherFactory( 9, 0, 1, BACKLOG + 600, BACKLOG ) );
+
+	// a lower rung waits longer for the same backlog
+	const UnsignedInt EASY = (UnsignedInt)REAL_TO_INT( data.m_skill[ AISKILL_EASY ].m_factoryBacklogSeconds * LOGICFRAMES_PER_SECOND );
+	CHECK( !aiWantsAnotherFactory( 2, 0, 1, BACKLOG, EASY ) );
+	CHECK( aiWantsAnotherFactory( 2, 0, 1, EASY, EASY ) );
 
 	CHECK( aiWantsAnotherTechBuilding( 0, 0 ) );
 	CHECK( aiWantsAnotherTechBuilding( AI_TECH_BUILDING_COPIES - 1, 0 ) );
@@ -13009,20 +13026,6 @@ TEST(the_bank_target_and_the_upgrade_the_army_pays_for)
 	CHECK_EQ( 6000, aiBankTarget( 200.0f, 30.0f, 4000 ) );
 	CHECK_EQ( 12000, aiBankTarget( 200.0f, 60.0f, 4000 ) );
 
-	// another factory only when the bank is over target and has not come down over the window, and the
-	// rung's cap is not reached: the first cut sized it from income and a Hard AI earning 93 a second
-	// never added one to the two it had
-	CHECK( aiWantsMoreProduction( 56700, 56000, 4000, 2, 8, 0.0f ) );					// over target and still rising
-	CHECK( aiWantsMoreProduction( 9000, 9000, 4000, 2, 8, 0.0f ) );						// over target and flat
-	CHECK( !aiWantsMoreProduction( 9000, 12000, 4000, 2, 8, 0.0f ) );					// coming down: what stands spends it
-	CHECK( !aiWantsMoreProduction( 3000, 1000, 4000, 2, 8, 2.0f ) );					// under target
-	CHECK( !aiWantsMoreProduction( 56700, 56000, 4000, 8, 8, 2.0f ) );				// at the cap
-	CHECK( !aiWantsMoreProduction( 56700, 56000, 4000, 3, 3, 2.0f ) );
-	// a busy Hard AI's bank swings, so past twice the target it adds one whatever the trend
-	CHECK( aiWantsMoreProduction( 52200, 60000, 4000, 4, 8, 2.0f ) );
-	CHECK( !aiWantsMoreProduction( 8000, 9000, 4000, 4, 8, 2.0f ) );					// at twice, not past it
-	CHECK( !aiWantsMoreProduction( 52200, 60000, 4000, 4, 8, 0.0f ) );				// a rung without the multiple
-
 	// the surplus budget: the rung's share of thirty seconds' income, never past the excess
 	CHECK_EQ( 0, aiSurplusBudget( 3000, 4000, 100.0f, 1.0f ) );					// under target, nothing
 	CHECK_EQ( 3000, aiSurplusBudget( 60000, 4000, 100.0f, 1.0f ) );				// Hard: a window's income a pass
@@ -13092,7 +13095,6 @@ TEST(the_bank_target_and_the_upgrade_the_army_pays_for)
 		CHECK( upper.m_upgradePayoff < lower.m_upgradePayoff );
 		CHECK( upper.m_upgradeStartSeconds < lower.m_upgradeStartSeconds );
 		CHECK( upper.m_surplusShare > lower.m_surplusShare );
-		CHECK( upper.m_maxProduction >= lower.m_maxProduction );
 		// every rung waits out an opening and sends no trickle, Hard the shortest wait and the biggest
 		// floor; every rung keeps its artillery behind the line, Hard the farthest
 		CHECK( lower.m_firstPushSeconds > 0.0f && upper.m_firstPushSeconds > 0.0f );
@@ -13100,13 +13102,8 @@ TEST(the_bank_target_and_the_upgrade_the_army_pays_for)
 		CHECK( upper.m_minAttackPower > lower.m_minAttackPower && lower.m_minAttackPower > 0.0f );
 		CHECK( upper.m_siegeTrail > lower.m_siegeTrail && lower.m_siegeTrail > 0.0f );
 	}
-	// Hard builds past its plan with a bank past twice its target, Medium only past a bigger multiple and
-	// to a lower cap, Easy never; Medium out-armies Easy and Hard out-armies Medium, which an equal share
-	// and cap for the two lower rungs had undone
-	CHECK( data.m_skill[ AISKILL_BRUTAL ].m_maxProduction > data.m_skill[ AISKILL_MEDIUM ].m_maxProduction );
-	CHECK( data.m_skill[ AISKILL_BRUTAL ].m_factoryBankMultiple > 0.0f );
-	CHECK( data.m_skill[ AISKILL_MEDIUM ].m_factoryBankMultiple > data.m_skill[ AISKILL_BRUTAL ].m_factoryBankMultiple );
-	CHECK_EQ( 0.0f, data.m_skill[ AISKILL_EASY ].m_factoryBankMultiple );
+	// Medium out-armies Easy and Hard out-armies Medium, which an equal share for the two lower rungs
+	// had undone
 	CHECK( data.m_skill[ AISKILL_BRUTAL ].m_surplusShare >= 4.0f * data.m_skill[ AISKILL_MEDIUM ].m_surplusShare );
 	// Easy fires the retail S curve; Medium drives the Particle Cannon's beam at walking pace, Hard
 	// steers it often enough to count as the double click that drives it fast

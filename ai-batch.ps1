@@ -217,8 +217,18 @@ foreach ($run in $started) {
 	$loss = @{}
 	$engage = @{}
 	$econ = [pscustomobject]@{ Reattach = 0; Waves = 0; Counter = 0 }
+	# production buildings each player put up, by kind (an arms dealer is GLA's war factory); a lost
+	# one put back counts again, so this is at least the most that ever stood at once
+	$factories = @{}
 
 	foreach ($line in Get-Content $log) {
+		if ($line -match "^AI BUILT frame \d+ player (\d+) '.*?(WarFactory|ArmsDealer|Barracks|Airfield)'") {
+			$p = [int]$Matches[1]
+			if (-not $factories.ContainsKey($p)) { $factories[$p] = @{ WarFactory = 0; Barracks = 0; Airfield = 0 } }
+			$kind = if ($Matches[2] -eq "ArmsDealer") { "WarFactory" } else { $Matches[2] }
+			$factories[$p][$kind]++
+			continue
+		}
 		if ($line -match "^AI LOSS frame \d+ player (\d+) .* (straggling|grouped|last), ") {
 			$p = [int]$Matches[1]
 			if (-not $loss.ContainsKey($p)) { $loss[$p] = @{ straggling = 0; grouped = 0; last = 0 } }
@@ -303,7 +313,7 @@ foreach ($run in $started) {
 	Write-Host ("{0}, {1}, frame {2}, {3:n0}s" -f $why, $winnerText, $frames, $wall)
 
 	$rows += [pscustomobject]@{ Seed = $seed; Cells = $cells; Why = $why; Frames = $frames; Wall = $wall; Slots = $slots; Pf = $pf; Perf = $perf; Jobs = $jobs; Ft = $ft; Spikes = $spikes
-		Value = $value; Loss = $loss; Engage = $engage; Econ = $econ; Winner = $winner }
+		Value = $value; Loss = $loss; Engage = $engage; Econ = $econ; Factories = $factories; Winner = $winner }
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -341,6 +351,23 @@ $summary = foreach ($p in $slotIds) {
 	}
 }
 if ($summary) { $summary | Format-Table -AutoSize | Out-String | Write-Host }
+
+# How many of each production building a player put up, the most in any one match of the batch:
+# a computer that stands one of each all match is short of factories (AIPlayer::addProductionForQueues).
+$factoryIds = $rows | ForEach-Object { if ($_.Factories) { $_.Factories.Keys } } | Sort-Object -Unique
+$factoryRows = foreach ($p in $factoryIds) {
+	$mine = @($rows | Where-Object { $_.Factories -and $_.Factories.ContainsKey($p) } | ForEach-Object { $_.Factories[$p] })
+	[pscustomobject]@{
+		Player        = $p
+		MaxWarFactory = ($mine | ForEach-Object { $_.WarFactory } | Measure-Object -Maximum).Maximum
+		MaxBarracks   = ($mine | ForEach-Object { $_.Barracks } | Measure-Object -Maximum).Maximum
+		MaxAirfield   = ($mine | ForEach-Object { $_.Airfield } | Measure-Object -Maximum).Maximum
+	}
+}
+if ($factoryRows) {
+	Write-Host "production buildings put up (AI BUILT), most in one match:"
+	$factoryRows | Format-Table -AutoSize | Out-String | Write-Host
+}
 
 # The exchange each side made, in money: lost over killed below 1 is a side that trades well. Team
 # deaths by how alone each one died, straggling being the one the AI could have prevented. What it

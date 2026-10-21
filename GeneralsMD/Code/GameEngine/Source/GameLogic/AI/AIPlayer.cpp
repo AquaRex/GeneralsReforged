@@ -7025,22 +7025,9 @@ void AIPlayer::doEconomy( void )
 			placeNear( tmpl, &m_baseCenter, 0.5f * m_baseRadius, FALSE );
 	}
 
+	// another factory is doSpending's, on every rung
 	if( m_persona != AIPERSONA_TURTLE )
 		queueBaseDefenses( dozer );
-
-	// ... and what does not pay back for twice it, so the opening build order is not what pays for it
-	if( m_player->getMoney()->countMoney() <= 2 * profile->m_cashHoardThreshold )
-		return;
-
-	/* Another factory only once the ones standing fall behind their queues (aiWantsAnotherFactory).
-		 Airfields, and war factories and barracks while the base had no room for an income building,
-		 used to get one a pass whatever their queues, and the opening spent itself on a second barracks
-		 with the first one empty.  The kind asked first turns with each pass, so a queue that never
-		 empties does not keep the others waiting. */
-	const Int first = (Int)( ((TheGameLogic->getFrame() + phase) / ECONOMY_CHECK_RATE) % PRODUCTION_KINDS );
-	for( Int i = 0; i < PRODUCTION_KINDS; ++i )
-		if( queueExtraFactory( dozer, PRODUCTION_KIND[ (first + i) % PRODUCTION_KINDS ] ) )
-			return;
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -7630,8 +7617,9 @@ void AIPlayer::buyMoneyUnits( void )
 //----------------------------------------------------------------------------------------------------------
 /** One more factory of this kind, beside a held expansion or around the base.  The expansion try is
 	* local: a miss out there must not walk the base's ring cursor past the ground around the command
-	* center, or the first crowded dock skips the base itself.  Nothing while the build list still has one
-	* of this kind to put up, since that one goes first, and then only when holdsExtraFactory lets it. */
+	* center, or the first crowded dock skips the base itself.  Nothing while one of this kind is asked for
+	* and not yet up, since that one goes first, and then only when holdsExtraFactory lets it.  A plan copy
+	* the scripts have not asked for does not wait it out: they reach those at eight minutes. */
 //----------------------------------------------------------------------------------------------------------
 Bool AIPlayer::queueExtraFactory( Object *dozer, KindOfType kind )
 {
@@ -7650,7 +7638,7 @@ Bool AIPlayer::queueExtraFactory( Object *dozer, KindOfType kind )
 			favoured = load.constructing == 0 && load.finished < PERSONA_FAVOURED_FACTORIES[ m_skillLevel ];
 		}
 	}
-	if( favoured ? plannedOfKind( m_player, kind, TRUE ) > 0 : plannedOfKind( m_player, kind ) > 0 || holdsExtraFactory( tmpl ) )
+	if( plannedOfKind( m_player, kind, TRUE ) > 0 || ( !favoured && holdsExtraFactory( tmpl ) ) )
 		return FALSE;
 
 	const Object *warehouse = TheGameLogic->findObjectByID( m_curWarehouseID );
@@ -7662,8 +7650,8 @@ Bool AIPlayer::queueExtraFactory( Object *dozer, KindOfType kind )
 }
 
 //----------------------------------------------------------------------------------------------------------
-/** A second factory of a kind waits until every finished one has kept a unit waiting for
-	* AI_FACTORY_BACKLOG_SECONDS (aiWantsAnotherFactory; doSpending keeps that clock), and while one is
+/** Another factory of a kind waits until every finished one has stayed busy for the rung's
+	* m_factoryBacklogSeconds (aiWantsAnotherFactory; doSpending keeps that clock), and while one is
 	* going up.  The build list's own copies wait the same way: the Infantry General's plan holds four
 	* barracks, and its scripts asked for the second 38 seconds in, before the first had trained anyone,
 	* and the bank went to nothing waiting on the third. */
@@ -7681,7 +7669,8 @@ Bool AIPlayer::holdsExtraFactory( const ThingTemplate *tmpl )
 			return load.constructing > 0 || load.finished >= PERSONA_FAVOURED_FACTORIES[ m_skillLevel ];
 		const UnsignedInt since = m_factoryBackedUpSince[ k ];
 		return !aiWantsAnotherFactory( load.finished, load.constructing, load.shallowest,
-			since == 0 ? 0 : TheGameLogic->getFrame() - since );
+			since == 0 ? 0 : TheGameLogic->getFrame() - since,
+			(UnsignedInt)REAL_TO_INT( getSkillProfile()->m_factoryBacklogSeconds * LOGICFRAMES_PER_SECOND ) );
 	}
 	return FALSE;
 }
@@ -8633,8 +8622,8 @@ static const ThingTemplate *surplusUnit( Object *factory, const Player *owner, c
 /** The bank a computer kept was the part of its income nothing was ever bought with: a Hard AI facing
 	* Medium ended its matches on 12,300 on average, a Medium one on up to 62,000.  So every rung
 	* keeps a bank of so many seconds of what it actually earns (m_bankTargetSeconds, aiBankTarget), and
-	* what is over that goes on upgrades, on extra units within the rung's share (aiSurplusBudget), and
-	* on another factory once an income window shows the bank is not coming down (aiWantsMoreProduction).
+	* what is over that goes on upgrades and on extra units within the rung's share (aiSurplusBudget).
+	* Another factory goes up whenever every one of its kind has stayed busy (addProductionForQueues).
 	* The upgrades that pay for the standing army are bought below the target as well, each rung from
 	* its own point in the match, and all of it goes through the purchase queue, which keeps below the
 	* same target. */
@@ -8647,12 +8636,13 @@ void AIPlayer::doSpending( void )
 	if( (now + computeUpdatePhase( m_player->getPlayerIndex(), ECONOMY_CHECK_RATE ) + ECONOMY_CHECK_RATE - ECONOMY_SLOT_STEP) % ECONOMY_CHECK_RATE != 0 )
 		return;
 
-	// since when every finished factory of each kind has had a unit waiting behind the one it builds,
-	// read on every pass so a queue that ran dry in between starts the clock again (queueExtraFactory)
+	// since when every finished factory of each kind has been busy, read on every pass so a factory that
+	// went idle in between starts the clock again, and one going up starts it again once it stands, so
+	// the new one has to prove itself busy too (queueExtraFactory)
 	for( Int k = 0; k < PRODUCTION_KINDS; ++k )
 	{
 		const FactoryLoad load = readFactoryLoad( m_player, PRODUCTION_KIND[ k ] );
-		if( load.finished == 0 || load.shallowest < 2 )
+		if( load.finished == 0 || load.constructing > 0 || load.shallowest < 1 )
 			m_factoryBackedUpSince[ k ] = 0;
 		else if( m_factoryBackedUpSince[ k ] == 0 )
 			m_factoryBackedUpSince[ k ] = now;
@@ -8661,13 +8651,10 @@ void AIPlayer::doSpending( void )
 	// the income, off what the score screen counts as earned: gathered, hacked, captured and given
 	const Int bank = (Int)m_player->getMoney()->countMoney();
 	const Int earned = m_player->getScoreKeeper()->getTotalMoneyEarned();
-	Bool windowEnded = FALSE;
-	Int bankWindowAgo = bank;
 	if( now - m_incomeMarkFrame >= AI_INCOME_WINDOW_FRAMES )
 	{
 		const Real window = INT_TO_REAL( earned - m_incomeMark ) * LOGICFRAMES_PER_SECOND / INT_TO_REAL( now - m_incomeMarkFrame );
-		windowEnded = m_incomeMarkFrame != 0;		// the first window has no bank before it to compare with
-		bankWindowAgo = m_bankMark;
+		const Int bankWindowAgo = m_bankMark;
 		m_incomePerSecond = m_incomeMarkFrame == 0 ? window : 0.5f * (m_incomePerSecond + window);
 		m_incomeMark = earned;
 		m_incomeMarkFrame = now;
@@ -8678,6 +8665,7 @@ void AIPlayer::doSpending( void )
 
 	if( isBaseUnderAttack() )
 		return;		// defendHome's
+	addProductionForQueues();
 	if( m_persona != AIPERSONA_NORMAL )
 		trainFavoured();
 	const Int target = bankTarget();
@@ -8691,13 +8679,11 @@ void AIPlayer::doSpending( void )
 	// A match that starts on 50,000 handed every AI a bank no income window ever saw coming: the
 	// surplus is a share of what it earns, and in the first minutes it earns nothing, so the fortune
 	// sat there while the build list ticked along. What is over the default starting cash, up to
-	// what the start gave over it, goes out at the rung's share a pass, and factories go up for it
-	// without waiting on a window. At the default cash the fortune is 0 and nothing here changes.
+	// what the start gave over it, goes out at the rung's share a pass. At the default cash the
+	// fortune is 0 and nothing here changes.
 	//
 	const Int keep = max( target, (Int)TheGlobalData->m_defaultStartingCash.countMoney() );
 	const Int fortune = aiFortuneBudget( bank, keep, m_startFortune, getSkillProfile()->m_surplusShare );
-	if( windowEnded || fortune > 0 )
-		addProductionForIncome( bank, bankWindowAgo, target );		// between windows bankWindowAgo is the bank itself
 	const Int surplus = aiSurplusBudget( (Int)m_player->getMoney()->countMoney(), target, m_incomePerSecond, getSkillProfile()->m_surplusShare );
 	if( fortune > surplus )
 		DEBUG_LOG(("AI ECONOMY frame %d player %d spends its starting fortune, %d of it this pass, %d in the bank, %d kept\n", now,
@@ -8843,57 +8829,32 @@ void AIPlayer::buyUpgradesForArmy( Bool overTarget )
 }
 
 //----------------------------------------------------------------------------------------------------------
-/** Another tank factory or barracks, whichever the base has fewer of, when an income window ends with
-	* the bank over its target and no lower than a window before, or past m_factoryBankMultiple times the
-	* target (aiWantsMoreProduction): what stands is not spending what comes in.  One at a time, and no more than the rung's m_maxProduction war
-	* factories, barracks and airfields together.  A guessed spend rate a factory stood here first: a
-	* Hard AI earning 93 a second wanted the two factories it had.  Unbuilt plan entries count as standing,
-	* or the rule adds the factory the plan is about to put up.  A bank alone is no reason: the kind's
-	* own factories have to be falling behind their queues too (queueExtraFactory), or a match started on
-	* a big bank opened on a second barracks before the first had trained anyone. */
+/** Another war factory, barracks or airfield of each kind whose every factory has stayed busy for the
+	* rung's m_factoryBacklogSeconds (queueExtraFactory), on every rung and with no cap on how many stand:
+	* a kind that keeps all of its factories busy is short of them.  A cap of 3, 5 and 8 production
+	* buildings and a bank rule stood here, behind a gate that waited for a unit queued behind the one
+	* being built, which the scripts never queue, so the computer stood one of each all match.  The
+	* money is the purchase queue's, like every other building. */
 //----------------------------------------------------------------------------------------------------------
-void AIPlayer::addProductionForIncome( Int bank, Int bankWindowAgo, Int target )
+void AIPlayer::addProductionForQueues( void )
 {
 	if( !m_player->getCanBuildBase() || !m_baseCenterSet )
 		return;
-
-	Int standing[ PRODUCTION_KINDS ];
-	Int total = 0;
-	// ... and the ones the plan has yet to put up count as standing: early on a Medium plan of two war
-	// factories and a barracks had two up, and the rule added the third the plan was about to build
-	Int planned = 0;
-	for( Int k = 0; k < PRODUCTION_KINDS; ++k )
-	{
-		const FactoryLoad load = readFactoryLoad( m_player, PRODUCTION_KIND[ k ] );
-		if( load.constructing > 0 )
-			return;		// one at a time
-		standing[ k ] = load.finished;
-		total += load.finished;
-		planned += plannedOfKind( m_player, PRODUCTION_KIND[ k ] );
-	}
-	total += planned;
-	const Int cap = getSkillProfile()->m_maxProduction;
-	if( !aiWantsMoreProduction( bank, bankWindowAgo, target, total, cap, getSkillProfile()->m_factoryBankMultiple ) )
-		return;
-
 	Object *dozer = NULL;
 	m_player->iterateObjects( findAnyDozer, &dozer );
 	if( dozer == NULL )
 		return;
-	const Int first = standing[ 1 ] < standing[ 0 ] ? 1 : 0;
-	// a personality with a unit taste asks for its favoured kind first, an airfield included
-	const Int favoured = m_persona != AIPERSONA_NORMAL ? personaFavouredKind( personaTaste() ) : -1;
-	for( Int k = favoured >= 0 ? -1 : 0; k < 2; ++k )
+	for( Int k = 0; k < PRODUCTION_KINDS; ++k )
 	{
-		const KindOfType kind = PRODUCTION_KIND[ k < 0 ? favoured : k == 0 ? first : 1 - first ];
-		if( queueExtraFactory( dozer, kind ) )
-		{
-			DEBUG_LOG(("AI ECONOMY frame %d player %d puts up another %s, %d of at most %d standing (%d of them planned), %d in the bank (%d a window ago), bank target %d, %.0f a second of income\n",
-				TheGameLogic->getFrame(), m_player->getPlayerIndex(),
-				kind == KINDOF_FS_WARFACTORY ? "war factory" : kind == KINDOF_FS_BARRACKS ? "barracks" : "airfield",
-				total, cap, planned, bank, bankWindowAgo, target, m_incomePerSecond));
-			return;
-		}
+		// the first of a kind, and one put back, is the plan's when its scripts ask: from here an
+		// Easy computer stood its barracks and airfield in the first ten seconds, ahead of its plan
+		const FactoryLoad load = readFactoryLoad( m_player, PRODUCTION_KIND[ k ] );
+		if( load.finished == 0 || !queueExtraFactory( dozer, PRODUCTION_KIND[ k ] ) )
+			continue;
+		DEBUG_LOG(("AI ECONOMY frame %d player %d puts up another %s, %d standing, %d in the bank\n",
+			TheGameLogic->getFrame(), m_player->getPlayerIndex(),
+			k == 0 ? "war factory" : k == 1 ? "barracks" : "airfield", load.finished,
+			m_player->getMoney()->countMoney()));
 	}
 }
 
@@ -15741,8 +15702,6 @@ const AIDifficultyProfile *AIPlayer::getSkillProfile( void ) const
 	p.m_bankTargetFloor = REAL_TO_INT( INT_TO_REAL( p.m_bankTargetFloor ) * w.m_bank );
 	p.m_cashHoardThreshold = REAL_TO_INT( INT_TO_REAL( p.m_cashHoardThreshold ) * w.m_hoard );
 	p.m_surplusShare = min( 1.0f, p.m_surplusShare * w.m_surplus );
-	// one that spends has the factories to spend at: an Attacker on eight sat on 42,000 at 360 a second
-	p.m_maxProduction = REAL_TO_INT( INT_TO_REAL( p.m_maxProduction ) * max( 1.0f, 0.75f * w.m_surplus ) );
 	p.m_retreatTtkRatio *= w.m_retreat;
 	p.m_counterCompositionWeight = p.m_counterCompositionWeight * w.m_counter + w.m_counterAdd;
 	p.m_upgradeStartSeconds *= w.m_upgradeStart;

@@ -256,8 +256,7 @@ struct AIDifficultyProfile
 	Real	m_upgradeStartSeconds;					///< and not before this far into the match
 	Real	m_upgradeNonCombatWeight;				///< what a building or an unarmed unit counts for next to a fighting unit when an upgrade is weighed
 	Real	m_surplusShare;									///< of the income over aiSurplusBudget's window, how much a bank over target may train as extra units
-	Int		m_maxProduction;								///< war factories, barracks and airfields together, beyond which the spend rule adds none
-	Real	m_factoryBankMultiple;					///< past this many times the bank target a factory is added whatever the bank's trend; 0 = only on the trend
+	Real	m_factoryBacklogSeconds;				///< how long every finished factory of a kind has to stay busy before another of that kind goes up (aiWantsAnotherFactory)
 
 	// Pushing: when the army first leaves home, and how small a force may go
 	Real	m_firstPushSeconds;							///< no attack before this, nor before the first drop zone or black market stands (AI_PURCHASE_EARLY_FRAMES at most)
@@ -387,19 +386,16 @@ AIFallbackDecision aiRetreatHoldDecision( Bool arrived, UnsignedInt heldFrames, 
 Bool aiShouldMass( Real waitingThreat, Real enemyVisibleThreat, Real massFraction,
 									 Bool timeExpired, Bool baseUnderAttack );
 
-/** How long every finished factory of a kind has to keep a unit waiting behind the one it is building
-	* before the computer buys another.  A script's team lands in the queue all at once, so a backlog
-	* the moment it appears is a batch, not a factory falling behind. */
-static const Int AI_FACTORY_BACKLOG_SECONDS = 45;
-
 /** Another factory of this kind.  finished are standing and done, constructing are already on the
 	* way, shallowest is the shortest queue among the finished ones, and backedUpFor is how many frames
-	* every one of them has had a unit waiting behind the one it is building.
+	* every one of them has been busy.
 	*
-	* Another goes up only when every finished factory has had a unit waiting for
-	* AI_FACTORY_BACKLOG_SECONDS, and a replacement when none are left.  One already on the way is the
-	* building this would ask for. */
-Bool aiWantsAnotherFactory( Int finished, Int constructing, Int shallowest, UnsignedInt backedUpFor );
+	* Another goes up only when every finished factory has been busy for backlogFrames (the rung's
+	* m_factoryBacklogSeconds), and a replacement when none are left.  One already on the way is the
+	* building this would ask for.  Busy, not backed up: the scripts train only into an idle factory
+	* and the surplus fills a queue one deep, so a unit waiting behind the one being built almost never
+	* happened, and the computer stood one barracks, one war factory and one airfield all match. */
+Bool aiWantsAnotherFactory( Int finished, Int constructing, Int shallowest, UnsignedInt backedUpFor, UnsignedInt backlogFrames );
 
 /** How many copies of the faction tech building (strategy center, propaganda center, palace) to
 	* keep up so one of them blowing up does not take the tree with it. */
@@ -720,12 +716,6 @@ const UnsignedInt AI_INCOME_WINDOW_FRAMES = 30 * LOGICFRAMES_PER_SECOND;
 
 /** The bank a computer player keeps: seconds of its income, and never under the floor. */
 Int aiBankTarget( Real incomePerSecond, Real seconds, Int floor );
-
-/** Another factory, measured rather than guessed: fewer than cap stand, and the bank is over its target
-	* and no lower than it was an income window ago, so what stands is not spending what comes in, or it is
-	* past multiple times the target whatever its trend (a busy Hard AI's bank swings, and the trend alone
-	* almost never fired).  multiple 0 leaves only the trend. */
-Bool aiWantsMoreProduction( Int bank, Int bankWindowAgo, Int target, Int standing, Int cap, Real multiple );
 
 /** How much a bank over its target may put into extra units on one spend pass: share of the income of
 	* AI_SURPLUS_INCOME_SECONDS, and never what takes the bank under target.  At share 1 that is three
