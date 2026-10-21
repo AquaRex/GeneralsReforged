@@ -1090,6 +1090,10 @@ UnsignedInt WeaponTemplate::fireWeaponTemplate
 
 		//victimObj = NULL; // his position is already in victimPos, if he existed
 
+		// a rank's steadier hand on the guns
+		if( sourceObj )
+			scatterRadius *= 1.0f - sourceObj->getRankPerk( RANK_PERK_SCATTER );
+
 		//Randomize the scatter radius (sometimes it can be more accurate than others)
 		scatterRadius = GameLogicRandomValueReal( 0, scatterRadius );
 		Real scatterAngleRadian = GameLogicRandomValueReal( 0, 2*PI );
@@ -2151,6 +2155,15 @@ void Weapon::computeBonus(const Object *source, WeaponBonusConditionFlags extraB
 	}
 	else if (TheGlobalData->m_weaponBonusSet)
 		TheGlobalData->m_weaponBonusSet->appendBonuses(flags, bonus);
+
+	// a leader's auras reach any friendly unit, on a ladder or not; range only an artillery piece's
+	const Real auraRateOfFire = MIN(source->getRankAura(RANK_AURA_RATE_OF_FIRE), TheGlobalData->m_rankAuraRateOfFireCap);
+	if (auraRateOfFire > 0.0f)
+		bonus.setField(WeaponBonus::RATE_OF_FIRE, bonus.getField(WeaponBonus::RATE_OF_FIRE) + auraRateOfFire);
+	const Real auraRange = source->getRankAura(RANK_AURA_RANGE);
+	if (auraRange > 0.0f && (sourceTemplate->acquiresBeyondVision() || m_template->getMinimumAttackRange() > 0.0f))
+		bonus.setField(WeaponBonus::RANGE, bonus.getField(WeaponBonus::RANGE) + auraRange);
+
 	const WeaponBonusSet* extra = m_template->getExtraBonus();
 	if (extra)
 		extra->appendBonuses(flags, bonus);

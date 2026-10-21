@@ -127,7 +127,7 @@ UpdateSleepTime JammerUpdate::update( void )
 			continue;
 		}
 
-		if( obj->isKindOf( KINDOF_DRONE ) || obj->getTemplate()->hasSpotterSight() )
+		if( obj->isKindOf( KINDOF_DRONE ) || obj->isSpotter() )
 			inField.push_back( obj->getID() );
 	}
 

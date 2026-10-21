@@ -16578,6 +16578,54 @@ RANK:NextRank
 "Sonraki rütbe %d/%d XP"
 END
 
+RANK:PerkSIGHT
+"Görüş +%d%%"
+END
+
+RANK:PerkSTILL_GUARD
+"Dururken %d%% daha az hasar alır"
+END
+
+RANK:PerkMEND
+"Çatışma dışında saniyede %d%% iyileşir"
+END
+
+RANK:PerkSPOTTER
+"Topçuya gözcülük yapar"
+END
+
+RANK:PerkSCATTER
+"Topçu saçılması -%d%%"
+END
+
+RANK:PerkDEATH_RALLY
+"Düştüğünde yakındaki dostlar 10 saniye %d%% daha az hasar alır"
+END
+
+RANK:PerkDETECT
+"%d içindeki gizli birimleri görür"
+END
+
+RANK:PerkAURA_RADIUS
+"Aura menzili +%d%%"
+END
+
+RANK:PerkAURA_RATE_OF_FIRE
+"Aura: atış hızı +%d%%"
+END
+
+RANK:PerkAURA_SIGHT
+"Aura: görüş +%d%%"
+END
+
+RANK:PerkAURA_GUARD
+"Aura: %d%% daha az hasar"
+END
+
+RANK:PerkAURA_RANGE
+"Aura: topçu menzili +%d%%"
+END
+
 RANK:America0
 "E-1 Er"
 END

@@ -1067,6 +1067,9 @@ InGameUI::InGameUI()
 {
 	Int i;
 
+	for( i = 0; i < AURA_RING_MAX; ++i )
+		m_auraRings[ i ].id = INVALID_ID;
+
 	for( i = 0; i < MAX_MOVE_HINTS; i++ )
 	{
 		m_moveHint[ i ].pos.zero();
@@ -1498,6 +1501,90 @@ void InGameUI::setRadiusCursor(RadiusCursorType cursorType, const SpecialPowerTe
 	m_curRcType = cursorType;
 
 	handleRadiusCursor();
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A leader's auras on the ground: one ring for each kind it gives, under a selected or hovered
+	* leader of the player at this machine or an ally, while that player can see it.  Each further ring
+	* of one leader is drawn a little inside the one before, so four of them do not lie on one line.
+	* Reads the logic's grades and draws; nothing goes back. */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::updateAuraRings()
+{
+	struct Wanted { ObjectID id; Int kind; Real radius; Coord3D pos; };
+	Wanted wanted[ AURA_RING_MAX ];
+	Int wantedCount = 0;
+
+	Player *local = ThePlayerList->getLocalPlayer();
+	auto consider = [&]( const Drawable *draw )
+	{
+		const Object *obj = draw ? draw->getObject() : NULL;
+		const RankLadder *ladder = obj ? TheGlobalData->getRankLadder( obj->getTemplate() ) : NULL;
+		if( ladder == NULL || local == NULL || obj->isEffectivelyDead()
+				|| ( obj->getControllingPlayer() != local && local->getRelationship( obj->getTeam() ) != ALLIES )
+				|| obj->getShroudedStatus( local->getPlayerIndex() ) != OBJECTSHROUD_CLEAR )
+			return;
+		const Int grade = obj->getRankGrade();
+		Int shown = 0;
+		for( Int kind = 0; kind < RANK_AURA_COUNT && wantedCount < AURA_RING_MAX; ++kind )
+		{
+			if( ladder->aura( grade, (RankAura)kind ) <= 0.0f || !TheGlobalData->m_rankAuraRing[ kind ].valid() )
+				continue;
+			Bool twice = FALSE;		// the hovered leader may be selected too
+			for( Int i = 0; i < wantedCount; ++i )
+				twice = twice || ( wanted[ i ].id == obj->getID() && wanted[ i ].kind == kind );
+			if( twice )
+				continue;
+			// ponytail: the inset makes an inner ring a little short of the real reach; one radius for all kinds today
+			wanted[ wantedCount ].id = obj->getID();
+			wanted[ wantedCount ].kind = kind;
+			wanted[ wantedCount ].radius = ladder->auraRadius( grade ) * ( 1.0f - 0.05f * shown++ );
+			wanted[ wantedCount ].pos = *draw->getPosition();
+			++wantedCount;
+		}
+	};
+	consider( TheGameClient->findDrawableByID( getMousedOverDrawableID() ) );
+	for( DrawableList::const_iterator it = m_selectedDrawables.begin(); it != m_selectedDrawables.end(); ++it )
+		consider( *it );
+
+	// a ring nobody wants goes; one whose radius changed goes too and comes back at the new size
+	for( Int slot = 0; slot < AURA_RING_MAX; ++slot )
+	{
+		AuraRing &ring = m_auraRings[ slot ];
+		if( ring.id == INVALID_ID )
+			continue;
+		Bool keep = FALSE;
+		for( Int i = 0; i < wantedCount && !keep; ++i )
+			keep = wanted[ i ].id == ring.id && wanted[ i ].kind == ring.kind && wanted[ i ].radius == ring.radius;
+		if( !keep )
+		{
+			ring.decal.clear();
+			ring.id = INVALID_ID;
+		}
+	}
+
+	for( Int i = 0; i < wantedCount; ++i )
+	{
+		Int slot = -1, freeSlot = -1;
+		for( Int s = 0; s < AURA_RING_MAX; ++s )
+		{
+			if( m_auraRings[ s ].id == wanted[ i ].id && m_auraRings[ s ].kind == wanted[ i ].kind )
+				slot = s;
+			else if( m_auraRings[ s ].id == INVALID_ID && freeSlot < 0 )
+				freeSlot = s;
+		}
+		if( slot < 0 )
+		{
+			slot = freeSlot;
+			AuraRing &ring = m_auraRings[ slot ];
+			ring.id = wanted[ i ].id;
+			ring.kind = wanted[ i ].kind;
+			ring.radius = wanted[ i ].radius;
+			TheGlobalData->m_rankAuraRing[ ring.kind ].createRadiusDecal( wanted[ i ].pos, ring.radius, local, ring.decal );
+		}
+		m_auraRings[ slot ].decal.setPosition( wanted[ i ].pos );
+		m_auraRings[ slot ].decal.update();
+	}
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2302,6 +2389,8 @@ void InGameUI::preDraw( void )
 	// handle radius-cursors, if any
 	handleRadiusCursor();
 
+	updateAuraRings();
+
 	// where the selection is headed, read fresh from the units themselves
 	updateOrderHints();
 
@@ -2698,6 +2787,12 @@ void InGameUI::reset( void )
 		m_moveHint[ i ].frame = 0;
 	}
 	m_nextMoveHint = 0;
+
+	for( Int i = 0; i < AURA_RING_MAX; ++i )
+	{
+		m_auraRings[ i ].id = INVALID_ID;
+		m_auraRings[ i ].decal.clear();
+	}
 
 	m_isQuitMenuVisible = FALSE;
 	TheObserverCamera.reset();

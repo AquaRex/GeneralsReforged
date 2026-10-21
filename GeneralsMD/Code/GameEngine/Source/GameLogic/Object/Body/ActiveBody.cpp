@@ -561,6 +561,8 @@ void ActiveBody::attemptDamage( DamageInfo *damageInfo )
 			// Apply the damage scalar (extra bonuses -- like strategy center defensive battle plan)
 			// And remember not to adjust unresistable damage, just like the armor code can't.
 			amount *= m_damageScalar;
+			// a leader's guard aura, a fallen leader's rally, a rank's guard standing still
+			amount *= obj->getRankDamageTakenScalar();
 		}
 
 		// one hit kill: anything that got through the armour at all takes the whole bar

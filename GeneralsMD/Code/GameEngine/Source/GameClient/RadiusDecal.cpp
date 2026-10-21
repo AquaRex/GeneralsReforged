@@ -54,6 +54,7 @@ RadiusDecalTemplate::RadiusDecalTemplate() :
 	m_opacityThrobTime(LOGICFRAMES_PER_SECOND),
 	m_color(0),
 	m_onlyVisibleToOwningPlayer(true),
+	m_spinTime(0),
 	m_name(AsciiString::TheEmptyString)  // Added By Sadullah Nader for Init purposes
 {
 }
@@ -132,6 +133,7 @@ void RadiusDecalTemplate::xferRadiusDecalTemplate( Xfer *xfer )
 		{ "OpacityThrobTime",						INI::parseDurationUnsignedInt,NULL,							offsetof( RadiusDecalTemplate, m_opacityThrobTime ) },
 		{ "Color",											INI::parseColorInt,						NULL,							offsetof( RadiusDecalTemplate, m_color ) },
 		{ "OnlyVisibleToOwningPlayer",	INI::parseBool,								NULL,							offsetof( RadiusDecalTemplate, m_onlyVisibleToOwningPlayer ) },
+		{ "SpinTime",										INI::parseInt,								NULL,							offsetof( RadiusDecalTemplate, m_spinTime ) },
 		{ 0, 0, 0, 0 }
 	};
 
@@ -217,6 +219,14 @@ void RadiusDecal::update()
 			opac = 0;
 		}
 		m_decal->setOpacity(opac);
+
+		// a turn every SpinTime, on the logic clock like the throb, so a paused game holds it still
+		if (m_template->m_spinTime != 0)
+		{
+			const UnsignedInt period = MAX(1, abs(m_template->m_spinTime) * LOGICFRAMES_PER_SECOND / 1000);
+			const Real angle = (2*PI) * (Real)(now % period) / (Real)period;
+			m_decal->setAngle(m_template->m_spinTime > 0 ? angle : -angle);
+		}
 	}
 }
 

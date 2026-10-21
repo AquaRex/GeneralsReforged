@@ -39,6 +39,7 @@
 #include "Common/Snapshot.h"
 #include "Common/SpecialPowerMaskType.h"
 #include "Common/DisabledTypes.h"
+#include "Common/GlobalData.h"	// RankPerk, RankAura
 #include "Common/Thing.h"
 #include "Common/ObjectStatusTypes.h"
 #include "Common/Upgrade.h"
@@ -296,6 +297,18 @@ public:
 	const ExperienceTracker* getExperienceTracker() const {return m_experienceTracker;}
 	VeterancyLevel getVeterancyLevel() const;
 	Int getRankGrade() const;																///< my grade on my side's rank ladder; 0 without one
+
+	// the ladder's perks and the auras leaders give (RankPerk, RankAura in GlobalData.h)
+	Real getRankPerk( RankPerk perk ) const;								///< what my grade carries, 0 without a ladder
+	Real getRankAura( RankAura aura ) const;								///< the strongest leader's on me now
+	void clearRankAuras();																	///< the once-a-second pass starts over; RALLY runs on
+	void raiseRankAura( RankAura aura, Real strength );		///< a leader has me in range; the stronger stays
+	void raiseRankRally( Real strength, UnsignedInt until );	///< a fallen leader's rally; the stronger stays, the later end
+	Real getRankSightScalar() const;												///< my own sight perk times the sight aura on me
+	Real getRankDamageTakenScalar() const;									///< guard, rally and the still guard perk, multiplied
+	Bool isSpotter() const;																	///< SpotterSight on the template, or the SPOTTER perk
+	void onRankSightChanged( Real oldScalar );							///< look again if the rank sight moved
+	void giveRankRally();																		///< I fell: my death rally reaches the allies around me
 
 	inline const AsciiString& getName() const { return m_name; }
 	inline void setName( const AsciiString& newName ) { m_name = newName; }
@@ -797,6 +810,8 @@ private:
 	Real					m_shroudClearingRange;						///< looking range for shroud ONLY
 	Real					m_shroudRange;										///< like looking range, this is how far I shroud others' looks
 	Int						m_sightJammerCount;								///< enemy jammers in whose field this stands; above zero its sight shrinks to a few feet
+	Real					m_rankAura[ RANK_AURA_COUNT ];		///< the strongest leader's of each kind, refilled once a second
+	UnsignedInt		m_rankRallyUntil;									///< the frame the death rally on me ends
 
 	DisabledMaskType	m_disabledMask;
 	UnsignedInt				m_disabledTillFrame[ DISABLED_COUNT ];

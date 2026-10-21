@@ -3906,6 +3906,82 @@ static void unitTimings(void)
 }
 #endif
 
+//-------------------------------------------------------------------------------------------------
+/** The rank auras, once a second (docs/plans/RANK-LADDER.md in the wrapper).  Every unit's slots are
+	* cleared, then each leader writes its strength into the slots of the friendly units within its
+	* radius, keeping the larger, so three leaders of one kind give the strongest one's and the walk's
+	* order does not matter.  A leader never reaches itself, and buildings take nothing.  The DETECT
+	* perk works here too: a stealthed enemy within its radius stays detected until the next pass.
+	* A unit whose sight moved looks again. */
+//-------------------------------------------------------------------------------------------------
+static void updateRankAuras( Object *objList )
+{
+	struct Before { Real sight; Real aura[ RANK_AURA_PASSED ]; };
+	static std::vector<Before> before;
+	before.clear();
+	for( Object *obj = objList; obj; obj = obj->getNextObject() )
+	{
+		Before was;
+		was.sight = obj->getRankSightScalar();
+		for( Int aura = 0; aura < RANK_AURA_PASSED; ++aura )
+			was.aura[ aura ] = obj->getRankAura( (RankAura)aura );
+		before.push_back( was );
+		obj->clearRankAuras();
+	}
+
+	for( Object *leader = objList; leader; leader = leader->getNextObject() )
+	{
+		const RankLadder *ladder = TheGlobalData->getRankLadder( leader->getTemplate() );
+		if( ladder == NULL || leader->isEffectivelyDead() || leader->testStatus( OBJECT_STATUS_UNDER_CONSTRUCTION ) )
+			continue;
+		const Int grade = leader->getRankGrade();
+		Real strength[ RANK_AURA_PASSED ];
+		Bool gives = FALSE;
+		for( Int aura = 0; aura < RANK_AURA_PASSED; ++aura )
+		{
+			strength[ aura ] = ladder->aura( grade, (RankAura)aura );
+			gives = gives || strength[ aura ] > 0.0f;
+		}
+		const Real detect = ladder->perk( grade, RANK_PERK_DETECT );
+		if( !gives && detect <= 0.0f )
+			continue;
+
+		const Real radius = ladder->auraRadius( grade );
+		const Coord3D *at = leader->getPosition();
+		for( Object *other = objList; other; other = other->getNextObject() )
+		{
+			if( other == leader || other->isEffectivelyDead() )
+				continue;
+			const Real dx = other->getPosition()->x - at->x, dy = other->getPosition()->y - at->y;
+			const Real distSqr = dx * dx + dy * dy;
+			if( detect > 0.0f && distSqr <= detect * detect && other->getStealth()
+					&& other->testStatus( OBJECT_STATUS_STEALTHED ) && leader->getRelationship( other ) == ENEMIES )
+				other->getStealth()->markAsDetected( LOGICFRAMES_PER_SECOND + 1 );
+			if( !gives || distSqr > radius * radius || other->isKindOf( KINDOF_STRUCTURE )
+					|| leader->getRelationship( other ) != ALLIES )
+				continue;
+			for( Int aura = 0; aura < RANK_AURA_PASSED; ++aura )
+				if( strength[ aura ] > 0.0f )
+					other->raiseRankAura( (RankAura)aura, strength[ aura ] );
+		}
+	}
+
+	// a unit that came into or left a leader's reach logs what it holds now
+	size_t index = 0;
+	for( Object *obj = objList; obj; obj = obj->getNextObject(), ++index )
+	{
+		Bool moved = FALSE;
+		for( Int aura = 0; aura < RANK_AURA_PASSED; ++aura )
+			moved = moved || obj->getRankAura( (RankAura)aura ) != before[ index ].aura[ aura ];
+		if( moved )
+			DEBUG_LOG(("RANK AURA frame=%d id=%d template=%s grade=%d rof=%.2f sight=%.2f guard=%.2f range=%.2f\n",
+				TheGameLogic->getFrame(), obj->getID(), obj->getTemplate()->getName().str(), obj->getRankGrade(),
+				obj->getRankAura( RANK_AURA_RATE_OF_FIRE ), obj->getRankAura( RANK_AURA_SIGHT ),
+				obj->getRankAura( RANK_AURA_GUARD ), obj->getRankAura( RANK_AURA_RANGE )));
+		obj->onRankSightChanged( before[ index ].sight );
+	}
+}
+
 DECLARE_PERF_TIMER(GameLogic_update)
 DECLARE_PERF_TIMER(GameLogic_update_normal)
 DECLARE_PERF_TIMER(GameLogic_update_sleepy)
@@ -5033,11 +5109,14 @@ void GameLogic::update( void )
 	// Faction veterancy's self-repair (GLA): once a second a ranked unit that has gone unhurt for
 	// the Veterancy block's SelfRepairDelay heals its side's share of its max health.  Healing itself earns it
 	// nothing (Object::scoreTheHeal).
+	// A grade's MEND perk is the same heal at its own rate.
 	if( m_frame % LOGICFRAMES_PER_SECOND == 0 )
 	{
+		updateRankAuras( m_objList );
 		for( Object *obj = m_objList; obj; obj = obj->getNextObject() )
 		{
-			const Real share = TheGlobalData->getRankStat( obj->getTemplate(), obj->getRankGrade(), RANK_STAT_SELF_REPAIR );
+			const Real share = MAX( TheGlobalData->getRankStat( obj->getTemplate(), obj->getRankGrade(), RANK_STAT_SELF_REPAIR ),
+															obj->getRankPerk( RANK_PERK_MEND ) );
 			if( share <= 0.0f || obj->isEffectivelyDead() )
 				continue;
 			const BodyModuleInterface *body = obj->getBodyModule();

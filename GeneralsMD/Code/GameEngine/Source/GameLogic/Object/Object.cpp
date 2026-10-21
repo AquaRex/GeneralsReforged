@@ -307,6 +307,9 @@ Object::Object( const ThingTemplate *tt, const ObjectStatusMaskType &objectStatu
 		m_shroudClearingRange = m_visionRange;// Backwards compatible, and perfectly logical default to assign
 	m_shroudRange = 0.0f;
 	m_sightJammerCount = 0;
+	for( Int aura = 0; aura < RANK_AURA_COUNT; ++aura )
+		m_rankAura[ aura ] = 0.0f;
+	m_rankRallyUntil = 0;
 
 	m_singleUseCommandUsed = false;
 
@@ -3506,6 +3509,12 @@ void Object::onRankChanged( VeterancyLevel oldLevel, VeterancyLevel newLevel, In
 	DEBUG_LOG(("RANK frame=%d template=%s grade %d to %d xp=%d\n", TheGameLogic->getFrame(), getTemplate()->getName().str(),
 		oldGrade, newGrade, getExperienceTracker()->getCurrentExperience()));
 
+	// the sight and spotter perks change how far it looks; one born on a pin has not looked yet
+	if( !m_partitionLastLook->isInvalid()
+			&& ( ladder->perk( oldGrade, RANK_PERK_SIGHT ) != ladder->perk( newGrade, RANK_PERK_SIGHT )
+				|| ladder->perk( oldGrade, RANK_PERK_SPOTTER ) != ladder->perk( newGrade, RANK_PERK_SPOTTER ) ) )
+		handleShroud();
+
 	if( newGrade > oldGrade && provideFeedback && TheGameLogic->getDrawIconUI() && isLogicallyVisible() && !isKindOf( KINDOF_IGNORED_IN_GUI )
 			&& Drawable::getRankInsignia( this ) != NULL )
 		floatRankGain( ladder->insigniaIndex( newGrade, isKindOf( KINDOF_HERO ) ) );
@@ -4502,13 +4511,14 @@ void Object::crc( Xfer *xfer )
 	* 11: the cached angle, which the matrix does not give back bit for bit
 	* 12: the last threat and value sightings
 	* 13: how many enemy jammers are cutting its sight
+	* 14: the rank auras on it and when its death rally ends
 	*/
 //-------------------------------------------------------------------------------------------------
 void Object::xfer( Xfer *xfer )
 {
 
 	// version
-	const XferVersion currentVersion = 13;
+	const XferVersion currentVersion = 14;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -4972,6 +4982,13 @@ void Object::xfer( Xfer *xfer )
 	if( version >= 13 )
 		xfer->xferInt( &m_sightJammerCount );
 
+	if( version >= 14 )
+	{
+		for( Int aura = 0; aura < RANK_AURA_COUNT; ++aura )
+			xfer->xferReal( &m_rankAura[ aura ] );
+		xfer->xferUnsignedInt( &m_rankRallyUntil );
+	}
+
 }  // end xfer
 
 //-------------------------------------------------------------------------------------------------
@@ -5128,6 +5145,8 @@ void Object::onDie( DamageInfo *damageInfo )
 #endif
 	
 	Bool selfInflicted = (damageInfo->in.m_sourceID == getID());
+
+	giveRankRally();
 
 	//
 	// FIRST, call our die modules - unless nothing has been built here yet, in which case they are
@@ -5510,6 +5529,99 @@ void Object::removeSightJammer()
 }
 
 //-------------------------------------------------------------------------------------------------
+Real Object::getRankPerk( RankPerk perk ) const
+{
+	const RankLadder *ladder = TheGlobalData->getRankLadder( getTemplate() );
+	return ladder ? ladder->perk( getRankGrade(), perk ) : 0.0f;
+}
+
+//-------------------------------------------------------------------------------------------------
+Real Object::getRankAura( RankAura aura ) const
+{
+	if( aura == RANK_AURA_RALLY && TheGameLogic->getFrame() >= m_rankRallyUntil )
+		return 0.0f;
+	return m_rankAura[ aura ];
+}
+
+//-------------------------------------------------------------------------------------------------
+void Object::clearRankAuras()
+{
+	for( Int aura = 0; aura < RANK_AURA_PASSED; ++aura )
+		m_rankAura[ aura ] = 0.0f;
+}
+
+//-------------------------------------------------------------------------------------------------
+void Object::raiseRankAura( RankAura aura, Real strength )
+{
+	m_rankAura[ aura ] = MAX( m_rankAura[ aura ], strength );
+}
+
+//-------------------------------------------------------------------------------------------------
+void Object::raiseRankRally( Real strength, UnsignedInt until )
+{
+	m_rankAura[ RANK_AURA_RALLY ] = MAX( getRankAura( RANK_AURA_RALLY ), strength );
+	m_rankRallyUntil = MAX( m_rankRallyUntil, until );
+}
+
+//-------------------------------------------------------------------------------------------------
+Real Object::getRankSightScalar() const
+{
+	return MAX( 1.0f, getRankPerk( RANK_PERK_SIGHT ) ) * ( 1.0f + m_rankAura[ RANK_AURA_SIGHT ] );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Standing still is not walking a path: a tank turning its turret on the spot holds its guard. */
+//-------------------------------------------------------------------------------------------------
+Real Object::getRankDamageTakenScalar() const
+{
+	Real scalar = ( 1.0f - m_rankAura[ RANK_AURA_GUARD ] ) * ( 1.0f - getRankAura( RANK_AURA_RALLY ) );
+	const Real still = getRankPerk( RANK_PERK_STILL_GUARD );
+	if( still > 0.0f && !( m_ai && m_ai->isMoving() ) )
+		scalar *= 1.0f - still;
+	return scalar;
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool Object::isSpotter() const
+{
+	return getTemplate()->hasSpotterSight() || getRankPerk( RANK_PERK_SPOTTER ) > 0.0f;
+}
+
+//-------------------------------------------------------------------------------------------------
+void Object::onRankSightChanged( Real oldScalar )
+{
+	if( getRankSightScalar() != oldScalar && !m_partitionLastLook->isInvalid() )
+		handleShroud();
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A fallen leader's last order: the allies within its aura radius take less damage for RallyTime.
+	* The list walk is the object list's own order; the strongest rally stays, so order is moot. */
+//-------------------------------------------------------------------------------------------------
+void Object::giveRankRally()
+{
+	const RankLadder *ladder = TheGlobalData->getRankLadder( getTemplate() );
+	if( ladder == NULL )
+		return;
+	const Int grade = getRankGrade();
+	const Real strength = ladder->aura( grade, RANK_AURA_RALLY );
+	if( strength <= 0.0f )
+		return;
+	const Real radius = ladder->auraRadius( grade );
+	const UnsignedInt until = TheGameLogic->getFrame() + TheGlobalData->m_rankRallyTime;
+	for( Object *other = TheGameLogic->getFirstObject(); other; other = other->getNextObject() )
+	{
+		if( other == this || other->isEffectivelyDead() || other->isKindOf( KINDOF_STRUCTURE )
+				|| getRelationship( other ) != ALLIES
+				|| ThePartitionManager->getDistanceSquared( this, other, FROM_CENTER_2D ) > radius * radius )
+			continue;
+		other->raiseRankRally( strength, until );
+	}
+	DEBUG_LOG(("RANK RALLY frame=%d template=%s strength=%.2f radius=%.0f\n", TheGameLogic->getFrame(),
+		getTemplate()->getName().str(), strength, radius));
+}
+
+//-------------------------------------------------------------------------------------------------
 void Object::look()
 {
 	if( ! m_partitionLastLook->isInvalid() )
@@ -5545,8 +5657,10 @@ void Object::look()
 			// was blind: it keeps its template's sight.  So does a spotter, whose sight is its job and
 			// whose carbine is for show
 			Real shroudClearingRange = getShroudClearingRange();
-			if( !isKindOf( KINDOF_STRUCTURE ) && !isKindOf( KINDOF_DOZER ) && !getTemplate()->hasSpotterSight() )
+			if( !isKindOf( KINDOF_STRUCTURE ) && !isKindOf( KINDOF_DOZER ) && !isSpotter() )
 				shroudClearingRange = Object_armedShroudClearingRange( shroudClearingRange, getLargestWeaponRange() );
+			// a rank's eyes and a leader's sight aura reach past the weapon cap; onRankSightChanged looks again
+			shroudClearingRange *= getRankSightScalar();
 			if( isSightJammed() )
 				shroudClearingRange = min( shroudClearingRange, JAMMED_SHROUD_CLEARING_RANGE );
 

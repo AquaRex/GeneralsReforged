@@ -115,6 +115,29 @@ static void parseLadderPercents( INI *ini, void *, void *store, const void *memb
 		*(Real *)( (char *)( (RankLadder *)store + side ) + (size_t)member ) = INI::scanPercentToReal( ini->getNextToken() );
 }
 
+const char *const TheRankPerkNames[RANK_PERK_COUNT + 1] =
+{
+	"SIGHT", "STILL_GUARD", "MEND", "SPOTTER", "SCATTER", "DEATH_RALLY", "DETECT", "AURA_RADIUS",
+	"AURA_RATE_OF_FIRE", "AURA_SIGHT", "AURA_GUARD", "AURA_RANGE", NULL
+};
+
+const char *const TheRankAuraNames[RANK_AURA_COUNT] = { "RateOfFire", "Sight", "Guard", "Range", "Rally" };
+
+// Perk_<side> = grade kind [value]: a percent, a plain number (DETECT's radius), or nothing for 1
+// (SPOTTER).  userData is the side, store is m_rankLadder.
+static void parseLadderPerk( INI *ini, void *, void *store, const void *side )
+{
+	const Int grade = INI::scanInt( ini->getNextToken() );
+	const Int perk = INI::scanIndexList( ini->getNextToken(), TheRankPerkNames );
+	const char *token = ini->getNextTokenOrNull();
+	if( grade < 0 || grade > RANK_GRADES_MAX )
+		throw INI_INVALID_DATA;
+	Real value = 1.0f;
+	if( token )
+		value = token[ strlen( token ) - 1 ] == '%' ? INI::scanPercentToReal( token ) : INI::scanReal( token );
+	( (RankLadder *)store + (size_t)side )->m_perkAt[ grade ][ perk ] = value;
+}
+
 #define LADDER_FIELD( token, parser, member ) \
 	{ token, parser, (const void *)offsetof( RankLadder, member ), offsetof( GlobalData, m_rankLadder ) }
 
@@ -134,6 +157,18 @@ static const FieldParse theVeterancyFieldParseTable[] =
 	LADDER_FIELD( "Range",				parseLadderPercents,	m_statTop[RANK_STAT_RANGE] ),
 	LADDER_FIELD( "Speed",				parseLadderPercents,	m_statTop[RANK_STAT_SPEED] ),
 	LADDER_FIELD( "SelfRepair",		parseLadderPercents,	m_statTop[RANK_STAT_SELF_REPAIR] ),
+	LADDER_FIELD( "AuraRadius",		parseLadderReals,			m_auraRadius ),
+	{ "Perk_America",					parseLadderPerk,			(const void *)VETERANCY_SIDE_AMERICA,	offsetof( GlobalData, m_rankLadder ) },
+	{ "Perk_China",						parseLadderPerk,			(const void *)VETERANCY_SIDE_CHINA,		offsetof( GlobalData, m_rankLadder ) },
+	{ "Perk_GLA",							parseLadderPerk,			(const void *)VETERANCY_SIDE_GLA,			offsetof( GlobalData, m_rankLadder ) },
+	{ "Perk_Turkiye",					parseLadderPerk,			(const void *)VETERANCY_SIDE_TURKIYE,	offsetof( GlobalData, m_rankLadder ) },
+	{ "AuraRateOfFireCap",		INI::parsePercentToReal,	NULL,	offsetof( GlobalData, m_rankAuraRateOfFireCap ) },
+	{ "RallyTime",						INI::parseDurationUnsignedInt,	NULL,	offsetof( GlobalData, m_rankRallyTime ) },
+	{ "AuraRing_RateOfFire",	RadiusDecalTemplate::parseRadiusDecalTemplate,	NULL,	offsetof( GlobalData, m_rankAuraRing[RANK_AURA_RATE_OF_FIRE] ) },
+	{ "AuraRing_Sight",				RadiusDecalTemplate::parseRadiusDecalTemplate,	NULL,	offsetof( GlobalData, m_rankAuraRing[RANK_AURA_SIGHT] ) },
+	{ "AuraRing_Guard",				RadiusDecalTemplate::parseRadiusDecalTemplate,	NULL,	offsetof( GlobalData, m_rankAuraRing[RANK_AURA_GUARD] ) },
+	{ "AuraRing_Range",				RadiusDecalTemplate::parseRadiusDecalTemplate,	NULL,	offsetof( GlobalData, m_rankAuraRing[RANK_AURA_RANGE] ) },
+	{ "AuraRing_Rally",				RadiusDecalTemplate::parseRadiusDecalTemplate,	NULL,	offsetof( GlobalData, m_rankAuraRing[RANK_AURA_RALLY] ) },
 	{ "WorthGain",						INI::parseReal,				NULL,	offsetof( GlobalData, m_rankWorthGain ) },
 	{ "CrateGrades",					INI::parseInt,				NULL,	offsetof( GlobalData, m_rankCrateGrades ) },
 	{ "WeaponBonus_America",	parseVeterancyWeaponBonus,	NULL,	offsetof( GlobalData, m_veterancyWeaponBonus[VETERANCY_SIDE_AMERICA] ) },
@@ -171,11 +206,14 @@ void RankLadder::clear()
 	m_ratio = 1.0f;
 	for( Int stat = 0; stat < RANK_STAT_COUNT; ++stat )
 		m_statTop[ stat ] = stat == RANK_STAT_SELF_REPAIR ? 0.0f : 1.0f;
+	m_auraRadius = 0.0f;
 	for( Int grade = 0; grade <= RANK_GRADES_MAX; ++grade )
 	{
 		m_total[ grade ] = (Real)grade;
 		for( Int stat = 0; stat < RANK_STAT_COUNT; ++stat )
 			m_stat[ grade ][ stat ] = stat == RANK_STAT_SELF_REPAIR ? 0.0f : 1.0f;
+		for( Int perk = 0; perk < RANK_PERK_COUNT; ++perk )
+			m_perkAt[ grade ][ perk ] = m_perk[ grade ][ perk ] = 0.0f;
 	}
 }
 
@@ -246,6 +284,8 @@ void RankLadder::finish( Real worthGain )
 		for( Int stat = 0; stat < RANK_STAT_COUNT; ++stat )
 			m_stat[ grade ][ stat ] = stat == RANK_STAT_SELF_REPAIR ? (Real)( m_statTop[ stat ] * share )
 																	: (Real)rankExp( share * rankLn( (double)m_statTop[ stat ] ) );
+		for( Int perk = 0; perk < RANK_PERK_COUNT; ++perk )
+			m_perk[ grade ][ perk ] = MAX( m_perkAt[ grade ][ perk ], grade > 0 ? m_perk[ grade - 1 ][ perk ] : 0.0f );
 	}
 }
 
@@ -288,6 +328,24 @@ Int RankLadder::insigniaIndex( Int grade, Bool hero ) const
 	if( !hero )
 		return grade;
 	return m_heroStart + ( m_grades - m_heroStart ) * grade / m_grades;
+}
+
+//-------------------------------------------------------------------------------------------------
+Real RankLadder::perk( Int grade, RankPerk perk ) const
+{
+	return m_perk[ MIN( grade, MAX( m_grades, 0 ) ) ][ perk ];
+}
+
+//-------------------------------------------------------------------------------------------------
+Real RankLadder::auraRadius( Int grade ) const
+{
+	return m_auraRadius * MAX( 1.0f, perk( grade, RANK_PERK_AURA_RADIUS ) );
+}
+
+//-------------------------------------------------------------------------------------------------
+Real RankLadder::aura( Int grade, RankAura aura ) const
+{
+	return perk( grade, aura == RANK_AURA_RALLY ? RANK_PERK_DEATH_RALLY : (RankPerk)( RANK_PERK_AURA_RATE_OF_FIRE + aura ) );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1361,6 +1419,8 @@ GlobalData::GlobalData()
 	m_rankWorthGain = 1.4f;
 	m_rankCrateGrades = 3;
 	m_veterancySelfRepairDelay = 0;
+	m_rankAuraRateOfFireCap = 0.0f;
+	m_rankRallyTime = 0;
 
 	m_shellMapName.set("Maps\\ShellMap1\\ShellMap1.map");
 	m_shellMapOn =TRUE;

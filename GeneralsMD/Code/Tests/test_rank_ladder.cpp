@@ -159,3 +159,42 @@ TEST(rank_ladder_hero_insignia_runs_from_its_start_to_the_top)
 	CHECK_EQ( china().insigniaIndex( 0, TRUE ), 15 );
 	CHECK_EQ( china().insigniaIndex( 19, TRUE ), 19 );
 }
+
+TEST(rank_ladder_perks_carry_up_and_the_strongest_of_a_kind_holds)
+{
+	/* Turkiye's Perk_ lines: sight 110%, 120%, 130% at 3, 8, 18; the rate-of-fire aura 5% at 10, 10% at 16 */
+	RankLadder ladder;
+	ladder.clear();
+	ladder.m_grades = 21;
+	ladder.m_top = 120.0f;
+	ladder.m_pin[LEVEL_VETERAN] = 4;
+	ladder.m_pin[LEVEL_ELITE] = 11;
+	ladder.m_pin[LEVEL_HEROIC] = 16;
+	ladder.m_auraRadius = 150.0f;
+	ladder.m_perkAt[ 3 ][ RANK_PERK_SIGHT ] = 1.10f;
+	ladder.m_perkAt[ 8 ][ RANK_PERK_SIGHT ] = 1.20f;
+	ladder.m_perkAt[ 18 ][ RANK_PERK_SIGHT ] = 1.30f;
+	ladder.m_perkAt[ 10 ][ RANK_PERK_AURA_RATE_OF_FIRE ] = 0.05f;
+	ladder.m_perkAt[ 16 ][ RANK_PERK_AURA_RATE_OF_FIRE ] = 0.10f;
+	ladder.m_perkAt[ 17 ][ RANK_PERK_DEATH_RALLY ] = 0.15f;
+	ladder.m_perkAt[ 21 ][ RANK_PERK_AURA_RADIUS ] = 2.0f;
+	ladder.finish( 1.4f );
+
+	CHECK_EQ( ladder.perk( 2, RANK_PERK_SIGHT ), 0.0f );
+	CHECK_NEAR( ladder.perk( 3, RANK_PERK_SIGHT ), 1.10f, 1e-6f );
+	CHECK_NEAR( ladder.perk( 7, RANK_PERK_SIGHT ), 1.10f, 1e-6f );
+	CHECK_NEAR( ladder.perk( 8, RANK_PERK_SIGHT ), 1.20f, 1e-6f );
+	CHECK_NEAR( ladder.perk( 21, RANK_PERK_SIGHT ), 1.30f, 1e-6f );
+
+	/* the Albay's 10% replaces the Bascavus's 5%, it does not add to it */
+	CHECK_EQ( ladder.aura( 9, RANK_AURA_RATE_OF_FIRE ), 0.0f );
+	CHECK_NEAR( ladder.aura( 10, RANK_AURA_RATE_OF_FIRE ), 0.05f, 1e-6f );
+	CHECK_NEAR( ladder.aura( 16, RANK_AURA_RATE_OF_FIRE ), 0.10f, 1e-6f );
+	CHECK_NEAR( ladder.aura( 17, RANK_AURA_RALLY ), 0.15f, 1e-6f );
+	CHECK_EQ( ladder.aura( 16, RANK_AURA_RALLY ), 0.0f );
+
+	/* the Maresal's double reach, and a grade past the top reads the top */
+	CHECK_NEAR( ladder.auraRadius( 20 ), 150.0f, 1e-3f );
+	CHECK_NEAR( ladder.auraRadius( 21 ), 300.0f, 1e-3f );
+	CHECK_NEAR( ladder.auraRadius( 40 ), 300.0f, 1e-3f );
+}

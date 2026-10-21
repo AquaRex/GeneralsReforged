@@ -2194,6 +2194,54 @@ RANK:NextRank
 "Next rank %d/%d XP"
 END
 
+RANK:PerkSIGHT
+"Sight +%d%%"
+END
+
+RANK:PerkSTILL_GUARD
+"Standing still: %d%% less damage taken"
+END
+
+RANK:PerkMEND
+"Out of combat: heals %d%% a second"
+END
+
+RANK:PerkSPOTTER
+"Spots for the artillery"
+END
+
+RANK:PerkSCATTER
+"Artillery scatter -%d%%"
+END
+
+RANK:PerkDEATH_RALLY
+"When it falls, allies nearby take %d%% less damage for 10 seconds"
+END
+
+RANK:PerkDETECT
+"Detects stealth within %d"
+END
+
+RANK:PerkAURA_RADIUS
+"Aura reach +%d%%"
+END
+
+RANK:PerkAURA_RATE_OF_FIRE
+"Aura: rate of fire +%d%%"
+END
+
+RANK:PerkAURA_SIGHT
+"Aura: sight +%d%%"
+END
+
+RANK:PerkAURA_GUARD
+"Aura: %d%% less damage taken"
+END
+
+RANK:PerkAURA_RANGE
+"Aura: artillery range +%d%%"
+END
+
 RANK:America0
 "E-1 Private"
 END

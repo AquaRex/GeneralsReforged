@@ -167,6 +167,23 @@ static void portraitRankTooltip( GameWindow *window, WinInstanceData *instData, 
 	label.format( "RANK:%s%d", TheVeterancySideNames[ GlobalData::veterancySideOf( obj->getTemplate() ) ],
 								ladder->insigniaIndex( grade, obj->isKindOf( KINDOF_HERO ) ) );
 	UnicodeString text = TheGameText->fetch( label );
+
+	// what the grade carries, one line a perk: RANK:Perk<kind> takes the strength as a whole percent
+	// (a radius for DETECT, a multiple's gain for SIGHT and AURA_RADIUS)
+	for( Int perk = 0; perk < RANK_PERK_COUNT; ++perk )
+	{
+		Real value = ladder->perk( grade, (RankPerk)perk );
+		if( value <= 0.0f )
+			continue;
+		if( perk == RANK_PERK_SIGHT || perk == RANK_PERK_AURA_RADIUS )
+			value -= 1.0f;
+		label.format( "RANK:Perk%s", TheRankPerkNames[ perk ] );
+		UnicodeString line;
+		line.format( TheGameText->fetch( label ), REAL_TO_INT( perk == RANK_PERK_DETECT ? value : value * 100.0f + 0.5f ) );
+		text.concat( (WideChar)'\n' );
+		text.concat( line );
+	}
+
 	if( grade < ladder->m_grades )
 	{
 		const Int unitValue = RankLadder::unitValue( obj->getTemplate() );

@@ -44,6 +44,7 @@
 #include "Common/GameCommon.h"
 #include "Common/Money.h"
 #include "Common/WindowMode.h"
+#include "GameClient/RadiusDecal.h"
 
 // FORWARD DECLARATIONS ///////////////////////////////////////////////////////////////////////////
 struct FieldParse;
@@ -87,6 +88,44 @@ enum RankStat
 	RANK_STAT_COUNT
 };
 
+/** What a grade carries besides its stats, the Perk_<side> lines.  A grade holds every perk of the
+	* grades below it, and of one kind the strongest, so a later line of the same kind replaces an
+	* earlier one by being larger. */
+enum RankPerk
+{
+	RANK_PERK_SIGHT,							///< own shroud clearing, a multiplier
+	RANK_PERK_STILL_GUARD,				///< share of damage taken away while standing still
+	RANK_PERK_MEND,								///< share of max health healed a second once SelfRepairDelay unhurt
+	RANK_PERK_SPOTTER,						///< sees as a spotter does (ThingTemplate SpotterSight), and is jammed as one
+	RANK_PERK_SCATTER,						///< share of its own weapons' scatter taken away
+	RANK_PERK_DEATH_RALLY,				///< on death, allies within its aura radius take this share less damage for RallyTime
+	RANK_PERK_DETECT,							///< stealthed enemies within this radius are detected
+	RANK_PERK_AURA_RADIUS,				///< its aura radius, a multiplier
+	RANK_PERK_AURA_RATE_OF_FIRE,	///< the first of the aura perks, in RankAura order
+	RANK_PERK_AURA_SIGHT,
+	RANK_PERK_AURA_GUARD,
+	RANK_PERK_AURA_RANGE,
+
+	RANK_PERK_COUNT
+};
+
+/** A leader's bonus to friendly units within its aura radius, refilled once a second.  Of one kind a
+	* unit takes the strongest leader's and nothing more.  RALLY is the death rally, timed instead. */
+enum RankAura
+{
+	RANK_AURA_RATE_OF_FIRE,				///< added to weapon rate of fire, up to RankAuraRateOfFireCap
+	RANK_AURA_SIGHT,							///< shroud clearing, 1 + this
+	RANK_AURA_GUARD,							///< damage taken, 1 - this
+	RANK_AURA_RANGE,							///< an artillery weapon's range, added
+	RANK_AURA_RALLY,							///< damage taken, 1 - this, until the rally runs out
+
+	RANK_AURA_COUNT,
+	RANK_AURA_PASSED = RANK_AURA_RALLY	///< the kinds the once-a-second pass writes
+};
+
+extern const char *const TheRankPerkNames[RANK_PERK_COUNT + 1];
+extern const char *const TheRankAuraNames[RANK_AURA_COUNT];
+
 /** One side's rank ladder, the Veterancy block in BalanceReforged.ini (docs/plans/RANK-LADDER.md).
 	* A unit's grade is a pure function of its experience and its template's E, its regular
 	* ExperienceValue: the step to grade g costs E x ratio^(g-1), the ratio set so the top grade costs
@@ -99,11 +138,14 @@ struct RankLadder
 	Int		m_pin[LEVEL_COUNT];								///< the grade each EA level starts on; m_pin[LEVEL_REGULAR] is 0
 	Int		m_heroStart;											///< the insignia a hero wears at grade 0
 	Real	m_statTop[RANK_STAT_COUNT];				///< each stat at the top of the ladder
+	Real	m_auraRadius;											///< a leader's aura radius before RANK_PERK_AURA_RADIUS
+	Real	m_perkAt[RANK_GRADES_MAX + 1][RANK_PERK_COUNT];	///< the perks a grade's own lines name, 0 for none
 
 	// filled by finish()
 	Real	m_ratio;
 	Real	m_total[RANK_GRADES_MAX + 1];			///< experience to hold grade g, in E
 	Real	m_stat[RANK_GRADES_MAX + 1][RANK_STAT_COUNT];	///< each stat at grade g
+	Real	m_perk[RANK_GRADES_MAX + 1][RANK_PERK_COUNT];	///< each perk grade g holds, the strongest of its grade and those below
 
 	void clear();
 	/** The ratio from m_grades and m_top, the totals, and the stats: worth (rate of fire times damage
@@ -117,6 +159,9 @@ struct RankLadder
 		* lifts one grade at most. Experience past the next-to-last grade is not clipped. */
 	Int clipGain( Int unitValue, Int experience, Int gain ) const;
 	Int insigniaIndex( Int grade, Bool hero ) const;						///< a hero's insignia runs from m_heroStart to the top over its grades
+	Real perk( Int grade, RankPerk perk ) const;								///< what the grade holds of the kind, 0 for nothing
+	Real auraRadius( Int grade ) const;													///< m_auraRadius times the AURA_RADIUS perk
+	Real aura( Int grade, RankAura aura ) const;								///< what a leader of this grade gives; RALLY is its death rally
 
 	static Int unitValue( const ThingTemplate *thing );				///< E: the regular ExperienceValue, else half the Veteran threshold, at least 1
 };
@@ -612,6 +657,9 @@ public:
 	Int m_rankCrateGrades;																				///< grades a veterancy crate gives per EA level it would have
 	WeaponBonusSet* m_veterancyWeaponBonus[VETERANCY_SIDE_COUNT];	///< NULL: nothing beyond the grade
 	UnsignedInt m_veterancySelfRepairDelay;												///< frames unhurt before self-repair starts
+	Real m_rankAuraRateOfFireCap;																	///< the most a rate-of-fire aura adds
+	UnsignedInt m_rankRallyTime;																	///< frames a death rally lasts
+	RadiusDecalTemplate m_rankAuraRing[RANK_AURA_COUNT];					///< the ground ring under a selected leader, one per aura kind (client)
 
 	static VeterancySide veterancySideOf( const ThingTemplate *thing );
 	const RankLadder *getRankLadder( const ThingTemplate *thing ) const;	///< NULL: the thing's side keeps EA's levels

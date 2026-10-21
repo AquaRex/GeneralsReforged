@@ -78,6 +78,7 @@ private:
 	UnsignedInt		m_opacityThrobTime;
 	Color					m_color;
 	Bool					m_onlyVisibleToOwningPlayer;
+	Int						m_spinTime;		///< milliseconds a turn takes, below 0 the other way; 0 stands still
 
 public:
 	RadiusDecalTemplate();

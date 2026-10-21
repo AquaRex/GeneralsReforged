@@ -1265,6 +1265,7 @@ protected:
 	void destroyPlacementIcons( void );													///< Destroy placement icons
 	void handleBuildPlacements( void );													///< handle updating of placement icons based on mouse pos
 	void handleRadiusCursor();																	///< handle updating of "radius cursors" that follow the mouse pos
+	void updateAuraRings();																			///< the ground ring of each aura a selected or hovered leader gives
 
 	void incrementSelectCount( void ) { ++m_selectCount; }			///< Increase by one the running total of "selected" drawables
 	void decrementSelectCount( void ) { --m_selectCount; }			///< Decrease by one the running total of "selected" drawables
@@ -1552,6 +1553,16 @@ protected:
 	RadiusDecalTemplate					m_radiusCursors[RADIUSCURSOR_COUNT];
 	RadiusDecal									m_curRadiusCursor;
 	RadiusCursorType						m_curRcType;
+
+	enum { AURA_RING_MAX = 32 };
+	struct AuraRing
+	{
+		ObjectID		id;					///< INVALID_ID: a free slot
+		Int					kind;				///< RankAura
+		Real				radius;			///< as drawn
+		RadiusDecal	decal;
+	};
+	AuraRing										m_auraRings[AURA_RING_MAX];
 
 	//Floating Text Data
 	FloatingTextList						m_floatingTextList;				///< Our list of floating text
