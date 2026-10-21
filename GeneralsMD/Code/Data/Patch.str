@@ -2474,14 +2474,103 @@ RANK:GLA20
 "Supreme Liberator"
 END
 
+// Turkiye's ladder, the Turkish Land Forces' ranks under their Turkish names in every language
+RANK:Turkiye0
+"Unranked"
+END
+
+RANK:Turkiye1
+"Er"
+END
+
+RANK:Turkiye2
+"Onbaşı"
+END
+
+RANK:Turkiye3
+"Çavuş"
+END
+
+RANK:Turkiye4
+"Uzman Çavuş"
+END
+
+RANK:Turkiye5
+"Astsubay Çavuş"
+END
+
+RANK:Turkiye6
+"Astsubay Kıdemli Çavuş"
+END
+
+RANK:Turkiye7
+"Astsubay Üstçavuş"
+END
+
+RANK:Turkiye8
+"Astsubay Kıdemli Üstçavuş"
+END
+
+RANK:Turkiye9
+"Astsubay Başçavuş"
+END
+
+RANK:Turkiye10
+"Astsubay Kıdemli Başçavuş"
+END
+
+RANK:Turkiye11
+"Teğmen"
+END
+
+RANK:Turkiye12
+"Üsteğmen"
+END
+
+RANK:Turkiye13
+"Yüzbaşı"
+END
+
+RANK:Turkiye14
+"Binbaşı"
+END
+
+RANK:Turkiye15
+"Yarbay"
+END
+
+RANK:Turkiye16
+"Albay"
+END
+
+RANK:Turkiye17
+"Tuğgeneral"
+END
+
+RANK:Turkiye18
+"Tümgeneral"
+END
+
+RANK:Turkiye19
+"Korgeneral"
+END
+
+RANK:Turkiye20
+"Orgeneral"
+END
+
+RANK:Turkiye21
+"Mareşal"
+END
+
 // The Turkiye faction (PlayerTemplateReforged.ini, TurkiyeReforged.ini). Units, buildings, buttons, upgrades.
 
 INI:FactionTurkiye
-"Turkiye"
+"Turkiye (Experimental)"
 END
 
 SIDE:Turkiye
-"Turkiye"
+"Turkiye (Experimental)"
 END
 
 TOOLTIP:BioStrategyLong_Turkiye

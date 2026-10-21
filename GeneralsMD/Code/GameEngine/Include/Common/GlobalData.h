@@ -57,18 +57,19 @@ enum AIDebugOptions : Int;
 
 // PUBLIC /////////////////////////////////////////////////////////////////////////////////////////
 
-/// the three sides whose ranks carry their own bonuses (m_veterancyWeaponBonus and the rest)
+/// the sides whose ranks carry their own bonuses (m_veterancyWeaponBonus and the rest)
 enum VeterancySide
 {
 	VETERANCY_SIDE_NONE = -1,
 	VETERANCY_SIDE_AMERICA,
 	VETERANCY_SIDE_CHINA,
 	VETERANCY_SIDE_GLA,
+	VETERANCY_SIDE_TURKIYE,
 
 	VETERANCY_SIDE_COUNT
 };
 
-/// America, China, GLA: the side in each rank insignia's image name and each rank's label
+/// America, China, GLA, Turkiye: the side in each rank insignia's image name and each rank's label
 extern const char *const TheVeterancySideNames[VETERANCY_SIDE_COUNT];
 
 enum { RANK_GRADES_MAX = 32 };	///< promotions a side's ladder may have; America's 28 is the longest

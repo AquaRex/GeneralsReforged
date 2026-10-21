@@ -15344,3 +15344,11 @@ END
 GUI:LobbyRecordClose
 "SCHLIESSEN"
 END
+
+INI:FactionTurkiye
+"Türkiye (Experimentell)"
+END
+
+SIDE:Turkiye
+"Türkiye (Experimentell)"
+END

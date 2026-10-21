@@ -16858,12 +16858,16 @@ RANK:GLA20
 "Yüce Kurtarıcı"
 END
 
+RANK:Turkiye0
+"Rütbesiz"
+END
+
 INI:FactionTurkiye
-"Türkiye"
+"Türkiye (Deneysel)"
 END
 
 SIDE:Turkiye
-"Türkiye"
+"Türkiye (Deneysel)"
 END
 
 TOOLTIP:BioStrategyLong_Turkiye

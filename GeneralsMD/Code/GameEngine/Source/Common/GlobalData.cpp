@@ -93,9 +93,9 @@ static void parseVeterancyWeaponBonus( INI *ini, void *, void *store, const void
 	(*table)->parseWeaponBonusSet( ini );
 }
 
-const char *const TheVeterancySideNames[VETERANCY_SIDE_COUNT] = { "America", "China", "GLA" };
+const char *const TheVeterancySideNames[VETERANCY_SIDE_COUNT] = { "America", "China", "GLA", "Turkiye" };
 
-// A ladder line holds one value per side, America, China and GLA, written into the same RankLadder
+// A ladder line holds one value per side, America, China, GLA and Turkiye, written into the same RankLadder
 // member of each; the member's offset rides in userData and store is m_rankLadder.
 static void parseLadderInts( INI *ini, void *, void *store, const void *member )
 {
@@ -1528,6 +1528,8 @@ GlobalData::~GlobalData( void )
 		return VETERANCY_SIDE_CHINA;
 	if( side.startsWith( "GLA" ) )
 		return VETERANCY_SIDE_GLA;
+	if( side.startsWith( "Turkiye" ) )
+		return VETERANCY_SIDE_TURKIYE;
 	return VETERANCY_SIDE_NONE;
 }
 
