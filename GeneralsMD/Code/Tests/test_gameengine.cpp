@@ -4004,6 +4004,88 @@ TEST(statemachine_outlives_the_owner_that_lets_go_of_it_mid_update)
 	}
 }
 
+/* The same hold for a change of state that does not come from an update.  Issue 123: a hunt or attack
+   state set its sub-machine's state, the onEnter on the way made the parent leave, the parent dropped
+   the sub-machine, and the transition carried on in freed memory - the state map read empty, the
+   machine fell back to its default attack state, and the game hung on that frame.  Here the first
+   state lets go of the machine in its onEnter and fails into the second. */
+static Bool s_letGoMachineDestroyed = FALSE;
+static Bool s_secondStateEntered = FALSE;
+static Bool s_machineAliveInSecondState = FALSE;
+
+class LetGoState : public State
+{
+	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(LetGoState, "ContinueState")
+public:
+	LetGoState(StateMachine *machine) : State(machine, "LetGoState") {}
+	virtual StateReturnType onEnter() { getMachine()->deleteInstance(); return STATE_FAILURE; }
+	virtual StateReturnType update() { return STATE_CONTINUE; }
+protected:
+	virtual void crc(Xfer *xfer) {}
+	virtual void xfer(Xfer *xfer) {}
+	virtual void loadPostProcess() {}
+};
+EMPTY_DTOR(LetGoState)
+
+class SecondState : public State
+{
+	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(SecondState, "SuccessState")
+public:
+	SecondState(StateMachine *machine) : State(machine, "SecondState") {}
+	virtual StateReturnType onEnter()
+	{
+		s_secondStateEntered = TRUE;
+		s_machineAliveInSecondState = !s_letGoMachineDestroyed;
+		return STATE_CONTINUE;
+	}
+	virtual StateReturnType update() { return STATE_CONTINUE; }
+protected:
+	virtual void crc(Xfer *xfer) {}
+	virtual void xfer(Xfer *xfer) {}
+	virtual void loadPostProcess() {}
+};
+EMPTY_DTOR(SecondState)
+
+class LetGoStateMachine : public StateMachine
+{
+	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(LetGoStateMachine, "StateMachinePool")
+public:
+	LetGoStateMachine() : StateMachine(NULL, "letgo")
+	{
+		defineState(0, newInstance(LetGoState)(this), 1, 1);
+		defineState(1, newInstance(SecondState)(this), 1, 1);
+	}
+};
+
+LetGoStateMachine::~LetGoStateMachine() { s_letGoMachineDestroyed = TRUE; }
+
+TEST(statemachine_outlives_the_owner_that_lets_go_of_it_mid_transition)
+{
+	CHECK(bootOnce());
+
+	GlobalData *savedGlobals = TheWritableGlobalData;
+	if (savedGlobals == NULL)
+		TheWritableGlobalData = NEW GlobalData;
+
+	s_letGoMachineDestroyed = FALSE;
+	s_secondStateEntered = FALSE;
+	s_machineAliveInSecondState = FALSE;
+	StateMachine *machine = newInstance(LetGoStateMachine);
+
+	/* the owner's reference goes in the first state's onEnter; the transition it fails into still runs
+	   on a live machine, and the machine goes when the transition is done */
+	machine->initDefaultState();
+	CHECK(s_secondStateEntered);
+	CHECK(s_machineAliveInSecondState);
+	CHECK(s_letGoMachineDestroyed);
+
+	if (savedGlobals == NULL)
+	{
+		delete TheWritableGlobalData;
+		TheWritableGlobalData = NULL;
+	}
+}
+
 
 /* ------------------------------------------------------------------------------------------------
  * The A* open list.
