@@ -327,10 +327,12 @@ static RankInsignia s_rankInsignia[VETERANCY_SIDE_COUNT];
 	s_veterancyImage[2] = TheMappedImageCollection->findImageByName("SCVeter2");
 	s_veterancyImage[3] = TheMappedImageCollection->findImageByName("SCVeter3");
 	// America stacks gold bars and GLA lays out skulls, both the fork's own art, and China the score
-	// screen's gold star. A side left out here keeps EA's chevrons.
-	const RankInsignia america = { TheMappedImageCollection->findImageByName("ReforgedRankBar"), 16, 8, 7, FALSE };
-	const RankInsignia china = { TheMappedImageCollection->findImageByName("Star-Gold"), 12, 12, 10, TRUE };
-	const RankInsignia gla = { TheMappedImageCollection->findImageByName("ReforgedRankSkull"), 13, 13, 11, TRUE };
+	// screen's gold star. A side left out here keeps EA's chevrons. Each mark is about as big as a chevron:
+	// the textures carry a transparent margin, so the bar's 12x6 draws a bar about 10x5 and the star's
+	// and skull's 9 draw a mark about 8 across.
+	const RankInsignia america = { TheMappedImageCollection->findImageByName("ReforgedRankBar"), 12, 6, 5, FALSE };
+	const RankInsignia china = { TheMappedImageCollection->findImageByName("Star-Gold"), 9, 9, 7, TRUE };
+	const RankInsignia gla = { TheMappedImageCollection->findImageByName("ReforgedRankSkull"), 9, 9, 8, TRUE };
 	s_rankInsignia[VETERANCY_SIDE_AMERICA] = america;
 	s_rankInsignia[VETERANCY_SIDE_CHINA] = china;
 	s_rankInsignia[VETERANCY_SIDE_GLA] = gla;

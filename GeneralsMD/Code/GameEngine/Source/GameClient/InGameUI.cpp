@@ -10163,9 +10163,9 @@ void InGameUI::updateAndDrawWorldAnimations( void )
 			const Real WORLD_ANIM_ZOOM_REFERENCE = 1.3f;
 			Real zoomScale = WORLD_ANIM_ZOOM_REFERENCE / TheTacticalView->getZoom();
 
-			// a rank gained floats up as the side's own marks, twice their health bar size, centred where
-			// the chevron would have been
-			const Real RANK_GAIN_SCALE = 2.0f;
+			// a rank gained floats up as the side's own marks, half again their health bar size, centred
+			// where the chevron would have been
+			const Real RANK_GAIN_SCALE = 1.5f;
 			if( wad->m_rankOf && Drawable::drawRankInsignia( wad->m_rankOf, wad->m_rankLevel, screen.x, screen.y - REAL_TO_INT( height * zoomScale / 2 ),
 					TRUE, RANK_GAIN_SCALE * zoomScale, GameMakeColor( 255, 255, 255, REAL_TO_INT( 255 * alpha ) ) ) )
 			{
