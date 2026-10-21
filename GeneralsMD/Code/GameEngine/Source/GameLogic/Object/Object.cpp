@@ -3493,7 +3493,10 @@ void Object::onVeterancyLevelChanged( VeterancyLevel oldLevel, VeterancyLevel ne
 	BodyModuleInterface* body = getBodyModule();
 	if (body)
 		body->onVeterancyLevelChanged( oldLevel, newLevel, provideFeedback );
-	
+
+	if (m_ai)
+		m_ai->refreshVeterancySpeed();
+
 	// Whether the promotion shows is simply whether this watcher can see the unit.  The rule used
 	// to be spelled out here as "mine, or not stealthed, or detected, or disguised", which reads
 	// the same for a player but is wrong for everyone else at the table: an ally who shares your
@@ -3558,7 +3561,8 @@ void Object::onVeterancyLevelChanged( VeterancyLevel oldLevel, VeterancyLevel ne
 																			&pos,
 																			WORLD_ANIM_FADE_ON_EXPIRE,
 																			TheGlobalData->m_levelGainAnimationDisplayTimeInSeconds,
-																			TheGlobalData->m_levelGainAnimationZRisePerSecond);
+																			TheGlobalData->m_levelGainAnimationZRisePerSecond,
+																			getTemplate(), newLevel );
 		}
 
 		AudioEventRTS soundToPlay = TheAudio->getMiscAudio()->m_unitPromoted;	

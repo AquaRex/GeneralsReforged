@@ -28,6 +28,8 @@ Data/Art/Textures/ReforgedMineGlowBlue.tga
 Data/Art/Textures/ReforgedMineGlowRed.tga
 Data/Art/Textures/ReforgedMineLedBlue.tga
 Data/Art/Textures/ReforgedMineLedRed.tga
+Data/Art/Textures/ReforgedRankBar.tga
+Data/Art/Textures/ReforgedRankSkull.tga
 Data/Art/Textures/ReforgedSignalAttack.tga
 Data/Art/Textures/ReforgedSignalDefend.tga
 Data/Art/Textures/ReforgedSignalLook.tga
@@ -146,6 +148,7 @@ Data/Cinema/v240_hook.txt
 Data/Cinema/v240_hook2.txt
 Data/Cinema/v240_md.txt
 Data/Cinema/v240_tank.txt
+Data/Cinema/vetranks.txt
 Data/Cinema/wreckcheck.txt
 Data/German/Generals.str
 Data/INI/BalanceReforged.ini
@@ -169,6 +172,7 @@ Data/INI/MappedImages/HandCreated/ReforgedHudHelpbox.ini
 Data/INI/MappedImages/HandCreated/ReforgedHudObsCommandBar.ini
 Data/INI/MappedImages/HandCreated/ReforgedHudObsPlayerWindow.ini
 Data/INI/MappedImages/HandCreated/ReforgedLobbySpot.ini
+Data/INI/MappedImages/HandCreated/ReforgedRankInsignia.ini
 Data/INI/ObjectCreationListReforged.ini
 Data/INI/ParticleSystemReforged.ini
 Data/INI/ScienceReforged.ini
@@ -355,6 +359,7 @@ Data/Scenarios/v240_tank.txt
 Data/Scenarios/vehicleaccel.txt
 Data/Scenarios/vehiclelean.txt
 Data/Scenarios/vehicleturn.txt
+Data/Scenarios/vetranks.txt
 Data/Scenarios/vision.txt
 Data/Scenarios/wallgarrison.txt
 Data/Scenarios/wreckcheck.txt
@@ -4017,6 +4022,7 @@ Tools/package-common.sh
 Tools/packaging-resolution-check.sh
 Tools/peacetime_layout.py
 Tools/pink_laser.py
+Tools/rank_insignia.py
 Tools/record-dx11-shaders.ps1
 Tools/replay-check.sh
 Tools/root-readonly-check.sh

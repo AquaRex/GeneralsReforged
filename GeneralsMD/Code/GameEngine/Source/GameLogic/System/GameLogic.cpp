@@ -5030,6 +5030,25 @@ void GameLogic::update( void )
 		}
 	}
 
+	// Faction veterancy's self-repair (GLA): once a second a ranked unit that has gone unhurt for
+	// the Veterancy block's SelfRepairDelay heals its side's share of its max health.  Healing itself earns it
+	// nothing (Object::scoreTheHeal).
+	if( m_frame % LOGICFRAMES_PER_SECOND == 0 )
+	{
+		for( Object *obj = m_objList; obj; obj = obj->getNextObject() )
+		{
+			const Real share = TheGlobalData->getVeterancySelfRepair( obj->getTemplate(), obj->getVeterancyLevel() );
+			if( share <= 0.0f || obj->isEffectivelyDead() )
+				continue;
+			const BodyModuleInterface *body = obj->getBodyModule();
+			const UnsignedInt lastHurt = body->getLastDamageTimestamp();
+			if( body->getHealth() >= body->getMaxHealth()
+					|| ( lastHurt <= m_frame && m_frame - lastHurt < TheGlobalData->m_veterancySelfRepairDelay ) )
+				continue;
+			obj->attemptHealing( body->getMaxHealth() * share, obj );
+		}
+	}
+
   
 
 

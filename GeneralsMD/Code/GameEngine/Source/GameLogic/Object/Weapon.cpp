@@ -2121,7 +2121,17 @@ void Weapon::computeBonus(const Object *source, WeaponBonusConditionFlags extraB
 			flags |= theirContain->getWeaponBonusPassedToPassengers();
 	}
 
-	if (TheGlobalData->m_weaponBonusSet)
+	// a ranked unit of a side with its own veterancy table takes that side's VETERAN, ELITE and HERO
+	// lines instead of the global ones, and the table's other lines (China's horde) with them
+	const WeaponBonusSet* sideSet = TheGlobalData->getVeterancyWeaponBonus(source->getTemplate(), source->getVeterancyLevel());
+	if (sideSet)
+	{
+		const WeaponBonusConditionFlags RANK_FLAGS = (1 << WEAPONBONUSCONDITION_VETERAN)
+			| (1 << WEAPONBONUSCONDITION_ELITE) | (1 << WEAPONBONUSCONDITION_HERO);
+		TheGlobalData->m_weaponBonusSet->appendBonuses(flags & ~RANK_FLAGS, bonus);
+		sideSet->appendBonuses(flags, bonus);
+	}
+	else if (TheGlobalData->m_weaponBonusSet)
 		TheGlobalData->m_weaponBonusSet->appendBonuses(flags, bonus);
 	const WeaponBonusSet* extra = m_template->getExtraBonus();
 	if (extra)

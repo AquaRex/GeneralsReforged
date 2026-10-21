@@ -9996,6 +9996,8 @@ WorldAnimationData::WorldAnimationData( void )
 	m_expireFrame = 0;
 	m_options = WORLD_ANIM_NO_OPTIONS;
 	m_zRisePerSecond = 0.0f;
+	m_rankOf = NULL;
+	m_rankLevel = LEVEL_REGULAR;
 
 }  // end WorldAnimationData
 
@@ -10006,12 +10008,14 @@ void InGameUI::addWorldAnimation( Anim2DTemplate *animTemplate,
 																	const Coord3D *pos,
 																	WorldAnimationOptions options,
 																	Real durationInSeconds,
-																	Real zRisePerSecond )
+																	Real zRisePerSecond,
+																	const ThingTemplate *rankOf,
+																	VeterancyLevel rankLevel )
 {
 	if( LogicThread::defersEffects() && pos != NULL )
 	{
 		const Coord3D at = *pos;
-		LogicThread::callAfterTick( [=]() { addWorldAnimation( animTemplate, &at, options, durationInSeconds, zRisePerSecond ); } );
+		LogicThread::callAfterTick( [=]() { addWorldAnimation( animTemplate, &at, options, durationInSeconds, zRisePerSecond, rankOf, rankLevel ); } );
 		return;
 	}
 	LOGIC_CENSUS( CENSUS_INGAMEUI );
@@ -10035,6 +10039,8 @@ void InGameUI::addWorldAnimation( Anim2DTemplate *animTemplate,
 	wad->m_options = options;
 	wad->m_worldPos = *pos;
 	wad->m_zRisePerSecond = zRisePerSecond;
+	wad->m_rankOf = rankOf;
+	wad->m_rankLevel = rankLevel;
 
 	// add to list
 	m_worldAnimationList.push_front( wad );
@@ -10128,6 +10134,7 @@ void InGameUI::updateAndDrawWorldAnimations( void )
 		}  // end if
 
 		// update translucency value
+		Real alpha = 1.0f;
 		if( BitTest( wad->m_options, WORLD_ANIM_FADE_ON_EXPIRE ) )
 		{
 
@@ -10137,7 +10144,7 @@ void InGameUI::updateAndDrawWorldAnimations( void )
 			{
 				
 				// compute alpha level so that we're totally gone by the expire frame
-				Real alpha = INT_TO_REAL( framesTillExpire ) / INT_TO_REAL( FRAMES_BEFORE_EXPIRE_TO_FADE );
+				alpha = INT_TO_REAL( framesTillExpire ) / INT_TO_REAL( FRAMES_BEFORE_EXPIRE_TO_FADE );
 				wad->m_anim->setAlpha( alpha );
 				
 			}  // end if
@@ -10155,6 +10162,17 @@ void InGameUI::updateAndDrawWorldAnimations( void )
 			// zoom value, which is gone; this number is the size the artwork was drawn against.
 			const Real WORLD_ANIM_ZOOM_REFERENCE = 1.3f;
 			Real zoomScale = WORLD_ANIM_ZOOM_REFERENCE / TheTacticalView->getZoom();
+
+			// a rank gained floats up as the side's own marks, twice their health bar size, centred where
+			// the chevron would have been
+			const Real RANK_GAIN_SCALE = 2.0f;
+			if( wad->m_rankOf && Drawable::drawRankInsignia( wad->m_rankOf, wad->m_rankLevel, screen.x, screen.y - REAL_TO_INT( height * zoomScale / 2 ),
+					TRUE, RANK_GAIN_SCALE * zoomScale, GameMakeColor( 255, 255, 255, REAL_TO_INT( 255 * alpha ) ) ) )
+			{
+				++it;
+				continue;
+			}
+
 			width *= zoomScale;
 			height *= zoomScale;
 

@@ -1047,9 +1047,17 @@ Bool AIUpdateInterface::chooseLocomotorSetExplicit(LocomotorSetType wst)
 				m_locomotorSet.addLocomotor(lt);
 		}
 		m_curLocomotorSet = wst;
+		refreshVeterancySpeed();
 		return TRUE;
 	}
 	return FALSE;
+}
+
+//-------------------------------------------------------------------------------------------------
+void AIUpdateInterface::refreshVeterancySpeed()
+{
+	const Object* obj = getObject();
+	m_locomotorSet.setSpeedFactor(TheGlobalData->getVeterancySpeedBonus(obj->getTemplate(), obj->getVeterancyLevel()));
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -103,6 +103,8 @@ public:
 	void addLocomotor(const LocomotorTemplate* lt);
 
 	Locomotor* findLocomotor(LocomotorSurfaceTypeMask t);
+
+	void setSpeedFactor(Real factor);	///< Locomotor::setSpeedFactor on each
 	
 	void xferSelfAndCurLocoPtr(Xfer *xfer, Locomotor** loco);
 

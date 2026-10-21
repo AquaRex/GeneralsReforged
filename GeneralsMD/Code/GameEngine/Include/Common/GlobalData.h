@@ -51,10 +51,22 @@ enum _TerrainLOD : Int;
 class GlobalData;
 class INI;
 class WeaponBonusSet;
+class ThingTemplate;
 enum BodyDamageType : Int;
 enum AIDebugOptions : Int;
 
 // PUBLIC /////////////////////////////////////////////////////////////////////////////////////////
+
+/// the three sides whose ranks carry their own bonuses (m_veterancyWeaponBonus and the rest)
+enum VeterancySide
+{
+	VETERANCY_SIDE_NONE = -1,
+	VETERANCY_SIDE_AMERICA,
+	VETERANCY_SIDE_CHINA,
+	VETERANCY_SIDE_GLA,
+
+	VETERANCY_SIDE_COUNT
+};
 
 const Int MAX_GLOBAL_LIGHTS	= 3;
 
@@ -142,6 +154,7 @@ public:
 	Int getEffectiveParticleCap() const { return (m_particleCapOverride > 0) ? m_particleCapOverride : m_maxParticleCount; }
 
 	static void parseGameDataDefinition( INI* ini );
+	static void parseVeterancyDefinition( INI* ini );	///< the Veterancy block, m_veterancy*
 
 	//-----------------------------------------------------------------------------------------------
 	struct TerrainLighting
@@ -535,6 +548,22 @@ public:
 	Int m_maxFieldParticleCount;			///< maximum number of field-type particles that can exist (roughly)
 	WeaponBonusSet* m_weaponBonusSet;
 	Real m_healthBonus[LEVEL_COUNT];			///< global bonuses to health for veterancy.
+
+	/** Faction veterancy, set in BalanceReforged.ini.  A ranked unit whose template's Side starts with
+		* America, China or GLA (so every general's copy too) reads its side's tables; Boss and civilian
+		* units keep the global ones.  A side's weapon table stands in for the VETERAN, ELITE and HERO
+		* lines of WeaponBonus, and any other condition in it (China's HORDE) counts only while ranked. */
+	WeaponBonusSet* m_veterancyWeaponBonus[VETERANCY_SIDE_COUNT];	///< NULL: the side takes WeaponBonus as it is
+	Real m_veterancyHealthBonus[VETERANCY_SIDE_COUNT][LEVEL_COUNT];	///< 0: the side takes HealthBonus_*
+	Real m_veterancySpeedBonus[VETERANCY_SIDE_COUNT][LEVEL_COUNT];	///< locomotor speed factor
+	Real m_veterancySelfRepair[VETERANCY_SIDE_COUNT][LEVEL_COUNT];	///< share of max health healed a second
+	UnsignedInt m_veterancySelfRepairDelay;												///< frames unhurt before self-repair starts
+
+	static VeterancySide veterancySideOf( const ThingTemplate *thing );
+	const WeaponBonusSet *getVeterancyWeaponBonus( const ThingTemplate *thing, VeterancyLevel level ) const;
+	Real getVeterancyHealthBonus( const ThingTemplate *thing, VeterancyLevel level ) const;
+	Real getVeterancySpeedBonus( const ThingTemplate *thing, VeterancyLevel level ) const;
+	Real getVeterancySelfRepair( const ThingTemplate *thing, VeterancyLevel level ) const;
 	Real m_defaultStructureRubbleHeight;	///< for rubbled structures, compress height to this if none specified
 
 	AsciiString m_shellMapName;				///< Holds the shell map name

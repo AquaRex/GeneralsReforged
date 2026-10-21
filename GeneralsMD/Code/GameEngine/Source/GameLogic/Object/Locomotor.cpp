@@ -811,6 +811,7 @@ Locomotor::Locomotor(const LocomotorTemplate* tmpl)
 	m_brakingFactor = 1.0f;
 	m_maxLift = BIGNUM;
 	m_maxSpeed = BIGNUM;
+	m_speedFactor = 1.0f;
 	m_maxAccel = BIGNUM;
 	m_maxBraking = BIGNUM;
 	m_maxTurnRate = BIGNUM;
@@ -850,6 +851,7 @@ Locomotor::Locomotor(const Locomotor& that)
 	m_brakingFactor = that.m_brakingFactor;
 	m_maxLift = that.m_maxLift;
 	m_maxSpeed = that.m_maxSpeed;
+	m_speedFactor = that.m_speedFactor;
 	m_maxAccel = that.m_maxAccel;
 	m_maxBraking = that.m_maxBraking;
 	m_maxTurnRate = that.m_maxTurnRate;
@@ -880,6 +882,7 @@ Locomotor& Locomotor::operator=(const Locomotor& that)
 		m_brakingFactor = that.m_brakingFactor;
 		m_maxLift = that.m_maxLift;
 		m_maxSpeed = that.m_maxSpeed;
+		m_speedFactor = that.m_speedFactor;
 		m_maxAccel = that.m_maxAccel;
 		m_maxBraking = that.m_maxBraking;
 		m_maxTurnRate = that.m_maxTurnRate;
@@ -920,12 +923,13 @@ void Locomotor::crc( Xfer *xfer )
 	* 1: Initial version
 	* 3: m_diveDistance
 	* 4: m_yawRate, m_driveAccelX, m_driveAccelY
-	* 5: m_driveSpeed, m_driveFrame */
+	* 5: m_driveSpeed, m_driveFrame
+	* 6: m_speedFactor */
 // ------------------------------------------------------------------------------------------------
 void Locomotor::xfer( Xfer *xfer )
 {
 	// version
-	const XferVersion currentVersion = 5;
+	const XferVersion currentVersion = 6;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -966,6 +970,9 @@ void Locomotor::xfer( Xfer *xfer )
 		xfer->xferUnsignedInt(&m_driveFrame);
 	}
 
+	if (version >= 6)
+		xfer->xferReal(&m_speedFactor);
+
 }  // end xfer
 
 // ------------------------------------------------------------------------------------------------
@@ -993,6 +1000,7 @@ Real Locomotor::getMaxSpeedForCondition(BodyDamageType condition) const
 	else
 		speed = m_template->m_maxSpeedDamaged;
 
+	speed *= m_speedFactor;
 	if (speed > m_maxSpeed)
 		speed = m_maxSpeed;
 
@@ -4026,6 +4034,13 @@ Locomotor* LocomotorSet::findLocomotor(LocomotorSurfaceTypeMask t)
 			return curLocomotor;
 	}
 	return NULL;
+}
+
+//-------------------------------------------------------------------------------------------------
+void LocomotorSet::setSpeedFactor(Real factor)
+{
+	for (LocomotorVector::iterator it = m_locomotors.begin(); it != m_locomotors.end(); ++it)
+		(*it)->setSpeedFactor(factor);
 }
 
 

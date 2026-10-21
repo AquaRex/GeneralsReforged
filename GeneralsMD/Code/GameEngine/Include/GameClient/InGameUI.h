@@ -340,6 +340,8 @@ public:
 	UnsignedInt m_expireFrame;						///< frame we expire on
 	WorldAnimationOptions m_options;			///< options
 	Real m_zRisePerSecond;								///< Z units to rise per second
+	const ThingTemplate *m_rankOf;				///< a rank gained: its side's marks are drawn instead of the animation, when it has them
+	VeterancyLevel m_rankLevel;						///< the rank gained
 
 };
 typedef std::list< WorldAnimationData *> WorldAnimationList;
@@ -1208,7 +1210,9 @@ public:
 													const Coord3D *pos,
 													WorldAnimationOptions options,
 													Real durationInSeconds,
-													Real zRisePerSecond );
+													Real zRisePerSecond,
+													const ThingTemplate *rankOf = NULL,
+													VeterancyLevel rankLevel = LEVEL_REGULAR );
 
 #if defined(_DEBUG) || defined(_INTERNAL)
 	virtual void DEBUG_addFloatingText(const AsciiString& text,const Coord3D * pos, Color color);

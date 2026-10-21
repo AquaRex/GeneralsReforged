@@ -1567,8 +1567,8 @@ void ActiveBody::onVeterancyLevelChanged( VeterancyLevel oldLevel, VeterancyLeve
 		} );
 	}
 
-	Real oldBonus = TheGlobalData->m_healthBonus[oldLevel];
-	Real newBonus = TheGlobalData->m_healthBonus[newLevel];
+	Real oldBonus = TheGlobalData->getVeterancyHealthBonus(getObject()->getTemplate(), oldLevel);
+	Real newBonus = TheGlobalData->getVeterancyHealthBonus(getObject()->getTemplate(), newLevel);
 	Real mult = newBonus / oldBonus;
 
 	// get this before calling setMaxHealth, since it can clip curHealth

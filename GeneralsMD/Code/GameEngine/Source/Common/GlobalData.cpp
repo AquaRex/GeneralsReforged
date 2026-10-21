@@ -51,6 +51,7 @@
 #include "Common/Monitors.h"
 #include "Common/OptionsCatalog.h"
 #include "Common/Registry.h"
+#include "Common/ThingTemplate.h"
 #include "Common/UserPreferences.h"
 #include "Common/version.h"
 
@@ -81,6 +82,49 @@ static void parseIgnoredField( INI *, void *, void *, const void * )
 // A map's map.ini can carry a GameData block.  Retail is 40; a tiny cell makes the partition grid
 // millions of cells on a large map, a huge one leaves the whole map in a handful of cells.
 static const INI::RealRange PARTITION_CELL_SIZE_RANGE = { 20.0f, 400.0f };
+
+// A side's weapon table exists from its first line on, so a side BalanceReforged.ini never names
+// keeps a NULL table and the global WeaponBonus lines.
+static void parseVeterancyWeaponBonus( INI *ini, void *, void *store, const void * )
+{
+	WeaponBonusSet **table = (WeaponBonusSet **)store;
+	if( *table == NULL )
+		*table = newInstance( WeaponBonusSet );
+	(*table)->parseWeaponBonusSet( ini );
+}
+
+// Three percentages, Veteran, Elite and Heroic, into a Real[LEVEL_COUNT]; Regular stays as it was.
+static void parseVeterancyRanks( INI *ini, void *, void *store, const void * )
+{
+	Real *ranks = (Real *)store;
+	for( Int level = LEVEL_VETERAN; level <= LEVEL_HEROIC; ++level )
+		ranks[ level ] = INI::scanPercentToReal( ini->getNextToken() );
+}
+
+/** The Veterancy block, BalanceReforged.ini's: its own keyword rather than a second GameData block,
+	* because parseGameDataDefinition also re-reads Options.ini, which would overrule the command line. */
+static const FieldParse theVeterancyFieldParseTable[] =
+{
+	{ "WeaponBonus_America",	parseVeterancyWeaponBonus,	NULL,	offsetof( GlobalData, m_veterancyWeaponBonus[VETERANCY_SIDE_AMERICA] ) },
+	{ "WeaponBonus_China",		parseVeterancyWeaponBonus,	NULL,	offsetof( GlobalData, m_veterancyWeaponBonus[VETERANCY_SIDE_CHINA] ) },
+	{ "WeaponBonus_GLA",			parseVeterancyWeaponBonus,	NULL,	offsetof( GlobalData, m_veterancyWeaponBonus[VETERANCY_SIDE_GLA] ) },
+	{ "HealthBonus_America",	parseVeterancyRanks,	NULL,	offsetof( GlobalData, m_veterancyHealthBonus[VETERANCY_SIDE_AMERICA] ) },
+	{ "HealthBonus_China",		parseVeterancyRanks,	NULL,	offsetof( GlobalData, m_veterancyHealthBonus[VETERANCY_SIDE_CHINA] ) },
+	{ "HealthBonus_GLA",			parseVeterancyRanks,	NULL,	offsetof( GlobalData, m_veterancyHealthBonus[VETERANCY_SIDE_GLA] ) },
+	{ "SpeedBonus_America",		parseVeterancyRanks,	NULL,	offsetof( GlobalData, m_veterancySpeedBonus[VETERANCY_SIDE_AMERICA] ) },
+	{ "SpeedBonus_China",			parseVeterancyRanks,	NULL,	offsetof( GlobalData, m_veterancySpeedBonus[VETERANCY_SIDE_CHINA] ) },
+	{ "SpeedBonus_GLA",				parseVeterancyRanks,	NULL,	offsetof( GlobalData, m_veterancySpeedBonus[VETERANCY_SIDE_GLA] ) },
+	{ "SelfRepair_America",		parseVeterancyRanks,	NULL,	offsetof( GlobalData, m_veterancySelfRepair[VETERANCY_SIDE_AMERICA] ) },
+	{ "SelfRepair_China",			parseVeterancyRanks,	NULL,	offsetof( GlobalData, m_veterancySelfRepair[VETERANCY_SIDE_CHINA] ) },
+	{ "SelfRepair_GLA",				parseVeterancyRanks,	NULL,	offsetof( GlobalData, m_veterancySelfRepair[VETERANCY_SIDE_GLA] ) },
+	{ "SelfRepairDelay",			INI::parseDurationUnsignedInt,	NULL,	offsetof( GlobalData, m_veterancySelfRepairDelay ) },
+	{ NULL,	NULL,	NULL,	0 }
+};
+
+/*static*/ void GlobalData::parseVeterancyDefinition( INI *ini )
+{
+	ini->initFromINI( TheWritableGlobalData, theVeterancyFieldParseTable );
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // PRIVATE DATA ///////////////////////////////////////////////////////////////////////////////////
@@ -1136,6 +1180,18 @@ GlobalData::GlobalData()
 	m_defaultStructureRubbleHeight = 1.0f;
 	m_weaponBonusSet = newInstance(WeaponBonusSet);
 
+	for (i = 0; i < VETERANCY_SIDE_COUNT; ++i)
+	{
+		m_veterancyWeaponBonus[i] = NULL;
+		for (j = LEVEL_FIRST; j <= LEVEL_LAST; ++j)
+		{
+			m_veterancyHealthBonus[i][j] = 0.0f;
+			m_veterancySpeedBonus[i][j] = 1.0f;
+			m_veterancySelfRepair[i][j] = 0.0f;
+		}
+	}
+	m_veterancySelfRepairDelay = 0;
+
 	m_shellMapName.set("Maps\\ShellMap1\\ShellMap1.map");
 	m_shellMapOn =TRUE;
 	m_playIntro = TRUE;
@@ -1276,12 +1332,66 @@ GlobalData::~GlobalData( void )
 	if (m_weaponBonusSet)
 		m_weaponBonusSet->deleteInstance();
 
+	// a map's override is a memberwise copy sharing the original's side tables, so only the original
+	// owns them
+	for (Int side = 0; side < VETERANCY_SIDE_COUNT && m_theOriginal == this; ++side)
+		if (m_veterancyWeaponBonus[side])
+			m_veterancyWeaponBonus[side]->deleteInstance();
+
 	if( m_theOriginal == this )	{
 		m_theOriginal = NULL;
 		TheWritableGlobalData = NULL;
 	}
 
 }  // end ~GlobalData
+
+//-------------------------------------------------------------------------------------------------
+/** The side a unit's rank belongs to: its template's Side, so a general's copy (ChinaTankGeneral) is
+	* China and a captured tank keeps the bonuses of the army that trained it. */
+//-------------------------------------------------------------------------------------------------
+/*static*/ VeterancySide GlobalData::veterancySideOf( const ThingTemplate *thing )
+{
+	const AsciiString &side = thing->getDefaultOwningSide();
+	if( side.startsWith( "America" ) )
+		return VETERANCY_SIDE_AMERICA;
+	if( side.startsWith( "China" ) )
+		return VETERANCY_SIDE_CHINA;
+	if( side.startsWith( "GLA" ) )
+		return VETERANCY_SIDE_GLA;
+	return VETERANCY_SIDE_NONE;
+}
+
+//-------------------------------------------------------------------------------------------------
+const WeaponBonusSet *GlobalData::getVeterancyWeaponBonus( const ThingTemplate *thing, VeterancyLevel level ) const
+{
+	if( level == LEVEL_REGULAR )
+		return NULL;
+	const VeterancySide side = veterancySideOf( thing );
+	return side == VETERANCY_SIDE_NONE ? NULL : m_veterancyWeaponBonus[ side ];
+}
+
+//-------------------------------------------------------------------------------------------------
+Real GlobalData::getVeterancyHealthBonus( const ThingTemplate *thing, VeterancyLevel level ) const
+{
+	const VeterancySide side = level == LEVEL_REGULAR ? VETERANCY_SIDE_NONE : veterancySideOf( thing );
+	if( side == VETERANCY_SIDE_NONE || m_veterancyHealthBonus[ side ][ level ] == 0.0f )
+		return m_healthBonus[ level ];
+	return m_veterancyHealthBonus[ side ][ level ];
+}
+
+//-------------------------------------------------------------------------------------------------
+Real GlobalData::getVeterancySpeedBonus( const ThingTemplate *thing, VeterancyLevel level ) const
+{
+	const VeterancySide side = level == LEVEL_REGULAR ? VETERANCY_SIDE_NONE : veterancySideOf( thing );
+	return side == VETERANCY_SIDE_NONE ? 1.0f : m_veterancySpeedBonus[ side ][ level ];
+}
+
+//-------------------------------------------------------------------------------------------------
+Real GlobalData::getVeterancySelfRepair( const ThingTemplate *thing, VeterancyLevel level ) const
+{
+	const VeterancySide side = level == LEVEL_REGULAR ? VETERANCY_SIDE_NONE : veterancySideOf( thing );
+	return side == VETERANCY_SIDE_NONE ? 0.0f : m_veterancySelfRepair[ side ][ level ];
+}
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------

@@ -8,6 +8,15 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
+## Each side's veterans fight their own way
+
+- A promotion gave every unit in the game the same thing, whichever army trained it. Each side's ranks now carry a bonus of their own, paid for by giving back part of the old one, so a rank is still worth about what it was: rate of fire times damage times health stays within 5% of EA's at every rank before the side's own bonus is counted.
+- An American veteran shoots 3% further, an elite 4% and a heroic 5%. Rank adds less health in return, 15%, 25% and 45% where it used to add 20%, 30% and 50%.
+- Chinese ranks add more health, 25%, 40% and 65%, and less rate of fire, 15%, 30% and 45% where it was 20%, 40% and 60%. A ranked Chinese unit in a horde fires 10% faster again.
+- GLA veterans move 5% faster, elites 7% and heroics 10%, and hit less hard for it, 5%, 15% and 25% extra damage where it was 10%, 20% and 30%. A ranked GLA unit that has gone five seconds without being hit mends itself, 1% of its health a second as a veteran, 1.5% as an elite and 2% as a heroic, on top of Junk Repair.
+- Each side wears its rank its own way beside the health bar, where EA gave every army the same chevrons. America stacks gold bars, one under another. China counts gold stars and GLA skulls: one alone, two side by side, and a heroic's three as a triangle. A unit that gains a rank sends the same marks floating up over its head in place of the gold chevron.
+- Every general's army takes its side's veterans. Replays recorded before this change play out differently.
+
 ## A new loading screen
 
 - Skirmish, LAN, online and replay loads show every player on a card: the general's portrait, or the side's crest for a plain side, the name in the player's colour, the army, and for a computer seat its difficulty and personality. Teams face each other in two columns with the map between them, its start spots drawn as the room draws them: the blue ring, filled with the player's colour and his seat number where the others may see who starts there. Three teams or more share the columns, and a game where everyone plays alone says Free for all.

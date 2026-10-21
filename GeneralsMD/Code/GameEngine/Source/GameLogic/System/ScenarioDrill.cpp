@@ -38,6 +38,7 @@
 #include "Common/ThingTemplate.h"
 #include "GameLogic/AI.h"
 #include "GameLogic/AIPathfind.h"
+#include "GameLogic/ExperienceTracker.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Module/AIUpdate.h"
 #include "GameLogic/Module/BehaviorModule.h"
@@ -243,6 +244,8 @@ static Bool parseActionType( const AsciiString &token, ScenarioActionType *actio
 		*action = SCENARIO_ACTION_REPEAT;
 	else if (token == "givemoney")
 		*action = SCENARIO_ACTION_GIVEMONEY;
+	else if (token == "rank")
+		*action = SCENARIO_ACTION_RANK;
 	else
 		return FALSE;
 
@@ -342,6 +345,7 @@ static Int tokensNeededFor( ScenarioActionType action )
 		case SCENARIO_ACTION_PRODUCE:			return SCENARIO_TOKENS_ATTACK;
 		case SCENARIO_ACTION_REPEAT:			return SCENARIO_TOKENS_ATTACK;
 		case SCENARIO_ACTION_GIVEMONEY:		return SCENARIO_TOKENS_STANCE;
+		case SCENARIO_ACTION_RANK:				return SCENARIO_TOKENS_STANCE;
 		case SCENARIO_ACTION_STOP:				return SCENARIO_TOKENS_STOP;
 		case SCENARIO_ACTION_TALLY:				return SCENARIO_TOKENS_STOP;
 		case SCENARIO_ACTION_ARRIVE:			return SCENARIO_TOKENS_ARRIVE;
@@ -465,6 +469,12 @@ ScenarioParseResult ScenarioDrill_parseLine( const char *line, ScenarioAction *a
 		case SCENARIO_ACTION_STANCE:
 			action->name = tokens[ SCENARIO_STANCE_NAME_TOKEN ];
 			if (action->name != "aggressive" && action->name != "defensive")
+				return SCENARIO_PARSE_BAD_ACTION;
+			break;
+
+		case SCENARIO_ACTION_RANK:
+			action->name = tokens[ SCENARIO_STANCE_NAME_TOKEN ];
+			if (action->name != "veteran" && action->name != "elite" && action->name != "heroic")
 				return SCENARIO_PARSE_BAD_ACTION;
 			break;
 
@@ -1801,6 +1811,18 @@ static Bool executeOrder( const ScenarioAction &action, Player *player, const Co
 			DEBUG_LOG(("SCENARIO: frame %d reaim slot %d '%s' x%d at (%.0f,%.0f)\n",
 								 action.frame, action.slot, action.selector.str(), taken, dest.x, dest.y));
 			return TRUE;
+		}
+
+		case SCENARIO_ACTION_RANK:
+		{
+			const VeterancyLevel level = action.name == "veteran" ? LEVEL_VETERAN
+																 : action.name == "elite" ? LEVEL_ELITE : LEVEL_HEROIC;
+			const VecObjectID &ids = group->getAllIDs();
+			for (VecObjectID::const_iterator it = ids.begin(); it != ids.end(); ++it)
+				TheGameLogic->findObjectByID( *it )->getExperienceTracker()->setVeterancyLevel( level );
+			DEBUG_LOG(("SCENARIO: frame %d rank slot %d '%s' x%d %s\n",
+								 action.frame, action.slot, action.selector.str(), taken, action.name.str()));
+			break;
 		}
 
 		case SCENARIO_ACTION_STOP:

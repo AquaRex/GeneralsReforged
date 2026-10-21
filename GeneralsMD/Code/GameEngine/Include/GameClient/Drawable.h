@@ -931,7 +931,10 @@ private:
 	//Perhaps we can move this out of Drawable???
 public:
 	static void killStaticImages();
-	
+	/// the rank marks of the thing's side, one a level, at `scale` times their health bar size; FALSE when
+	/// the side has none and wears EA's chevrons. `centred` puts the widest row's middle on `x`.
+	static Bool drawRankInsignia( const ThingTemplate *thing, VeterancyLevel level, Int x, Int top, Bool centred, Real scale, Color color );
+
 #ifdef DIRTY_CONDITION_FLAGS
 	// only for StDrawableDirtyStuffLocker!
 	static void friend_lockDirtyStuffForIteration();
