@@ -1171,6 +1171,8 @@ void GameEngine::init( int argc, char *argv[] )
 		// -modfactions: each mod's own Rank.ini, the table its factions climb (RankInfoStore::getRankInfo)
 		initFactionSubsystem(TheRankInfoStore,"TheRankInfoStore", MSGNEW("GameEngineSubsystem") RankInfoStore(), &xferCRC, NULL, "Data\\INI\\Rank.ini");
 		initFactionSubsystem(ThePlayerTemplateStore,"ThePlayerTemplateStore", MSGNEW("GameEngineSubsystem") PlayerTemplateStore(), &xferCRC, "Data\\INI\\Default\\PlayerTemplate.ini", "Data\\INI\\PlayerTemplate.ini");
+		// The fork's own factions: a new name is added after EA's, an existing one is edited in place
+		ini.load( AsciiString( "Data\\INI\\PlayerTemplateReforged.ini" ), INI_LOAD_MULTIFILE, &xferCRC );
 		initSubsystem(TheParticleSystemManager,"TheParticleSystemManager", createParticleSystemManager(), NULL);
 
 	#ifdef DUMP_PERF_STATS///////////////////////////////////////////////////////////////////////////
@@ -1192,6 +1194,9 @@ void GameEngine::init( int argc, char *argv[] )
 			 one of EA's that nothing fires broke under a mod whose Weapon.ini leaves it out (Contra's Paladin
 			 found no infantry laser and crashed); a new name here exists whatever Weapon.ini loaded. */
 		ini.load( AsciiString( "Data\\INI\\WeaponReforged.ini" ), INI_LOAD_OVERWRITE, &xferCRC );
+		/* Turkiye's own weapons.  OVERWRITE rather than MULTIFILE: a patch file may only edit a weapon
+			 that exists, and every one of these is new. */
+		ini.load( AsciiString( "Data\\INI\\TurkiyeWeaponReforged.ini" ), INI_LOAD_OVERWRITE, &xferCRC );
 		initFactionSubsystem(TheObjectCreationListStore,"TheObjectCreationListStore", MSGNEW("GameEngineSubsystem") ObjectCreationListStore(), &xferCRC, "Data\\INI\\Default\\ObjectCreationList.ini", "Data\\INI\\ObjectCreationList.ini");
 		/* Lists EA left out or got wrong, before any object names one: a list parsed again is cleared
 			 and replaced whole, and a new name is simply added. */
@@ -1224,6 +1229,8 @@ void GameEngine::init( int argc, char *argv[] )
 		/* Mistakes in EA's data for the nine generals, patched the same way: a copy that missed the
 			 original's change, a wrong faction's sound, an icon naming an upgrade that does not exist. */
 		ini.load( AsciiString( "Data\\INI\\FixesReforged.ini" ), INI_LOAD_MULTIFILE, &xferCRC );
+		// Turkiye's objects, reskins of the American ones, so they come after the balance and fixes they copy
+		ini.load( AsciiString( "Data\\INI\\TurkiyeReforged.ini" ), INI_LOAD_MULTIFILE, &xferCRC );
 
 	#ifdef DUMP_PERF_STATS///////////////////////////////////////////////////////////////////////////
 	GetPrecisionTimer(&endTime64);//////////////////////////////////////////////////////////////////
@@ -1257,6 +1264,8 @@ void GameEngine::init( int argc, char *argv[] )
 			 keep their whole AIData there, as retail does, and End of Days' AIData.ini is an empty block. */
 		INI::loadModPasses( "Data\\INI\\Default\\AIData.ini", &xferCRC );
 		INI::loadModPasses( "Data\\INI\\AIData.ini", &xferCRC );
+		// SideInfo and SkirmishBuildList for the fork's factions: a side named again is edited, a new one added
+		ini.load( AsciiString( "Data\\INI\\AIDataReforged.ini" ), INI_LOAD_MULTIFILE, &xferCRC );
 		initSubsystem(TheGameLogic,"TheGameLogic", createGameLogic(), NULL);
 		initSubsystem(TheTeamFactory,"TheTeamFactory", MSGNEW("GameEngineSubsystem") TeamFactory(), NULL);
 		initSubsystem(TheCrateSystem,"TheCrateSystem", MSGNEW("GameEngineSubsystem") CrateSystem(), &xferCRC, "Data\\INI\\Default\\Crate.ini", "Data\\INI\\Crate.ini");

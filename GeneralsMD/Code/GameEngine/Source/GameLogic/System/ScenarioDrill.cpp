@@ -32,6 +32,7 @@
 #include "Common/Player.h"
 #include "Common/MessageStream.h"
 #include "Common/PlayerList.h"
+#include "Common/Science.h"
 #include "Common/SpecialPower.h"
 #include "Common/Team.h"
 #include "Common/ThingFactory.h"
@@ -210,6 +211,10 @@ static Bool parseActionType( const AsciiString &token, ScenarioActionType *actio
 		*action = SCENARIO_ACTION_PRODUCE;
 	else if (token == "tally")
 		*action = SCENARIO_ACTION_TALLY;
+	else if (token == "purchase")
+		*action = SCENARIO_ACTION_PURCHASE;
+	else if (token == "resume")
+		*action = SCENARIO_ACTION_RESUME;
 	else if (token == "shiftmove")
 		*action = SCENARIO_ACTION_SHIFTMOVE;
 	else if (token == "shiftattackmove")
@@ -340,6 +345,7 @@ static Int tokensNeededFor( ScenarioActionType action )
 		case SCENARIO_ACTION_SHIFTUPGRADE:	return SCENARIO_TOKENS_SHIFTUPGRADE;
 		case SCENARIO_ACTION_ATTACK:			return SCENARIO_TOKENS_ATTACK;
 		case SCENARIO_ACTION_ENTER:				return SCENARIO_TOKENS_ATTACK;
+		case SCENARIO_ACTION_RESUME:			return SCENARIO_TOKENS_ATTACK;
 		case SCENARIO_ACTION_DOCK:				return SCENARIO_TOKENS_ATTACK;
 		case SCENARIO_ACTION_GUARD:				return SCENARIO_TOKENS_ATTACK;
 		case SCENARIO_ACTION_PRODUCE:			return SCENARIO_TOKENS_ATTACK;
@@ -348,6 +354,7 @@ static Int tokensNeededFor( ScenarioActionType action )
 		case SCENARIO_ACTION_RANK:				return SCENARIO_TOKENS_STANCE;
 		case SCENARIO_ACTION_STOP:				return SCENARIO_TOKENS_STOP;
 		case SCENARIO_ACTION_TALLY:				return SCENARIO_TOKENS_STOP;
+		case SCENARIO_ACTION_PURCHASE:		return SCENARIO_TOKENS_STOP;
 		case SCENARIO_ACTION_ARRIVE:			return SCENARIO_TOKENS_ARRIVE;
 	}
 	return SCENARIO_TOKENS_STOP;
@@ -445,6 +452,7 @@ ScenarioParseResult ScenarioDrill_parseLine( const char *line, ScenarioAction *a
 
 		case SCENARIO_ACTION_ATTACK:
 		case SCENARIO_ACTION_ENTER:
+		case SCENARIO_ACTION_RESUME:
 		case SCENARIO_ACTION_DOCK:
 		case SCENARIO_ACTION_GUARD:
 		case SCENARIO_ACTION_SHIFTATTACK:
@@ -511,6 +519,7 @@ ScenarioParseResult ScenarioDrill_parseLine( const char *line, ScenarioAction *a
 
 		case SCENARIO_ACTION_STOP:
 		case SCENARIO_ACTION_TALLY:
+		case SCENARIO_ACTION_PURCHASE:
 			break;
 	}
 
@@ -1689,6 +1698,37 @@ static Bool executeWeaponAt( const ScenarioAction &action, Player *player, const
 	return TRUE;
 }
 
+/** The rank tree's button: the player is raised to the rank the science asks for and given the points
+	  it costs, and then MSG_PURCHASE_SCIENCE goes to the dispatcher as the control bar sends it, so the
+	  purchase itself is the one a click makes. */
+static const Int SCENARIO_HIGHEST_RANK = 5;
+
+static Bool executePurchase( const ScenarioAction &action, Player *player )
+{
+	const ScienceType science = TheScienceStore->getScienceFromInternalName( action.selector );
+	if (science == SCIENCE_INVALID)
+	{
+		DEBUG_LOG(("SCENARIO: frame %d purchase: there is no science '%s'\n", action.frame, action.selector.str()));
+		return FALSE;
+	}
+
+	while (!TheScienceStore->playerHasPrereqsForScience( player, science ) && player->getRankLevel() < SCENARIO_HIGHEST_RANK)
+		player->setRankLevel( player->getRankLevel() + 1 );
+	const Int cost = TheScienceStore->getSciencePurchaseCost( science );
+	if (player->getSciencePurchasePoints() < cost)
+		player->addSciencePurchasePoints( cost - player->getSciencePurchasePoints() );
+
+	GameMessage *msg = newInstance( GameMessage )( GameMessage::MSG_PURCHASE_SCIENCE );
+	msg->friend_setPlayerIndex( player->getPlayerIndex() );
+	msg->appendIntegerArgument( science );
+	TheGameLogic->logicMessageDispatcher( msg, NULL );
+	msg->deleteInstance();
+
+	DEBUG_LOG(("SCENARIO: frame %d purchase slot %d '%s' rank %d: %s\n", action.frame, action.slot,
+						 action.selector.str(), player->getRankLevel(), player->hasScience( science ) ? "bought" : "refused"));
+	return player->hasScience( science );
+}
+
 static Bool executeOrder( const ScenarioAction &action, Player *player, const Coord3D &dest )
 {
 	if (action.action == SCENARIO_ACTION_SHIFTUPGRADE)
@@ -1734,12 +1774,14 @@ static Bool executeOrder( const ScenarioAction &action, Player *player, const Co
 
 		case SCENARIO_ACTION_ATTACK:
 		case SCENARIO_ACTION_ENTER:
+		case SCENARIO_ACTION_RESUME:
 		case SCENARIO_ACTION_DOCK:
 		case SCENARIO_ACTION_GUARD:
 		{
 			const char *verb = (action.action == SCENARIO_ACTION_ATTACK) ? "attack"
 											 : (action.action == SCENARIO_ACTION_DOCK) ? "dock"
-											 : (action.action == SCENARIO_ACTION_GUARD) ? "guard" : "enter";
+											 : (action.action == SCENARIO_ACTION_GUARD) ? "guard"
+											 : (action.action == SCENARIO_ACTION_RESUME) ? "resume" : "enter";
 			Object *target = NULL;
 			if (action.targetSlot == SCENARIO_CIVILIAN_SLOT)
 			{
@@ -1766,6 +1808,8 @@ static Bool executeOrder( const ScenarioAction &action, Player *player, const Co
 				group->groupDock( target, CMD_FROM_SCRIPT );
 			else if (action.action == SCENARIO_ACTION_GUARD)
 				group->groupGuardObject( target, GUARDMODE_NORMAL, CMD_FROM_SCRIPT );
+			else if (action.action == SCENARIO_ACTION_RESUME)
+				group->groupResumeConstruction( target, CMD_FROM_PLAYER );
 			else
 				group->groupEnter( target, CMD_FROM_SCRIPT );
 
@@ -1981,6 +2025,9 @@ Bool ScenarioDrill_execute( const ScenarioAction &action )
 
 	if (action.action == SCENARIO_ACTION_TALLY)
 		return executeTally( action, player );
+
+	if (action.action == SCENARIO_ACTION_PURCHASE)
+		return executePurchase( action, player );
 
 	if (action.action == SCENARIO_ACTION_CONSTRUCT)
 		return executeConstruct( action, player, position );

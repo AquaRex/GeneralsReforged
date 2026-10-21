@@ -1046,6 +1046,7 @@ Bool AIUpdateInterface::chooseLocomotorSetExplicit(LocomotorSetType wst)
 			if (lt)
 				m_locomotorSet.addLocomotor(lt);
 		}
+		m_locomotorSet.setSpeedScale(obj->getTemplate()->getSpeedScale());
 		m_curLocomotorSet = wst;
 		refreshVeterancySpeed();
 		return TRUE;
@@ -6977,6 +6978,12 @@ Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuring
 			rangeToFindWithin = weaponRange * (requireWithinWeaponRange ? 1.0f : ATTACK_MOVE_SEARCH_SCALE);
 	}
 
+	// Turkiye's artillery sees 100 and shoots 600: it takes what a spotter shows its player, out to its
+	// weapon's reach.  The fog filter below is what keeps that to targets the team actually sees.
+	const Bool beyondVision = obj->getTemplate()->acquiresBeyondVision();
+	if (beyondVision)
+		rangeToFindWithin = max(rangeToFindWithin, obj->getLargestWeaponRange());
+
 	if (rangeToFindWithin <= 0.0f)
 		return NULL;
 
@@ -7056,7 +7063,7 @@ Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuring
 	// members and base defence turrets all route through here - so the exemption covered every one
 	// of them.  The AI now sees what a player sees, which is also what makes stealth work against it.
 	//
-	if( calledByAI && obj->getControllingPlayer() )
+	if( (calledByAI || beyondVision) && obj->getControllingPlayer() )
 	{
 		flags |= AI::UNFOGGED;
 	}

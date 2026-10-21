@@ -306,7 +306,8 @@ Object::Object( const ThingTemplate *tt, const ObjectStatusMaskType &objectStatu
 	if( m_shroudClearingRange == -1.0f )
 		m_shroudClearingRange = m_visionRange;// Backwards compatible, and perfectly logical default to assign
 	m_shroudRange = 0.0f;
-	
+	m_sightJammerCount = 0;
+
 	m_singleUseCommandUsed = false;
 
 	// assign unique object id
@@ -4500,13 +4501,14 @@ void Object::crc( Xfer *xfer )
 	* 10: each player's memory of it while it is out of their sight
 	* 11: the cached angle, which the matrix does not give back bit for bit
 	* 12: the last threat and value sightings
+	* 13: how many enemy jammers are cutting its sight
 	*/
 //-------------------------------------------------------------------------------------------------
 void Object::xfer( Xfer *xfer )
 {
 
 	// version
-	const XferVersion currentVersion = 12;
+	const XferVersion currentVersion = 13;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -4966,6 +4968,9 @@ void Object::xfer( Xfer *xfer )
 					m_partitionLastValue->m_howFar, m_partitionLastValue->m_data, m_partitionLastValue->m_forWhom );
 		}
 	}
+
+	if( version >= 13 )
+		xfer->xferInt( &m_sightJammerCount );
 
 }  // end xfer
 
@@ -5483,7 +5488,26 @@ void Object::removeThreat()
 	m_partitionLastThreat->reset();
 }
 
+//-------------------------------------------------------------------------------------------------
+/** A jammed drone or spotter still sees what is under its feet, and nothing a battery could use. */
+//-------------------------------------------------------------------------------------------------
+static const Real JAMMED_SHROUD_CLEARING_RANGE = 30.0f;
 
+void Object::addSightJammer()
+{
+	++m_sightJammerCount;
+	if( m_sightJammerCount == 1 )
+		handleShroud();
+}
+
+//-------------------------------------------------------------------------------------------------
+void Object::removeSightJammer()
+{
+	DEBUG_ASSERTCRASH( m_sightJammerCount > 0, ("removeSightJammer on '%s' with no jammer on it", getTemplate()->getName().str()) );
+	--m_sightJammerCount;
+	if( m_sightJammerCount == 0 )
+		handleShroud();
+}
 
 //-------------------------------------------------------------------------------------------------
 void Object::look()
@@ -5518,10 +5542,13 @@ void Object::look()
 			// applied here and not in getShroudClearingRange, so the sight bonuses that multiply the
 			// stored range and later divide it back out never bake the weapon cap into it.  A dozer or
 			// a worker carries a mine-clearing weapon a few feet long, and capped by it the builder
-			// was blind: it keeps its template's sight
+			// was blind: it keeps its template's sight.  So does a spotter, whose sight is its job and
+			// whose carbine is for show
 			Real shroudClearingRange = getShroudClearingRange();
-			if( !isKindOf( KINDOF_STRUCTURE ) && !isKindOf( KINDOF_DOZER ) )
+			if( !isKindOf( KINDOF_STRUCTURE ) && !isKindOf( KINDOF_DOZER ) && !getTemplate()->hasSpotterSight() )
 				shroudClearingRange = Object_armedShroudClearingRange( shroudClearingRange, getLargestWeaponRange() );
+			if( isSightJammed() )
+				shroudClearingRange = min( shroudClearingRange, JAMMED_SHROUD_CLEARING_RANGE );
 
 			if( shroudClearingRange > 0.0f )
 			{

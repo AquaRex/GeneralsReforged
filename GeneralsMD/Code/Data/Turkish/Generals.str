@@ -16857,3 +16857,483 @@ END
 RANK:GLA20
 "Yüce Kurtarıcı"
 END
+
+INI:FactionTurkiye
+"Türkiye"
+END
+
+SIDE:Turkiye
+"Türkiye"
+END
+
+TOOLTIP:BioStrategyLong_Turkiye
+"Türkiye uzaktan öldürür ama kendi gözüyle göremez: topçusu 600 atar, 100 görür, hedefi bir gözcü, İHA ya da radar kulesi bulmalıdır"
+END
+
+GUI:BioFeatures_Turkiye
+"Uzun menzilli topçu, kısa görüş \n Dozer yerine istihkam takımı kurar \n Topçuya gözcü, İHA ve radar kulesi nişan aldırır"
+END
+
+OBJECT:TurkiyeInfantryMehmetcik
+"Mehmetçik"
+END
+
+CONTROLBAR:ConstructTurkiyeInfantryMehmetcik
+"&Mehmetçik"
+END
+
+CONTROLBAR:ToolTipTurkiyeInfantryMehmetcik
+"Hat piyadesi. Binaya girer, bina temizler."
+END
+
+OBJECT:TurkiyeInfantryEngineer
+"İstihkam Takımı"
+END
+
+CONTROLBAR:ConstructTurkiyeInfantryEngineer
+"İstihkam &Takımı"
+END
+
+CONTROLBAR:ToolTipTurkiyeInfantryEngineer
+"Yapı kurar ve onarır. Piyadedir: ezilir, taranır."
+END
+
+OBJECT:TurkiyeInfantrySungur
+"Sungur Nişancısı"
+END
+
+CONTROLBAR:ConstructTurkiyeInfantrySungur
+"&Sungur Nişancısı"
+END
+
+CONTROLBAR:ToolTipTurkiyeInfantrySungur
+"Tanka ve uçağa karşı füzeli piyade."
+END
+
+OBJECT:TurkiyeInfantrySpotter
+"Gözcü Timi"
+END
+
+CONTROLBAR:ConstructTurkiyeInfantrySpotter
+"&Gözcü Timi"
+END
+
+CONTROLBAR:ToolTipTurkiyeInfantrySpotter
+"450 görür, neredeyse hiç savaşmaz. Tepeye çıkınca arkadaki topçunun gözü olur."
+END
+
+OBJECT:TurkiyeInfantryMaroonBeret
+"Bordo Bereli"
+END
+
+CONTROLBAR:ConstructTurkiyeInfantryMaroonBeret
+"&Bordo Bereli"
+END
+
+CONTROLBAR:ToolTipTurkiyeInfantryMaroonBeret
+"Özel kuvvet. Bina temizler, patlayıcı taşımaz."
+END
+
+OBJECT:TurkiyeVehicleSupplyTruck
+"İkmal Kamyonu"
+END
+
+CONTROLBAR:ConstructTurkiyeVehicleSupplyTruck
+"İk&mal Kamyonu"
+END
+
+CONTROLBAR:ToolTipTurkiyeVehicleSupplyTruck
+"İkmal merkezine para taşır."
+END
+
+OBJECT:TurkiyeVehicleCobra
+"Cobra"
+END
+
+CONTROLBAR:ConstructTurkiyeVehicleCobra
+"&Cobra"
+END
+
+CONTROLBAR:ToolTipTurkiyeVehicleCobra
+"Hızlı, kırılgan keşif aracı, 400 görür: zincirin en ucuz halkası."
+END
+
+OBJECT:TurkiyeVehicleKirpi
+"Kirpi"
+END
+
+CONTROLBAR:ConstructTurkiyeVehicleKirpi
+"&Kirpi"
+END
+
+CONTROLBAR:ToolTipTurkiyeVehicleKirpi
+"Beş piyade taşıyan zırhlı araç."
+END
+
+OBJECT:TurkiyeTankAltay
+"Altay"
+END
+
+CONTROLBAR:ConstructTurkiyeTankAltay
+"&Altay"
+END
+
+CONTROLBAR:ToolTipTurkiyeTankAltay
+"Ana muharebe tankı, fabrikada doğrudan ateş eden tek araç."
+END
+
+OBJECT:TurkiyeVehicleKorkut
+"Korkut"
+END
+
+CONTROLBAR:ConstructTurkiyeVehicleKorkut
+"K&orkut"
+END
+
+CONTROLBAR:ToolTipTurkiyeVehicleKorkut
+"300 menzilli ikiz top: uçağa ve piyadeye."
+END
+
+OBJECT:TurkiyeVehicleFirtina
+"Fırtına Obüsü"
+END
+
+CONTROLBAR:ConstructTurkiyeVehicleFirtina
+"&Fırtına Obüsü"
+END
+
+CONTROLBAR:ToolTipTurkiyeVehicleFirtina
+"600 atar, 100 görür: nişan için gözcü, İHA ya da radar kulesi ister."
+END
+
+OBJECT:TurkiyeVehicleSakarya
+"Sakarya Çok Namlulu"
+END
+
+CONTROLBAR:ConstructTurkiyeVehicleSakarya
+"&Sakarya Çok Namlulu"
+END
+
+CONTROLBAR:ToolTipTurkiyeVehicleSakarya
+"500 menzile altılı salvo atar, sonra 15 saniye dolar. Gözcü ister."
+END
+
+OBJECT:TurkiyeTankKoral
+"Koral"
+END
+
+CONTROLBAR:ConstructTurkiyeTankKoral
+"Ko&ral"
+END
+
+CONTROLBAR:ToolTipTurkiyeTankKoral
+"Elektronik harp aracı; ışını düşman binasını 400 menzilden susturur."
+END
+
+OBJECT:TurkiyeVehicleBayraktar
+"Bayraktar İHA"
+END
+
+CONTROLBAR:ConstructTurkiyeVehicleBayraktar
+"&Bayraktar İHA"
+END
+
+CONTROLBAR:ToolTipTurkiyeVehicleBayraktar
+"Gönderildiği yerde durur ve 400 görür. Hafif mühimmat. Topçunun gözü."
+END
+
+OBJECT:TurkiyeVehicleGokbey
+"Gökbey"
+END
+
+CONTROLBAR:ConstructTurkiyeVehicleGokbey
+"&Gökbey"
+END
+
+CONTROLBAR:ToolTipTurkiyeVehicleGokbey
+"Beş piyade taşıyan nakliye helikopteri."
+END
+
+OBJECT:TurkiyeJetAkinci
+"Akıncı"
+END
+
+CONTROLBAR:ConstructTurkiyeJetAkinci
+"&Akıncı"
+END
+
+CONTROLBAR:ToolTipTurkiyeJetAkinci
+"Ağır silahlı İHA. Uçaksavarın altında ölür."
+END
+
+OBJECT:TurkiyeJetKizilelma
+"Kızılelma"
+END
+
+CONTROLBAR:ConstructTurkiyeJetKizilelma
+"&Kızılelma"
+END
+
+CONTROLBAR:ToolTipTurkiyeJetKizilelma
+"Yalnız hava hakimiyeti: yere ateş edemez."
+END
+
+OBJECT:TurkiyeRadarTower
+"Radar Kulesi"
+END
+
+CONTROLBAR:ConstructTurkiyeRadarTower
+"Ra&dar Kulesi"
+END
+
+CONTROLBAR:ToolTipTurkiyeRadarTower
+"Ucuz sabit göz: topçu için 500 görür. Bir hedeftir."
+END
+
+OBJECT:TurkiyeAntiAirSite
+"Uçaksavar Mevzisi"
+END
+
+CONTROLBAR:ConstructTurkiyeAntiAirSite
+"&Uçaksavar Mevzisi"
+END
+
+CONTROLBAR:ToolTipTurkiyeAntiAirSite
+"Uçağa ve yere karşı sabit top."
+END
+
+OBJECT:TurkiyeLandMine
+"Mayın"
+END
+
+CONTROLBAR:ConstructTurkiyeLandMine
+"Ma&yın"
+END
+
+CONTROLBAR:ToolTipTurkiyeLandMine
+"Toprağa gömülü patlayıcı. Mayın seti ister."
+END
+
+UPGRADE:TurkiyeExtendedRange
+"Uzatılmış Menzil"
+END
+
+CONTROLBAR:UpgradeTurkiyeExtendedRange
+"&Uzatılmış Menzil"
+END
+
+CONTROLBAR:ToolTipUpgradeTurkiyeExtendedRange
+"Fırtına ve Sakarya yüzde 15 uzağa atar."
+END
+
+UPGRADE:TurkiyePrecisionGuidance
+"Hassas Güdüm"
+END
+
+CONTROLBAR:UpgradeTurkiyePrecisionGuidance
+"&Hassas Güdüm"
+END
+
+CONTROLBAR:ToolTipUpgradeTurkiyePrecisionGuidance
+"Kimsenin görmediği yere atışın dağılımı dörtte birine iner."
+END
+
+UPGRADE:TurkiyeArmorPack
+"Zırh Paketi"
+END
+
+CONTROLBAR:UpgradeTurkiyeArmorPack
+"&Zırh Paketi"
+END
+
+CONTROLBAR:ToolTipUpgradeTurkiyeArmorPack
+"Kirpi ile Altay'ın can puanı yüzde 20 artar."
+END
+
+UPGRADE:TurkiyeMineKit
+"Mayın Seti"
+END
+
+CONTROLBAR:UpgradeTurkiyeMineKit
+"Ma&yın Seti"
+END
+
+CONTROLBAR:ToolTipUpgradeTurkiyeMineKit
+"İstihkam takımı mayın döşeyebilir."
+END
+
+OBJECT:TurkiyeCommandCenter
+"Karargah"
+END
+
+CONTROLBAR:ConstructTurkiyeCommandCenter
+"Ka&rargah"
+END
+
+OBJECT:TurkiyePowerPlant
+"Santral"
+END
+
+CONTROLBAR:ConstructTurkiyePowerPlant
+"&Santral"
+END
+
+OBJECT:TurkiyeBarracks
+"Kışla"
+END
+
+CONTROLBAR:ConstructTurkiyeBarracks
+"&Kışla"
+END
+
+OBJECT:TurkiyeWarFactory
+"Fabrika"
+END
+
+CONTROLBAR:ConstructTurkiyeWarFactory
+"&Fabrika"
+END
+
+OBJECT:TurkiyeAirfield
+"Hava Alanı"
+END
+
+CONTROLBAR:ConstructTurkiyeAirfield
+"&Hava Alanı"
+END
+
+OBJECT:TurkiyeSupplyCenter
+"İkmal Merkezi"
+END
+
+CONTROLBAR:ConstructTurkiyeSupplyCenter
+"İk&mal Merkezi"
+END
+
+OBJECT:TurkiyePatriotBattery
+"Siper Bataryası"
+END
+
+CONTROLBAR:ConstructTurkiyePatriotBattery
+"Si&per Bataryası"
+END
+
+SCIENCE:TurkiyeMinefield
+"Mayın Tarlası"
+END
+
+CONTROLBAR:ToolTipTurkiyeScienceMinefield
+"Bir kargo uçağı gösterdiğiniz yere mayın döşer. \n \n Çağrıldığı yer: Karargah"
+END
+
+CONTROLBAR:TurkiyeMinefield
+"Mayın Ta&rlası"
+END
+
+CONTROLBAR:TooltipTurkiyeMinefield
+"Mayın Tarlası \n Geri Sayım: 4:00"
+END
+
+SCIENCE:TurkiyeFuelResupply
+"Yakıt İkmali"
+END
+
+CONTROLBAR:ToolTipTurkiyeScienceFuelResupply
+"Bayraktar her uçuşta bir mühimmat, Akıncı bir bomba fazla taşır."
+END
+
+SCIENCE:TurkiyeSwarmMunition
+"Gezgin Mühimmat"
+END
+
+CONTROLBAR:ToolTipTurkiyeScienceSwarmMunition
+"Bir gezgin mühimmat gösterdiğin yerde döner ve bulduğu en pahalı hedefe dalar. \n \n Kullanıldığı yer: Karargah"
+END
+
+CONTROLBAR:TurkiyeSwarmMunition
+"Gezgin &Mühimmat"
+END
+
+CONTROLBAR:TooltipTurkiyeSwarmMunition
+"Gezgin Mühimmat \n Geri Sayım: 3:00"
+END
+
+SCIENCE:TurkiyeElectronicBlinding
+"Elektronik Körleme"
+END
+
+CONTROLBAR:ToolTipTurkiyeScienceElectronicBlinding
+"Hedef alanda binası olan her düşmanın radarı 30 saniye kapanır. \n \n Kullanıldığı yer: Karargah"
+END
+
+CONTROLBAR:TurkiyeElectronicBlinding
+"Elektronik &Körleme"
+END
+
+CONTROLBAR:TooltipTurkiyeElectronicBlinding
+"Elektronik Körleme \n Geri Sayım: 4:00"
+END
+
+SCIENCE:TurkiyeSwarmStrike
+"Sürü Akını"
+END
+
+CONTROLBAR:ToolTipTurkiyeScienceSwarmStrike
+"Bir mühimmat sürüsü geniş bir alandaki en değerli on hedefi tek tek bulur, her birine bir mühimmat. Sıkışık bir üs bunu az hisseder, dağınık bir ordu çok. \n \n Kullanıldığı yer: Karargah"
+END
+
+CONTROLBAR:TurkiyeSwarmStrike
+"Sürü Akı&nı"
+END
+
+CONTROLBAR:TooltipTurkiyeSwarmStrike
+"Sürü Akını \n Geri Sayım: 6:00"
+END
+
+UPGRADE:TurkiyeThermal
+"Termal Görüş"
+END
+
+CONTROLBAR:UpgradeTurkiyeThermal
+"T&ermal Görüş"
+END
+
+CONTROLBAR:ToolTipUpgradeTurkiyeThermal
+"Gözcü timi ve Cobra 550'ye kadar görür, kamufle birimleri fark eder."
+END
+
+UPGRADE:TurkiyeFuelCell
+"Yakıt Hücresi"
+END
+
+CONTROLBAR:UpgradeTurkiyeFuelCell
+"&Yakıt Hücresi"
+END
+
+CONTROLBAR:ToolTipUpgradeTurkiyeFuelCell
+"Bayraktar ve Akıncı hedefin üstünde iki kat kalır, iki kat mühimmatla."
+END
+
+UPGRADE:TurkiyeSwarmSoftware
+"Sürü Yazılımı"
+END
+
+CONTROLBAR:UpgradeTurkiyeSwarmSoftware
+"Sürü Ya&zılımı"
+END
+
+CONTROLBAR:ToolTipUpgradeTurkiyeSwarmSoftware
+"Bayraktar'ın mühimmatı hedefini kendi seçer: menzildeki en pahalı düşman."
+END
+
+UPGRADE:TurkiyeFuelResupply
+"Yakıt İkmali"
+END
+
+CONTROLBAR:TurkiyeHijack
+"Kamyonu Ka&p"
+END
+
+CONTROLBAR:ToolTipTurkiyeHijack
+"Düşmanın tedarik kamyonunu yüküyle birlikte alır. Bordo bereli direksiyonda kalır."
+END
