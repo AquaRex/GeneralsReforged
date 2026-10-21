@@ -310,9 +310,9 @@ const Int MAX_ENABLED_MODULES								= 16;
 static const Image* s_rankInsignia[VETERANCY_SIDE_COUNT][RANK_GRADES_MAX + 1];
 
 /// An insignia drawn beside a health bar holds its DisplayHeight (12 unless its cell says otherwise)
-/// and lets its width follow, up to this
+/// and lets its width follow, up to half again that height: wider marks made the bar look heavy
 static const Int RANK_INSIGNIA_DEFAULT_HEIGHT = 12;
-static const Int RANK_INSIGNIA_MAX_WIDTH = 36;
+static const Real RANK_INSIGNIA_MAX_ASPECT = 1.5f;
 
 // ------------------------------------------------------------------------------------------------
 /*static*/ void Drawable::initStaticImages()
@@ -4739,10 +4739,10 @@ void Drawable::drawVeterancy( const IRegion2D *healthBarRegion )
 	const Real high = ( image->getDisplayHeight() > 0 ? image->getDisplayHeight() : RANK_INSIGNIA_DEFAULT_HEIGHT ) * scale;
 	Real wide = high * image->getImageWidth() / image->getImageHeight();
 	Real tall = high;
-	if( wide > RANK_INSIGNIA_MAX_WIDTH * scale )
+	if( wide > high * RANK_INSIGNIA_MAX_ASPECT )
 	{
-		tall = high * RANK_INSIGNIA_MAX_WIDTH * scale / wide;
-		wide = RANK_INSIGNIA_MAX_WIDTH * scale;
+		tall = high * high * RANK_INSIGNIA_MAX_ASPECT / wide;
+		wide = high * RANK_INSIGNIA_MAX_ASPECT;
 	}
 	*width = REAL_TO_INT( wide );
 	*height = REAL_TO_INT( tall );

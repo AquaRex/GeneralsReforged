@@ -2,8 +2,10 @@
 
 Each mark is the shoulder board's sign without the board, simplified for twelve to fourteen pixels
 high: silver chevrons for conscripts, gold for sergeants, the senior sergeants' pine branches traded
-for one to four pips beside three chevrons, a row of big stars over one stripe for company officers
-and two for field officers, and the generals' stars over a thick laurel arc.  A dark red edge and no
+for one to four pips beside three chevrons, stars in a tight cluster (two side by side, three in a
+triangle, four two over two) over one short stripe for company officers and two for field officers,
+and the generals' stars cupped by a laurel arc.  Chevrons are steep and narrow and no mark is wider
+than half again its height, since wide marks made the health bar look heavy.  A dark red edge and no
 background, so they read over sand and grass the way the America and GLA marks do.
 
 The ranks are the 2022 ones.  The reform renamed two sergeant grades and kept their boards:
@@ -51,11 +53,12 @@ MappedImage RankChina_%s
 End
 """
 
-CHEVRON = 8.0   # every chevron one weight: the board's thin and thick came out alike at game size
-GAP = 3.5
-RISE = 9.0
-PIP = 5.5       # radius of a senior sergeant's pip
-PIP_PITCH = 12.5
+CHEVRON = 6.5   # every chevron one weight: the board's thin and thick came out alike at game size
+GAP = 3.0
+RISE = 12.0     # steep and narrow, so a lone chevron is no wider than half again its height
+CHEVRON_HALF_WIDTH = 14
+PIP = 5.0       # radius of a senior sergeant's pip
+PIP_PITCH = 11.5
 SILVER_TOP = (252, 252, 252)
 SILVER_BOTTOM = (138, 146, 160)
 
@@ -103,9 +106,17 @@ def star(draw, cx, cy, radius):
 
 
 def stars(draw, count, cy, radius, pitch):
-    """count stars in a row centred across the cell at height cy."""
-    for i in range(count):
-        star(draw, 32 + (i - (count - 1) / 2) * pitch, cy, radius)
+    """count stars in a tight cluster centred across the cell on cy: two side by side, three in a
+    triangle, four two over two, so no mark runs wider than half again its height. Returns the
+    cluster's half width and its bottom."""
+    layout = {1: [(0, 0)],
+              2: [(-0.5, 0), (0.5, 0)],
+              3: [(0, -0.45), (-0.5, 0.45), (0.5, 0.45)],
+              4: [(-0.5, -0.5), (0.5, -0.5), (-0.5, 0.5), (0.5, 0.5)]}[count]
+    for x, y in layout:
+        star(draw, 32 + x * pitch, cy + y * pitch, radius)
+    half_width = max(x for x, _ in layout) * pitch + radius * 0.95
+    return half_width, cy + max(y for _, y in layout) * pitch + radius * 0.81
 
 
 def chevron(draw, cx, top, half_width):
@@ -133,27 +144,30 @@ def mark(kind):
         _, count, pip_count, _ = kind
         height = count * CHEVRON + (count - 1) * GAP + RISE
         top = (CELL - height) / 2
-        cx, half_width = (19, 16) if pip_count else (32, 26)
+        cx = 32 - (PIP_PITCH + 2 * PIP + 3) / 2 if pip_count else 32
         for i in range(count):
-            chevron(draw, cx, top + i * (CHEVRON + GAP), half_width)
+            chevron(draw, cx, top + i * (CHEVRON + GAP), CHEVRON_HALF_WIDTH)
         if pip_count:
-            pips(draw, pip_count, 50, top + height / 2)
+            pips(draw, pip_count, cx + CHEVRON_HALF_WIDTH + 3 + PIP + PIP_PITCH / 2, top + height / 2)
     elif kind[0] == "none":
         pass
     elif kind[0] == "officer":
-        # big stars over the board's stripe, one for company officers and two for field officers
+        # stars over the board's stripe, one for company officers and two for field officers, the
+        # stripe only as wide as the stars
         _, stripe_count, count = kind
-        # the stripe only as wide as the stars, so a lone star is not a dot on a long bar
-        radius, pitch = 8.5, 16.5
-        half = max(12, ((count - 1) * pitch) / 2 + radius + 2)
-        stars(draw, count, 20, radius, pitch)
+        half, bottom = stars(draw, count, 18, 8.5, 16)
+        half = max(half, 10)
         for i in range(stripe_count):
-            draw.rectangle(scaled([(32 - half, 30 + 6.5 * i), (32 + half, 34 + 6.5 * i)]), fill=255)
+            y = bottom + 3 + 6.5 * i
+            draw.rectangle(scaled([(32 - half, y), (32 + half, y + 4)]), fill=255)
     else:
-        # bigger stars over a plain thick laurel arc for the wreath
+        # bigger stars cupped by a plain thick laurel arc for the wreath
         _, count = kind
-        stars(draw, count, 18, 9.5, 19.5)
-        draw.arc(scaled([(5, -14), (59, 42)]), start=25, end=155, fill=255, width=round(5.5 * SCALE))
+        cy = 20
+        half, bottom = stars(draw, count, cy, 9, 17)
+        drop = bottom - cy + 8
+        draw.arc(scaled([(32 - half, cy - drop), (32 + half, cy + drop)]),
+                 start=15, end=165, fill=255, width=round(4 * SCALE))
     return shape
 
 

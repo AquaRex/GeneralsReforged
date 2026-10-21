@@ -125,7 +125,9 @@ static const Real CLASSIC_KEY_BADGE_DESIGN_POINTS = 12.0f;
 //=============================================================================
 /** EA's overlays (the chevrons) are drawn over the whole button.  An image with its own DisplayHeight,
 	* a rank insignia cropped to its ink, keeps its shape in the top left corner instead: that many
-	* forty-eighths of the button's height, as wide as its shape says, up to half the button. */
+	* forty-eighths of the button's height, as wide as its shape says, up to half again its height and
+	* half the button.  Every rank cell carries a DisplayHeight for this; one without it was stretched
+	* over the whole portrait. */
 static void drawOverlayImage( const Image *image, Int x, Int y, Int width, Int height )
 {
 	if( image->getDisplayHeight() <= 0 )
@@ -135,10 +137,11 @@ static void drawOverlayImage( const Image *image, Int x, Int y, Int width, Int h
 	}
 	Real high = height * image->getDisplayHeight() / 48.0f;
 	Real wide = high * image->getImageWidth() / image->getImageHeight();
-	if( wide > width * 0.5f )
+	const Real widest = MIN( high * 1.5f, width * 0.5f );
+	if( wide > widest )
 	{
-		high *= width * 0.5f / wide;
-		wide = width * 0.5f;
+		high *= widest / wide;
+		wide = widest;
 	}
 	const Int inset = 2;
 	TheDisplay->drawImage( image, x + inset, y + inset, x + inset + REAL_TO_INT( wide ), y + inset + REAL_TO_INT( high ) );

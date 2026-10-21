@@ -5,9 +5,11 @@ warrant officers W-1 to W-5, officers O-1 to O-10, and General of the Army.
 Same look as rank_insignia.py: no plate, a black edge round every mark so it reads on sand and
 grass, metal lit from the top.  Enlisted chevrons are gold stripes on a black patch cut to their
 shape, the Army's dress pattern.  The game draws these twelve to fourteen pixels high beside the
-health bar, so each mark is fitted to fill its 64-pixel cell and cut to what survives that: flat
-fat stripes, the E-8 and E-9 devices in silver beside the stripes, a solid eagle, veinless leaves,
-solid black squares on taller warrant bars, and one ringed gold star for General of the Army.
+health bar, no wider than half again their height, so each mark is fitted to fill its 64-pixel cell
+and cut to what survives that: steep chevrons and fat rockers, the E-8 and E-9 devices big in the
+middle of the stack in a colour each (silver, gold, red, blue), a solid eagle, veinless leaves,
+short warrant bars with solid black squares, stars in clusters rather than rows, and one ringed
+gold star for General of the Army.
 
     python Tools/rank_insignia_usa.py
         writes Data/Art/Textures/ReforgedRanksUSA.tga, an 8 by 4 atlas of 64-pixel cells, and
@@ -90,90 +92,94 @@ def eagle(draw, cx, cy, s, fill=255):
     draw.polygon(at([(-5, 8), (5, 8), (8, 15), (-8, 15)]), fill=fill)    # tail
 
 
-# Enlisted stripes, flat and fat so a rocker is a pixel and a half at fourteen high: half width, drop
-# of a chevron arm, chevron thickness and pitch (the three chevrons read as one block with hairline
-# cuts, since every sergeant has three), the gap under them, rocker thickness, pitch and sag.
-W, D, T, PITCH = 21, 6, 4, 5.5
-ROCKER_GAP, ROCKER_T, ROCKER_PITCH, SAG = 2.5, 6.5, 10, 4
-DEVICE_GAP = 2.5   # between the stripes and the device beside them
-DEVICE_SHIFT = 10  # how far the stripes move left when a device sits beside them
-DEVICE_RIGHT = 31.5
+# Enlisted stripes. Chevrons alone are steep and narrow, so a lone chevron is no wider than half again
+# its height; over rockers they flatten and widen, since the stack is tall already and the rockers
+# need the width. Rockers are fat with a wide gap, so one, two and three count at fourteen pixels.
+STEEP, FLAT = (14, 14), (18, 7)    # half width and drop of a chevron arm
+T, PITCH = 4.5, 6
+ROCKER_GAP, ROCKER_T, ROCKER_PITCH, SAG = 3, 7, 11, 4
+# E-8 and E-9: the device is what tells them apart, so it goes big in the middle of the stack, in a
+# colour of its own, on one deep rocker that cradles it, in place of three rockers it had no room
+# among
+DEVICE_R = 11      # the device's half size
+CRADLE_SAG = 15
+RED = ((255, 120, 100), (170, 34, 24))
+BLUE = ((150, 200, 255), (40, 86, 190))
 
 
-def chevron(apex):
-    return [(-W, apex + D), (0, apex), (W, apex + D), (W, apex + D + T), (0, apex + T), (-W, apex + D + T)]
+def chevron(apex, w, d):
+    return [(-w, apex + d), (0, apex), (w, apex + d), (w, apex + d + T), (0, apex + T), (-w, apex + d + T)]
 
 
-def curve(end_y, steps=24):
-    return [(-W + 2 * W * i / steps, end_y + SAG * (1 - ((-W + 2 * W * i / steps) / W) ** 2))
+def curve(end_y, w, sag=SAG, steps=24):
+    return [(-w + 2 * w * i / steps, end_y + sag * (1 - ((-w + 2 * w * i / steps) / w) ** 2))
             for i in range(steps + 1)]
 
 
 def stripes(chevrons, rockers, device=None):
-    """Gold chevrons and rockers on their black patch; the device that tells E-8 and E-9 apart goes
-    beside them, full height, since the gap between was two pixels."""
+    """Gold chevrons and rockers on their black patch, or with a device: three chevrons, the device
+    under them and one deep rocker round it."""
+    w, d = FLAT if rockers or device else STEEP
     gold, back = canvas(), canvas()
     g, b = ImageDraw.Draw(gold), ImageDraw.Draw(back)
     top = -30
     for k in range(chevrons):
-        g.polygon(px(chevron(top + PITCH * k)), fill=255)
+        g.polygon(px(chevron(top + PITCH * k, w, d)), fill=255)
     low = top + PITCH * (chevrons - 1)
-    first_rocker = low + D + T + ROCKER_GAP
+    if device:
+        cy = low + T + d + ROCKER_GAP + DEVICE_R
+        tips = cy - DEVICE_R * 0.3
+        g.polygon(px(curve(tips, w, CRADLE_SAG) + curve(tips + ROCKER_T, w, CRADLE_SAG)[::-1]), fill=255)
+        b.polygon(px([(-w, top + d), (0, top), (w, top + d)] + curve(tips + ROCKER_T, w, CRADLE_SAG)[::-1]),
+                  fill=255)
+        layer = canvas()
+        draw_device, colours = device
+        draw_device(ImageDraw.Draw(layer), cy)
+        return gold, back, GOLD, layer, colours
+    first_rocker = low + d + T + ROCKER_GAP
     for j in range(rockers):
         end_y = first_rocker + ROCKER_PITCH * j
-        g.polygon(px(curve(end_y) + curve(end_y + ROCKER_T)[::-1]), fill=255)
+        g.polygon(px(curve(end_y, w) + curve(end_y + ROCKER_T, w)[::-1]), fill=255)
     if rockers:
-        bottom = curve(first_rocker + ROCKER_PITCH * (rockers - 1) + ROCKER_T)[::-1]
-        floor = first_rocker + ROCKER_PITCH * (rockers - 1) + ROCKER_T + SAG
+        bottom = curve(first_rocker + ROCKER_PITCH * (rockers - 1) + ROCKER_T, w)[::-1]
     else:
-        bottom = [(W, low + D + T), (0, low + T), (-W, low + D + T)]
-        floor = low + D + T
-    b.polygon(px([(-W, top + D), (0, top), (W, top + D)] + bottom), fill=255)
-    if device:
-        # the design space ends at 32 units, so the stripes move left to make room
-        shift = -DEVICE_SHIFT * UNIT
-        gold, back = ImageChops.offset(gold, shift, 0), ImageChops.offset(back, shift, 0)
-        silver = canvas()
-        device(ImageDraw.Draw(silver), W + DEVICE_GAP - DEVICE_SHIFT, top, floor)
-        return gold, back, GOLD, silver    # silver, so the small device parts from the gold stripes
+        bottom = [(w, low + d + T), (0, low + T), (-w, low + d + T)]
+    b.polygon(px([(-w, top + d), (0, top), (w, top + d)] + bottom), fill=255)
     return gold, back, GOLD
 
 
-def lozenge(draw, left, top, bottom):
-    half_w = (DEVICE_RIGHT - left) / 2
-    cx, cy, half_h = left + half_w, (top + bottom) / 2, half_w * 1.7
-    draw.polygon(px([(cx, cy - half_h), (cx + half_w, cy), (cx, cy + half_h), (cx - half_w, cy)]), fill=255)
+def lozenge(draw, cy):
+    r = DEVICE_R * 1.1
+    draw.polygon(px([(0, cy - r), (r * 0.75, cy), (0, cy + r), (-r * 0.75, cy)]), fill=255)
 
 
-def sgm_star(draw, left, top, bottom):
-    r = (DEVICE_RIGHT - left) / 2 / 0.951
-    star(draw, (left + DEVICE_RIGHT) / 2, (top + bottom) / 2 + 1, r)
+def sgm_star(draw, cy):
+    star(draw, 0, cy + 1, DEVICE_R * 1.1)
 
 
-def csm_wreath(draw, left, top, bottom):
-    r = (DEVICE_RIGHT - left) / 2
-    cx, cy = left + r, (top + bottom) / 2
-    draw.ellipse(box(cx - r, cy - r, cx + r, cy + r), outline=255, width=round(3 * UNIT))
-    star(draw, cx, cy + 0.5, r * 0.6)
+def csm_wreath(draw, cy):
+    r = DEVICE_R
+    draw.ellipse(box(-r, cy - r, r, cy + r), outline=255, width=round(3 * UNIT))
+    star(draw, 0, cy + 0.5, r * 0.62)
 
 
-def sma_stars(draw, left, top, bottom):
-    r = (DEVICE_RIGHT - left) / 2 / 0.951
-    for cy in (top + r + 2, bottom - r):
-        star(draw, (left + DEVICE_RIGHT) / 2, cy, r)
+def sma_stars(draw, cy):
+    for x in (-7, 7):
+        star(draw, x, cy + 1, DEVICE_R * 0.75)
 
 
 def specialist():
-    """The Specialist's eagle on a patch with a pointed top and a round bottom, gold edged."""
+    """The Specialist's eagle, big, on a tall patch with a pointed top and a round bottom, gold
+    edged: the eagle fills the patch so the badge reads as a bird and not a disc."""
     gold, back = canvas(), canvas()
-    bottom = [(x * 22 / W, 6 + 13 * (1 - (x / W) ** 2)) for x, _ in curve(0)][::-1]
-    outer = [(0, -22), (22, -8), (22, 6)] + bottom + [(-22, 6), (-22, -8)]
-    inner = [(x * 0.85, y * 0.85 - 0.3) for x, y in outer]
+    bottom = [(x, 8 + 12 * (1 - (x / 18) ** 2)) for x, _ in curve(0, 18)][::-1]
+    outer = [(0, -26), (18, -14), (18, 8)] + bottom + [(-18, 8), (-18, -14)]
+    inner = [(x * 0.88, y * 0.9) for x, y in outer]
     ImageDraw.Draw(back).polygon(px(outer), fill=255)
     g = ImageDraw.Draw(gold)
     g.polygon(px(outer), fill=255)
     g.polygon(px(inner), fill=0)
-    eagle(g, 0, -0.5, 0.7)
+    eagle(g, 0, 0, 0.68)
     return gold, back, GOLD
 
 
@@ -182,15 +188,15 @@ def bar(metal, holes=0, line=False):
     solid black on the patch rather than holes the edge half filled in."""
     gold, back = canvas(), canvas()
     g = ImageDraw.Draw(gold)
-    outline = box(-25, -9, 25, 9)
+    outline = box(-16.5, -10, 16.5, 10)
     g.rounded_rectangle(outline, radius=3 * UNIT, fill=255)
     ImageDraw.Draw(back).rounded_rectangle(outline, radius=3 * UNIT, fill=255)
-    pitch, size = 11.5, 8
+    pitch, size = 7, 5.5
     for i in range(holes):
         x = (i - (holes - 1) / 2) * pitch
         g.rectangle(box(x - size / 2, -size / 2, x + size / 2, size / 2), fill=0)
     if line:
-        g.rectangle(box(-20, -2.5, 20, 2.5), fill=0)
+        g.rectangle(box(-13, -2.5, 13, 2.5), fill=0)
     return gold, back, metal
 
 
@@ -199,8 +205,8 @@ def captain():
     gold = canvas()
     g = ImageDraw.Draw(gold)
     for y in (-7, 7):
-        g.rounded_rectangle(box(-20, y - 4.5, 20, y + 4.5), radius=2 * UNIT, fill=255)
-    for x in (-14, 14):
+        g.rounded_rectangle(box(-13, y - 4.5, 13, y + 4.5), radius=2 * UNIT, fill=255)
+    for x in (-8.5, 8.5):
         g.rectangle(box(x - 1.8, -3, x + 1.8, 3), fill=255)
     return gold, gold, SILVER
 
@@ -227,8 +233,14 @@ def colonel():
 def stars(count):
     gold = canvas()
     g = ImageDraw.Draw(gold)
-    for i in range(count):
-        star(g, (i - (count - 1) / 2) * 15, 0, 8.2)
+    # a tight cluster rather than a row: two on a slant, three in a triangle, four two over two
+    layout = {1: [(0, 0)],
+              2: [(-0.4, -0.3), (0.4, 0.3)],
+              3: [(0, -0.45), (-0.5, 0.45), (0.5, 0.45)],
+              4: [(-0.5, -0.5), (0.5, -0.5), (-0.5, 0.5), (0.5, 0.5)]}[count]
+    pitch = 15
+    for x, y in layout:
+        star(g, x * pitch, y * pitch, 8.2)
     return gold, gold, SILVER
 
 
@@ -257,10 +269,10 @@ RANKS = [
     ("RankUSA_E6", "E-6", "Staff Sergeant", lambda: stripes(3, 1)),
     ("RankUSA_E7", "E-7", "Sergeant First Class", lambda: stripes(3, 2)),
     ("RankUSA_E8", "E-8", "Master Sergeant", lambda: stripes(3, 3)),
-    ("RankUSA_E8_1SG", "E-8", "First Sergeant", lambda: stripes(3, 3, lozenge)),
-    ("RankUSA_E9", "E-9", "Sergeant Major", lambda: stripes(3, 3, sgm_star)),
-    ("RankUSA_E9_CSM", "E-9", "Command Sergeant Major", lambda: stripes(3, 3, csm_wreath)),
-    ("RankUSA_E9_SMA", "E-9", "Sergeant Major of the Army", lambda: stripes(3, 3, sma_stars)),
+    ("RankUSA_E8_1SG", "E-8", "First Sergeant", lambda: stripes(3, 1, (lozenge, SILVER))),
+    ("RankUSA_E9", "E-9", "Sergeant Major", lambda: stripes(3, 1, (sgm_star, GOLD))),
+    ("RankUSA_E9_CSM", "E-9", "Command Sergeant Major", lambda: stripes(3, 1, (csm_wreath, RED))),
+    ("RankUSA_E9_SMA", "E-9", "Sergeant Major of the Army", lambda: stripes(3, 1, (sma_stars, BLUE))),
     ("RankUSA_W1", "W-1", "Warrant Officer 1", lambda: bar(SILVER, 1)),
     ("RankUSA_W2", "W-2", "Chief Warrant Officer 2", lambda: bar(SILVER, 2)),
     ("RankUSA_W3", "W-3", "Chief Warrant Officer 3", lambda: bar(SILVER, 3)),
@@ -283,7 +295,7 @@ RANKS = [
 def icon(design):
     """One 64-pixel cell: the design fitted to the cell, lit, edged in black."""
     gold, back, colours, *device = design()
-    silver = device[0] if device else canvas()
+    silver, device_colours = device if device else (canvas(), SILVER)
     size = CELL * SCALE
     union = ImageChops.lighter(ImageChops.lighter(gold, back), silver)
     bbox = union.getbbox()
@@ -311,7 +323,7 @@ def icon(design):
     # the black edge: a blur thresholded about two sigmas out, so OUTLINE pixels wide
     alpha = union.filter(ImageFilter.GaussianBlur(OUTLINE * SCALE / 2)).point(lambda v: 255 if v >= 6 else 0)
     art = Image.composite(lit(*colours), Image.new("RGB", (size, size), (0, 0, 0)), gold)
-    art = Image.composite(lit(*SILVER), art, silver)
+    art = Image.composite(lit(*device_colours), art, silver)
     art.putalpha(ImageChops.lighter(alpha, union))
     return art.resize((CELL, CELL), Image.LANCZOS)
 
