@@ -68,6 +68,58 @@ enum VeterancySide
 	VETERANCY_SIDE_COUNT
 };
 
+/// America, China, GLA: the side in each rank insignia's image name and each rank's label
+extern const char *const TheVeterancySideNames[VETERANCY_SIDE_COUNT];
+
+enum { RANK_GRADES_MAX = 32 };	///< promotions a side's ladder may have; America's 28 is the longest
+
+/// the stats a grade carries, each looked up per grade in RankLadder::m_stat
+enum RankStat
+{
+	RANK_STAT_RATE_OF_FIRE,
+	RANK_STAT_DAMAGE,
+	RANK_STAT_HEALTH,
+	RANK_STAT_RANGE,
+	RANK_STAT_SPEED,
+	RANK_STAT_SELF_REPAIR,		///< share of max health healed a second, not a multiplier
+
+	RANK_STAT_COUNT
+};
+
+/** One side's rank ladder, the Veterancy block in BalanceReforged.ini (docs/plans/RANK-LADDER.md).
+	* A unit's grade is a pure function of its experience and its template's E, its regular
+	* ExperienceValue: the step to grade g costs E x ratio^(g-1), the ratio set so the top grade costs
+	* m_top x E. EA's level follows the grade through the pins. Nothing here is saved; the grade is
+	* recomputed from the experience whenever it is needed. */
+struct RankLadder
+{
+	Int		m_grades;													///< promotions; 0 is a side without a ladder, on EA's four levels
+	Real	m_top;														///< experience to the top grade, in same-class kills (E)
+	Int		m_pin[LEVEL_COUNT];								///< the grade each EA level starts on; m_pin[LEVEL_REGULAR] is 0
+	Int		m_heroStart;											///< the insignia a hero wears at grade 0
+	Real	m_statTop[RANK_STAT_COUNT];				///< each stat at the top of the ladder
+
+	// filled by finish()
+	Real	m_ratio;
+	Real	m_total[RANK_GRADES_MAX + 1];			///< experience to hold grade g, in E
+	Real	m_stat[RANK_GRADES_MAX + 1][RANK_STAT_COUNT];	///< each stat at grade g
+
+	void clear();
+	/** The ratio from m_grades and m_top, the totals, and the stats: worth (rate of fire times damage
+		* times health) is 1 + worthGain x sqrt(experience / top) at each grade's experience, and every
+		* stat is its top value raised to ln(worth) / ln(worth at the top), so the split holds all the way up. */
+	void finish( Real worthGain );
+	Int threshold( Int unitValue, Int grade ) const;						///< experience to hold the grade, rounded once
+	Int gradeOf( Int unitValue, Int experience ) const;					///< the highest grade the experience holds
+	VeterancyLevel levelOf( Int grade ) const;									///< the EA level whose pin the grade has passed
+	/** A gain clipped one point short of the second threshold above the current grade, so one kill
+		* lifts one grade at most. Experience past the next-to-last grade is not clipped. */
+	Int clipGain( Int unitValue, Int experience, Int gain ) const;
+	Int insigniaIndex( Int grade, Bool hero ) const;						///< a hero's insignia runs from m_heroStart to the top over its grades
+
+	static Int unitValue( const ThingTemplate *thing );				///< E: the regular ExperienceValue, else half the Veteran threshold, at least 1
+};
+
 const Int MAX_GLOBAL_LIGHTS	= 3;
 
 //-------------------------------------------------------------------------------------------------
@@ -549,21 +601,22 @@ public:
 	WeaponBonusSet* m_weaponBonusSet;
 	Real m_healthBonus[LEVEL_COUNT];			///< global bonuses to health for veterancy.
 
-	/** Faction veterancy, set in BalanceReforged.ini.  A ranked unit whose template's Side starts with
-		* America, China or GLA (so every general's copy too) reads its side's tables; Boss and civilian
-		* units keep the global ones.  A side's weapon table stands in for the VETERAN, ELITE and HERO
-		* lines of WeaponBonus, and any other condition in it (China's HORDE) counts only while ranked. */
-	WeaponBonusSet* m_veterancyWeaponBonus[VETERANCY_SIDE_COUNT];	///< NULL: the side takes WeaponBonus as it is
-	Real m_veterancyHealthBonus[VETERANCY_SIDE_COUNT][LEVEL_COUNT];	///< 0: the side takes HealthBonus_*
-	Real m_veterancySpeedBonus[VETERANCY_SIDE_COUNT][LEVEL_COUNT];	///< locomotor speed factor
-	Real m_veterancySelfRepair[VETERANCY_SIDE_COUNT][LEVEL_COUNT];	///< share of max health healed a second
+	/** The rank ladders, the Veterancy block in BalanceReforged.ini.  A unit whose template's Side starts
+		* with America, China or GLA (so every general's copy too) climbs its side's ladder, and its stats
+		* come from the grade instead of EA's VETERAN, ELITE and HERO lines and HealthBonus_*; Boss and
+		* civilian units keep EA's.  A side's weapon table holds what the grade does not (China's HORDE)
+		* and counts from the Veteran pin on. */
+	RankLadder m_rankLadder[VETERANCY_SIDE_COUNT];
+	Real m_rankWorthGain;																					///< worth at the top of every ladder is 1 + this
+	Int m_rankCrateGrades;																				///< grades a veterancy crate gives per EA level it would have
+	WeaponBonusSet* m_veterancyWeaponBonus[VETERANCY_SIDE_COUNT];	///< NULL: nothing beyond the grade
 	UnsignedInt m_veterancySelfRepairDelay;												///< frames unhurt before self-repair starts
 
 	static VeterancySide veterancySideOf( const ThingTemplate *thing );
+	const RankLadder *getRankLadder( const ThingTemplate *thing ) const;	///< NULL: the thing's side keeps EA's levels
 	const WeaponBonusSet *getVeterancyWeaponBonus( const ThingTemplate *thing, VeterancyLevel level ) const;
-	Real getVeterancyHealthBonus( const ThingTemplate *thing, VeterancyLevel level ) const;
-	Real getVeterancySpeedBonus( const ThingTemplate *thing, VeterancyLevel level ) const;
-	Real getVeterancySelfRepair( const ThingTemplate *thing, VeterancyLevel level ) const;
+	Real getRankStat( const ThingTemplate *thing, Int grade, RankStat stat ) const;	///< the grade's stat, or none without a ladder
+	Real getRankHealthBonus( const ThingTemplate *thing, VeterancyLevel level, Int grade ) const;	///< the grade's on a ladder, else HealthBonus_*
 	Real m_defaultStructureRubbleHeight;	///< for rubbled structures, compress height to this if none specified
 
 	AsciiString m_shellMapName;				///< Holds the shell map name

@@ -71,6 +71,7 @@
 #include "GameLogic/Module/AutoHealBehavior.h"
 #include "GameLogic/Module/BehaviorModule.h"
 #include "GameLogic/Module/BodyModule.h"
+#include "Common/LogicThread.h"
 #include "GameLogic/Module/CollideModule.h"
 #include "GameLogic/Module/ContainModule.h"
 #include "GameLogic/Module/CountermeasuresBehavior.h"
@@ -3282,7 +3283,14 @@ void Object::scoreTheKill( const Object *victim )
 //-------------------------------------------------------------------------------------------------
 VeterancyLevel Object::getVeterancyLevel() const 
 { 
-	return m_experienceTracker ? m_experienceTracker->getVeterancyLevel() : LEVEL_REGULAR; 
+	return m_experienceTracker ? m_experienceTracker->getVeterancyLevel() : LEVEL_REGULAR;
+}
+
+//-------------------------------------------------------------------------------------------------
+// the AI module picks its locomotors, and reads the speed bonus, before the tracker exists
+Int Object::getRankGrade() const
+{
+	return m_experienceTracker ? m_experienceTracker->getGrade() : 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3473,6 +3481,66 @@ Bool Object::hasAnySpecialPower() const
 }
 
 //-------------------------------------------------------------------------------------------------
+void Object::onRankChanged( VeterancyLevel oldLevel, VeterancyLevel newLevel, Int oldGrade, Int newGrade, Bool provideFeedback )
+{
+	if( isEffectivelyDead() )
+		return;
+
+	// max health carries the grade's bonus on a ladder and the level's anywhere else
+	BodyModuleInterface* body = getBodyModule();
+	const Real oldBonus = TheGlobalData->getRankHealthBonus( getTemplate(), oldLevel, oldGrade );
+	const Real newBonus = TheGlobalData->getRankHealthBonus( getTemplate(), newLevel, newGrade );
+	if( body && oldBonus != newBonus )
+		body->setMaxHealth( body->getMaxHealth() * newBonus / oldBonus, PRESERVE_RATIO );
+
+	if( oldLevel != newLevel )
+		onVeterancyLevelChanged( oldLevel, newLevel, provideFeedback );
+	else if( m_ai )
+		m_ai->refreshVeterancySpeed();
+
+	const RankLadder *ladder = TheGlobalData->getRankLadder( getTemplate() );
+	if( ladder == NULL || newGrade == oldGrade )
+		return;
+
+	DEBUG_LOG(("RANK frame=%d template=%s grade %d to %d xp=%d\n", TheGameLogic->getFrame(), getTemplate()->getName().str(),
+		oldGrade, newGrade, getExperienceTracker()->getCurrentExperience()));
+
+	if( newGrade > oldGrade && provideFeedback && TheGameLogic->getDrawIconUI() && isLogicallyVisible() && !isKindOf( KINDOF_IGNORED_IN_GUI )
+			&& Drawable::getRankInsignia( this ) != NULL )
+		floatRankGain( ladder->insigniaIndex( newGrade, isKindOf( KINDOF_HERO ) ) );
+
+	// the portrait shows the grade, so a selected unit's bar redraws; the selection is the client's,
+	// so the client asks after the tick
+	const ObjectID objID = getID();
+	LogicThread::callAfterTick( [objID]()
+	{
+		Drawable *draw = TheInGameUI->getFirstSelectedDrawable();
+		if( draw && draw->getObject() && draw->getObject()->getID() == objID )
+			TheControlBar->markUIDirty();
+	} );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The promotion floating up over the unit: a rank ladder's insignia, or EA's chevron animation for
+	* insignia -1. */
+//-------------------------------------------------------------------------------------------------
+void Object::floatRankGain( Int insignia )
+{
+	if( TheAnim2DCollection == NULL || TheGlobalData->m_levelGainAnimationName.isEmpty() )
+		return;
+
+	Anim2DTemplate *animTemplate = TheAnim2DCollection->findTemplate( TheGlobalData->m_levelGainAnimationName );
+	Coord3D pos = *getPosition();
+	pos.add(&m_healthBoxOffset);
+	TheInGameUI->addWorldAnimation( animTemplate,
+																	&pos,
+																	WORLD_ANIM_FADE_ON_EXPIRE,
+																	TheGlobalData->m_levelGainAnimationDisplayTimeInSeconds,
+																	TheGlobalData->m_levelGainAnimationZRisePerSecond,
+																	insignia < 0 ? NULL : getTemplate(), insignia );
+}
+
+//-------------------------------------------------------------------------------------------------
 void Object::onVeterancyLevelChanged( VeterancyLevel oldLevel, VeterancyLevel newLevel, Bool provideFeedback )
 {
 	// a kill scored by a unit that is already dying used to promote the corpse: upgrades, weapon
@@ -3550,20 +3618,9 @@ void Object::onVeterancyLevelChanged( VeterancyLevel oldLevel, VeterancyLevel ne
 
 	if( doAnimation && TheGameLogic->getDrawIconUI() && provideFeedback )
 	{
-		if( TheAnim2DCollection && TheGlobalData->m_levelGainAnimationName.isEmpty() == FALSE )
-		{
-			Anim2DTemplate *animTemplate = TheAnim2DCollection->findTemplate( TheGlobalData->m_levelGainAnimationName );
-
-			Coord3D pos = *getPosition(); 
-			pos.add(&m_healthBoxOffset);
-
-			TheInGameUI->addWorldAnimation( animTemplate,
-																			&pos,
-																			WORLD_ANIM_FADE_ON_EXPIRE,
-																			TheGlobalData->m_levelGainAnimationDisplayTimeInSeconds,
-																			TheGlobalData->m_levelGainAnimationZRisePerSecond,
-																			getTemplate(), newLevel );
-		}
+		// a unit on a rank ladder floats each grade's insignia from onRankChanged instead
+		if( TheGlobalData->getRankLadder( getTemplate() ) == NULL )
+			floatRankGain( -1 );
 
 		AudioEventRTS soundToPlay = TheAudio->getMiscAudio()->m_unitPromoted;	
 		soundToPlay.setObjectID( getID() );

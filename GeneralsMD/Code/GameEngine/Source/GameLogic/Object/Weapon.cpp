@@ -2121,15 +2121,22 @@ void Weapon::computeBonus(const Object *source, WeaponBonusConditionFlags extraB
 			flags |= theirContain->getWeaponBonusPassedToPassengers();
 	}
 
-	// a ranked unit of a side with its own veterancy table takes that side's VETERAN, ELITE and HERO
-	// lines instead of the global ones, and the table's other lines (China's horde) with them
-	const WeaponBonusSet* sideSet = TheGlobalData->getVeterancyWeaponBonus(source->getTemplate(), source->getVeterancyLevel());
-	if (sideSet)
+	// a unit on a rank ladder takes its grade's rate of fire, damage and range instead of the global
+	// VETERAN, ELITE and HERO lines, and from the Veteran pin its side's own lines (China's horde)
+	const ThingTemplate* sourceTemplate = source->getTemplate();
+	const RankLadder* ladder = TheGlobalData->getRankLadder(sourceTemplate);
+	if (ladder)
 	{
 		const WeaponBonusConditionFlags RANK_FLAGS = (1 << WEAPONBONUSCONDITION_VETERAN)
 			| (1 << WEAPONBONUSCONDITION_ELITE) | (1 << WEAPONBONUSCONDITION_HERO);
 		TheGlobalData->m_weaponBonusSet->appendBonuses(flags & ~RANK_FLAGS, bonus);
-		sideSet->appendBonuses(flags, bonus);
+		const WeaponBonusSet* sideSet = TheGlobalData->getVeterancyWeaponBonus(sourceTemplate, source->getVeterancyLevel());
+		if (sideSet)
+			sideSet->appendBonuses(flags, bonus);
+		const Real* stat = ladder->m_stat[MIN(source->getRankGrade(), ladder->m_grades)];
+		bonus.setField(WeaponBonus::RATE_OF_FIRE, bonus.getField(WeaponBonus::RATE_OF_FIRE) + stat[RANK_STAT_RATE_OF_FIRE] - 1.0f);
+		bonus.setField(WeaponBonus::DAMAGE, bonus.getField(WeaponBonus::DAMAGE) + stat[RANK_STAT_DAMAGE] - 1.0f);
+		bonus.setField(WeaponBonus::RANGE, bonus.getField(WeaponBonus::RANGE) + stat[RANK_STAT_RANGE] - 1.0f);
 	}
 	else if (TheGlobalData->m_weaponBonusSet)
 		TheGlobalData->m_weaponBonusSet->appendBonuses(flags, bonus);

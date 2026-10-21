@@ -2189,3 +2189,287 @@ END
 GUI:GraphNoData
 "Nothing was recorded in this match."
 END
+
+RANK:NextRank
+"Next rank %d/%d XP"
+END
+
+RANK:America0
+"E-1 Private"
+END
+
+RANK:America1
+"E-2 Private"
+END
+
+RANK:America2
+"E-3 Private First Class"
+END
+
+RANK:America3
+"E-4 Specialist"
+END
+
+RANK:America4
+"E-4 Corporal"
+END
+
+RANK:America5
+"E-5 Sergeant"
+END
+
+RANK:America6
+"E-6 Staff Sergeant"
+END
+
+RANK:America7
+"E-7 Sergeant First Class"
+END
+
+RANK:America8
+"E-8 Master Sergeant"
+END
+
+RANK:America9
+"E-8 First Sergeant"
+END
+
+RANK:America10
+"E-9 Sergeant Major"
+END
+
+RANK:America11
+"E-9 Command Sergeant Major"
+END
+
+RANK:America12
+"E-9 Sergeant Major of the Army"
+END
+
+RANK:America13
+"W-1 Warrant Officer"
+END
+
+RANK:America14
+"W-2 Chief Warrant Officer"
+END
+
+RANK:America15
+"W-3 Chief Warrant Officer"
+END
+
+RANK:America16
+"W-4 Chief Warrant Officer"
+END
+
+RANK:America17
+"W-5 Chief Warrant Officer"
+END
+
+RANK:America18
+"O-1 Second Lieutenant"
+END
+
+RANK:America19
+"O-2 First Lieutenant"
+END
+
+RANK:America20
+"O-3 Captain"
+END
+
+RANK:America21
+"O-4 Major"
+END
+
+RANK:America22
+"O-5 Lieutenant Colonel"
+END
+
+RANK:America23
+"O-6 Colonel"
+END
+
+RANK:America24
+"O-7 Brigadier General"
+END
+
+RANK:America25
+"O-8 Major General"
+END
+
+RANK:America26
+"O-9 Lieutenant General"
+END
+
+RANK:America27
+"O-10 General"
+END
+
+RANK:America28
+"General of the Army"
+END
+
+RANK:China0
+"Unranked"
+END
+
+RANK:China1
+"Private"
+END
+
+RANK:China2
+"Private First Class"
+END
+
+RANK:China3
+"Corporal"
+END
+
+RANK:China4
+"Sergeant"
+END
+
+RANK:China5
+"Staff Sergeant Second Class"
+END
+
+RANK:China6
+"Staff Sergeant First Class"
+END
+
+RANK:China7
+"Master Sergeant Third Class"
+END
+
+RANK:China8
+"Master Sergeant Second Class"
+END
+
+RANK:China9
+"Master Sergeant First Class"
+END
+
+RANK:China10
+"Second Lieutenant"
+END
+
+RANK:China11
+"First Lieutenant"
+END
+
+RANK:China12
+"Captain"
+END
+
+RANK:China13
+"Major"
+END
+
+RANK:China14
+"Lieutenant Colonel"
+END
+
+RANK:China15
+"Colonel"
+END
+
+RANK:China16
+"Senior Colonel"
+END
+
+RANK:China17
+"Major General"
+END
+
+RANK:China18
+"Lieutenant General"
+END
+
+RANK:China19
+"General"
+END
+
+RANK:GLA0
+"Unranked"
+END
+
+RANK:GLA1
+"Recruit"
+END
+
+RANK:GLA2
+"Irregular"
+END
+
+RANK:GLA3
+"Fighter"
+END
+
+RANK:GLA4
+"Raider"
+END
+
+RANK:GLA5
+"Hardened Raider"
+END
+
+RANK:GLA6
+"Squadhand"
+END
+
+RANK:GLA7
+"Squad Leader"
+END
+
+RANK:GLA8
+"Cell Leader"
+END
+
+RANK:GLA9
+"Senior Cell Leader"
+END
+
+RANK:GLA10
+"Raid Captain"
+END
+
+RANK:GLA11
+"Column Captain"
+END
+
+RANK:GLA12
+"Strike Commander"
+END
+
+RANK:GLA13
+"Field Commander"
+END
+
+RANK:GLA14
+"Sector Commander"
+END
+
+RANK:GLA15
+"Warlord"
+END
+
+RANK:GLA16
+"Regional Warlord"
+END
+
+RANK:GLA17
+"High Warlord"
+END
+
+RANK:GLA18
+"General"
+END
+
+RANK:GLA19
+"Grand General"
+END
+
+RANK:GLA20
+"Supreme Liberator"
+END

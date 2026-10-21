@@ -1,13 +1,16 @@
-"""A ranked army against a bigger regular one; run it once with each veterancy table and compare.
+"""A ranked army against a bigger regular one; run it once with each rank ladder and compare.
 
 Every side's veterans fight regular armies of both other sides, tanks against tanks and infantry
-against infantry, at each rank, from both start points and on two seeds. The regular army's money is
-the ranked army's times three quarters of EA's rank multiple (rate of fire x damage x health: 1.58,
-2.18, 3.12), so a fight is close under EA's veterancy and a change to a rank moves it.
+against infantry, at each experience point, from both start points and on two seeds. A point is N
+same-class kills of experience (the scenario's `rank ... xp N`, docs/plans/RANK-LADDER.md's
+experience duels), auras off. The regular army's money is the ranked army's times three quarters of
+the ladder's stat worth at that point (rate of fire x damage x health, 1 + 1.4 sqrt(N / 120)), so a
+fight is close when the grade gives what the curve says and a change to the split moves it. Every
+side should agree within 0.1 at the same point.
 
 The answer per fight is the ranked army's health left as a fraction of its own at the start, minus
 the regular army's: +1 the ranked army lost nothing and wiped the other, -1 the reverse. The report
-averages it per side and rank over the side's 16 fights (4 pairs, 2 start points, 2 seeds).
+averages it per side and point over the side's 16 fights (4 pairs, 2 start points, 2 seeds).
 
     python vetduel.py <exe name in Run> <tag> [pair filter]
     python vetduel.py --report <tag> [<tag> ...]
@@ -34,7 +37,7 @@ SPACING = 25
 HANDICAP = 0.75  # the regular army's money as a share of an even fight's
 SEEDS = (1, 2)
 
-RANKS = {"veteran": 1.2 * 1.1 * 1.2, "elite": 1.4 * 1.2 * 1.3, "heroic": 1.6 * 1.3 * 1.5}
+RANKS = {"xp%d" % kills: 1 + 1.4 * (kills / 120) ** 0.5 for kills in (2, 5, 10, 20, 30, 45, 60, 80, 100, 120)}
 UNITS = {  # side: (tank, its price, infantry, its price)
     "USA": ("AmericaTankCrusader", 900, "AmericaInfantryRanger", 225),
     "China": ("ChinaTankBattleMaster", 800, "ChinaInfantryRedguard", 300),
@@ -54,7 +57,7 @@ def run_one(exe: str, tag: str, index: int, pair: tuple, rank: str, swapped: boo
     lines = [
         "%d spawn 0 %s %d %d %d %d" % (SPAWN_FRAME, ranked, ranked_count, *ranked_at, SPACING),
         "%d spawn 1 %s %d %d %d %d" % (SPAWN_FRAME, regular, regular_count, *regular_at, SPACING),
-        "%d rank 0 %s %s" % (RANK_FRAME, siege.selector(ranked), rank),
+        "%d rank 0 %s xp %s" % (RANK_FRAME, siege.selector(ranked), rank[2:]),
         "%d attackmove 0 %s %d %d" % (ATTACK_FRAME, siege.selector(ranked), *regular_at),
         "%d attackmove 1 %s %d %d" % (ATTACK_FRAME, siege.selector(regular), *ranked_at),
     ]

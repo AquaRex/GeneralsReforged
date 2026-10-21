@@ -2286,6 +2286,14 @@ set_target_properties(test_water_grid PROPERTIES CXX_STANDARD 17)
 if(ZH_PLATFORM_POSIX)
   target_link_libraries(test_water_grid PRIVATE posixdevice w3ddevice)
 endif()
+# The rank ladder's arithmetic (RankLadder, GlobalData.cpp): thresholds, pins, the one-grade clip, the
+# stat split.  Linked like test_water_grid.
+add_lib_test(test_rank_ladder gameengine)
+target_sources(test_rank_ladder PRIVATE ${TESTS}/test_gameengine_stubs.cpp)
+set_target_properties(test_rank_ladder PROPERTIES CXX_STANDARD 17)
+if(ZH_PLATFORM_POSIX)
+  target_link_libraries(test_rank_ladder PRIVATE posixdevice w3ddevice)
+endif()
 # Off Windows the device layer's hooks are the game's own: the renderer's from W3DDevice, the CD
 # manager from PosixDevice.  On Windows the test's own stubs stand in for gameenginedevice, which it
 # does not link (B6).
@@ -2311,10 +2319,10 @@ target_compile_definitions(test_gameengine PRIVATE
   OPTIONS_MENU_WND="${CMAKE_CURRENT_SOURCE_DIR}/Data/Window/Menus/OptionsMenuClassic.wnd"
   PLATE_TEXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Data/Art/Textures")
 
-# W3: these three link the engine without its device and WinMain, whose Debug-only names it reads
+# W3: these four link the engine without its device and WinMain, whose Debug-only names it reads
 # (Tests/debug_build_stubs.cpp; empty outside _DEBUG).
 if(MSVC)
-  foreach(name test_gameengine test_terrain_golden test_water_grid)
+  foreach(name test_gameengine test_terrain_golden test_water_grid test_rank_ladder)
     target_sources(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Tests/debug_build_stubs.cpp)
     target_compile_definitions(${name} PRIVATE ZH_DEBUG_STUBS_ENGINE)
   endforeach()

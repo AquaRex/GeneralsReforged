@@ -1057,7 +1057,7 @@ Bool AIUpdateInterface::chooseLocomotorSetExplicit(LocomotorSetType wst)
 void AIUpdateInterface::refreshVeterancySpeed()
 {
 	const Object* obj = getObject();
-	m_locomotorSet.setSpeedFactor(TheGlobalData->getVeterancySpeedBonus(obj->getTemplate(), obj->getVeterancyLevel()));
+	m_locomotorSet.setSpeedFactor(TheGlobalData->getRankStat(obj->getTemplate(), obj->getRankGrade(), RANK_STAT_SPEED));
 }
 
 //-------------------------------------------------------------------------------------------------

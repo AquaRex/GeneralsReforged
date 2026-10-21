@@ -8,14 +8,14 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
-## Each side's veterans fight their own way
+## A rank ladder for every army
 
-- A promotion gave every unit in the game the same thing, whichever army trained it. Each side's ranks now carry a bonus of their own, paid for by giving back part of the old one, so a rank is still worth about what it was: rate of fire times damage times health stays within 5% of EA's at every rank before the side's own bonus is counted.
-- An American veteran shoots 3% further, an elite 4% and a heroic 5%. Rank adds less health in return, 15%, 25% and 45% where it used to add 20%, 30% and 50%.
-- Chinese ranks add more health, 25%, 40% and 65%, and less rate of fire, 15%, 30% and 45% where it was 20%, 40% and 60%. A ranked Chinese unit in a horde fires 10% faster again.
-- GLA veterans move 5% faster, elites 7% and heroics 10%, and hit less hard for it, 5%, 15% and 25% extra damage where it was 10%, 20% and 30%. A ranked GLA unit that has gone five seconds without being hit mends itself, 1% of its health a second as a veteran, 1.5% as an elite and 2% as a heroic, on top of Junk Repair.
-- Each side wears its rank its own way beside the health bar, where EA gave every army the same chevrons. America stacks gold bars, one under another. China counts gold stars and GLA skulls: one alone, two side by side, and a heroic's three as a triangle. A unit that gains a rank sends the same marks floating up over its head in place of the gold chevron.
-- Every general's army takes its side's veterans. Replays recorded before this change play out differently.
+- Three chevrons are now a whole army's ladder. An American unit climbs 28 promotions from E-1 Private to General of the Army, a Chinese one 19 from Private to General, a GLA one 20 from Recruit to Supreme Liberator. Every unit starts unranked with a bare health bar and no bonus; from the first promotion on, each grade wears its own insignia beside the health bar and floats it up over the unit's head the moment it is earned. Hover the portrait for the rank's name and how far the next one is: "Next rank 340/420 XP".
+- The climb is long. The first promotion is one kill of a unit like your own, every step after costs a fixed share more, and the top is 120 such kills on every side: 12,000 experience for a Crusader. One kill lifts a unit one grade at most, so a Ranger who kills a tank early gets two grades out of it, not five. Six kills used to make a tank Heroic; now they make it an American Corporal, a Chinese Staff Sergeant or a GLA Hardened Raider.
+- Every grade makes a unit a little better, on one curve for all three armies: rate of fire times damage times health is 1.13 times a regular's after the first kill, about 1.25 at Veteran, 1.6 at Elite, 2 at Heroic and 2.4 at the very top, where EA's Heroic gave 3.1 after six kills. Each army takes it its own way: America in rate of fire, health and up to 7% more range, China in health and a 10% faster horde, GLA in rate of fire, up to 14% more speed and up to 2% of its health mended a second once it has gone five seconds unhurt.
+- Veteran, Elite and Heroic still exist and still bring their weapons, voices and upgrades: America turns Veteran at Corporal, Elite at Warrant Officer and Heroic at Lieutenant Colonel; China at Sergeant, Second Lieutenant and Colonel; GLA at Raider, Raid Captain and Warlord. Red Guard Training and the other trainings, a pilot climbing into a vehicle, map-placed veterans and the Heroic cheat land on those ranks. A veterancy crate is worth three grades, never past Heroic, since one EA level is up to 42 kills on this ladder.
+- Burton, Black Lotus and Jarmen Kell climb like everyone else but wear high rank from the start: Burton is a Colonel on his first day and a General of the Army at the top, Lotus goes from Colonel to General, Kell from Warlord to Supreme Liberator.
+- Every general's army takes its side's ladder; civilians and other armies keep EA's three ranks. Replays recorded before this change play out differently.
 
 ## A new loading screen
 

@@ -9997,7 +9997,7 @@ WorldAnimationData::WorldAnimationData( void )
 	m_options = WORLD_ANIM_NO_OPTIONS;
 	m_zRisePerSecond = 0.0f;
 	m_rankOf = NULL;
-	m_rankLevel = LEVEL_REGULAR;
+	m_rankInsignia = 0;
 
 }  // end WorldAnimationData
 
@@ -10010,12 +10010,12 @@ void InGameUI::addWorldAnimation( Anim2DTemplate *animTemplate,
 																	Real durationInSeconds,
 																	Real zRisePerSecond,
 																	const ThingTemplate *rankOf,
-																	VeterancyLevel rankLevel )
+																	Int rankInsignia )
 {
 	if( LogicThread::defersEffects() && pos != NULL )
 	{
 		const Coord3D at = *pos;
-		LogicThread::callAfterTick( [=]() { addWorldAnimation( animTemplate, &at, options, durationInSeconds, zRisePerSecond, rankOf, rankLevel ); } );
+		LogicThread::callAfterTick( [=]() { addWorldAnimation( animTemplate, &at, options, durationInSeconds, zRisePerSecond, rankOf, rankInsignia ); } );
 		return;
 	}
 	LOGIC_CENSUS( CENSUS_INGAMEUI );
@@ -10040,7 +10040,7 @@ void InGameUI::addWorldAnimation( Anim2DTemplate *animTemplate,
 	wad->m_worldPos = *pos;
 	wad->m_zRisePerSecond = zRisePerSecond;
 	wad->m_rankOf = rankOf;
-	wad->m_rankLevel = rankLevel;
+	wad->m_rankInsignia = rankInsignia;
 
 	// add to list
 	m_worldAnimationList.push_front( wad );
@@ -10163,10 +10163,10 @@ void InGameUI::updateAndDrawWorldAnimations( void )
 			const Real WORLD_ANIM_ZOOM_REFERENCE = 1.3f;
 			Real zoomScale = WORLD_ANIM_ZOOM_REFERENCE / TheTacticalView->getZoom();
 
-			// a rank gained floats up as the side's own marks, half again their health bar size, centred
-			// where the chevron would have been
+			// a grade gained floats up as its insignia, half again its health bar size, centred where the
+			// chevron would have been
 			const Real RANK_GAIN_SCALE = 1.5f;
-			if( wad->m_rankOf && Drawable::drawRankInsignia( wad->m_rankOf, wad->m_rankLevel, screen.x, screen.y - REAL_TO_INT( height * zoomScale / 2 ),
+			if( wad->m_rankOf && Drawable::drawRankInsignia( wad->m_rankOf, wad->m_rankInsignia, screen.x, screen.y - REAL_TO_INT( height * zoomScale / 2 ),
 					TRUE, RANK_GAIN_SCALE * zoomScale, GameMakeColor( 255, 255, 255, REAL_TO_INT( 255 * alpha ) ) ) )
 			{
 				++it;

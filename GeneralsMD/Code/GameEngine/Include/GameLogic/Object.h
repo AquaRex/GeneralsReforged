@@ -288,10 +288,14 @@ public:
 
 	void scoreTheKill( const Object *victim );						///< I just killed this object.
 	void scoreTheHeal( const Object *patient, Real restored, Real maxHealth );	///< I just put restored health back on this object
+	/// my experience moved my grade or my level: max health follows the grade, then the level's own work
+	void onRankChanged( VeterancyLevel oldLevel, VeterancyLevel newLevel, Int oldGrade, Int newGrade, Bool provideFeedback );
+	void floatRankGain( Int insignia );		///< the promotion floating up: the ladder's insignia, or EA's chevrons for -1
 	void onVeterancyLevelChanged( VeterancyLevel oldLevel, VeterancyLevel newLevel, Bool provideFeedback = TRUE );	///< I just achieved this level right this moment
 	ExperienceTracker* getExperienceTracker() {return m_experienceTracker;}
 	const ExperienceTracker* getExperienceTracker() const {return m_experienceTracker;}
 	VeterancyLevel getVeterancyLevel() const;
+	Int getRankGrade() const;																///< my grade on my side's rank ladder; 0 without one
 
 	inline const AsciiString& getName() const { return m_name; }
 	inline void setName( const AsciiString& newName ) { m_name = newName; }

@@ -1567,18 +1567,8 @@ void ActiveBody::onVeterancyLevelChanged( VeterancyLevel oldLevel, VeterancyLeve
 		} );
 	}
 
-	Real oldBonus = TheGlobalData->getVeterancyHealthBonus(getObject()->getTemplate(), oldLevel);
-	Real newBonus = TheGlobalData->getVeterancyHealthBonus(getObject()->getTemplate(), newLevel);
-	Real mult = newBonus / oldBonus;
-
-	// get this before calling setMaxHealth, since it can clip curHealth
-	//Real newHealth = m_currentHealth * mult;
-
-	// change the max
-	setMaxHealth(m_maxHealth * mult, PRESERVE_RATIO );
-
-	// now change the cur (setMaxHealth now handles it)
-	//internalChangeHealth( newHealth - m_currentHealth );
+	// the health bonus moves with the grade as well as the level, so Object::onRankChanged scales max
+	// health for both
 
 	switch (newLevel)
 	{

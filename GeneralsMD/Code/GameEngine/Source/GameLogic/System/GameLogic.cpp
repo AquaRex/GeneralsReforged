@@ -5037,7 +5037,7 @@ void GameLogic::update( void )
 	{
 		for( Object *obj = m_objList; obj; obj = obj->getNextObject() )
 		{
-			const Real share = TheGlobalData->getVeterancySelfRepair( obj->getTemplate(), obj->getVeterancyLevel() );
+			const Real share = TheGlobalData->getRankStat( obj->getTemplate(), obj->getRankGrade(), RANK_STAT_SELF_REPAIR );
 			if( share <= 0.0f || obj->isEffectivelyDead() )
 				continue;
 			const BodyModuleInterface *body = obj->getBodyModule();
