@@ -12712,6 +12712,70 @@ TEST(extra_airfield_follows_the_parking)
 	CHECK( aiWantsAnotherFactory( 3, 0, aiAirfieldsFull( 3, 3, TRUE ), BACKLOG, BACKLOG ) );		// no cap
 }
 
+/** A site that cannot be finished is given up: builders dying on the way with nothing built between,
+	 or a site away from home standing still for the rung's stall.  Its spot then waits out the retry. */
+TEST(stuck_building_site_is_given_up)
+{
+	TAiData data;
+	for( Int s = 0; s < AISKILL_COUNT; ++s )
+	{
+		CHECK( data.m_skill[ s ].m_siteStallSeconds > 0.0f );
+		CHECK( data.m_skill[ s ].m_siteBuildersLost > 0 );
+		CHECK( data.m_skill[ s ].m_siteRetrySeconds > 0.0f );
+		if( s > 0 )		// a higher rung gives up no later
+		{
+			CHECK( data.m_skill[ s ].m_siteStallSeconds <= data.m_skill[ s - 1 ].m_siteStallSeconds );
+			CHECK( data.m_skill[ s ].m_siteBuildersLost <= data.m_skill[ s - 1 ].m_siteBuildersLost );
+		}
+	}
+	const AIDifficultyProfile &hard = data.m_skill[ AISKILL_BRUTAL ];
+	const UnsignedInt STALL = (UnsignedInt)REAL_TO_INT( hard.m_siteStallSeconds * LOGICFRAMES_PER_SECOND );
+	const Int LOST = hard.m_siteBuildersLost;
+	const ObjectID A = (ObjectID)10, B = (ObjectID)11, C = (ObjectID)12;
+
+	AISiteWatch w = { (ObjectID)1, 0.0f, 100, INVALID_ID, 0 };
+	CHECK_EQ( (Int)AISITE_KEEP, (Int)aiWatchSite( &w, 0.0f, A, TRUE, 100 + STALL - 1, STALL, LOST ) );
+	CHECK_EQ( (Int)AISITE_STALLED, (Int)aiWatchSite( &w, 0.0f, A, TRUE, 100 + STALL, STALL, LOST ) );
+	// at home the stall is off: a busy dozer, not a trap
+	CHECK_EQ( (Int)AISITE_KEEP, (Int)aiWatchSite( &w, 0.0f, A, TRUE, 100 + 10 * STALL, 0, LOST ) );
+
+	// progress resets the clock
+	w = AISiteWatch{ (ObjectID)1, 0.0f, 100, INVALID_ID, 0 };
+	CHECK_EQ( (Int)AISITE_KEEP, (Int)aiWatchSite( &w, 5.0f, A, TRUE, 100 + STALL, STALL, LOST ) );
+	CHECK_EQ( 100 + STALL, w.m_progressFrame );
+
+	// one death counts once, however many passes see it
+	w = AISiteWatch{ (ObjectID)1, 0.0f, 100, INVALID_ID, 0 };
+	for( Int pass = 0; pass < 5; ++pass )
+		aiWatchSite( &w, 0.0f, A, FALSE, 101 + pass, STALL, LOST );
+	CHECK_EQ( 1, w.m_buildersLost );
+	// a second builder lost with nothing built gives it up
+	CHECK_EQ( (Int)AISITE_KEEP, (Int)aiWatchSite( &w, 0.0f, B, TRUE, 200, STALL, LOST ) );
+	CHECK_EQ( (Int)AISITE_BUILDERS_LOST, (Int)aiWatchSite( &w, 0.0f, B, FALSE, 210, STALL, 2 ) );
+
+	// a builder that got some of it up before dying is not a trap: the count starts over
+	w = AISiteWatch{ (ObjectID)1, 0.0f, 100, INVALID_ID, 0 };
+	aiWatchSite( &w, 0.0f, A, FALSE, 110, STALL, 2 );
+	CHECK_EQ( (Int)AISITE_KEEP, (Int)aiWatchSite( &w, 30.0f, B, TRUE, 120, STALL, 2 ) );
+	CHECK_EQ( 0, w.m_buildersLost );
+	CHECK_EQ( (Int)AISITE_KEEP, (Int)aiWatchSite( &w, 30.0f, B, FALSE, 130, STALL, 2 ) );
+	CHECK_EQ( (Int)AISITE_BUILDERS_LOST, (Int)aiWatchSite( &w, 30.0f, C, FALSE, 140, STALL, 2 ) );
+
+	// the spot: cooling until its frame, only near it
+	std::vector<AICooledSpot> spots;
+	AICooledSpot spot;
+	spot.m_pos.set( 1000.0f, 1000.0f, 0.0f );
+	spot.m_until = 500;
+	spots.push_back( spot );
+	Coord3D inside, outside;		// near and far are macros on Windows
+	inside.set( 1000.0f + AI_COOLED_SITE_RADIUS - 1.0f, 1000.0f, 0.0f );
+	outside.set( 1000.0f + AI_COOLED_DOCK_RADIUS + 1.0f, 1000.0f, 0.0f );
+	CHECK( aiSpotCooling( spots, &inside, AI_COOLED_SITE_RADIUS, 499 ) );
+	CHECK( !aiSpotCooling( spots, &inside, AI_COOLED_SITE_RADIUS, 500 ) );
+	CHECK( !aiSpotCooling( spots, &outside, AI_COOLED_DOCK_RADIUS, 0 ) );
+	CHECK( aiSpotCooling( spots, &outside, AI_COOLED_DOCK_RADIUS + 2.0f, 0 ) );
+}
+
 TEST(another_tech_building_until_three_stand)
 {
 	CHECK( aiWantsAnotherTechBuilding( 0, 0 ) );

@@ -1237,9 +1237,137 @@ static void giveUpOnSpot( BuildListInfo *info )
 }
 
 // ------------------------------------------------------------------------------------------------
+/** A site this AI placed and cannot finish is cancelled for its money back, the way a player cancels
+	* one, and its spot left alone for the rung's m_siteRetrySeconds.  A supply centre put down at a far
+	* dock in enemy ground stood unbuilt all match: every dozer sent to it was killed on the way, the
+	* money was gone, and the scaffold kept the dock (and every gun the scripts asked for beside it)
+	* from going anywhere else.  A priority entry is blanked, as giveUpOnSpot does, for whoever asked to
+	* ask again; a map plan entry waits out the retry and gets its rebuild back. */
+// ------------------------------------------------------------------------------------------------
+Bool AIPlayer::watchSite( BuildListInfo *info, Object *bldg )
+{
+	const UnsignedInt now = TheGameLogic->getFrame();
+	AISiteWatch *watch = NULL;
+	for( size_t i = 0; i < m_siteWatches.size(); )
+	{
+		const Object *site = TheGameLogic->findObjectByID( m_siteWatches[ i ].m_site );
+		if( site == NULL || !site->testStatus( OBJECT_STATUS_UNDER_CONSTRUCTION ) )
+		{
+			m_siteWatches.erase( m_siteWatches.begin() + i );		// finished, or gone
+			continue;
+		}
+		if( site == bldg )
+			watch = &m_siteWatches[ i ];
+		++i;
+	}
+	if( watch == NULL )
+	{
+		AISiteWatch fresh;
+		fresh.m_site = bldg->getID();
+		fresh.m_percent = bldg->getConstructionPercent();
+		fresh.m_progressFrame = now;
+		fresh.m_lostBuilder = INVALID_ID;
+		fresh.m_buildersLost = 0;
+		m_siteWatches.push_back( fresh );
+		watch = &m_siteWatches.back();
+	}
+
+	const AIDifficultyProfile *profile = getSkillProfile();
+	const ObjectID builderID = bldg->getBuilderID();
+	const Object *builder = TheGameLogic->findObjectByID( builderID );
+	// at home a site that does not move is waiting for a busy dozer, not for one that cannot get there
+	const UnsignedInt stallFrames = isAtHome( bldg->getPosition() ) ? 0 :
+		(UnsignedInt)REAL_TO_INT( profile->m_siteStallSeconds * LOGICFRAMES_PER_SECOND );
+	const AISiteVerdict verdict = aiWatchSite( watch, bldg->getConstructionPercent(), builderID,
+		builder != NULL && !builder->isEffectivelyDead(), now, stallFrames, profile->m_siteBuildersLost );
+	if( verdict == AISITE_KEEP )
+		return FALSE;
+
+	const UnsignedInt retryFrames = (UnsignedInt)REAL_TO_INT( profile->m_siteRetrySeconds * LOGICFRAMES_PER_SECOND );
+	const Int refund = bldg->testStatus( OBJECT_STATUS_RECONSTRUCTING ) ? 0 : bldg->getTemplate()->calcCostToBuild( m_player );
+	m_player->getMoney()->deposit( refund, FALSE );
+	DEBUG_LOG(("AI SITE frame %d player %d gives up '%s' at (%.0f,%.0f), %s, %.0f%% built, %d refunded, spot free at frame %d\n",
+		now, m_player->getPlayerIndex(), bldg->getTemplate()->getName().str(), bldg->getPosition()->x, bldg->getPosition()->y,
+		verdict == AISITE_STALLED ? "no progress" : "builders lost", bldg->getConstructionPercent(), refund, now + retryFrames));
+
+	for( size_t i = 0; i < m_cooledSpots.size(); )
+	{
+		if( m_cooledSpots[ i ].m_until <= now )
+			m_cooledSpots.erase( m_cooledSpots.begin() + i );
+		else
+			++i;
+	}
+	AICooledSpot spot;
+	spot.m_pos = *bldg->getPosition();
+	spot.m_until = now + retryFrames;
+	m_cooledSpots.push_back( spot );
+
+	// the dock it was for stops being the one the scripts' guns and factories go beside
+	const Object *warehouse = TheGameLogic->findObjectByID( m_curWarehouseID );
+	if( warehouse && aiSpotCooling( m_cooledSpots, warehouse->getPosition(), AI_COOLED_DOCK_RADIUS, now ) )
+		m_curWarehouseID = INVALID_ID;
+
+	info->setObjectID( INVALID_ID );
+	info->setUnderConstruction( false );
+	if( info->isPriorityBuild() )
+	{
+		info->setTemplateName( AsciiString::TheEmptyString );
+	}
+	else
+	{
+		info->incrementNumRebuilds();
+		info->setObjectTimestamp( now + retryFrames );
+	}
+	bldg->kill();		// its dozer drops the job, as when a player cancels
+	return TRUE;
+}
+
+// ------------------------------------------------------------------------------------------------
+Bool AIPlayer::spotCooling( const Coord3D *pos )
+{
+	return aiSpotCooling( m_cooledSpots, pos, AI_COOLED_SITE_RADIUS, TheGameLogic->getFrame() );
+}
+
+// ------------------------------------------------------------------------------------------------
+/** The base builder has its next site and is waiting for the money.  An idle dozer walks there now
+	* rather than from wherever it stopped once the money comes, so the building starts on arrival.
+	* Only one standing idle: never one on a job, the repair dozer, or a worker hauling supplies. */
+// ------------------------------------------------------------------------------------------------
+void AIPlayer::stageDozer( Object *dozer, const Coord3D *site )
+{
+	if( !isSkirmishAI() || !getSkillProfile()->m_stageDozers || dozer->getID() == m_repairDozer )
+		return;
+	AIUpdateInterface *ai = dozer->getAI();
+	if( ai->getDozerAIInterface()->isAnyTaskPending() || !ai->isIdle() )
+		return;
+	SupplyTruckAIInterface *supplyTruckAI = ai->getSupplyTruckAIInterface();
+	if( supplyTruckAI && (supplyTruckAI->isCurrentlyFerryingSupplies() || supplyTruckAI->isForcedIntoWantingState()) )
+		return;
+	const Real STANDOFF = 4 * PATHFIND_CELL_SIZE_F;		// beside the footprint, not on it
+	const Real dx = dozer->getPosition()->x - site->x;
+	const Real dy = dozer->getPosition()->y - site->y;
+	const Real distSqr = dx*dx + dy*dy;
+	if( distSqr <= sqr( 3 * STANDOFF ) || !reachableFromBase( site ) )
+		return;
+	const Real dist = sqrt( distSqr );
+	Coord3D to = *site;
+	to.x += dx / dist * STANDOFF;
+	to.y += dy / dist * STANDOFF;
+	to.z = TheTerrainLogic->getGroundHeight( to.x, to.y );
+	ai->aiMoveToPosition( &to, CMD_FROM_AI );
+	DEBUG_LOG(("AI STAGE frame %d player %d dozer %d walks %.0f ahead to (%.0f,%.0f)\n",
+		TheGameLogic->getFrame(), m_player->getPlayerIndex(), dozer->getID(), dist, site->x, site->y));
+}
+
+// ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
 Object *AIPlayer::buildStructureWithDozer(const ThingTemplate *bldgPlan, BuildListInfo *info)
 {
+	// A site given up here lately is left alone until its wait runs out.
+	if (isSkirmishAI() && spotCooling(info->getLocation())) {
+		giveUpOnSpot(info);
+		return NULL;
+	}
 	// Find a dozer.
 	Object *dozer = findDozer(info->getLocation());
 	if (dozer==NULL && isSkirmishAI() && getSkillProfile()->m_economyBuildings && isPowerThin() &&
@@ -1256,10 +1384,9 @@ Object *AIPlayer::buildStructureWithDozer(const ThingTemplate *bldgPlan, BuildLi
 	// Check available funds, and with a Hard AI whether the money is saved for something better.
 	Money *money = m_player->getMoney();
 	const Int cost = bldgPlan->calcCostToBuild(m_player);
-	if (!purchaseAllowed(bldgPlan->getTemplateID(), cost, purchaseKindOf(bldgPlan), TRUE, bldgPlan->getName(), personaBuildingScore(bldgPlan))) {
-		return NULL;
-	}
-	if ((Int)money->countMoney()<cost) {
+	if (!purchaseAllowed(bldgPlan->getTemplateID(), cost, purchaseKindOf(bldgPlan), TRUE, bldgPlan->getName(), personaBuildingScore(bldgPlan)) ||
+			(Int)money->countMoney()<cost) {
+		stageDozer(dozer, info->getLocation());		// the site is known, only the money is not there yet
 		return NULL;
 	}
 
@@ -4193,6 +4320,10 @@ Object *AIPlayer::findSupplyCenter(Int minimumCash, Bool holdableOnly)
 				// an ally's base or a second enemy's read as free and the AI put a center, then guns
 				// and factories, against theirs.
 				if (otherSideStructureNear(m_player, obj)) {
+					continue;
+				}
+				// a site given up at this dock lately (watchSite): not straight back into the same trap
+				if (aiSpotCooling(m_cooledSpots, obj->getPosition(), AI_COOLED_DOCK_RADIUS, TheGameLogic->getFrame())) {
 					continue;
 				}
 
@@ -16567,7 +16698,7 @@ void AIPlayer::xfer( Xfer *xfer )
 {
 
 	// version
-	XferVersion currentVersion = 28;		// 2: scout  3: rung and role  4: scouting stamps  5: the capturer  6: parked waves  7: superweapon aims  8: the hijacker  9: tactical steps  10: the ferry and dropped riders  11: the outward placement ring  12: the pressure level  13: falling back  14: gunship Chinooks and the boarding wait  15: transport Chinooks and the lent one  16: healer and raider Helixes  17: the seen-enemy ledger  18: the fist  19: the Ambulances  20: the last Ambulance lost  21: the purchase queue's reservation  22: the measured income  23: the Ambulances bought  24: the starting fortune  25: the factory backlog clocks  26: the personality  27: the team request inbox  28: the last aircraft refused for parking
+	XferVersion currentVersion = 29;		// 2: scout  3: rung and role  4: scouting stamps  5: the capturer  6: parked waves  7: superweapon aims  8: the hijacker  9: tactical steps  10: the ferry and dropped riders  11: the outward placement ring  12: the pressure level  13: falling back  14: gunship Chinooks and the boarding wait  15: transport Chinooks and the lent one  16: healer and raider Helixes  17: the seen-enemy ledger  18: the fist  19: the Ambulances  20: the last Ambulance lost  21: the purchase queue's reservation  22: the measured income  23: the Ambulances bought  24: the starting fortune  25: the factory backlog clocks  26: the personality  27: the team request inbox  28: the last aircraft refused for parking  29: the watched sites and the cooled spots
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -17022,6 +17153,30 @@ void AIPlayer::xfer( Xfer *xfer )
 	// the last aircraft refused for parking, which keeps the airfield backlog clock running
 	if( version >= 28 )
 		xfer->xferUnsignedInt( &m_parkingBlockedFrame );
+
+	// the unfinished sites it is watching, and the spots of the ones it gave up on
+	if( version >= 29 )
+	{
+		UnsignedShort count = (UnsignedShort)m_siteWatches.size();
+		xfer->xferUnsignedShort( &count );
+		m_siteWatches.resize( count );
+		for( UnsignedShort i = 0; i < count; ++i )
+		{
+			xfer->xferObjectID( &m_siteWatches[ i ].m_site );
+			xfer->xferReal( &m_siteWatches[ i ].m_percent );
+			xfer->xferUnsignedInt( &m_siteWatches[ i ].m_progressFrame );
+			xfer->xferObjectID( &m_siteWatches[ i ].m_lostBuilder );
+			xfer->xferInt( &m_siteWatches[ i ].m_buildersLost );
+		}
+		count = (UnsignedShort)m_cooledSpots.size();
+		xfer->xferUnsignedShort( &count );
+		m_cooledSpots.resize( count );
+		for( UnsignedShort i = 0; i < count; ++i )
+		{
+			xfer->xferCoord3D( &m_cooledSpots[ i ].m_pos );
+			xfer->xferUnsignedInt( &m_cooledSpots[ i ].m_until );
+		}
+	}
 
 }  // end xfer
 

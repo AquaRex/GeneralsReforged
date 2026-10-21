@@ -1324,12 +1324,19 @@ Real AI::getAdjustedVisionRangeForObject(const Object *object, Int factorsToCons
 	* and a bank rule, and a gate that waited for a unit queued behind the one being built, which the
 	* scripts never queue: the computer stood one barracks, one war factory and one airfield all match.
 	*
-	*                      scoutS maxSc decis  cntr  mass   ttk  indiv team infl focus save harv expand guard hoard econ micro  gate  answer massU  bankS  floor payoff upgr    nonc  share backlog push   minPow  siege  beam  strikeE strikeT swDef */
+	* stall, lost, retry and stage, 2026-10-21: a building placed out at a dock in enemy ground stood
+	* unbuilt all match, its money spent, every dozer sent to it killed on the way, and its spot taken from
+	* every later expansion.  A site away from home that has not moved forward for stall seconds, or any
+	* site whose builders died lost times with nothing built in between, is cancelled for its money back,
+	* and its spot (and the dock it was for) left alone for retry seconds.  stage sends an idle dozer
+	* ahead to the site the base builder is waiting on money for.  Easy gives up latest and does not stage.
+	*
+	*                      scoutS maxSc decis  cntr  mass   ttk  indiv team infl focus save harv expand guard hoard econ micro  gate  answer massU  bankS  floor payoff upgr    nonc  share backlog push   minPow  siege  beam  strikeE strikeT swDef                     stall  lost retry  stage */
 static const AIDifficultyProfile s_defaultSkillLadder[ AISKILL_COUNT ] =
 {
-	/* Easy      */ { 75.0f, 1,  7.0f,  0.00f, FALSE, 0.00f, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE,  FALSE, FALSE,     0, FALSE, FALSE, FALSE, FALSE, FALSE, 120.0f, 6000, 4.0f, 720.0f, 0.05f, 0.05f,  90.0f, 360.0f, 1500.0f,  80.0f, 0.00f, 0.0f, 2.0f, 3 },
-	/* Medium    */ { 45.0f, 1,  3.0f,  0.50f, FALSE, 0.35f, TRUE,  FALSE, FALSE, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  6000, FALSE, FALSE, FALSE, FALSE, FALSE,  60.0f, 5000, 2.5f, 420.0f, 0.05f, 0.25f,  75.0f, 300.0f, 2000.0f, 120.0f, 1.00f, 2.0f, 1.0f, 6 },
-	/* Hard      */ { 25.0f, 2,  1.5f,  1.00f, TRUE,  0.50f, TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,   4000, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  30.0f, 4000, 1.5f, 180.0f, 0.05f, 1.00f,  45.0f, 240.0f, 4500.0f, 160.0f, 0.25f, 3.0f, 0.0f, DEFENSES_PER_SUPERWEAPON }
+	/* Easy      */ { 75.0f, 1,  7.0f,  0.00f, FALSE, 0.00f, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE,  FALSE, FALSE,     0, FALSE, FALSE, FALSE, FALSE, FALSE, 120.0f, 6000, 4.0f, 720.0f, 0.05f, 0.05f,  90.0f, 360.0f, 1500.0f,  80.0f, 0.00f, 0.0f, 2.0f, 3,                        300.0f, 3, 300.0f, FALSE },
+	/* Medium    */ { 45.0f, 1,  3.0f,  0.50f, FALSE, 0.35f, TRUE,  FALSE, FALSE, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  6000, FALSE, FALSE, FALSE, FALSE, FALSE,  60.0f, 5000, 2.5f, 420.0f, 0.05f, 0.25f,  75.0f, 300.0f, 2000.0f, 120.0f, 1.00f, 2.0f, 1.0f, 6,                        240.0f, 2, 240.0f, TRUE  },
+	/* Hard      */ { 25.0f, 2,  1.5f,  1.00f, TRUE,  0.50f, TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,   4000, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  30.0f, 4000, 1.5f, 180.0f, 0.05f, 1.00f,  45.0f, 240.0f, 4500.0f, 160.0f, 0.25f, 3.0f, 0.0f, DEFENSES_PER_SUPERWEAPON, 180.0f, 2, 180.0f, TRUE  }
 };
 
 //-------------------------------------------------------------------------------------------------
@@ -1465,6 +1472,43 @@ Bool aiWantsAnotherFactory( Int finished, Int constructing, Bool full, UnsignedI
 	if( !full )
 		return FALSE;					// one of them has room: that one is the spare
 	return backedUpFor >= backlogFrames;
+}
+
+//-------------------------------------------------------------------------------------------------
+AISiteVerdict aiWatchSite( AISiteWatch *watch, Real percent, ObjectID builder, Bool builderAlive,
+													 UnsignedInt now, UnsignedInt stallFrames, Int maxLost )
+{
+	if( percent > watch->m_percent )
+	{
+		watch->m_percent = percent;
+		watch->m_progressFrame = now;
+		watch->m_buildersLost = 0;
+	}
+	if( !builderAlive && builder != INVALID_ID && builder != watch->m_lostBuilder )
+	{
+		watch->m_lostBuilder = builder;
+		++watch->m_buildersLost;
+	}
+	if( maxLost > 0 && watch->m_buildersLost >= maxLost )
+		return AISITE_BUILDERS_LOST;
+	if( stallFrames > 0 && now - watch->m_progressFrame >= stallFrames )
+		return AISITE_STALLED;
+	return AISITE_KEEP;
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool aiSpotCooling( const std::vector<AICooledSpot> &spots, const Coord3D *pos, Real radius, UnsignedInt now )
+{
+	for( size_t i = 0; i < spots.size(); ++i )
+	{
+		if( spots[ i ].m_until <= now )
+			continue;
+		const Real dx = spots[ i ].m_pos.x - pos->x;
+		const Real dy = spots[ i ].m_pos.y - pos->y;
+		if( dx * dx + dy * dy <= radius * radius )
+			return TRUE;
+	}
+	return FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2227,6 +2271,10 @@ void AI::parseSkillLevel(INI *ini, void *instance, void* /*store*/, const void* 
 		{ "StrikeEconomyWeight",			INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_strikeEconomyWeight ) },
 		{ "StrikeThreatWeight",				INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_strikeThreatWeight ) },
 		{ "SuperweaponDefenses",			INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_superweaponDefenses ) },
+		{ "SiteStallSeconds",					INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_siteStallSeconds ) },
+		{ "SiteBuildersLost",					INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_siteBuildersLost ) },
+		{ "SiteRetrySeconds",					INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_siteRetrySeconds ) },
+		{ "StageDozers",							INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_stageDozers ) },
 		{ NULL, NULL, NULL, 0 }
 	};
 

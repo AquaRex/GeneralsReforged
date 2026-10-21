@@ -268,6 +268,12 @@ struct AIDifficultyProfile
 	Real	m_strikeEconomyWeight;					///< what a factory, power plant, superweapon, supply centre, black market, hacker or strategy centre is worth to a strike on top of its price, in prices; 0 = price alone
 	Real	m_strikeThreatWeight;						///< what an armed unit or gun is worth to a strike on top of its price, in combat power; 0 = price alone, and his army is a candidate only when none of his buildings is
 	Int		m_superweaponDefenses;					///< finished base defences each superweapon asks for (Player::canBuildMoreOfType); 0 = none
+
+	// Building sites: when a placed building is given up, and whether idle dozers walk ahead to the next one
+	Real	m_siteStallSeconds;							///< a site away from home that has not moved forward this long is cancelled and refunded (aiWatchSite)
+	Int		m_siteBuildersLost;							///< ... and any site whose builders died this many times with nothing built in between
+	Real	m_siteRetrySeconds;							///< how long a cancelled site's spot is left alone before it is placed again
+	Bool	m_stageDozers;									///< an idle dozer walks to the site the base builder waits on money for
 };
 
 //-------------------------------------------------------------------------------------------------
@@ -418,6 +424,44 @@ inline UnsignedInt aiBacklogClock( UnsignedInt since, Bool full, Int constructin
 		return 0;
 	return since == 0 ? now : since;
 }
+
+/** One unfinished building the computer placed, as its base builder last saw it. */
+struct AISiteWatch
+{
+	ObjectID		m_site;
+	Real				m_percent;					///< construction percent when it last moved forward
+	UnsignedInt	m_progressFrame;		///< the frame it was first seen or last moved forward
+	ObjectID		m_lostBuilder;			///< the last dead builder counted, so one death counts once
+	Int					m_buildersLost;			///< builders that died since it last moved forward
+};
+
+enum AISiteVerdict
+{
+	AISITE_KEEP = 0,
+	AISITE_STALLED,				///< nothing built on it for the rung's m_siteStallSeconds
+	AISITE_BUILDERS_LOST	///< m_siteBuildersLost builders died on the way with nothing built between
+};
+
+/** One look at a site: progress resets the clock and the death count, a builder that is gone and not
+	* yet counted adds one.  stallFrames 0 never stalls (a site at home, which a busy dozer explains). */
+AISiteVerdict aiWatchSite( AISiteWatch *watch, Real percent, ObjectID builder, Bool builderAlive,
+													 UnsignedInt now, UnsignedInt stallFrames, Int maxLost );
+
+/** A spot a cancelled site stood on, left alone until a frame. */
+struct AICooledSpot
+{
+	Coord3D			m_pos;
+	UnsignedInt	m_until;
+};
+
+/** How near a cancelled site a dock counts as the one it was for, and a new site as the same spot.
+	* The site's is about one building across, so a base site given up under attack does not shut the
+	* base around it. */
+static const Real AI_COOLED_DOCK_RADIUS = 200.0f;
+static const Real AI_COOLED_SITE_RADIUS = 60.0f;
+
+/** True while pos is within radius of a spot whose wait has not run out. */
+Bool aiSpotCooling( const std::vector<AICooledSpot> &spots, const Coord3D *pos, Real radius, UnsignedInt now );
 
 /** How many copies of the faction tech building (strategy center, propaganda center, palace) to
 	* keep up so one of them blowing up does not take the tree with it. */
