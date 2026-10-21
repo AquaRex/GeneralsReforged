@@ -710,7 +710,7 @@ AsciiString FileSystem::zeroHourLanguage() const
 	AsciiString probe;
 	for (Int i = 0; i < (Int)ARRAY_SIZE(RetailLanguages); ++i) {
 		probe.format("%sZH.big", RetailLanguages[i]);
-		if (TheLocalFileSystem != NULL && TheLocalFileSystem->doesFileExist(probe.str()))
+		if (TheLocalFileSystem->doesFileExist(probe.str()))
 			return AsciiString(RetailLanguages[i]);
 	}
 	return AsciiString::TheEmptyString;

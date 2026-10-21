@@ -578,12 +578,23 @@ TEST(installed_language_falls_back_to_english_when_its_data_is_missing)
 TEST(zero_hour_language_is_the_one_its_language_archive_names)
 {
 	CHECK( bootOnce() );
+
+	// an empty folder of its own: the cwd may be Run, whose EnglishZH.big a case-blind Windows
+	// answers to, and a polishZH.big left there would be a real archive to the game
+	const std::filesystem::path home = std::filesystem::current_path();
+	const std::filesystem::path dir = std::filesystem::temp_directory_path() / "zh_zerohour_language";
+	std::filesystem::remove_all( dir );
+	std::filesystem::create_directory( dir );
+	std::filesystem::current_path( dir );
+
 	CHECK_STR( TheFileSystem->zeroHourLanguage().str(), "" );
 
 	// the probe's own spelling: this test's local file system is fopen's, not the game's case-blind one
 	writeFile( "polishZH.big", "" );
 	CHECK_STR( TheFileSystem->zeroHourLanguage().str(), "polish" );
-	remove( "polishZH.big" );
+
+	std::filesystem::current_path( home );
+	std::filesystem::remove_all( dir );
 }
 
 /* An unknown block name aborts the whole file - INI::load throws
