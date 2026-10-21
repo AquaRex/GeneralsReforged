@@ -1318,15 +1318,16 @@ Real AI::getAdjustedVisionRangeForObject(const Object *object, Int factorsToCons
 	* Easy from 17 of 30 to 27 of 29.  Easy's 3 is unmeasured in play: its script clock still holds its
 	* first superweapon past 25 minutes, so none was built either way.
 	*
-	* backlog, 2026-10-21: the seconds every factory of a kind has to stay busy before another of that
-	* kind goes up, with no cap on how many stand.  It replaced a cap on production buildings (3, 5, 8)
+	* backlog, 2026-10-21: the seconds every factory of a kind has to stay full (a barracks or war
+	* factory busy, an airfield's parking taken while an aircraft waits for a place) before another of
+	* that kind goes up, with no cap on how many stand.  It replaced a cap on production buildings (3, 5, 8)
 	* and a bank rule, and a gate that waited for a unit queued behind the one being built, which the
 	* scripts never queue: the computer stood one barracks, one war factory and one airfield all match.
 	*
 	*                      scoutS maxSc decis  cntr  mass   ttk  indiv team infl focus save harv expand guard hoard econ micro  gate  answer massU  bankS  floor payoff upgr    nonc  share backlog push   minPow  siege  beam  strikeE strikeT swDef */
 static const AIDifficultyProfile s_defaultSkillLadder[ AISKILL_COUNT ] =
 {
-	/* Easy      */ { 75.0f, 1,  7.0f,  0.00f, FALSE, 0.00f, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE,  FALSE, FALSE,     0, FALSE, FALSE, FALSE, FALSE, FALSE, 120.0f, 6000, 4.0f, 720.0f, 0.05f, 0.05f, 120.0f, 360.0f, 1500.0f,  80.0f, 0.00f, 0.0f, 2.0f, 3 },
+	/* Easy      */ { 75.0f, 1,  7.0f,  0.00f, FALSE, 0.00f, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE,  FALSE, FALSE,     0, FALSE, FALSE, FALSE, FALSE, FALSE, 120.0f, 6000, 4.0f, 720.0f, 0.05f, 0.05f,  90.0f, 360.0f, 1500.0f,  80.0f, 0.00f, 0.0f, 2.0f, 3 },
 	/* Medium    */ { 45.0f, 1,  3.0f,  0.50f, FALSE, 0.35f, TRUE,  FALSE, FALSE, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  6000, FALSE, FALSE, FALSE, FALSE, FALSE,  60.0f, 5000, 2.5f, 420.0f, 0.05f, 0.25f,  75.0f, 300.0f, 2000.0f, 120.0f, 1.00f, 2.0f, 1.0f, 6 },
 	/* Hard      */ { 25.0f, 2,  1.5f,  1.00f, TRUE,  0.50f, TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,   4000, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  30.0f, 4000, 1.5f, 180.0f, 0.05f, 1.00f,  45.0f, 240.0f, 4500.0f, 160.0f, 0.25f, 3.0f, 0.0f, DEFENSES_PER_SUPERWEAPON }
 };
@@ -1455,14 +1456,14 @@ Bool aiShouldMass( Real waitingThreat, Real enemyVisibleThreat, Real massFractio
 }
 
 //-------------------------------------------------------------------------------------------------
-Bool aiWantsAnotherFactory( Int finished, Int constructing, Int shallowest, UnsignedInt backedUpFor, UnsignedInt backlogFrames )
+Bool aiWantsAnotherFactory( Int finished, Int constructing, Bool full, UnsignedInt backedUpFor, UnsignedInt backlogFrames )
 {
 	if( constructing > 0 )
 		return FALSE;					// one is already going up
 	if( finished <= 0 )
 		return TRUE;					// the last one is gone, so put one back
-	if( shallowest < 1 )
-		return FALSE;					// one of them is idle: that one is the spare
+	if( !full )
+		return FALSE;					// one of them has room: that one is the spare
 	return backedUpFor >= backlogFrames;
 }
 

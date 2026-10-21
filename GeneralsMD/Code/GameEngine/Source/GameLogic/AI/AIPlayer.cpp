@@ -398,6 +398,7 @@ m_role(AIROLE_AGGRESSIVE)
 	m_startFortune = 0;
 	for( Int k = 0; k < 3; ++k )
 		m_factoryBackedUpSince[ k ] = 0;
+	m_parkingBlockedFrame = 0;
 	m_persona = AIPERSONA_NORMAL;
 	m_personaFromRandom = FALSE;
 	m_rushSent = FALSE;
@@ -6399,6 +6400,7 @@ struct FactoryLoad
 	Int finished;
 	Int constructing;
 	Int shallowest;
+	Int parkingFull;		///< finished ones with no parking place left, which refuse an aircraft to their queue
 };
 
 /** The production kinds the computer buys extra copies of, in m_factoryBackedUpSince's order. */
@@ -6479,13 +6481,35 @@ static void countFactoryLoad( Object *obj, void *userData )
 	if( load->finished == 0 || queued < load->shallowest )
 		load->shallowest = queued;
 	++load->finished;
+	// the same question ProductionUpdate::canQueueCreateUnit asks before an aircraft goes in the queue;
+	// the answer depends only on whether the thing asked about is made at a helipad, and the airfield
+	// itself is not
+	for( BehaviorModule **m = obj->getBehaviorModules(); *m; ++m )
+	{
+		ParkingPlaceBehaviorInterface *pp = (*m)->getParkingPlaceBehaviorInterface();
+		if( pp && !pp->hasAvailableSpaceFor( obj->getTemplate() ) )
+		{
+			++load->parkingFull;
+			break;
+		}
+	}
 }
 
 static FactoryLoad readFactoryLoad( Player *player, KindOfType kind )
 {
-	FactoryLoad load = { kind, 0, 0, 0 };
+	FactoryLoad load = { kind, 0, 0, 0, 0 };
 	player->iterateObjects( countFactoryLoad, &load );
 	return load;
+}
+
+/** Whether every finished factory of the kind is full now: a barracks or war factory by its queue, an
+	* airfield by its parking while a buy was refused for it within AI_PARKING_WANT_FRAMES. */
+static Bool factoryKindFull( const FactoryLoad &load, UnsignedInt parkingBlockedFrame )
+{
+	if( load.kind != KINDOF_FS_AIRFIELD )
+		return aiQueueKindFull( load.finished, load.shallowest );
+	const Bool wanted = parkingBlockedFrame != 0 && TheGameLogic->getFrame() - parkingBlockedFrame <= AI_PARKING_WANT_FRAMES;
+	return aiAirfieldsFull( load.finished, load.parkingFull, wanted );
 }
 
 /** Factories of this kind the build list has yet to put up, which go up before any extra one; with
@@ -7537,6 +7561,13 @@ void AIPlayer::purchased( Int key, Int cost, AIPurchaseKind kind, const AsciiStr
 
 Bool AIPlayer::buyUnit( ProductionUpdateInterface *pu, const ThingTemplate *unit, AIPurchaseKind kind )
 {
+	// an airfield with every parking place taken refuses the aircraft (queueCreateUnit fails on it), so
+	// nothing is saved for one, and the refusal is what says the computer wants another airfield
+	if( pu->canQueueCreateUnit( unit ) == CANMAKE_PARKING_PLACES_FULL )
+	{
+		m_parkingBlockedFrame = TheGameLogic->getFrame();
+		return FALSE;
+	}
 	const Int cost = unit->calcCostToBuild( m_player );
 	// a personality's taste moves an army unit up or down the queue: the scripts' teams of a kind it
 	// does not like wait while its favoured units are saved for
@@ -7668,7 +7699,7 @@ Bool AIPlayer::holdsExtraFactory( const ThingTemplate *tmpl )
 		if( favouredFactoryScore( tmpl ) > 0 )
 			return load.constructing > 0 || load.finished >= PERSONA_FAVOURED_FACTORIES[ m_skillLevel ];
 		const UnsignedInt since = m_factoryBackedUpSince[ k ];
-		return !aiWantsAnotherFactory( load.finished, load.constructing, load.shallowest,
+		return !aiWantsAnotherFactory( load.finished, load.constructing, factoryKindFull( load, m_parkingBlockedFrame ),
 			since == 0 ? 0 : TheGameLogic->getFrame() - since,
 			(UnsignedInt)REAL_TO_INT( getSkillProfile()->m_factoryBacklogSeconds * LOGICFRAMES_PER_SECOND ) );
 	}
@@ -8636,16 +8667,14 @@ void AIPlayer::doSpending( void )
 	if( (now + computeUpdatePhase( m_player->getPlayerIndex(), ECONOMY_CHECK_RATE ) + ECONOMY_CHECK_RATE - ECONOMY_SLOT_STEP) % ECONOMY_CHECK_RATE != 0 )
 		return;
 
-	// since when every finished factory of each kind has been busy, read on every pass so a factory that
-	// went idle in between starts the clock again, and one going up starts it again once it stands, so
-	// the new one has to prove itself busy too (queueExtraFactory)
+	// since when every finished factory of each kind has been full, read on every pass so a factory that
+	// went idle or a parking place that freed up in between starts the clock again, and one going up
+	// starts it again once it stands, so the new one has to prove itself full too (queueExtraFactory)
 	for( Int k = 0; k < PRODUCTION_KINDS; ++k )
 	{
 		const FactoryLoad load = readFactoryLoad( m_player, PRODUCTION_KIND[ k ] );
-		if( load.finished == 0 || load.constructing > 0 || load.shallowest < 1 )
-			m_factoryBackedUpSince[ k ] = 0;
-		else if( m_factoryBackedUpSince[ k ] == 0 )
-			m_factoryBackedUpSince[ k ] = now;
+		m_factoryBackedUpSince[ k ] = aiBacklogClock( m_factoryBackedUpSince[ k ],
+			factoryKindFull( load, m_parkingBlockedFrame ), load.constructing, now );
 	}
 
 	// the income, off what the score screen counts as earned: gathered, hacked, captured and given
@@ -16538,7 +16567,7 @@ void AIPlayer::xfer( Xfer *xfer )
 {
 
 	// version
-	XferVersion currentVersion = 27;		// 2: scout  3: rung and role  4: scouting stamps  5: the capturer  6: parked waves  7: superweapon aims  8: the hijacker  9: tactical steps  10: the ferry and dropped riders  11: the outward placement ring  12: the pressure level  13: falling back  14: gunship Chinooks and the boarding wait  15: transport Chinooks and the lent one  16: healer and raider Helixes  17: the seen-enemy ledger  18: the fist  19: the Ambulances  20: the last Ambulance lost  21: the purchase queue's reservation  22: the measured income  23: the Ambulances bought  24: the starting fortune  25: the factory backlog clocks  26: the personality  27: the team request inbox
+	XferVersion currentVersion = 28;		// 2: scout  3: rung and role  4: scouting stamps  5: the capturer  6: parked waves  7: superweapon aims  8: the hijacker  9: tactical steps  10: the ferry and dropped riders  11: the outward placement ring  12: the pressure level  13: falling back  14: gunship Chinooks and the boarding wait  15: transport Chinooks and the lent one  16: healer and raider Helixes  17: the seen-enemy ledger  18: the fist  19: the Ambulances  20: the last Ambulance lost  21: the purchase queue's reservation  22: the measured income  23: the Ambulances bought  24: the starting fortune  25: the factory backlog clocks  26: the personality  27: the team request inbox  28: the last aircraft refused for parking
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -16989,6 +17018,10 @@ void AIPlayer::xfer( Xfer *xfer )
 		}
 		xfer->xferUnsignedInt( &m_answeredFrame );
 	}
+
+	// the last aircraft refused for parking, which keeps the airfield backlog clock running
+	if( version >= 28 )
+		xfer->xferUnsignedInt( &m_parkingBlockedFrame );
 
 }  // end xfer
 

@@ -380,7 +380,8 @@ protected:
 	Int					m_bankMark;							///< ... and the bank then
 	Real				m_incomePerSecond;			///< smoothed over the windows measured so far
 	Int					m_startFortune;					///< what the match started with over the default starting cash, 0 at the default
-	UnsignedInt	m_factoryBackedUpSince[ 3 ];	///< per war factory, barracks, airfield: the frame every finished one was first seen busy with none going up, 0 for not
+	UnsignedInt	m_factoryBackedUpSince[ 3 ];	///< per war factory, barracks, airfield: the frame every finished one was first seen full (busy, or an airfield's parking) with none going up, 0 for not
+	UnsignedInt	m_parkingBlockedFrame;					///< the last frame a buy of an aircraft was refused because the airfield's parking was full, 0 for never
 	Bool purchaseAllowed(Int key, Int cost, AIPurchaseKind kind, Bool startable, const AsciiString &what, Int scoreOffset = 0);
 	void purchased(Int key, Int cost, AIPurchaseKind kind, const AsciiString &what);
 	Bool buyUnit(ProductionUpdateInterface *pu, const ThingTemplate *unit, AIPurchaseKind kind);	///< queueCreateUnit through the queue

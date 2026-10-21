@@ -387,15 +387,37 @@ Bool aiShouldMass( Real waitingThreat, Real enemyVisibleThreat, Real massFractio
 									 Bool timeExpired, Bool baseUnderAttack );
 
 /** Another factory of this kind.  finished are standing and done, constructing are already on the
-	* way, shallowest is the shortest queue among the finished ones, and backedUpFor is how many frames
-	* every one of them has been busy.
+	* way, full says every finished one is full now (aiQueueKindFull, aiAirfieldsFull), and backedUpFor
+	* is how many frames they have all been full (aiBacklogClock).
 	*
-	* Another goes up only when every finished factory has been busy for backlogFrames (the rung's
+	* Another goes up only when every finished factory has been full for backlogFrames (the rung's
 	* m_factoryBacklogSeconds), and a replacement when none are left.  One already on the way is the
-	* building this would ask for.  Busy, not backed up: the scripts train only into an idle factory
-	* and the surplus fills a queue one deep, so a unit waiting behind the one being built almost never
-	* happened, and the computer stood one barracks, one war factory and one airfield all match. */
-Bool aiWantsAnotherFactory( Int finished, Int constructing, Int shallowest, UnsignedInt backedUpFor, UnsignedInt backlogFrames );
+	* building this would ask for. */
+Bool aiWantsAnotherFactory( Int finished, Int constructing, Bool full, UnsignedInt backedUpFor, UnsignedInt backlogFrames );
+
+/** A barracks or war factory is full while it is busy: shallowest is the shortest queue among the
+	* finished ones.  Busy, not backed up: the scripts train only into an idle factory and the surplus
+	* fills a queue one deep, so a unit waiting behind the one being built almost never happened, and
+	* the computer stood one barracks and one war factory all match. */
+inline Bool aiQueueKindFull( Int finished, Int shallowest ) { return finished > 0 && shallowest >= 1; }
+
+/** An airfield is full when its parking is: every finished one (parkingFull of finished) refuses an
+	* aircraft to its queue, and the computer has wanted one lately (wanted, a buy refused for parking).
+	* Its queue says nothing, since a full airfield takes nothing into it. */
+inline Bool aiAirfieldsFull( Int finished, Int parkingFull, Bool wanted ) { return finished > 0 && parkingFull >= finished && wanted; }
+
+/** How long a buy refused for parking keeps the computer wanting another airfield. */
+static const UnsignedInt AI_PARKING_WANT_FRAMES = 15 * LOGICFRAMES_PER_SECOND;
+
+/** The backlog clock of one kind, read on every spend pass: the frame it has been full since, 0 for
+	* not.  A pass that finds it not full, or one of the kind going up, starts it again, so a slot that
+	* frees up and a new factory that has yet to prove itself busy both reset it. */
+inline UnsignedInt aiBacklogClock( UnsignedInt since, Bool full, Int constructing, UnsignedInt now )
+{
+	if( !full || constructing > 0 )
+		return 0;
+	return since == 0 ? now : since;
+}
 
 /** How many copies of the faction tech building (strategy center, propaganda center, palace) to
 	* keep up so one of them blowing up does not take the tree with it. */
