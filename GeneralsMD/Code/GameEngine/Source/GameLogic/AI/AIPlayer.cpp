@@ -397,7 +397,10 @@ m_role(AIROLE_AGGRESSIVE)
 	m_incomePerSecond = 0.0f;
 	m_startFortune = 0;
 	for( Int k = 0; k < 3; ++k )
-		m_factoryBackedUpSince[ k ] = 0;
+	{
+		m_factoryFullHistory[ k ] = 0;
+		m_factoryFullCount[ k ] = 0;
+	}
 	m_parkingBlockedFrame = 0;
 	m_persona = AIPERSONA_NORMAL;
 	m_personaFromRandom = FALSE;
@@ -7812,8 +7815,8 @@ Bool AIPlayer::queueExtraFactory( Object *dozer, KindOfType kind )
 }
 
 //----------------------------------------------------------------------------------------------------------
-/** Another factory of a kind waits until every finished one has stayed busy for the rung's
-	* m_factoryBacklogSeconds (aiWantsAnotherFactory; doSpending keeps that clock), and while one is
+/** Another factory of a kind waits until every finished one has been full on most of the spend passes
+	* of the rung's m_factoryBacklogSeconds (aiWantsAnotherFactory; doSpending samples it), and while one is
 	* going up.  The build list's own copies wait the same way: the Infantry General's plan holds four
 	* barracks, and its scripts asked for the second 38 seconds in, before the first had trained anyone,
 	* and the bank went to nothing waiting on the third. */
@@ -7829,10 +7832,8 @@ Bool AIPlayer::holdsExtraFactory( const ThingTemplate *tmpl )
 		// AI's plan airfield waited here from 3.3 minutes to 15
 		if( favouredFactoryScore( tmpl ) > 0 )
 			return load.constructing > 0 || load.finished >= PERSONA_FAVOURED_FACTORIES[ m_skillLevel ];
-		const UnsignedInt since = m_factoryBackedUpSince[ k ];
-		return !aiWantsAnotherFactory( load.finished, load.constructing, factoryKindFull( load, m_parkingBlockedFrame ),
-			since == 0 ? 0 : TheGameLogic->getFrame() - since,
-			(UnsignedInt)REAL_TO_INT( getSkillProfile()->m_factoryBacklogSeconds * LOGICFRAMES_PER_SECOND ) );
+		return !aiWantsAnotherFactory( load.finished, load.constructing, m_factoryFullHistory[ k ], m_factoryFullCount[ k ],
+			aiBacklogSamples( getSkillProfile()->m_factoryBacklogSeconds, ECONOMY_CHECK_RATE ) );
 	}
 	return FALSE;
 }
@@ -8798,14 +8799,14 @@ void AIPlayer::doSpending( void )
 	if( (now + computeUpdatePhase( m_player->getPlayerIndex(), ECONOMY_CHECK_RATE ) + ECONOMY_CHECK_RATE - ECONOMY_SLOT_STEP) % ECONOMY_CHECK_RATE != 0 )
 		return;
 
-	// since when every finished factory of each kind has been full, read on every pass so a factory that
-	// went idle or a parking place that freed up in between starts the clock again, and one going up
-	// starts it again once it stands, so the new one has to prove itself full too (queueExtraFactory)
+	// whether every finished factory of each kind is full on this pass, into a rolling window the gate
+	// reads as a share (queueExtraFactory); one going up empties it, so the new one has to prove itself
+	// full too
 	for( Int k = 0; k < PRODUCTION_KINDS; ++k )
 	{
 		const FactoryLoad load = readFactoryLoad( m_player, PRODUCTION_KIND[ k ] );
-		m_factoryBackedUpSince[ k ] = aiBacklogClock( m_factoryBackedUpSince[ k ],
-			factoryKindFull( load, m_parkingBlockedFrame ), load.constructing, now );
+		aiSampleFactories( &m_factoryFullHistory[ k ], &m_factoryFullCount[ k ],
+			factoryKindFull( load, m_parkingBlockedFrame ), load.constructing );
 	}
 
 	// the income, off what the score screen counts as earned: gathered, hacked, captured and given
@@ -16698,7 +16699,7 @@ void AIPlayer::xfer( Xfer *xfer )
 {
 
 	// version
-	XferVersion currentVersion = 29;		// 2: scout  3: rung and role  4: scouting stamps  5: the capturer  6: parked waves  7: superweapon aims  8: the hijacker  9: tactical steps  10: the ferry and dropped riders  11: the outward placement ring  12: the pressure level  13: falling back  14: gunship Chinooks and the boarding wait  15: transport Chinooks and the lent one  16: healer and raider Helixes  17: the seen-enemy ledger  18: the fist  19: the Ambulances  20: the last Ambulance lost  21: the purchase queue's reservation  22: the measured income  23: the Ambulances bought  24: the starting fortune  25: the factory backlog clocks  26: the personality  27: the team request inbox  28: the last aircraft refused for parking  29: the watched sites and the cooled spots
+	XferVersion currentVersion = 30;		// 2: scout  3: rung and role  4: scouting stamps  5: the capturer  6: parked waves  7: superweapon aims  8: the hijacker  9: tactical steps  10: the ferry and dropped riders  11: the outward placement ring  12: the pressure level  13: falling back  14: gunship Chinooks and the boarding wait  15: transport Chinooks and the lent one  16: healer and raider Helixes  17: the seen-enemy ledger  18: the fist  19: the Ambulances  20: the last Ambulance lost  21: the purchase queue's reservation  22: the measured income  23: the Ambulances bought  24: the starting fortune  25: the factory backlog clocks  26: the personality  27: the team request inbox  28: the last aircraft refused for parking  29: the watched sites and the cooled spots  30: the factory backlog as a window of passes
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -17103,8 +17104,18 @@ void AIPlayer::xfer( Xfer *xfer )
 		xfer->xferInt( &m_ambulancesBought );
 	if( version >= 24 )
 		xfer->xferInt( &m_startFortune );
-	if( version >= 25 )
-		xfer->xferUser( m_factoryBackedUpSince, sizeof( m_factoryBackedUpSince ) );
+	// the factory backlog: from 30 the rolling window of full passes, before it a clock of frames that
+	// means nothing to the window, read and dropped so the window starts empty
+	if( version >= 30 )
+	{
+		xfer->xferUser( m_factoryFullHistory, sizeof( m_factoryFullHistory ) );
+		xfer->xferUser( m_factoryFullCount, sizeof( m_factoryFullCount ) );
+	}
+	else if( version >= 25 )
+	{
+		UnsignedInt oldClocks[ 3 ];
+		xfer->xferUser( oldClocks, sizeof( oldClocks ) );
+	}
 
 	// the ladder rung and the role, which are rolled once and must come back the same way
 	if( version >= 3 )

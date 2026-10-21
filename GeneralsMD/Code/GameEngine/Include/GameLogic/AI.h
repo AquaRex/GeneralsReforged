@@ -256,7 +256,7 @@ struct AIDifficultyProfile
 	Real	m_upgradeStartSeconds;					///< and not before this far into the match
 	Real	m_upgradeNonCombatWeight;				///< what a building or an unarmed unit counts for next to a fighting unit when an upgrade is weighed
 	Real	m_surplusShare;									///< of the income over aiSurplusBudget's window, how much a bank over target may train as extra units
-	Real	m_factoryBacklogSeconds;				///< how long every finished factory of a kind has to stay busy before another of that kind goes up (aiWantsAnotherFactory)
+	Real	m_factoryBacklogSeconds;				///< the window over which every finished factory of a kind has to be full on AI_FACTORY_FULL_PERCENT of the spend passes before another of that kind goes up (aiWantsAnotherFactory)
 
 	// Pushing: when the army first leaves home, and how small a force may go
 	Real	m_firstPushSeconds;							///< no attack before this, nor before the first drop zone or black market stands (AI_PURCHASE_EARLY_FRAMES at most)
@@ -393,13 +393,44 @@ Bool aiShouldMass( Real waitingThreat, Real enemyVisibleThreat, Real massFractio
 									 Bool timeExpired, Bool baseUnderAttack );
 
 /** Another factory of this kind.  finished are standing and done, constructing are already on the
-	* way, full says every finished one is full now (aiQueueKindFull, aiAirfieldsFull), and backedUpFor
-	* is how many frames they have all been full (aiBacklogClock).
+	* way, history holds one bit a spend pass, newest lowest, set when every finished one was full on it
+	* (aiQueueKindFull, aiAirfieldsFull; aiSampleFactories), count is how many passes it holds, and
+	* window is the rung's m_factoryBacklogSeconds in passes (aiBacklogSamples).
 	*
-	* Another goes up only when every finished factory has been full for backlogFrames (the rung's
-	* m_factoryBacklogSeconds), and a replacement when none are left.  One already on the way is the
-	* building this would ask for. */
-Bool aiWantsAnotherFactory( Int finished, Int constructing, Bool full, UnsignedInt backedUpFor, UnsignedInt backlogFrames );
+	* Another goes up once the last window passes are all in and at least AI_FACTORY_FULL_PERCENT of
+	* them were full, and a replacement when none are left.  One already on the way is the building
+	* this would ask for.  A share, not an unbroken run: a pass that found a factory between two units
+	* reset the clock, and an Easy computer whose units finish inside a pass never got a second one. */
+Bool aiWantsAnotherFactory( Int finished, Int constructing, UnsignedInt history, Int count, Int window );
+
+/** The share of a window's passes, in percent, that have to find the kind full. */
+static const Int AI_FACTORY_FULL_PERCENT = 80;
+
+/** The most passes a window holds: the bits in the history. */
+static const Int AI_FACTORY_HISTORY_PASSES = 32;
+
+/** The rung's backlog in spend passes of passFrames each, rounded up, 1 to AI_FACTORY_HISTORY_PASSES. */
+inline Int aiBacklogSamples( Real seconds, Int passFrames )
+{
+	const Int frames = REAL_TO_INT( seconds * LOGICFRAMES_PER_SECOND );
+	const Int passes = ( frames + passFrames - 1 ) / passFrames;
+	return passes < 1 ? 1 : passes > AI_FACTORY_HISTORY_PASSES ? AI_FACTORY_HISTORY_PASSES : passes;
+}
+
+/** One spend pass of a kind's history: shifts in whether it was full.  One of the kind going up
+	* empties it, so the window starts again once that one stands and has to prove itself full too. */
+inline void aiSampleFactories( UnsignedInt *history, Int *count, Bool full, Int constructing )
+{
+	if( constructing > 0 )
+	{
+		*history = 0;
+		*count = 0;
+		return;
+	}
+	*history = ( *history << 1 ) | ( full ? 1u : 0u );
+	if( *count < AI_FACTORY_HISTORY_PASSES )
+		++*count;
+}
 
 /** A barracks or war factory is full while it is busy: shallowest is the shortest queue among the
 	* finished ones.  Busy, not backed up: the scripts train only into an idle factory and the surplus
@@ -414,16 +445,6 @@ inline Bool aiAirfieldsFull( Int finished, Int parkingFull, Bool wanted ) { retu
 
 /** How long a buy refused for parking keeps the computer wanting another airfield. */
 static const UnsignedInt AI_PARKING_WANT_FRAMES = 15 * LOGICFRAMES_PER_SECOND;
-
-/** The backlog clock of one kind, read on every spend pass: the frame it has been full since, 0 for
-	* not.  A pass that finds it not full, or one of the kind going up, starts it again, so a slot that
-	* frees up and a new factory that has yet to prove itself busy both reset it. */
-inline UnsignedInt aiBacklogClock( UnsignedInt since, Bool full, Int constructing, UnsignedInt now )
-{
-	if( !full || constructing > 0 )
-		return 0;
-	return since == 0 ? now : since;
-}
 
 /** One unfinished building the computer placed, as its base builder last saw it. */
 struct AISiteWatch

@@ -1318,9 +1318,9 @@ Real AI::getAdjustedVisionRangeForObject(const Object *object, Int factorsToCons
 	* Easy from 17 of 30 to 27 of 29.  Easy's 3 is unmeasured in play: its script clock still holds its
 	* first superweapon past 25 minutes, so none was built either way.
 	*
-	* backlog, 2026-10-21: the seconds every factory of a kind has to stay full (a barracks or war
-	* factory busy, an airfield's parking taken while an aircraft waits for a place) before another of
-	* that kind goes up, with no cap on how many stand.  It replaced a cap on production buildings (3, 5, 8)
+	* backlog, 2026-10-21: the window over which every factory of a kind has to be full (a barracks or
+	* war factory busy, an airfield's parking taken while an aircraft waits for a place) on 80% of the
+	* ten-second spend passes before another of that kind goes up, with no cap on how many stand.  It replaced a cap on production buildings (3, 5, 8)
 	* and a bank rule, and a gate that waited for a unit queued behind the one being built, which the
 	* scripts never queue: the computer stood one barracks, one war factory and one airfield all match.
 	*
@@ -1463,15 +1463,19 @@ Bool aiShouldMass( Real waitingThreat, Real enemyVisibleThreat, Real massFractio
 }
 
 //-------------------------------------------------------------------------------------------------
-Bool aiWantsAnotherFactory( Int finished, Int constructing, Bool full, UnsignedInt backedUpFor, UnsignedInt backlogFrames )
+Bool aiWantsAnotherFactory( Int finished, Int constructing, UnsignedInt history, Int count, Int window )
 {
 	if( constructing > 0 )
 		return FALSE;					// one is already going up
 	if( finished <= 0 )
 		return TRUE;					// the last one is gone, so put one back
-	if( !full )
-		return FALSE;					// one of them has room: that one is the spare
-	return backedUpFor >= backlogFrames;
+	if( count < window )
+		return FALSE;					// the window is not in yet
+	Int full = 0;
+	for( Int i = 0; i < window; ++i )
+		if( history & ( 1u << i ) )
+			++full;
+	return full * 100 >= window * AI_FACTORY_FULL_PERCENT;
 }
 
 //-------------------------------------------------------------------------------------------------

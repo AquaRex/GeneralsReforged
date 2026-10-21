@@ -12633,53 +12633,80 @@ TEST(extra_factory_follows_the_queue)
 		if( s > 0 )
 			CHECK( data.m_skill[ s ].m_factoryBacklogSeconds < data.m_skill[ s - 1 ].m_factoryBacklogSeconds );
 	}
-	const UnsignedInt BACKLOG = (UnsignedInt)REAL_TO_INT( data.m_skill[ AISKILL_BRUTAL ].m_factoryBacklogSeconds * LOGICFRAMES_PER_SECOND );
+	const Int PASS = 10 * LOGICFRAMES_PER_SECOND;		// the spend pass that samples it
+	const Int EASY = aiBacklogSamples( data.m_skill[ AISKILL_EASY ].m_factoryBacklogSeconds, PASS );
+	const Int HARD = aiBacklogSamples( data.m_skill[ AISKILL_BRUTAL ].m_factoryBacklogSeconds, PASS );
+	CHECK_EQ( 9, EASY );		// 90 s
+	CHECK_EQ( 8, aiBacklogSamples( data.m_skill[ AISKILL_MEDIUM ].m_factoryBacklogSeconds, PASS ) );		// 75 s, rounded up
+	CHECK_EQ( 5, HARD );		// 45 s, rounded up
+	CHECK_EQ( 1, aiBacklogSamples( 0.0f, PASS ) );
+	CHECK_EQ( AI_FACTORY_HISTORY_PASSES, aiBacklogSamples( 3600.0f, PASS ) );
 
 	// nothing left standing: put one back
-	CHECK( aiWantsAnotherFactory( 0, 0, FALSE, 0, BACKLOG ) );
+	CHECK( aiWantsAnotherFactory( 0, 0, 0, 0, HARD ) );
 
 	// one already going up is the building this would ask for
-	CHECK( !aiWantsAnotherFactory( 0, 1, FALSE, 0, BACKLOG ) );
-	CHECK( !aiWantsAnotherFactory( 2, 1, TRUE, BACKLOG, BACKLOG ) );
+	CHECK( !aiWantsAnotherFactory( 0, 1, 0, 0, HARD ) );
+	CHECK( !aiWantsAnotherFactory( 2, 1, 0x1F, HARD, HARD ) );
 
 	// a barracks or war factory with an empty queue is the spare; busy, only the unit it builds in the
 	// queue, is full: the scripts never queue behind it, and a second factory never went up
 	CHECK( !aiQueueKindFull( 2, 0 ) );
 	CHECK( aiQueueKindFull( 2, 1 ) );
 	CHECK( !aiQueueKindFull( 0, 3 ) );
-	CHECK( !aiWantsAnotherFactory( 2, 0, FALSE, BACKLOG, BACKLOG ) );
 
-	// a team landing in the queue all at once is a batch, not a factory falling behind: the
-	// opening's training does not buy a second barracks
-	CHECK( !aiWantsAnotherFactory( 1, 0, TRUE, 0, BACKLOG ) );
-	CHECK( !aiWantsAnotherFactory( 1, 0, TRUE, BACKLOG - 1, BACKLOG ) );
-	CHECK( aiWantsAnotherFactory( 1, 0, TRUE, BACKLOG, BACKLOG ) );
+	// the window has to be in: four full passes are not a 45 s window, five are
+	UnsignedInt history = 0;
+	Int count = 0;
+	for( Int i = 0; i < HARD - 1; ++i )
+		aiSampleFactories( &history, &count, TRUE, 0 );
+	CHECK( !aiWantsAnotherFactory( 1, 0, history, count, HARD ) );
+	aiSampleFactories( &history, &count, TRUE, 0 );
+	CHECK( aiWantsAnotherFactory( 1, 0, history, count, HARD ) );
 
-	// a third once both stay busy, and past any plan's count: no cap
-	CHECK( aiWantsAnotherFactory( 2, 0, TRUE, BACKLOG, BACKLOG ) );
-	CHECK( aiWantsAnotherFactory( 9, 0, TRUE, BACKLOG + 600, BACKLOG ) );
+	// an idle gap, a factory found between two units, used to start the wait again; 4 of 5 is 80% and
+	// passes, and on Easy 8 of 9 passes too
+	history = 0; count = 0;
+	aiSampleFactories( &history, &count, TRUE, 0 );
+	aiSampleFactories( &history, &count, FALSE, 0 );
+	aiSampleFactories( &history, &count, TRUE, 0 );
+	aiSampleFactories( &history, &count, TRUE, 0 );
+	aiSampleFactories( &history, &count, TRUE, 0 );
+	CHECK( aiWantsAnotherFactory( 1, 0, history, count, HARD ) );
+	CHECK( aiWantsAnotherFactory( 2, 0, 0x1FE, 9, EASY ) );		// 8 of 9, the newest idle
+	// under 80% holds: 3 of 5, 7 of 9
+	CHECK( !aiWantsAnotherFactory( 1, 0, 0x15, 5, HARD ) );
+	CHECK( !aiWantsAnotherFactory( 2, 0, 0x1F6, 9, EASY ) );
 
-	// a lower rung waits longer for the same backlog
-	const UnsignedInt EASY = (UnsignedInt)REAL_TO_INT( data.m_skill[ AISKILL_EASY ].m_factoryBacklogSeconds * LOGICFRAMES_PER_SECOND );
-	CHECK( !aiWantsAnotherFactory( 2, 0, TRUE, BACKLOG, EASY ) );
-	CHECK( aiWantsAnotherFactory( 2, 0, TRUE, EASY, EASY ) );
+	// the window rolls: old full passes drop out of it
+	for( Int i = 0; i < 2; ++i )
+		aiSampleFactories( &history, &count, FALSE, 0 );
+	CHECK( !aiWantsAnotherFactory( 1, 0, history, count, HARD ) );		// 3 of the last 5
 
-	// the clock: full since the first pass that found it so, back to 0 on a pass that does not, and
-	// held at 0 while one of the kind goes up
-	CHECK_EQ( 600u, aiBacklogClock( 0, TRUE, 0, 600 ) );
-	CHECK_EQ( 600u, aiBacklogClock( 600, TRUE, 0, 1200 ) );
-	CHECK_EQ( 0u, aiBacklogClock( 600, FALSE, 0, 1200 ) );
-	CHECK_EQ( 0u, aiBacklogClock( 600, TRUE, 1, 1200 ) );
+	// one going up empties it, and the new one has to fill a whole window again
+	aiSampleFactories( &history, &count, TRUE, 1 );
+	CHECK_EQ( 0u, history );
+	CHECK_EQ( 0, count );
+	for( Int i = 0; i < HARD - 1; ++i )
+		aiSampleFactories( &history, &count, TRUE, 0 );
+	CHECK( !aiWantsAnotherFactory( 2, 0, history, count, HARD ) );
+	aiSampleFactories( &history, &count, TRUE, 0 );
+	CHECK( aiWantsAnotherFactory( 2, 0, history, count, HARD ) );		// a third: no cap
+	CHECK( aiWantsAnotherFactory( 9, 0, history, count, HARD ) );
+
+	// the history keeps 32 passes and the count stops there
+	for( Int i = 0; i < 40; ++i )
+		aiSampleFactories( &history, &count, TRUE, 0 );
+	CHECK_EQ( AI_FACTORY_HISTORY_PASSES, count );
+	CHECK( aiWantsAnotherFactory( 1, 0, history, count, AI_FACTORY_HISTORY_PASSES ) );
 }
 
 /** An airfield goes by its parking, not its queue: every one with its parking taken while the computer
-	 wants an aircraft, held for the rung's backlog, gives another, and a place that frees up starts the
-	 wait again. */
+	 wants an aircraft, on 80% of the rung's window, gives another. */
 TEST(extra_airfield_follows_the_parking)
 {
 	TAiData data;
-	const UnsignedInt BACKLOG = (UnsignedInt)REAL_TO_INT( data.m_skill[ AISKILL_BRUTAL ].m_factoryBacklogSeconds * LOGICFRAMES_PER_SECOND );
-	const UnsignedInt STEP = 600;		// one spend pass
+	const Int HARD = aiBacklogSamples( data.m_skill[ AISKILL_BRUTAL ].m_factoryBacklogSeconds, 10 * LOGICFRAMES_PER_SECOND );
 
 	// full takes every airfield's parking and an aircraft refused for it
 	CHECK( aiAirfieldsFull( 2, 2, TRUE ) );
@@ -12687,29 +12714,24 @@ TEST(extra_airfield_follows_the_parking)
 	CHECK( !aiAirfieldsFull( 2, 2, FALSE ) );		// parked full, but nothing waits for a place
 	CHECK( !aiAirfieldsFull( 0, 0, TRUE ) );
 
-	// parking full and an aircraft waiting, held for the window: another airfield
-	UnsignedInt since = 0;
-	UnsignedInt now = 0;
-	while( since == 0 || now - since < BACKLOG )
-	{
-		now += STEP;
-		since = aiBacklogClock( since, aiAirfieldsFull( 1, 1, TRUE ), 0, now );
-		CHECK( since == STEP );		// the first full pass, kept while it stays full
-	}
-	CHECK( !aiWantsAnotherFactory( 1, 0, TRUE, now - STEP - since, BACKLOG ) );		// one pass short
-	CHECK( aiWantsAnotherFactory( 1, 0, aiAirfieldsFull( 1, 1, TRUE ), now - since, BACKLOG ) );
+	// parking full and an aircraft waiting over the window: another airfield
+	UnsignedInt history = 0;
+	Int count = 0;
+	for( Int i = 0; i < HARD; ++i )
+		aiSampleFactories( &history, &count, aiAirfieldsFull( 1, 1, TRUE ), 0 );
+	CHECK( aiWantsAnotherFactory( 1, 0, history, count, HARD ) );
 
-	// a jet lost frees a place: the clock starts again and the wait is the whole window once more
-	since = aiBacklogClock( since, aiAirfieldsFull( 1, 0, TRUE ), 0, now );
-	CHECK_EQ( 0u, since );
-	CHECK( !aiWantsAnotherFactory( 1, 0, aiAirfieldsFull( 1, 0, TRUE ), 0, BACKLOG ) );
-	since = aiBacklogClock( since, aiAirfieldsFull( 1, 1, TRUE ), 0, now + STEP );
-	CHECK( !aiWantsAnotherFactory( 1, 0, TRUE, STEP, BACKLOG ) );
+	// jets lost free places for two passes: 3 of 5 holds it
+	aiSampleFactories( &history, &count, aiAirfieldsFull( 1, 0, TRUE ), 0 );
+	aiSampleFactories( &history, &count, aiAirfieldsFull( 1, 0, TRUE ), 0 );
+	CHECK( !aiWantsAnotherFactory( 1, 0, history, count, HARD ) );
 
-	// the new airfield going up holds the clock, and it has to fill before the next
-	CHECK_EQ( 0u, aiBacklogClock( since, TRUE, 1, now + 2 * STEP ) );
-	CHECK( !aiWantsAnotherFactory( 2, 0, aiAirfieldsFull( 2, 1, TRUE ), BACKLOG, BACKLOG ) );
-	CHECK( aiWantsAnotherFactory( 3, 0, aiAirfieldsFull( 3, 3, TRUE ), BACKLOG, BACKLOG ) );		// no cap
+	// the new airfield going up starts the window again, and it has to fill before the next
+	aiSampleFactories( &history, &count, TRUE, 1 );
+	CHECK( !aiWantsAnotherFactory( 2, 0, history, count, HARD ) );
+	for( Int i = 0; i < HARD; ++i )
+		aiSampleFactories( &history, &count, aiAirfieldsFull( 2, 2, TRUE ), 0 );
+	CHECK( aiWantsAnotherFactory( 2, 0, history, count, HARD ) );		// no cap
 }
 
 /** A site that cannot be finished is given up: builders dying on the way with nothing built between,
