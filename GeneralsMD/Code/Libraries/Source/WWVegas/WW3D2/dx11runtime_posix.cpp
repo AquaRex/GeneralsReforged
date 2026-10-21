@@ -75,6 +75,7 @@ void Direct3D11_Clear_Shadow_Parameters() {}
 bool Direct3D11_Fill_Smoke_Map(const float *, unsigned, float) { return false; }
 void Direct3D11_Set_Scene_View(const float [16]) {}
 void Direct3D11_Set_Smoke_Glow(bool) {}
+void Direct3D11_Set_Fire_Look(bool) {}
 void Direct3D11_Set_Draw_Effect(unsigned, const float [4]) {}
 bool Direct3D11_Draw_Effects() { return false; }
 void Direct3D11_Allow_Draw_Effects(bool) {}

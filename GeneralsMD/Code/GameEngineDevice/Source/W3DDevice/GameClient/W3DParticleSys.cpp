@@ -463,6 +463,16 @@ static void fillBillboards( Int index, void *context )
 		const uint8 orientation = floatToByteAsMsvc( p->getAngle() * 255.0f / (2.0f * PI) );
 		PointGroupClass::Write_Billboard( quad, job->view, Vector3( pos->x, pos->y, pos->z ), psize,
 			orientation, packed, glow );
+		if (fill.fire)
+		{
+			// FIRE_LOOK_SAMPLING's packing: a whole seed below 256, then the age held off the whole
+			// numbers on both sides, so the interpolated value never floors to the next seed.
+			// Lifetime 0 is a particle that never dies (four retail systems), which stays young.
+			const Real age = p->m_lifetime ? 1.0f - (Real)p->getLifetimeLeft() / (Real)p->m_lifetime : 0.0f;
+			const Real fireAgeSeed = (Real)( ( p->getPersonality() * 97u ) & 255u ) + 0.01f + 0.98f * age;
+			for (Int k = 0; k < 4; ++k)
+				quad[ k ].v2 = fireAgeSeed;
+		}
 		quad += 4;
 
 		if (++drawn == fill.capacity)
@@ -1503,7 +1513,8 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 		fill.drawn = 0;
 		fill.pastLimit = 0;
 		fill.glow = FALSE;
-		fill.texture = W3DDisplay::m_assetManager->Get_Texture( sys->getParticleTypeName().str() );
+		fill.fire = sys->getTemplate()->isFireLook();
+		fill.texture =W3DDisplay::m_assetManager->Get_Texture( sys->getParticleTypeName().str() );
 		PointGroupClass::Reserve_Sorted_Billboards( fill.capacity, &fill.range );
 		m_billboardFills.push_back( fill );
 	}
@@ -1565,7 +1576,7 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 		if (nextFill < m_billboardFills.size() && m_billboardFills[ nextFill ].system == sys)
 		{
 			BillboardFill &fill = m_billboardFills[ nextFill++ ];
-			PointGroupClass::Insert_Sorted_Billboards( &fill.range, fill.drawn, fill.texture, fill.shader, fill.glow != FALSE );
+			PointGroupClass::Insert_Sorted_Billboards( &fill.range, fill.drawn, fill.texture, fill.shader, fill.glow != FALSE, fill.fire != FALSE );
 			fill.texture->Release_Ref();	// the draw state took its own reference
 			m_fieldParticleCount += fill.fieldIncrement * fill.drawn;
 			m_onScreenParticleCount += fill.drawn;

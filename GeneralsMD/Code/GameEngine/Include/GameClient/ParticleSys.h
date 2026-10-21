@@ -619,6 +619,11 @@ public:
 	Bool isExplosionDebrisTrail( void ) const { return m_explosionDebrisTrail; }
 	void setExplosionDebrisTrail( Bool on ) { m_explosionDebrisTrail = on; }
 
+	/** "FireLook = Yes": a flame or explosion system, whose billboards the Direct3D 11 frame draws
+		* with a temperature ramp over their life, edges that burn away and a flicker
+		* (W3DParticleSys.cpp, FIRE_LOOK_SAMPLING in ffshader.h).  Drawing only. */
+	Bool isFireLook( void ) const { return m_fireLook; }
+
 	// This function was made const because of update modules' module data being all const.
 	ParticleSystem *createSlaveSystem( Bool createSlaves = TRUE ) const ;					///< if returns non-NULL, it is a slave system for use
 
@@ -643,6 +648,7 @@ protected:
 protected:
 	AsciiString								m_name;													///< the name of this template
 	Bool											m_explosionDebrisTrail;						///< switched off with the DebrisTrails option (client only)
+	Bool											m_fireLook;												///< drawn with the Direct3D 11 fire look (client only)
 
 	// This has to be mutable because of the delayed initialization thing in createSlaveSystem
 	mutable const ParticleSystemTemplate *m_slaveTemplate;		///< if non-NULL, use this to create a slave system

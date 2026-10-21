@@ -3367,6 +3367,7 @@ const FieldParse ParticleSystemTemplate::m_fieldParseTable[] =
 	{ "SlavePosOffset",					INI::parseCoord3D,														NULL,		offsetof( ParticleSystemTemplate, m_slavePosOffset ) },
 	{ "PerParticleAttachedSystem",		INI::parseAsciiString,								NULL,		offsetof( ParticleSystemTemplate, m_attachedSystemName ) },
 	{ "ExplosionDebrisTrail",				INI::parseBool,												NULL,		offsetof( ParticleSystemTemplate, m_explosionDebrisTrail ) },
+	{ "FireLook",										INI::parseBool,												NULL,		offsetof( ParticleSystemTemplate, m_fireLook ) },
 
 	{ "Lifetime",								parseRetailFramesRandom,	NULL,		offsetof( ParticleSystemTemplate, m_lifetime ) },
 	{ "SystemLifetime",					INI::parseRetailFramesUnsignedInt,						NULL,		offsetof( ParticleSystemTemplate, m_systemLifetime ) },
@@ -3540,6 +3541,7 @@ ParticleSystemTemplate::ParticleSystemTemplate( const AsciiString &name ) :
 	m_slaveTemplate = NULL;
 	//
 	m_explosionDebrisTrail = FALSE;
+	m_fireLook = FALSE;
 }
 
 // ------------------------------------------------------------------------------------------------

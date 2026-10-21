@@ -622,6 +622,13 @@ void Direct3D11_Set_Smoke_Glow(bool glow)
 	}
 }
 
+void Direct3D11_Set_Fire_Look(bool fire)
+{
+	if (Active) {
+		Backend.Set_Fire_Look(fire);
+	}
+}
+
 static bool DrawEffectsAllowed = true;
 
 void Direct3D11_Set_Draw_Effect(unsigned effect, const float parameters[4])

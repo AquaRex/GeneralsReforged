@@ -234,6 +234,11 @@ public:
 	// the smoke billboards' runs.  An unlit draw with a normal takes it; any other ignores it.
 	void Set_Smoke_Glow(bool glow);
 
+	// The draws that follow are billboards of a fire or explosion system, carrying each particle's
+	// age and seed in the second coordinate set (ffshader.h, FIRE_LOOK_SAMPLING).  Only the sorting
+	// pool sets it, around those systems' runs.  A draw it does not suit takes none (Fire_Look).
+	void Set_Fire_Look(bool fire);
+
 	// The look the draws that follow are dressed in (a DRAW_EFFECT_* value, ffshader.h) and its
 	// four numbers: wall clock seconds, strength, a per-object seed and the object's opacity.  The
 	// mesh renderer sets it around one object's draws and puts DRAW_EFFECT_NONE back after them.
@@ -549,6 +554,9 @@ private:
 	bool Camera_Space_Draw() const;
 	bool SmokeGlow;
 	bool Smoke_Glow() const;
+	// Set_Fire_Look, and which way the current draw wears it (a FIRE_LOOK_* value).
+	bool FireLook;
+	unsigned Fire_Look() const;
 	// Set_Draw_Effect's look and numbers, and the look the current draw takes after the checks.
 	unsigned DrawEffect;
 	float DrawEffectNumbers[4];

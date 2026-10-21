@@ -235,10 +235,12 @@ public:
 	/// Bind a reserved range holding quads written by Write_Billboard and put it into the sorting
 	/// pool, with the state Render gives a billboarded QUADS group; then release the range.  The
 	/// shader has to be one Would_Sort_Billboards accepts.  glow: the quads' normals hold the glow
-	/// Write_Billboard was given, for the Direct3D 11 backend to add after the shade.  Render thread
-	/// only.
+	/// Write_Billboard was given, for the Direct3D 11 backend to add after the shade.  fire: the
+	/// caller wrote each particle's age and seed into v2 for the fire look (ffshader.h,
+	/// FIRE_LOOK_SAMPLING).  Render thread only.
 	static void				Insert_Sorted_Billboards(SortingBillboardRange *range, int quads,
-										TextureClass *texture, const ShaderClass &shader, bool glow = false);
+										TextureClass *texture, const ShaderClass &shader, bool glow = false,
+										bool fire = false);
 
 	/// One billboard's four vertices: the transform, corner table and single-frame UVs Render uses
 	/// for a billboarded QUADS group with per-point sizes, orientations and colours, written the

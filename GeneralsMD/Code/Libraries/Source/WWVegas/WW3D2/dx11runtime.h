@@ -171,6 +171,10 @@ void Direct3D11_Set_Scene_View(const float view[16]);
 // (DX11BackendClass::Set_Smoke_Glow).  The sorting pool sets it around the smoke billboards' runs.
 void Direct3D11_Set_Smoke_Glow(bool glow);
 
+// The draws that follow are a fire or explosion system's billboards, with each particle's age and
+// seed in the second coordinate set (DX11BackendClass::Set_Fire_Look).  The sorting pool sets it.
+void Direct3D11_Set_Fire_Look(bool fire);
+
 // The look one object's draws are dressed in (DRAW_EFFECT_* in ffshader.h) and its four numbers
 // (DX11BackendClass::Set_Draw_Effect).  The mesh renderer sets it around a mesh's draws and puts
 // zero back after them.  -d3d9, -headless and the SDL3 port draw the object as they always did.

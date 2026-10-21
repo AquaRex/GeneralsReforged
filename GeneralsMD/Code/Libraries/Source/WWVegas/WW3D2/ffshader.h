@@ -117,6 +117,19 @@ struct CombinerDescription
 	// fog and the alpha test (DRAW_EFFECT_SAMPLING).  RTS3DScene::renderOneObject picks it and
 	// the mesh renderer hands it to the backend around each of the object's draws.
 	unsigned DrawEffect = 0;
+
+	// D3D11 only: a sorted billboard of a fire or explosion system (FIRE_LOOK_*, FIRE_LOOK_SAMPLING).
+	// FIRE_LOOK_ALPHA wears the flame away through the alpha, for a SRCALPHA blend; FIRE_LOOK_COLOUR
+	// through the colour, for an additive one.  Initialised here for a caller that fills the rest
+	// field by field.
+	unsigned FireLook = 0;
+};
+
+enum
+{
+	FIRE_LOOK_NONE = 0,
+	FIRE_LOOK_ALPHA = 1,
+	FIRE_LOOK_COLOUR = 2
 };
 
 enum
@@ -450,6 +463,63 @@ const unsigned NORMAL_MAPPED_LIGHTS = 4;
 	"    return fade * fade * (3.0 - 2.0 * fade);\n" \
 	"}\n" \
 	"\n"
+
+// A fire or explosion billboard on Direct3D 11 (CombinerDescription::FireLook).  Nothing in the
+// constant block: the particle's age and a seed ride in the second coordinate set's v, packed as
+// seed + 0.01 + 0.98 * age with the seed a whole number below 256 (W3DParticleSys.cpp,
+// fillBillboards), and the vertex half hands the set on (VertexPipelineDescription::FireLook).  The
+// margins keep the interpolated value off a whole number, where floor would flip the seed.
+//
+// Three things, all driven by the age, so the noise runs on the game's clock and stops with it.
+// FIRE_LOOK_BEND, before the stages, pushes the card's texture coordinates through two scrolling
+// noise fields, more as the flame ages, so a static card flickers and licks.  After the stages the
+// flame's own shape in its texture (the alpha, or for an additive card its brightest channel) and
+// the age give a heat that runs a temperature ramp, white through yellow, orange and red to soot, and
+// the ramp takes most of the colour the keyframes left while keeping their brightness, so the INI's
+// fade still times the flame.  Then the flame burns away from its thin edges in: a threshold that
+// rises with the age against the shape broken up by finer noise, instead of only the flat fade.
+#define FIRE_LOOK_SAMPLING \
+	"float fire_hash(float2 p)\n" \
+	"{\n" \
+	"    return frac(sin(dot(p, float2(12.9898, 78.233))) * 43758.5453);\n" \
+	"}\n" \
+	"\n" \
+	"float fire_noise(float2 p)\n" \
+	"{\n" \
+	"    float2 i = floor(p);\n" \
+	"    float2 f = frac(p);\n" \
+	"    f = f * f * (3.0 - 2.0 * f);\n" \
+	"    return lerp(lerp(fire_hash(i), fire_hash(i + float2(1.0, 0.0)), f.x),\n" \
+	"                lerp(fire_hash(i + float2(0.0, 1.0)), fire_hash(i + float2(1.0, 1.0)), f.x), f.y);\n" \
+	"}\n" \
+	"\n" \
+	"float3 fire_ramp(float heat)\n" \
+	"{\n" \
+	"    float3 c = lerp(float3(0.12, 0.08, 0.06), float3(0.80, 0.14, 0.03), saturate(heat * 4.0));\n" \
+	"    c = lerp(c, float3(1.00, 0.46, 0.08), saturate(heat * 4.0 - 1.0));\n" \
+	"    c = lerp(c, float3(1.00, 0.80, 0.32), saturate(heat * 4.0 - 2.0));\n" \
+	"    return lerp(c, float3(1.00, 0.97, 0.90), saturate(heat * 4.0 - 3.0));\n" \
+	"}\n" \
+	"\n"
+
+#define FIRE_LOOK_BEND \
+	"    float fire_age = saturate((frac(input.TexCoord1.y) - 0.01) / 0.98);\n" \
+	"    float2 fire_at = input.TexCoord0 * 3.0 + floor(input.TexCoord1.y) * float2(0.37, 0.61);\n" \
+	"    float2 fire_bend = float2(fire_noise(fire_at + float2(0.0, fire_age * 5.0)),\n" \
+	"                              fire_noise(fire_at * 1.7 + float2(4.1, fire_age * 7.0))) - 0.5;\n" \
+	"    input.TexCoord0 = saturate(input.TexCoord0 + fire_bend * (0.06 + 0.06 * fire_age));\n"
+
+// After the stages, with the shape read from the last stage's texel into fire_shape, by one of the
+// two expressions below; the caller applies fire_keep to the alpha or to the whole colour.
+#define FIRE_LOOK_BURN_SHAPE_ALPHA "texel.a"
+#define FIRE_LOOK_BURN_SHAPE_COLOUR "max(texel.r, max(texel.g, texel.b))"
+#define FIRE_LOOK_BURN \
+	"    float fire_grain = fire_noise(fire_at * 2.3 + float2(fire_age * 3.0, -fire_age * 6.0));\n" \
+	"    float fire_heat = saturate((1.0 - fire_age) * 0.85 + fire_shape * 0.35 - 0.1);\n" \
+	"    float fire_level = max(current.r, max(current.g, current.b));\n" \
+	"    current.rgb = lerp(current.rgb, fire_ramp(fire_heat) * fire_level, 0.65);\n" \
+	"    float fire_edge = fire_age * fire_age * 0.9 - 0.1;\n" \
+	"    float fire_keep = smoothstep(fire_edge, fire_edge + 0.2, fire_shape * (0.5 + 0.5 * fire_grain));\n"
 
 // The constant block's fields for it, declared after SkyUp: DX11BackendClass::PixelConstantBlock.
 // The soft particles' field closes it, so a program that fades declares the whole block.

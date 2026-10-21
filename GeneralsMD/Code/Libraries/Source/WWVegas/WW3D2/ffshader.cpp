@@ -258,6 +258,8 @@ static bool generate_combiners(const CombinerDescription & description,
 	// The per-object looks likewise: nothing past SoftParticleDepth reaches the SDL3 programs.
 	const unsigned effect = (volumetric && description.DrawEffect < DRAW_EFFECT_COUNT)
 		? description.DrawEffect : DRAW_EFFECT_NONE;
+	// The fire look reads no constant, but the vertex half that feeds it is the D3D11 one's.
+	const unsigned fire = volumetric ? description.FireLook : FIRE_LOOK_NONE;
 	volumetric = volumetric && description.ShadowReceiving;
 	if (description.StageCount == 0 || description.StageCount > MAXIMUM_COMBINER_STAGES) {
 		return false;
@@ -403,6 +405,9 @@ static bool generate_combiners(const CombinerDescription & description,
 		if (effect != DRAW_EFFECT_NONE) {
 			hlsl += DRAW_EFFECT_SAMPLING;
 		}
+		if (fire != FIRE_LOOK_NONE) {
+			hlsl += FIRE_LOOK_SAMPLING;
+		}
 	}
 	else {
 		for (unsigned stage = 0; stage < MAXIMUM_COMBINER_STAGES; ++stage) {
@@ -449,7 +454,18 @@ static bool generate_combiners(const CombinerDescription & description,
 		"{\n"
 		"    float4 texel;\n";
 	hlsl += "    float4 current = input.Diffuse;\n";
+	if (fire != FIRE_LOOK_NONE) {
+		hlsl += FIRE_LOOK_BEND;
+	}
 	hlsl += body;
+	// Before the shade and the fog, as the art's own colour would be.
+	if (fire != FIRE_LOOK_NONE) {
+		hlsl += (fire == FIRE_LOOK_COLOUR)
+			? "    float fire_shape = " FIRE_LOOK_BURN_SHAPE_COLOUR ";\n" FIRE_LOOK_BURN
+				"    current *= fire_keep;\n"
+			: "    float fire_shape = " FIRE_LOOK_BURN_SHAPE_ALPHA ";\n" FIRE_LOOK_BURN
+				"    current.a *= fire_keep;\n";
+	}
 	if (description.SpecularAdd && !description.SmokeGlow) {
 		// Before the fog and the alpha test, as D3D9 orders them; the alpha is the stages'.
 		hlsl += "    current.rgb = saturate(current.rgb + input.Specular.rgb);\n";
@@ -570,6 +586,10 @@ std::string CombinerShader_Key(const CombinerDescription & description)
 	}
 	if (description.DrawEffect != DRAW_EFFECT_NONE) {
 		snprintf(field, sizeof(field), ":X%u", description.DrawEffect);
+		key += field;
+	}
+	if (description.FireLook != FIRE_LOOK_NONE) {
+		snprintf(field, sizeof(field), ":B%u", description.FireLook);
 		key += field;
 	}
 	return key;

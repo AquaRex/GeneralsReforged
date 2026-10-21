@@ -245,6 +245,7 @@ DX11BackendClass::DX11BackendClass()
 	, ShadowSkyFill(0.0f)
 	, ShadowReceiving(false)
 	, SmokeGlow(false)
+	, FireLook(false)
 	, AdditiveGain(1.0f)
 	, GlowDraw(false)
 	, SceneStandIn(NULL)
@@ -1033,6 +1034,37 @@ void DX11BackendClass::Set_Smoke_Glow(bool glow)
 		SmokeGlow = glow;
 		PipelineChanged = true;
 	}
+}
+
+void DX11BackendClass::Set_Fire_Look(bool fire)
+{
+	if (FireLook != fire) {
+		FireLook = fire;
+		PipelineChanged = true;
+	}
+}
+
+/** Which way a fire billboard wears its look: through the colour for a blend that adds it
+		unweighted, through the alpha otherwise.  Off under Classic, whose picture is -d3d9's
+		(SoftParticlesAllowed carries that setting), and off for anything but a one-stage fixed-function
+		draw with a second coordinate set to read, and for a multiplicative blend, which a burnt-away
+		flame would darken rather than leave. */
+unsigned DX11BackendClass::Fire_Look() const
+{
+	if (!FireLook || !SoftParticlesAllowed || ShadowMapBound
+		|| VertexProgram != ENGINE_SHADER_NONE || PixelProgram != ENGINE_SHADER_NONE
+		|| (VertexFormat & D3DFVF_XYZRHW) != 0
+		|| (VertexFormat & D3DFVF_TEXCOUNT_MASK) < D3DFVF_TEX2
+		|| StageStates[1][D3DTSS_COLOROP] != D3DTOP_DISABLE
+		|| RenderStates.Get_Render_State(D3DRS_ALPHABLENDENABLE) == FALSE) {
+		return FIRE_LOOK_NONE;
+	}
+	const DWORD source = RenderStates.Get_Render_State(D3DRS_SRCBLEND);
+	const DWORD destination = RenderStates.Get_Render_State(D3DRS_DESTBLEND);
+	if (source == D3DBLEND_DESTCOLOR || source == D3DBLEND_ZERO || destination == D3DBLEND_SRCCOLOR) {
+		return FIRE_LOOK_NONE;
+	}
+	return (source == D3DBLEND_ONE) ? FIRE_LOOK_COLOUR : FIRE_LOOK_ALPHA;
 }
 
 void DX11BackendClass::Set_Additive_Gain(float gain)
@@ -2144,6 +2176,7 @@ bool DX11BackendClass::Build_Combiner_Description(CombinerDescription & descript
 	description.SmokeGlow = Smoke_Glow();
 	description.SoftParticle = Soft_Particle();
 	description.DrawEffect = Draw_Effect();
+	description.FireLook = Fire_Look();
 	return description.StageCount > 0;
 }
 
@@ -2230,6 +2263,7 @@ bool DX11BackendClass::Build_Vertex_Description(VertexPipelineDescription & desc
 	description.FogVertexMode = RenderStates.Get_Render_State(D3DRS_FOGVERTEXMODE);
 	description.SmokeGlow = Smoke_Glow();
 	description.SoftParticle = Soft_Particle() != SOFT_PARTICLE_NONE;
+	description.FireLook = Fire_Look() != FIRE_LOOK_NONE;
 	return true;
 }
 
