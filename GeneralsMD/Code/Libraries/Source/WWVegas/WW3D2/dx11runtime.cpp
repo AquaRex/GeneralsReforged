@@ -629,6 +629,13 @@ void Direct3D11_Set_Fire_Look(bool fire)
 	}
 }
 
+void Direct3D11_Set_Emissive(bool emissive)
+{
+	if (Active) {
+		Backend.Set_Emissive(emissive);
+	}
+}
+
 static bool DrawEffectsAllowed = true;
 
 void Direct3D11_Set_Draw_Effect(unsigned effect, const float parameters[4])

@@ -239,6 +239,11 @@ public:
 	// pool sets it, around those systems' runs.  A draw it does not suit takes none (Fire_Look).
 	void Set_Fire_Look(bool fire);
 
+	// The draws that follow are an Emissive particle system's billboards, a fireball's alpha blended
+	// body: they give light, so they take neither the sun's shadow nor the smoke's shade.  Only the
+	// sorting pool sets it, around those systems' runs.
+	void Set_Emissive(bool emissive);
+
 	// The look the draws that follow are dressed in (a DRAW_EFFECT_* value, ffshader.h) and its
 	// four numbers: wall clock seconds, strength, a per-object seed and the object's opacity.  The
 	// mesh renderer sets it around one object's draws and puts DRAW_EFFECT_NONE back after them.
@@ -557,6 +562,8 @@ private:
 	// Set_Fire_Look, and which way the current draw wears it (a FIRE_LOOK_* value).
 	bool FireLook;
 	unsigned Fire_Look() const;
+	// Set_Emissive: the current draws take no shadow and no smoke shade (Shadow_Receiving).
+	bool Emissive;
 	// Set_Draw_Effect's look and numbers, and the look the current draw takes after the checks.
 	unsigned DrawEffect;
 	float DrawEffectNumbers[4];

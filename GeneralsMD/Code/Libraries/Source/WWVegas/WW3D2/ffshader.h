@@ -466,7 +466,8 @@ const unsigned NORMAL_MAPPED_LIGHTS = 4;
 
 // A fire or explosion billboard on Direct3D 11 (CombinerDescription::FireLook).  Nothing in the
 // constant block: the particle's age and a seed ride in the second coordinate set's v, packed as
-// seed + 0.01 + 0.98 * age with the seed a whole number below 256 (W3DParticleSys.cpp,
+// seed + 0.01 + 0.98 * age with the seed a whole number below 256, eight times a random number below
+// 32 plus the flipbook's log2 frames a side (W3DParticleSys.cpp,
 // fillBillboards), and the vertex half hands the set on (VertexPipelineDescription::FireLook).  The
 // margins keep the interpolated value off a whole number, where floor would flip the seed.
 //
@@ -502,12 +503,21 @@ const unsigned NORMAL_MAPPED_LIGHTS = 4;
 	"}\n" \
 	"\n"
 
+// The whole number's low three bits are the flipbook's log2 frames a side (ParticleSystemTemplate's
+// FlipbookGrid, 0 for a plain card), and the bend works in the frame's own coordinates and stays
+// inside its cell, so a flipbook frame flickers like a whole card and never reaches into the next
+// frame.  The cell comes from the interpolated coordinate itself: only a pixel on a cell's very edge
+// can land in the neighbour, and every frame's edge is empty.
 #define FIRE_LOOK_BEND \
 	"    float fire_age = saturate((frac(input.TexCoord1.y) - 0.01) / 0.98);\n" \
-	"    float2 fire_at = input.TexCoord0 * 3.0 + floor(input.TexCoord1.y) * float2(0.37, 0.61);\n" \
+	"    float fire_seed = floor(input.TexCoord1.y);\n" \
+	"    float fire_cells = (float)(1u << ((uint)fire_seed & 7u));\n" \
+	"    float2 fire_cell = min(floor(input.TexCoord0 * fire_cells), fire_cells - 1.0);\n" \
+	"    float2 fire_local = input.TexCoord0 * fire_cells - fire_cell;\n" \
+	"    float2 fire_at = fire_local * 3.0 + fire_seed * float2(0.37, 0.61);\n" \
 	"    float2 fire_bend = float2(fire_noise(fire_at + float2(0.0, fire_age * 5.0)),\n" \
 	"                              fire_noise(fire_at * 1.7 + float2(4.1, fire_age * 7.0))) - 0.5;\n" \
-	"    input.TexCoord0 = saturate(input.TexCoord0 + fire_bend * (0.06 + 0.06 * fire_age));\n"
+	"    input.TexCoord0 = (fire_cell + saturate(fire_local + fire_bend * (0.06 + 0.06 * fire_age))) / fire_cells;\n"
 
 // After the stages, with the shape read from the last stage's texel into fire_shape, by one of the
 // two expressions below; the caller applies fire_keep to the alpha or to the whole colour.

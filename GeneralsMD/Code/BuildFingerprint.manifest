@@ -9,6 +9,8 @@ Data/Art/Textures/ReforgedBarChinaRight.tga
 Data/Art/Textures/ReforgedBarGLACenter.tga
 Data/Art/Textures/ReforgedBarGLALeft.tga
 Data/Art/Textures/ReforgedBarGLARight.tga
+Data/Art/Textures/ReforgedExplosionFire.dds
+Data/Art/Textures/ReforgedExplosionSmoke.dds
 Data/Art/Textures/ReforgedForceAttack.tga
 Data/Art/Textures/ReforgedHudAmericaCommandBar.dds
 Data/Art/Textures/ReforgedHudAmericaPowers.dds
@@ -45,6 +47,7 @@ Data/Cinema/debristrails3_nuke.txt
 Data/Cinema/debristrails3_side.txt
 Data/Cinema/demo.txt
 Data/Cinema/drawlooks.txt
+Data/Cinema/explfx.txt
 Data/Cinema/explreel.txt
 Data/Cinema/filterblur.txt
 Data/Cinema/filterbw.txt
@@ -223,6 +226,7 @@ Data/Scenarios/empfriendly.txt
 Data/Scenarios/exitmovebuild.txt
 Data/Scenarios/exitorders.txt
 Data/Scenarios/expansionbunker.txt
+Data/Scenarios/explfx.txt
 Data/Scenarios/explreel.txt
 Data/Scenarios/firelook.txt
 Data/Scenarios/fogleak.txt
@@ -3883,6 +3887,7 @@ Tools/china_beacon.py
 Tools/control_client.py
 Tools/d3d9posix_check.py
 Tools/diplomacy_layout.py
+Tools/explosion_flipbook.py
 Tools/ffmpeg-build-posix.sh
 Tools/ffmpeg-build.bat
 Tools/ffmpeg-build.sh

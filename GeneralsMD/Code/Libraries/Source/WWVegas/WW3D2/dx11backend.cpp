@@ -246,6 +246,7 @@ DX11BackendClass::DX11BackendClass()
 	, ShadowReceiving(false)
 	, SmokeGlow(false)
 	, FireLook(false)
+	, Emissive(false)
 	, AdditiveGain(1.0f)
 	, GlowDraw(false)
 	, SceneStandIn(NULL)
@@ -1040,6 +1041,14 @@ void DX11BackendClass::Set_Fire_Look(bool fire)
 {
 	if (FireLook != fire) {
 		FireLook = fire;
+		PipelineChanged = true;
+	}
+}
+
+void DX11BackendClass::Set_Emissive(bool emissive)
+{
+	if (Emissive != emissive) {
+		Emissive = emissive;
 		PipelineChanged = true;
 	}
 }
@@ -2188,6 +2197,9 @@ bool DX11BackendClass::Shadow_Receiving() const
 {
 	if (!ShadowReceiving || ShadowMapBound || ShadowMapTexture == NULL) {
 		return false;
+	}
+	if (Emissive) {
+		return false;		// a fireball's body blended over the frame: it gives light, it takes no shade
 	}
 	// A transcribed terrain or road program takes one too: the ground is where a shadow is seen,
 	// and those programs carry the sampling whether a frame has a map or not.  The water and the

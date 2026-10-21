@@ -167,14 +167,18 @@ static UnsignedInt						s_fireLightsFrame;			///< the particle update they were 
 static UnsignedInt						s_fireLightsParticles;
 static UnsignedInt						s_fireLightsSystems;
 
-/** One additive system as a point light, if it is bright enough. */
+/** One additive or Emissive system as a point light, if it is bright enough.  An Emissive body's
+	* colour stays white while its flipbook cools to soot, so its weight falls with the life left. */
 static void gatherFireLight( ParticleSystem *sys, Real fade )
 {
+	const Bool emissive = sys->getTemplate()->isEmissive();
 	Real w = 0.0f, x = 0.0f, y = 0.0f, z = 0.0f, sq = 0.0f;
 	for (Particle *p = sys->getFirstParticle(); p; p = p->m_systemNext)
 	{
 		const RGBColor *c = p->getColor();
-		const Real pw = (c->red + c->green + c->blue) * (1.0f / 3.0f) * p->getSize();
+		Real pw = (c->red + c->green + c->blue) * (1.0f / 3.0f) * p->getSize();
+		if (emissive && p->m_lifetime)
+			pw *= (Real)p->getLifetimeLeft() / (Real)p->m_lifetime;
 		if (pw <= 0.0f)
 			continue;
 		const Coord3D *pos = p->getPosition();
@@ -292,7 +296,7 @@ static Int gatherSmokeLights( SmokeLight *lights, const AABoxClass &view )
 	* Any other system gets none. */
 static Int pickSmokeLights( ParticleSystem *sys, const SmokeLight *lights, Int count, SmokeLight *picked )
 {
-	if (count == 0 || sys->getShaderType() != ParticleSystemInfo::ALPHA)
+	if (count == 0 || sys->getShaderType() != ParticleSystemInfo::ALPHA || sys->getTemplate()->isEmissive())
 		return 0;
 
 	Particle *p = sys->getFirstParticle();
@@ -425,6 +429,7 @@ static void fillBillboards( Int index, void *context )
 	SmokeLight lights[ SMOKE_LIGHTS_PER_SYSTEM ];
 	const Int lightCount = pickSmokeLights( fill.system, job->lights, job->lightCount, lights );
 	const ParticleSystemInfo::ParticleShaderType shaderType = fill.system->getShaderType();
+	const UnsignedInt flipbookLog2 = fill.system->getTemplate()->getFlipbookGridLog2();
 
 	for (Particle *p = fill.system->getFirstParticle(); p; p = p->m_systemNext)
 	{
@@ -462,14 +467,16 @@ static void fillBillboards( Int index, void *context )
 		// The orientation table's index wraps, as it did on Windows (Platform/MsvcFloatCasts.h).
 		const uint8 orientation = floatToByteAsMsvc( p->getAngle() * 255.0f / (2.0f * PI) );
 		PointGroupClass::Write_Billboard( quad, job->view, Vector3( pos->x, pos->y, pos->z ), psize,
-			orientation, packed, glow );
+			orientation, packed, glow, flipbookLog2, flipbookLog2 ? p->getFlipbookFrame() : 0 );
 		if (fill.fire)
 		{
-			// FIRE_LOOK_SAMPLING's packing: a whole seed below 256, then the age held off the whole
-			// numbers on both sides, so the interpolated value never floors to the next seed.
-			// Lifetime 0 is a particle that never dies (four retail systems), which stays young.
+			// FIRE_LOOK_SAMPLING's packing: a whole number below 256, the seed times eight plus the
+			// flipbook's log2 frames a side, so the noise bends a flipbook frame inside its own cell;
+			// then the age held off the whole numbers on both sides, so the interpolated value never
+			// floors to the next one.  Lifetime 0 is a particle that never dies (four retail
+			// systems), which stays young.
 			const Real age = p->m_lifetime ? 1.0f - (Real)p->getLifetimeLeft() / (Real)p->m_lifetime : 0.0f;
-			const Real fireAgeSeed = (Real)( ( p->getPersonality() * 97u ) & 255u ) + 0.01f + 0.98f * age;
+			const Real fireAgeSeed = (Real)( ( ( ( p->getPersonality() * 97u ) & 31u ) << 3 ) | flipbookLog2 ) + 0.01f + 0.98f * age;
 			for (Int k = 0; k < 4; ++k)
 				quad[ k ].v2 = fireAgeSeed;
 		}
@@ -1211,6 +1218,7 @@ W3DParticleSystemManager::W3DParticleSystemManager()
 	m_RGBABuffer = NULL;
 	m_sizeBuffer = NULL;
 	m_angleBuffer = NULL;
+	m_frameBuffer = NULL;
 	m_readyToRender = false;
 
 	m_onScreenParticleCount = 0;
@@ -1231,6 +1239,7 @@ W3DParticleSystemManager::W3DParticleSystemManager()
 	m_RGBABuffer = NEW_REF( ShareBufferClass<Vector4>, (MAX_POINTS_PER_GROUP, "W3DParticleSystemManager::m_RGBABuffer") );
 	m_sizeBuffer = NEW_REF( ShareBufferClass<float>, (MAX_POINTS_PER_GROUP, "W3DParticleSystemManager::m_sizeBuffer") );
 	m_angleBuffer = NEW_REF( ShareBufferClass<uint8>, (MAX_POINTS_PER_GROUP, "W3DParticleSystemManager::m_angleBuffer") );
+	m_frameBuffer = NEW_REF( ShareBufferClass<uint8>, (MAX_POINTS_PER_GROUP, "W3DParticleSystemManager::m_frameBuffer") );
 }
 
 W3DParticleSystemManager::~W3DParticleSystemManager()
@@ -1248,6 +1257,7 @@ W3DParticleSystemManager::~W3DParticleSystemManager()
 	REF_PTR_RELEASE(m_RGBABuffer);
 	REF_PTR_RELEASE(m_sizeBuffer);
 	REF_PTR_RELEASE(m_angleBuffer);
+	REF_PTR_RELEASE(m_frameBuffer);
 }
 
 /** A reset can be followed by an update on the same logic frame, so the fires' frame alone would
@@ -1380,7 +1390,7 @@ const std::vector<W3DParticleSystemManager::SunMapCaster> &W3DParticleSystemMana
 	{
 		ParticleSystem *sys = m_frameView[ v ].system;
 		if (sys->getShaderType() != ParticleSystemInfo::ALPHA || !sys->shouldBillboard()
-				|| sys->isUsingStreak() || sys->isUsingSmudge())
+				|| sys->isUsingStreak() || sys->isUsingSmudge() || sys->getTemplate()->isEmissive())
 			continue;
 		if (*((UnsignedInt *)sys->getParticleTypeName().str()) == 0x44554D53)
 			continue;
@@ -1539,7 +1549,8 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 			s_fireLights.clear();
 			// a hidden fire lights nothing, an own stealthed one only as much as it shows
 			for (size_t v = 0; v < m_frameView.size(); ++v)
-				if (m_frameView[ v ].system->getShaderType() == ParticleSystemInfo::ADDITIVE)
+				if (m_frameView[ v ].system->getShaderType() == ParticleSystemInfo::ADDITIVE
+						|| m_frameView[ v ].system->getTemplate()->isEmissive())
 					gatherFireLight( m_frameView[ v ].system, m_frameView[ v ].fade );
 			s_fireLightsValid = TRUE;
 			s_fireLightsFrame = m_lastLogicFrameUpdate;
@@ -1576,7 +1587,8 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 		if (nextFill < m_billboardFills.size() && m_billboardFills[ nextFill ].system == sys)
 		{
 			BillboardFill &fill = m_billboardFills[ nextFill++ ];
-			PointGroupClass::Insert_Sorted_Billboards( &fill.range, fill.drawn, fill.texture, fill.shader, fill.glow != FALSE, fill.fire != FALSE );
+			PointGroupClass::Insert_Sorted_Billboards( &fill.range, fill.drawn, fill.texture, fill.shader, fill.glow != FALSE, fill.fire != FALSE,
+				sys->getTemplate()->isEmissive() != FALSE );
 			fill.texture->Release_Ref();	// the draw state took its own reference
 			m_fieldParticleCount += fill.fieldIncrement * fill.drawn;
 			m_onScreenParticleCount += fill.drawn;
@@ -1633,6 +1645,8 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 		Real *sizeArray = m_sizeBuffer->Get_Array();
 		Vector4 *RGBAArray = m_RGBABuffer->Get_Array();
 		uint8 *angleArray = m_angleBuffer->Get_Array();
+		uint8 *frameArray = m_frameBuffer->Get_Array();
+		const UnsignedInt flipbookLog2 = sys->getTemplate()->getFlipbookGridLog2();
 		const Coord3D *pos;
 		const RGBColor *color;
 		Real psize;
@@ -1671,6 +1685,8 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 			posArray[count].Z = pos->z;
 
 			sizeArray[count] = psize;
+			if (flipbookLog2)
+				frameArray[count] = (uint8)p->getFlipbookFrame();
 
 			color = p->getColor();
 			RGBAArray[count].X = color->red;
@@ -1773,11 +1789,11 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 
 				/// @todo Use both QUADS and TRIS for particles
 				m_pointGroup->Set_Point_Mode( PointGroupClass::QUADS );
-				m_pointGroup->Set_Arrays( m_posBuffer, m_RGBABuffer, NULL, m_sizeBuffer, m_angleBuffer, NULL, count );
+				// A flipbook's frames go in the frame array; every other system draws the whole card.
+				m_pointGroup->Set_Arrays( m_posBuffer, m_RGBABuffer, NULL, m_sizeBuffer, m_angleBuffer,
+					flipbookLog2 ? m_frameBuffer : NULL, count );
+				m_pointGroup->Set_Frame_Row_Column_Count_Log2( (unsigned char)flipbookLog2 );
 				m_pointGroup->Set_Billboard(sys->shouldBillboard());
-
-				/// @todo Support animated texture particles
-				/// @todo lorenzen sez: unimplemented code wastes cpu cycles
 				m_pointGroup->Set_Point_Frame( 0 );
 
 				//RENDER IT!

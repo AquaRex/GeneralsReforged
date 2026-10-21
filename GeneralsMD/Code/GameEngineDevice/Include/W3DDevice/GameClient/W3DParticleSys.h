@@ -68,6 +68,7 @@ private:
 	ShareBufferClass<Vector4> *m_RGBABuffer;		///< array of particle color and alpha
 	ShareBufferClass<float> *m_sizeBuffer;			///< array of particle sizes
 	ShareBufferClass<uint8> *m_angleBuffer;			///< array of particle orientations
+	ShareBufferClass<uint8> *m_frameBuffer;			///< array of particle flipbook frames
 	Bool m_readyToRender;											///< if true, it is OK to render
 
 public:

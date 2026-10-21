@@ -399,7 +399,7 @@ TEST(ffshadercompile_a_fire_billboard_burns_on_d3d11_only)
 	CHECK(CombinerShader_Key(description) == plain_key + ":B2");
 	std::string flame;
 	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D11, flame));
-	const size_t bend = flame.find("input.TexCoord0 = saturate(");
+	const size_t bend = flame.find("input.TexCoord0 = (fire_cell + saturate(");
 	const size_t sample = flame.find("Texture0.Sample(");
 	const size_t burn = flame.find("current *= fire_keep;");
 	const size_t fog = flame.find("FogColour.rgb, current.rgb");
