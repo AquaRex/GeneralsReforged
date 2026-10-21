@@ -53,6 +53,9 @@ Data/Cinema/explreel.txt
 Data/Cinema/filterblur.txt
 Data/Cinema/filterbw.txt
 Data/Cinema/firelook.txt
+Data/Cinema/geproto_alpine.txt
+Data/Cinema/geproto_glow.txt
+Data/Cinema/geproto_oasis.txt
 Data/Cinema/gunfx.txt
 Data/Cinema/headlights.txt
 Data/Cinema/hero_loop.txt
@@ -238,6 +241,9 @@ Data/Scenarios/explfx.txt
 Data/Scenarios/explreel.txt
 Data/Scenarios/firelook.txt
 Data/Scenarios/fogleak.txt
+Data/Scenarios/geproto_alpine.txt
+Data/Scenarios/geproto_glow.txt
+Data/Scenarios/geproto_oasis.txt
 Data/Scenarios/givemoney.txt
 Data/Scenarios/glowbase.txt
 Data/Scenarios/glowfight.txt
