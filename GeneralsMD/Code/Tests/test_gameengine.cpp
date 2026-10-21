@@ -12649,11 +12649,12 @@ TEST(extra_factory_follows_the_queue)
 	CHECK( !aiWantsAnotherFactory( 0, 1, 0, 0, HARD ) );
 	CHECK( !aiWantsAnotherFactory( 2, 1, 0x1F, HARD, HARD ) );
 
-	// a barracks or war factory with an empty queue is the spare; busy, only the unit it builds in the
-	// queue, is full: the scripts never queue behind it, and a second factory never went up
+	// barracks or war factories are full on a pass when every one was busy on it, its queue or a unit
+	// let out since the last pass; one idle the whole pass is the spare
 	CHECK( !aiQueueKindFull( 2, 0 ) );
-	CHECK( aiQueueKindFull( 2, 1 ) );
-	CHECK( !aiQueueKindFull( 0, 3 ) );
+	CHECK( !aiQueueKindFull( 2, 1 ) );
+	CHECK( aiQueueKindFull( 2, 2 ) );
+	CHECK( !aiQueueKindFull( 0, 0 ) );
 
 	// the window has to be in: four full passes are not a 45 s window, five are
 	UnsignedInt history = 0;

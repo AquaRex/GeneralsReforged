@@ -1988,6 +1988,12 @@ void AIPlayer::onUnitProduced( Object *factory, Object *unit )
 		return;
 	}
 
+	// a barracks or war factory that let a unit out was busy on this spend pass, whatever its queue
+	// reads when the pass looks (doSpending, which empties the list and runs only with the purchase queue)
+	if( purchaseQueueOn() && ( factory->isKindOf( KINDOF_FS_WARFACTORY ) || factory->isKindOf( KINDOF_FS_BARRACKS ) ) &&
+			std::find( m_producedSincePass.begin(), m_producedSincePass.end(), factory->getID() ) == m_producedSincePass.end() )
+		m_producedSincePass.push_back( factory->getID() );
+
 	for (DLINK_ITERATOR<TeamInQueue> iter = iterate_TeamBuildQueue(); !iter.done(); iter.advance())
 	{
 		TeamInQueue *team = iter.cur();
@@ -6533,8 +6539,9 @@ struct FactoryLoad
 	KindOfType kind;
 	Int finished;
 	Int constructing;
-	Int shallowest;
+	Int busy;					///< finished ones with something in the queue, or that let a unit out since the last spend pass
 	Int parkingFull;		///< finished ones with no parking place left, which refuse an aircraft to their queue
+	const std::vector<ObjectID> *producedSincePass;		///< the factories that let a unit out since the last spend pass
 };
 
 /** The production kinds the computer buys extra copies of, in m_factoryBackedUpSince's order. */
@@ -6611,9 +6618,11 @@ static void countFactoryLoad( Object *obj, void *userData )
 	ProductionUpdateInterface *pu = obj->getProductionUpdateInterface();
 	if( pu == NULL )
 		return;
-	const Int queued = (Int)pu->getProductionCount();
-	if( load->finished == 0 || queued < load->shallowest )
-		load->shallowest = queued;
+	// busy at this instant, or between two units: an Easy barracks that trains a Red Guard inside a pass
+	// was found idle on most of them and never counted as busy
+	const std::vector<ObjectID> &produced = *load->producedSincePass;
+	if( pu->getProductionCount() > 0 || std::find( produced.begin(), produced.end(), obj->getID() ) != produced.end() )
+		++load->busy;
 	++load->finished;
 	// the same question ProductionUpdate::canQueueCreateUnit asks before an aircraft goes in the queue;
 	// the answer depends only on whether the thing asked about is made at a helipad, and the airfield
@@ -6629,19 +6638,22 @@ static void countFactoryLoad( Object *obj, void *userData )
 	}
 }
 
-static FactoryLoad readFactoryLoad( Player *player, KindOfType kind )
+static const std::vector<ObjectID> s_noneProduced;
+
+static FactoryLoad readFactoryLoad( Player *player, KindOfType kind, const std::vector<ObjectID> *producedSincePass = &s_noneProduced )
 {
-	FactoryLoad load = { kind, 0, 0, 0, 0 };
+	FactoryLoad load = { kind, 0, 0, 0, 0, producedSincePass };
 	player->iterateObjects( countFactoryLoad, &load );
 	return load;
 }
 
-/** Whether every finished factory of the kind is full now: a barracks or war factory by its queue, an
-	* airfield by its parking while a buy was refused for it within AI_PARKING_WANT_FRAMES. */
+/** Whether every finished factory of the kind was full on this pass: a barracks or war factory busy
+	* now or since the last pass, an airfield by its parking while a buy was refused for it within
+	* AI_PARKING_WANT_FRAMES. */
 static Bool factoryKindFull( const FactoryLoad &load, UnsignedInt parkingBlockedFrame )
 {
 	if( load.kind != KINDOF_FS_AIRFIELD )
-		return aiQueueKindFull( load.finished, load.shallowest );
+		return aiQueueKindFull( load.finished, load.busy );
 	const Bool wanted = parkingBlockedFrame != 0 && TheGameLogic->getFrame() - parkingBlockedFrame <= AI_PARKING_WANT_FRAMES;
 	return aiAirfieldsFull( load.finished, load.parkingFull, wanted );
 }
@@ -8802,12 +8814,24 @@ void AIPlayer::doSpending( void )
 	// whether every finished factory of each kind is full on this pass, into a rolling window the gate
 	// reads as a share (queueExtraFactory); one going up empties it, so the new one has to prove itself
 	// full too
+	const Int window = aiBacklogSamples( getSkillProfile()->m_factoryBacklogSeconds, ECONOMY_CHECK_RATE );
 	for( Int k = 0; k < PRODUCTION_KINDS; ++k )
 	{
-		const FactoryLoad load = readFactoryLoad( m_player, PRODUCTION_KIND[ k ] );
+		const FactoryLoad load = readFactoryLoad( m_player, PRODUCTION_KIND[ k ], &m_producedSincePass );
 		aiSampleFactories( &m_factoryFullHistory[ k ], &m_factoryFullCount[ k ],
 			factoryKindFull( load, m_parkingBlockedFrame ), load.constructing );
+		if( load.finished > 0 && m_factoryFullCount[ k ] > 0 && m_factoryFullCount[ k ] % window == 0 )
+		{
+			Int full = 0;
+			for( Int i = 0; i < window; ++i )
+				if( m_factoryFullHistory[ k ] & ( 1u << i ) )
+					++full;
+			DEBUG_LOG(("AI FACTORY frame %d player %d %s full on %d of the last %d passes, %d standing, %d in the bank\n",
+				now, m_player->getPlayerIndex(), k == 0 ? "war factory" : k == 1 ? "barracks" : "airfield",
+				full, window, load.finished, m_player->getMoney()->countMoney()));
+		}
 	}
+	m_producedSincePass.clear();
 
 	// the income, off what the score screen counts as earned: gathered, hacked, captured and given
 	const Int bank = (Int)m_player->getMoney()->countMoney();
@@ -16699,7 +16723,7 @@ void AIPlayer::xfer( Xfer *xfer )
 {
 
 	// version
-	XferVersion currentVersion = 30;		// 2: scout  3: rung and role  4: scouting stamps  5: the capturer  6: parked waves  7: superweapon aims  8: the hijacker  9: tactical steps  10: the ferry and dropped riders  11: the outward placement ring  12: the pressure level  13: falling back  14: gunship Chinooks and the boarding wait  15: transport Chinooks and the lent one  16: healer and raider Helixes  17: the seen-enemy ledger  18: the fist  19: the Ambulances  20: the last Ambulance lost  21: the purchase queue's reservation  22: the measured income  23: the Ambulances bought  24: the starting fortune  25: the factory backlog clocks  26: the personality  27: the team request inbox  28: the last aircraft refused for parking  29: the watched sites and the cooled spots  30: the factory backlog as a window of passes
+	XferVersion currentVersion = 31;		// 2: scout  3: rung and role  4: scouting stamps  5: the capturer  6: parked waves  7: superweapon aims  8: the hijacker  9: tactical steps  10: the ferry and dropped riders  11: the outward placement ring  12: the pressure level  13: falling back  14: gunship Chinooks and the boarding wait  15: transport Chinooks and the lent one  16: healer and raider Helixes  17: the seen-enemy ledger  18: the fist  19: the Ambulances  20: the last Ambulance lost  21: the purchase queue's reservation  22: the measured income  23: the Ambulances bought  24: the starting fortune  25: the factory backlog clocks  26: the personality  27: the team request inbox  28: the last aircraft refused for parking  29: the watched sites and the cooled spots  30: the factory backlog as a window of passes  31: the factories that let a unit out since the last pass
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -17187,6 +17211,16 @@ void AIPlayer::xfer( Xfer *xfer )
 			xfer->xferCoord3D( &m_cooledSpots[ i ].m_pos );
 			xfer->xferUnsignedInt( &m_cooledSpots[ i ].m_until );
 		}
+	}
+
+	// the factories that let a unit out since the last spend pass, which that pass counts as busy
+	if( version >= 31 )
+	{
+		UnsignedShort count = (UnsignedShort)m_producedSincePass.size();
+		xfer->xferUnsignedShort( &count );
+		m_producedSincePass.resize( count );
+		for( UnsignedShort i = 0; i < count; ++i )
+			xfer->xferObjectID( &m_producedSincePass[ i ] );
 	}
 
 }  // end xfer

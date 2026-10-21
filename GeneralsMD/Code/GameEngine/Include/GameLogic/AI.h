@@ -432,11 +432,12 @@ inline void aiSampleFactories( UnsignedInt *history, Int *count, Bool full, Int 
 		++*count;
 }
 
-/** A barracks or war factory is full while it is busy: shallowest is the shortest queue among the
-	* finished ones.  Busy, not backed up: the scripts train only into an idle factory and the surplus
-	* fills a queue one deep, so a unit waiting behind the one being built almost never happened, and
-	* the computer stood one barracks and one war factory all match. */
-inline Bool aiQueueKindFull( Int finished, Int shallowest ) { return finished > 0 && shallowest >= 1; }
+/** Barracks or war factories are full on a pass when every finished one (busy of finished) was busy:
+	* something in its queue, or a unit let out since the last pass.  Busy, not backed up: the scripts
+	* train only into an idle factory and the surplus fills a queue one deep, so a unit waiting behind
+	* the one being built almost never happened.  And busy over the pass, not at its instant: units that
+	* finish inside a pass left an Easy factory idle on most looks. */
+inline Bool aiQueueKindFull( Int finished, Int busy ) { return finished > 0 && busy >= finished; }
 
 /** An airfield is full when its parking is: every finished one (parkingFull of finished) refuses an
 	* aircraft to its queue, and the computer has wanted one lately (wanted, a buy refused for parking).

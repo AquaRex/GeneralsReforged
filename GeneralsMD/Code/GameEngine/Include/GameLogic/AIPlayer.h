@@ -382,6 +382,7 @@ protected:
 	Int					m_startFortune;					///< what the match started with over the default starting cash, 0 at the default
 	UnsignedInt	m_factoryFullHistory[ 3 ];	///< per war factory, barracks, airfield: a bit a spend pass, newest lowest, set when every finished one was full (busy, or an airfield's parking) (aiSampleFactories)
 	Int					m_factoryFullCount[ 3 ];		///< ... and how many passes that holds since one of the kind last went up
+	std::vector<ObjectID> m_producedSincePass;	///< the barracks and war factories that let a unit out since the last spend pass (onUnitProduced)
 	UnsignedInt	m_parkingBlockedFrame;					///< the last frame a buy of an aircraft was refused because the airfield's parking was full, 0 for never
 	std::vector<AISiteWatch>	m_siteWatches;		///< the unfinished buildings this AI placed, in the order first seen
 	std::vector<AICooledSpot>	m_cooledSpots;		///< spots of sites it gave up on, left alone for a while
