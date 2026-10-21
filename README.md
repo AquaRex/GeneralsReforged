@@ -246,6 +246,16 @@ Almost everything is on the seven pages of the options screen. These still live 
 | `ShowAllyCursors = no` | stops sending your mouse position to allies and stops drawing theirs |
 | `EdgeScrollInWindowedMode = yes` | scrolls at the screen edge in a window too |
 
+`Hotkeys.ini`, beside it, takes a block that brings back the command bar's keys as the game shipped
+them: attack move, stop, guard, rally point, evacuate, sell and combat drop on their own labels'
+letters, and every button that lost its letter to one of them keeping it.
+
+```ini
+FixedOrderKeys
+  Enabled = No
+End
+```
+
 On the command line, `-d3d9` starts the old renderer and `-dx11post off` gives the Direct3D 11 picture
 without its finishing passes. `-nologo` skips the EA logo and `-novideo` every movie, and `-loadsave
 <name>` opens a save game the way `-replay` opens a replay.

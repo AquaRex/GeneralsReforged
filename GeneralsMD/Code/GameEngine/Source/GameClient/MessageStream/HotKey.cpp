@@ -340,6 +340,10 @@ static std::map< std::string, WideChar > s_playerButtonKeys;
 	* stands too, the order gets the key (addHotKey).  The launcher holds the same table (hotkeys.js,
 	* FIXED_KEYS). */
 static const WideChar FIXED_KEYS[] = { 'A', 'S', 'G', 'Y', 'V', 'N', 'C', 'H' };
+/** FixedOrderKeys in Hotkeys.ini: with Enabled = No none of the above holds, and every button, the
+	* orders included, wears its label's letter or the player's, as in the game as shipped.  Read with
+	* the button keys, back to on before each read. */
+static Bool s_fixedOrderKeys = TRUE;
 static const char *const FIXED_H_BUTTONS[] =
 {
 	"command_upgradechinamines", "command_upgradeempmines", "command_upgradecamonetting", "command_upgradeglacamonetting",
@@ -349,6 +353,8 @@ static const char FIXED_H_PREFIX[] = "command_becomerealgla";	///< a fake buildi
 
 static WideChar fixedButtonKey( const AsciiString& lowerName, Int commandType )
 {
+	if( !s_fixedOrderKeys )
+		return 0;
 	if( strncmp( lowerName.str(), FIXED_H_PREFIX, sizeof( FIXED_H_PREFIX ) - 1 ) == 0 )
 		return 'H';
 	for( Int each = 0; each < (Int)( sizeof( FIXED_H_BUTTONS ) / sizeof( FIXED_H_BUTTONS[ 0 ] ) ); each++ )
@@ -508,9 +514,35 @@ WideChar HotKeyManager::buttonKeyIn( const AsciiString& button, WideChar labelKe
 		letter -= 'a' - 'A';
 	// a label's own fixed letter gives way; one the player chose stays, and the bar's fixed order
 	// still takes it first (addHotKey)
-	if( !chosen && isOneOf( letter, FIXED_KEYS, (Int)( sizeof( FIXED_KEYS ) / sizeof( FIXED_KEYS[ 0 ] ) ) ) )
+	if( !chosen && s_fixedOrderKeys && isOneOf( letter, FIXED_KEYS, (Int)( sizeof( FIXED_KEYS ) / sizeof( FIXED_KEYS[ 0 ] ) ) ) )
 		return 0;
 	return letter;
+}
+
+//-----------------------------------------------------------------------------
+Bool HotKeyManager::fixedOrderKeys( void )
+{
+	return s_fixedOrderKeys;
+}
+
+void HotKeyManager::setFixedOrderKeys( Bool fixed )
+{
+	s_fixedOrderKeys = fixed;
+}
+
+//-----------------------------------------------------------------------------
+/** FixedOrderKeys, Enabled = Yes or No, End: whether the orders hold their fixed letters (FIXED_KEYS). */
+/*static*/ void INI::parseFixedOrderKeysDefinition( INI *ini )
+{
+	static const FieldParse fields[] =
+	{
+		{ "Enabled", INI::parseBool, NULL, 0 },
+		{ NULL, NULL, NULL, 0 }
+	};
+	Bool enabled = TRUE;
+	ini->initFromINI( &enabled, fields );
+	s_fixedOrderKeys = enabled;
+	DEBUG_LOG(( "HOTKEYS: fixed order keys %s\n", enabled ? "on" : "off" ));
 }
 
 //-----------------------------------------------------------------------------
@@ -557,6 +589,7 @@ WideChar HotKeyManager::buttonKeyIn( const AsciiString& button, WideChar labelKe
 void HotKeyManager::loadPlayerKeys( void )
 {
 	s_playerButtonKeys.clear();
+	s_fixedOrderKeys = TRUE;
 	AsciiString hotkeys = TheGlobalData->getPath_UserData();
 	hotkeys.concat( "Hotkeys.ini" );
 	if( !TheFileSystem->doesFileExist( hotkeys.str() ) )
@@ -834,7 +867,12 @@ HotkeysFile Hotkeys_parse( const std::string& text, const std::vector< HotkeyCom
 	{
 		const HotkeyIniBlock& block = blocks[ each ];
 		const std::string key = block.field( "Key", "" );
-		if( block.type == "CommandButtonHotKey" )
+		if( block.type == "FixedOrderKeys" )
+		{
+			const std::string enabled = lowered( block.field( "Enabled", "yes" ) );
+			file.fixedOrderKeys = !( enabled == "no" || enabled == "false" );
+		}
+		else if( block.type == "CommandButtonHotKey" )
 		{
 			const Bool letter = key.size() == 1 && isalpha( (unsigned char)key[ 0 ] );
 			file.buttons[ block.name ] = letter ? std::string( 1, (char)toupper( (unsigned char)key[ 0 ] ) ) : std::string();
@@ -955,6 +993,8 @@ std::string Hotkeys_format( const HotkeysFile& file, const std::vector< HotkeyCo
 		"; Zero Hour Reforged hotkeys, written by the launcher's Hotkeys page. Only what differs from the\r\n"
 		"; game is here. The game reads it at start; it is not part of the multiplayer checksum.\r\n"
 		"\r\n";
+	if( !file.fixedOrderKeys )
+		out += "FixedOrderKeys\r\n  Enabled = No\r\nEnd\r\n\r\n";
 	std::map< std::string, Bool > named;
 	std::vector< std::string > ids = sortedNames( file.commands );
 	for( size_t each = 0; each < ids.size(); each++ )

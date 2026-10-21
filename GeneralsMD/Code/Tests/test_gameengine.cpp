@@ -4752,6 +4752,36 @@ TEST(controlbar_force_attack_slot_is_under_attack_move)
 		GUI_COMMAND_FORCE_ATTACK ), 0 );
 }
 
+/* FixedOrderKeys, Enabled = No: the keys as shipped.  The German Guard is W and its rally point U, and
+   a Humvee (V) or Nachschublager (N) keeps the letter the fixed keys took from it */
+TEST(hotkeys_fixed_order_keys_switch_off_gives_the_labels_letters)
+{
+	const std::map< std::string, WideChar > none;
+	CHECK( HotKeyManager::fixedOrderKeys() );
+	CHECK_EQ( HotKeyManager::buttonKeyIn( AsciiString( "Command_Guard" ), 'W', GUI_COMMAND_GUARD, none ), (WideChar)'G' );
+	CHECK_EQ( HotKeyManager::buttonKeyIn( AsciiString( "Command_ConstructAmericaVehicleHumvee" ), 'V',
+		GUI_COMMAND_UNIT_BUILD, none ), 0 );
+
+	HotKeyManager::setFixedOrderKeys( FALSE );
+	CHECK_EQ( HotKeyManager::buttonKeyIn( AsciiString( "Command_Guard" ), 'W', GUI_COMMAND_GUARD, none ), (WideChar)'W' );
+	CHECK_EQ( HotKeyManager::buttonKeyIn( AsciiString( "Command_SetRallyPoint" ), 'u', GUI_COMMAND_SET_RALLY_POINT, none ), (WideChar)'U' );
+	CHECK_EQ( HotKeyManager::buttonKeyIn( AsciiString( "Command_UpgradeChinaMines" ), 'L', GUI_COMMAND_PLAYER_UPGRADE, none ), (WideChar)'L' );
+	CHECK_EQ( HotKeyManager::buttonKeyIn( AsciiString( "Command_ConstructAmericaVehicleHumvee" ), 'V',
+		GUI_COMMAND_UNIT_BUILD, none ), (WideChar)'V' );
+	CHECK_EQ( HotKeyManager::fixedKey( AsciiString( "Command_Stop" ), GUI_COMMAND_STOP ), 0 );
+	HotKeyManager::setFixedOrderKeys( TRUE );
+
+	// the file carries the switch through the options page's Accept, and leaves it out when on
+	const std::vector< HotkeyCommandRow > rows = Hotkeys_commandRows( HOTKEYS_COMMAND_MAP );
+	HotkeysFile file = Hotkeys_parse( "FixedOrderKeys\r\n  Enabled = No\r\nEnd\r\n", rows );
+	CHECK( !file.fixedOrderKeys );
+	const std::string text = Hotkeys_format( file, rows );
+	CHECK( text.find( "FixedOrderKeys\r\n  Enabled = No\r\nEnd\r\n" ) != std::string::npos );
+	CHECK( !Hotkeys_parse( text, rows ).fixedOrderKeys );
+	file.fixedOrderKeys = TRUE;
+	CHECK( Hotkeys_format( file, rows ).find( "FixedOrderKeys" ) == std::string::npos );
+}
+
 TEST(metamap_format_chord_names_the_hold)
 {
 	CHECK( MetaMap_formatChord( MK_NONE, CTRL, COMMANDUSABLE_GAME ) == UnicodeString( u"Ctrl" ) );
