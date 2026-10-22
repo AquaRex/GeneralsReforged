@@ -770,6 +770,18 @@ TEST(weapon_reforged_ini_makes_the_paladin_infantry_laser_without_eas_weapons)
 	CHECK_NEAR( laser->getUnmodifiedAttackRange(), 65.0f, 0.01f );
 	CHECK_EQ( laser->getClipSize(), 2 );
 	CHECK_STR( laser->getLaserName().str(), "PointDefenseLaserBeam" );
+
+	/* a shot-down plane's crash spares its own player and allies, and still hits enemies */
+	const char *crashWeapons[] = { "Reforged_JetCrashBlast", "Reforged_BigJetCrashBlast", "Reforged_JetCrashFireWeapon" };
+	for( Int i = 0; i < 3; ++i )
+	{
+		const WeaponTemplate *crash = TheWeaponStore->findWeaponTemplate( crashWeapons[i] );
+		CHECK( crash != NULL );
+		if( crash == NULL )
+			continue;
+		CHECK( ( crash->getAffectsMask() & WEAPON_AFFECTS_ALLIES ) == 0 );
+		CHECK( ( crash->getAffectsMask() & WEAPON_AFFECTS_ENEMIES ) != 0 );
+	}
 }
 
 /* WeaponReforged.ini also keeps copies of EA weapons FixesReforged.ini hands out, under EA's names,
