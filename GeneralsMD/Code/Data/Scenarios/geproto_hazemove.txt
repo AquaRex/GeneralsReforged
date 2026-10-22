@@ -17,6 +17,8 @@
 900   spawn      0  AmericaTankCrusader        4  2600 1150 40
 905   move       0  AmericaTankCrusader           3400 750
 
-# the jet: one pass over the same ground from 49 s
+# the aircraft: a Raptor pass from 49 s, then a slower cargo plane from 57 s, over the same ground
 1470  spawn      0  AmericaJetRaptor           1  2300 400
 1471  move       0  AmericaJetRaptor              3800 1400
+1710  spawn      0  AmericaJetCargoPlane       1  2500 550
+1711  move       0  AmericaJetCargoPlane          3800 1400
