@@ -25,12 +25,14 @@
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
 
+#include "Common/ThingFactory.h"
 #include "Common/ThingTemplate.h"
 #include "Common/Xfer.h"
 #include "GameClient/FXList.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/Weapon.h"
+#include "GameLogic/Module/ParkingPlaceBehavior.h"
 #include "GameLogic/Module/SwarmStrikeSpecialPower.h"
 
 // ------------------------------------------------------------------------------------------------
@@ -55,6 +57,7 @@ SwarmStrikeSpecialPowerModuleData::SwarmStrikeSpecialPowerModuleData( void )
 		{ "RepeatTargets",	INI::parseBool,					NULL, offsetof( SwarmStrikeSpecialPowerModuleData, m_repeatTargets ) },
 		{ "Weapon",				INI::parseWeaponTemplate,	NULL, offsetof( SwarmStrikeSpecialPowerModuleData, m_weapon ) },
 		{ "TargetFX",			INI::parseFXList,					NULL, offsetof( SwarmStrikeSpecialPowerModuleData, m_targetFX ) },
+		{ "Drone",				INI::parseAsciiString,		NULL, offsetof( SwarmStrikeSpecialPowerModuleData, m_droneName ) },
 		{ 0, 0, 0, 0 }
 	};
 	p.add( dataFieldParse );
@@ -72,27 +75,24 @@ SwarmStrikeSpecialPower::~SwarmStrikeSpecialPower( void )
 }
 
 // ------------------------------------------------------------------------------------------------
-/** One shot, at the target or else at the point.  A projectile is made at the shooter's foot when its
-	* model has no launch bone, and a drone made at the foot of a building met the ground the frame it
-	* left, so it starts from the roof. */
+/** One shot, at the target or else at the point: the Weapon, or a Drone scrambled from the
+	* building's runways, which flies there and dives in. */
 // ------------------------------------------------------------------------------------------------
-static void fireShot( const WeaponTemplate *weapon, const Object *source, Object *target, const Coord3D *pos )
+static void fireShot( const SwarmStrikeSpecialPowerModuleData *data, Object *source, Object *target, const Coord3D *pos )
 {
-	Weapon *w = TheWeaponStore->allocateNewWeapon( weapon, PRIMARY_WEAPON );
-	w->loadAmmoNow( source );
-	ObjectID projectileID = INVALID_ID;
-	if( target )
-		w->fireWeapon( source, target, &projectileID );
-	else
-		w->fireWeapon( source, pos, &projectileID );
-	w->deleteInstance();
+	if( data->m_droneName.isEmpty() )
+	{
+		if( target )
+			TheWeaponStore->createAndFireTempWeapon( data->m_weapon, source, target );
+		else
+			TheWeaponStore->createAndFireTempWeapon( data->m_weapon, source, pos );
+		return;
+	}
 
-	Object *projectile = TheGameLogic->findObjectByID( projectileID );
-	if( projectile == NULL )
-		return;		// a hit with no projectile, the rank tree's munitions
-	Coord3D roof = *projectile->getPosition();
-	roof.z += source->getGeometryInfo().getMaxHeightAbovePosition();
-	projectile->setPosition( &roof );
+	static NameKeyType parkingKey = TheNameKeyGenerator->nameToKey( "ParkingPlaceBehavior" );
+	ParkingPlaceBehavior *airfield = (ParkingPlaceBehavior *)source->findUpdateModule( parkingKey );
+	airfield->scramble( TheThingFactory->findTemplate( data->m_droneName ), target ? target->getID() : INVALID_ID,
+		target ? target->getPosition() : pos );
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -111,7 +111,7 @@ void SwarmStrikeSpecialPower::doSpecialPowerAtLocation( const Coord3D *loc, Real
 	{
 		DEBUG_LOG(( "SWARM '%s' picks '%s' %d\n", getPowerName().str(), (*it)->getTemplate()->getName().str(), (*it)->getID() ));
 		FXList::doFXPos( data->m_targetFX, (*it)->getPosition() );
-		fireShot( data->m_weapon, getObject(), *it, NULL );
+		fireShot( data, getObject(), *it, NULL );
 	}
 
 	if( !data->m_repeatTargets )
@@ -119,7 +119,7 @@ void SwarmStrikeSpecialPower::doSpecialPowerAtLocation( const Coord3D *loc, Real
 
 	// the spare shots: round the same targets again, dearest first, or at the click when none stood there
 	for( Int shot = (Int)targets.size(); shot < data->m_targetCount; ++shot )
-		fireShot( data->m_weapon, getObject(), targets.empty() ? NULL : targets[ shot % targets.size() ], loc );
+		fireShot( data, getObject(), targets.empty() ? NULL : targets[ shot % targets.size() ], loc );
 	DEBUG_LOG(( "SWARM '%s' frame %d sends %d at %d targets around (%.0f,%.0f)\n", getPowerName().str(),
 		TheGameLogic->getFrame(), data->m_targetCount, (Int)targets.size(), loc->x, loc->y ));
 }

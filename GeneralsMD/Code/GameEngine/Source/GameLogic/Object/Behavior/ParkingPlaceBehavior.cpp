@@ -31,7 +31,9 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
 #include "Common/CRCDebug.h"
+#include "Common/Player.h"
 #include "Common/Xfer.h"
+#include "Common/ThingFactory.h"
 #include "Common/ThingTemplate.h"
 #include "GameClient/Drawable.h"
 #include "GameLogic/AI.h"
@@ -43,7 +45,8 @@
 #include "GameLogic/Module/JetAIUpdate.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/TerrainLogic.h"
-#include "Common/Team.h" 
+#include "GameLogic/Weapon.h"
+#include "Common/Team.h"
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -66,6 +69,7 @@ ParkingPlaceBehavior::ParkingPlaceBehavior( Thing *thing, const ModuleData* modu
 	//
 
 	m_heliRallyPointExists = FALSE;
+	m_nextScrambleFrame = 0;
 	m_nextHealFrame = FOREVER;
 	setWakeFrame(getObject(), UPDATE_SLEEP_NONE);
 }
@@ -691,7 +695,64 @@ void ParkingPlaceBehavior::killAllParkedUnits()
 //-------------------------------------------------------------------------------------------------
 void ParkingPlaceBehavior::onDie( const DamageInfo *damageInfo )
 {
+	m_scrambles.clear();
 	killAllParkedUnits();
+}
+
+//-------------------------------------------------------------------------------------------------
+// the old owner's scramble was aimed at the old owner's enemies
+void ParkingPlaceBehavior::onCapture( Player *oldOwner, Player *newOwner )
+{
+	m_scrambles.clear();
+}
+
+//-------------------------------------------------------------------------------------------------
+// one scrambled jet at most every this many frames, so a full field does not roll out on one frame
+const UnsignedInt SCRAMBLE_INTERVAL_FRAMES = LOGICFRAMES_PER_SECOND / 2;
+
+//-------------------------------------------------------------------------------------------------
+void ParkingPlaceBehavior::scramble( const ThingTemplate *jet, ObjectID target, const Coord3D *pos )
+{
+	ScrambleInfo info;
+	info.m_jet = jet;
+	info.m_target = target;
+	info.m_pos = *pos;
+	m_scrambles.push_back( info );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The next scrambled jet, when its turn has come and a space is free: it comes out of the hangar
+	* like a built one and is handed its target, which it takes off for. */
+//-------------------------------------------------------------------------------------------------
+void ParkingPlaceBehavior::launchScramble()
+{
+	UnsignedInt now = TheGameLogic->getFrame();
+	if( m_scrambles.empty() || now < m_nextScrambleFrame )
+		return;
+
+	const ScrambleInfo& next = m_scrambles.front();
+	ExitDoorType door = reserveDoorForExit( next.m_jet, NULL );
+	if( door == DOOR_NONE_AVAILABLE )
+		return;
+
+	Object *jet = TheThingFactory->newObject( next.m_jet, getObject()->getControllingPlayer()->getDefaultTeam() );
+	jet->setProducer( getObject() );
+	exitObjectViaDoor( jet, door );
+	jet->getAIUpdateInterface()->getJetAIUpdate()->friend_setKamikazeArea( &next.m_pos );
+
+	// a script's order: a human player's unit given CMD_FROM_AI will not fly out of its sight to chase
+	// (AIAttackApproachTargetState), and this target is a map away
+	Object *target = TheGameLogic->findObjectByID( next.m_target );
+	if( target && !target->isEffectivelyDead() )
+		jet->getAIUpdateInterface()->aiAttackObject( target, NO_MAX_SHOTS_LIMIT, CMD_FROM_SCRIPT );
+	else
+		jet->getAIUpdateInterface()->aiAttackPosition( &next.m_pos, NO_MAX_SHOTS_LIMIT, CMD_FROM_SCRIPT );
+	DEBUG_LOG(( "SCRAMBLE frame %d '%s' %d from door %d at %d (%.0f,%.0f), %d to go\n", now,
+		next.m_jet->getName().str(), jet->getID(), (Int)door, next.m_target, next.m_pos.x, next.m_pos.y,
+		(Int)m_scrambles.size() - 1 ));
+
+	m_scrambles.pop_front();
+	m_nextScrambleFrame = now + SCRAMBLE_INTERVAL_FRAMES;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -703,6 +764,7 @@ UpdateSleepTime ParkingPlaceBehavior::update()
 	// there are generally at most only a few airfields at any given time.
 	buildInfo();
 	purgeDead();
+	launchScramble();
 
 	UnsignedInt now = TheGameLogic->getFrame();
 	if (now >= m_nextHealFrame)
@@ -932,14 +994,15 @@ void ParkingPlaceBehavior::crc( Xfer *xfer )
 // ------------------------------------------------------------------------------------------------
 /** Xfer method
 	* Version Info:
-	* 1: Initial version */
+	* 1: Initial version
+	* 4: the scramble queue */
 // ------------------------------------------------------------------------------------------------
 void ParkingPlaceBehavior::xfer( Xfer *xfer )
 {
 	Int i;
 
 	// version
-	const XferVersion currentVersion = 3;
+	const XferVersion currentVersion = 4;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -1105,6 +1168,37 @@ void ParkingPlaceBehavior::xfer( Xfer *xfer )
 		if (xfer->getXferMode() == XFER_LOAD)
 		{
 			m_nextHealFrame = 0;
+		}
+	}
+
+	if (version >= 4)
+	{
+		xfer->xferUnsignedInt(&m_nextScrambleFrame);
+		Int scrambleCount = (Int)m_scrambles.size();
+		xfer->xferInt(&scrambleCount);
+		if (xfer->getXferMode() == XFER_SAVE)
+		{
+			for (std::list<ScrambleInfo>::iterator it = m_scrambles.begin(); it != m_scrambles.end(); ++it)
+			{
+				AsciiString name = it->m_jet->getName();
+				xfer->xferAsciiString(&name);
+				xfer->xferObjectID(&it->m_target);
+				xfer->xferCoord3D(&it->m_pos);
+			}
+		}
+		else if (xfer->getXferMode() == XFER_LOAD)
+		{
+			m_scrambles.clear();
+			for (i = 0; i < scrambleCount; ++i)
+			{
+				AsciiString name;
+				ScrambleInfo info;
+				xfer->xferAsciiString(&name);
+				xfer->xferObjectID(&info.m_target);
+				xfer->xferCoord3D(&info.m_pos);
+				info.m_jet = TheThingFactory->findTemplate(name);
+				m_scrambles.push_back(info);
+			}
 		}
 	}
 

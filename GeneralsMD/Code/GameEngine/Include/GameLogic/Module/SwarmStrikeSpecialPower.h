@@ -21,6 +21,8 @@
 // Turkiye's loitering munitions: within Radius of the click, the TargetCount most expensive enemies
 // on the ground each take one Weapon shot, and TargetFX plays on each of them.  With RepeatTargets
 // all TargetCount shots go: round the targets again, dearest first, or at the click with none.
+// With a Drone, each shot is one of those jets instead, scrambled from the building's airfield
+// (ParkingPlaceBehavior::scramble) and sent at its target.
 //
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -48,6 +50,7 @@ public:
 	Bool m_repeatTargets;
 	const WeaponTemplate *m_weapon;
 	const FXList *m_targetFX;
+	AsciiString m_droneName;
 };
 
 //-------------------------------------------------------------------------------------------------

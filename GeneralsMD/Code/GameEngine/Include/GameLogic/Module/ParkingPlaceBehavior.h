@@ -133,6 +133,7 @@ public:
 
 	// DieModule
 	virtual void onDie( const DamageInfo *damageInfo );
+	virtual void onCapture( Player *oldOwner, Player *newOwner );
 
 	// ParkingPlaceBehaviorInterface
 	virtual Bool shouldReserveDoorWhenQueued(const ThingTemplate* thing) const; 
@@ -157,7 +158,18 @@ public:
 	virtual const std::vector<Coord3D>* getTaxiLocations( ObjectID id ) const { return NULL; }
 	virtual const std::vector<Coord3D>* getCreationLocations( ObjectID id ) const { return NULL; }
 
+	/// a new jet of this kind comes out of the next free space, one every half second at most, and is
+	/// sent at the target, or at the point when the target is gone by then (the Kargu base's swarm)
+	void scramble( const ThingTemplate *jet, ObjectID target, const Coord3D *pos );
+
 private:
+
+	struct ScrambleInfo
+	{
+		const ThingTemplate*	m_jet;
+		ObjectID							m_target;
+		Coord3D								m_pos;
+	};
 
 	struct ParkingPlaceInfo
 	{
@@ -203,12 +215,15 @@ private:
 	std::vector<ParkingPlaceInfo>	m_spaces;
 	std::vector<RunwayInfo>				m_runways;
 	std::list<HealingInfo>				m_healing;	// note, this list can vary in size, and be larger than the parking space count
+	std::list<ScrambleInfo>				m_scrambles;
+	UnsignedInt										m_nextScrambleFrame;
 	UnsignedInt										m_nextHealFrame;
 	Bool													m_gotInfo;
 
 	void buildInfo();
 	void purgeDead();
 	void resetWakeFrame();
+	void launchScramble();
 
 	ParkingPlaceInfo* findPPI(ObjectID id);
 	ParkingPlaceInfo* findEmptyPPI();
