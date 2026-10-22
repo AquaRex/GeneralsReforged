@@ -5203,7 +5203,9 @@ void Object::onDie( DamageInfo *damageInfo )
 		{
 			TheEva->setShouldPlay(EVA_BuldingLost);
 		} 
-		else if (isKindOf(KINDOF_INFANTRY) || isKindOf(KINDOF_VEHICLE)) 
+		// a plane a general's power or a Supply Drop Zone sends over is IGNORED_IN_GUI: not yours to
+		// command, not counted as lost in the score (scoreTheKill), so not announced as lost either
+		else if ((isKindOf(KINDOF_INFANTRY) || isKindOf(KINDOF_VEHICLE)) && !isKindOf(KINDOF_IGNORED_IN_GUI))
 		{
 			TheEva->setShouldPlay(EVA_UnitLost);
 			//Create a fake radar event so the user can use the spacebar to quickly jump to this!
