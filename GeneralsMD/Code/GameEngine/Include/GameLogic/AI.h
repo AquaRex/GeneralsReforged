@@ -116,6 +116,8 @@ public:
 	TSkillSet		m_skillSet4;
 	TSkillSet		m_skillSet5;
 	AsciiString m_baseDefenseStructure1;
+	AsciiString m_spotter;				///< the unit sent along with a gun that fires past its own sight; empty for a side without one
+	std::vector<AsciiString> m_artillery;	///< the side's guns that fire past their own sight, one of them added to a share of its attack teams (AIDifficultyProfile m_artilleryShare)
 	AISideInfo *m_next;
 };
 EMPTY_DTOR(AISideInfo)
@@ -274,6 +276,10 @@ struct AIDifficultyProfile
 	Int		m_siteBuildersLost;							///< ... and any site whose builders died this many times with nothing built in between
 	Real	m_siteRetrySeconds;							///< how long a cancelled site's spot is left alone before it is placed again
 	Bool	m_stageDozers;									///< an idle dozer walks to the site the base builder waits on money for
+
+	// Artillery that fires past its own sight
+	Int		m_artillerySpotters;						///< the side's spotters (AISideInfo m_spotter) added to a team that brings such a gun and no spotter
+	Real	m_artilleryShare;								///< the share of a side's attack teams with no such gun that are given one of its own (AISideInfo m_artillery)
 };
 
 //-------------------------------------------------------------------------------------------------

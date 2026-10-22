@@ -2010,6 +2010,7 @@ void AIPlayer::onUnitProduced( Object *factory, Object *unit )
 				// put new unit into the team under construction
 				if (team->m_team)
 					unit->setTeam( team->m_team );
+				sendForSpotters( team, unit );
 				if (team->m_reinforcement) {
 					team->m_reinforcementID = unit->getID();
 				}
@@ -2689,6 +2690,114 @@ static Bool sideCanNeverField( const Player *player, const ThingTemplate *thing 
 }
 
 // ------------------------------------------------------------------------------------------------
+/** The side's own reskin of a unit another side's scripts name, a Turkiye player's Firtina for the
+	* Tomahawk, else the unit itself.  A team order for the American template was costed and saved for
+	* at the American price while the factory made and charged the Turkish one, and Money::withdraw
+	* takes what is there: a Firtina came out for the Tomahawk's 1200 with 1200 in the bank. */
+// ------------------------------------------------------------------------------------------------
+static const ThingTemplate *ownTemplate( const Player *player, const ThingTemplate *thing )
+{
+	const ThingTemplate *own = TheThingFactory->findSideReskin( thing, player->getSide() );
+	return own != NULL ? own : thing;
+}
+
+// ------------------------------------------------------------------------------------------------
+/** The side's spotter (AISideInfo m_spotter) for a team the scripts send at the enemy that names no
+	* spotter of its own, else NULL: a gun kept at home has the base's sight. */
+// ------------------------------------------------------------------------------------------------
+static const ThingTemplate *missingSpotterFor( const Player *player, const TeamPrototype *proto )
+{
+	const AISideInfo *sideInfo = TheAI->getAiData()->findSideInfo( player );
+	if( sideInfo == NULL || sideInfo->m_spotter.isEmpty() )
+		return NULL;		// a side that never fires blind
+	const TeamTemplateInfo *info = proto->getTemplateInfo();
+	if( info->m_isBaseDefense || info->m_isPerimeterDefense || !aiTeamAttacks( info ) )
+		return NULL;
+
+	const ThingTemplate *spotter = TheThingFactory->findTemplate( sideInfo->m_spotter );
+	for( Int i = 0; i < info->m_numUnitsInfo; ++i )
+	{
+		const ThingTemplate *unit = TheThingFactory->findTemplate( info->m_unitsInfo[ i ].unitThingName, FALSE );
+		if( unit == NULL || info->m_unitsInfo[ i ].maxUnits <= 0 )
+			continue;		// an empty slot, or a map's team naming a unit this game does not have
+		if( ownTemplate( player, unit )->isEquivalentTo( spotter ) )
+			return NULL;
+	}
+	return spotter;
+}
+
+// ------------------------------------------------------------------------------------------------
+/** A gun that fires past its own sight came out for a team still being built: it trains the rung's
+	* ArtillerySpotters of the side's spotter as part of the team, once.  They used to be ordered with
+	* the team, and a barracks turns a 700 spotter out long before a war factory has saved for a 1400
+	* gun: Hard bought 23 to 34 spotters in fifteen minutes for 5 to 11 guns, the teams whose gun never
+	* came disbanded and the spotters sat in the Sipers. */
+// ------------------------------------------------------------------------------------------------
+void AIPlayer::sendForSpotters( TeamInQueue *team, const Object *gun )
+{
+	const Int spotters = getSkillProfile()->m_artillerySpotters;
+	if( !isSkirmishAI() || spotters <= 0 || !gun->getTemplate()->acquiresBeyondVision() )
+		return;
+	const ThingTemplate *spotter = missingSpotterFor( m_player, team->m_team->getPrototype() );
+	const char *why = spotter == NULL ? "a team kept at home or with its own spotter" : "sends for its spotters";
+	for( WorkOrder *order = team->m_workOrders; spotter && order; order = order->m_next )
+		if( order->m_thing->isEquivalentTo( spotter ) )
+		{
+			why = "its spotters already sent for";		// the team's second gun
+			spotter = NULL;
+		}
+	if( spotter )
+	{
+		// a computer player holds canBuildUnits off between team orders, and the barracks check reads it
+		const Bool canBuildUnits = m_player->getCanBuildUnits();
+		m_player->setCanBuildUnits( TRUE );
+		if( findFactory( spotter, TRUE ) == NULL )
+		{
+			why = "no barracks to train its spotters";
+			spotter = NULL;
+		}
+		m_player->setCanBuildUnits( canBuildUnits );
+	}
+	if( spotter )
+	{
+		WorkOrder *order = newInstance(WorkOrder);
+		order->m_thing = spotter;
+		order->m_factoryID = INVALID_ID;
+		order->m_numRequired = spotters;
+		order->m_required = true;
+		order->m_next = team->m_workOrders;
+		team->m_workOrders = order;
+	}
+	DEBUG_LOG(("AI ARTILLERY frame %d player %d '%s' %d comes out for team '%s', %s\n", TheGameLogic->getFrame(),
+		m_player->getPlayerIndex(), gun->getTemplate()->getName().str(), gun->getID(), team->m_team->getName().str(), why));
+}
+
+// ------------------------------------------------------------------------------------------------
+/** Can this team be given one of the side's guns (AISideInfo m_artillery): one the scripts send at the
+	* enemy, all of it on the ground, with no gun that fires past its sight already, no builder and no
+	* harvester in it. */
+// ------------------------------------------------------------------------------------------------
+static Bool takesArtillery( const Player *player, const TeamPrototype *proto )
+{
+	const TeamTemplateInfo *info = proto->getTemplateInfo();
+	if( info->m_isBaseDefense || info->m_isPerimeterDefense || !aiTeamAttacks( info ) )
+		return FALSE;
+	Bool fielded = FALSE;
+	for( Int i = 0; i < info->m_numUnitsInfo; ++i )
+	{
+		const ThingTemplate *unit = TheThingFactory->findTemplate( info->m_unitsInfo[ i ].unitThingName, FALSE );
+		if( unit == NULL || info->m_unitsInfo[ i ].maxUnits <= 0 || sideCanNeverField( player, unit ) )
+			continue;
+		unit = ownTemplate( player, unit );
+		if( unit->isKindOf( KINDOF_AIRCRAFT ) || unit->isKindOf( KINDOF_DOZER ) || unit->isKindOf( KINDOF_HARVESTER ) ||
+				unit->acquiresBeyondVision() )
+			return FALSE;
+		fielded = TRUE;
+	}
+	return fielded;
+}
+
+// ------------------------------------------------------------------------------------------------
 /** Return true if team can be considered for building */
 // ------------------------------------------------------------------------------------------------
 Bool AIPlayer::isPossibleToBuildTeam( TeamPrototype *proto, Bool requireIdleFactory, Bool &notEnoughMoney)
@@ -2708,6 +2817,7 @@ Bool AIPlayer::isPossibleToBuildTeam( TeamPrototype *proto, Bool requireIdleFact
 			continue;
 		}
 		if (thing) {
+			thing = ownTemplate(m_player, thing);
 			anyFielded = true;
 			Int thingCost = thing->calcCostToBuild(m_player);
 			// One walk of the build list, not two: findFactory hands back the first idle factory
@@ -4622,7 +4732,7 @@ void AIPlayer::buildSpecificAITeam( TeamPrototype *teamProto, Bool priorityBuild
 				int count = unitInfo[i].maxUnits-unitInfo[i].minUnits;
 				if (count>0) {
 					WorkOrder *order = newInstance(WorkOrder);
-					order->m_thing = thing;
+					order->m_thing = ownTemplate(m_player, thing);
 					order->m_factoryID = INVALID_ID;
 					order->m_numRequired = count;
 					// prepend to head of list
@@ -4639,7 +4749,7 @@ void AIPlayer::buildSpecificAITeam( TeamPrototype *teamProto, Bool priorityBuild
 			{
 				int count = unitInfo[i].minUnits;
 				WorkOrder *order = newInstance(WorkOrder);
-				order->m_thing = thing;
+				order->m_thing = ownTemplate(m_player, thing);
 				order->m_factoryID = INVALID_ID;
 				order->m_numRequired = count;
 				order->m_required = true;
@@ -4648,7 +4758,30 @@ void AIPlayer::buildSpecificAITeam( TeamPrototype *teamProto, Bool priorityBuild
 				orders = order;
 			}
 		}
-		if (orders) 
+		// a share of the attack teams of a side whose guns fire past their own sight takes one of them
+		// (AISideInfo Artillery), when a factory is up to make it: the scripts it runs may name none
+		const AISideInfo *sideInfo = isSkirmishAI() ? TheAI->getAiData()->findSideInfo( m_player ) : NULL;
+		const ThingTemplate *gun = NULL;
+		if (orders && sideInfo && !sideInfo->m_artillery.empty() && takesArtillery( m_player, teamProto ) &&
+				GameLogicRandomValueReal( 0.0f, 1.0f ) < getSkillProfile()->m_artilleryShare)
+		{
+			gun = TheThingFactory->findTemplate( sideInfo->m_artillery[ GameLogicRandomValue( 0, (Int)sideInfo->m_artillery.size() - 1 ) ] );
+			if (findFactory( gun, true ) == NULL)
+				gun = NULL;
+		}
+		if (gun)
+		{
+			WorkOrder *order = newInstance(WorkOrder);
+			order->m_thing = gun;
+			order->m_factoryID = INVALID_ID;
+			order->m_numRequired = 1;
+			order->m_required = true;
+			order->m_next = orders;
+			orders = order;
+			DEBUG_LOG(("AI ARTILLERY frame %d player %d team '%s' takes an added '%s'\n", TheGameLogic->getFrame(),
+				m_player->getPlayerIndex(), teamProto->getName().str(), gun->getName().str()));
+		}
+		if (orders)
 		{
 			/* We have something to build. */
 			TeamInQueue *team = newInstance(TeamInQueue);
