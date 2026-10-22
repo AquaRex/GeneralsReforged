@@ -11036,12 +11036,29 @@ void AIPlayer::sendWave( AIGroup *wave, const AsciiString &approach, Int pathSuf
 	* teams, and sent 319 waves instead of 134.
 	*
 	* Against an enemy with next to no army left (AIPRESSURE_FINISH) every rung calls its attack teams up
-	* this way, and sendIdleUnitsHunting takes the guards. */
+	* this way, and sendIdleUnitsHunting takes the guards.
+	*
+	* Issue #99: it was Hard's alone, and Medium and Easy kept the pile.  A Medium China on Twilight Flame
+	* stood 57 units at the lip of its plateau at minute fifteen, 109,000 in the bank and not one attack
+	* made: its wave teams had come out after the launch window and its strays were in no team at all.
+	* So every rung calls its idle attack teams up, the rungs that do not mass on a slower round
+	* (IDLE_CALLUP_SECONDS), and the strays standing idle at home go out with a team that leaves. */
 //----------------------------------------------------------------------------------------------------------
+/** How often a rung that does not mass its waves calls up what stands idle at home; 0 is every wave
+	* tick, Hard's. */
+static const Int IDLE_CALLUP_SECONDS[ AISKILL_COUNT ] = { 60, 20, 0 };
+
 void AIPlayer::sendIdleAttackTeams( void )
 {
-	if( !isSkirmishAI() || (m_pressure != AIPRESSURE_FINISH && !getSkillProfile()->m_massBeforeAttacking) || !m_baseCenterSet )
+	if( !isSkirmishAI() || !m_baseCenterSet )
 		return;
+	if( m_pressure != AIPRESSURE_FINISH && !getSkillProfile()->m_massBeforeAttacking )
+	{
+		// once a period, without a member for it: doWaves runs every WAVE_CHECK_RATE frames
+		const UnsignedInt every = (UnsignedInt)( IDLE_CALLUP_SECONDS[ m_skillLevel ] * LOGICFRAMES_PER_SECOND );
+		if( every != 0 && TheGameLogic->getFrame() % every >= (UnsignedInt)WAVE_CHECK_RATE )
+			return;
+	}
 	// a team standing at home while the base is hit is its garrison: guarding, or idle beside a fight it
 	// will pick up, it is not called away
 	if( isBaseUnderAttack() )
@@ -11095,7 +11112,9 @@ void AIPlayer::sendIdleAttackTeams( void )
 			if( holdTeamForWave( team, center, pathSuffix, FALSE ) )
 				continue;
 			AIGroup *group = TheAI->createGroup();
-			const Real power = waitingPower( team, group );
+			// two statements: both fill the group, and the order of +'s operands is the compiler's
+			Real power = waitingPower( team, group );
+			power += addHomeStrays( group );
 			Coord3D from;
 			group->getCenter( &from );
 			sendWave( group, chooseApproachLabel( &from, center, pathSuffix ), pathSuffix, 1, power, 0, "calledup" );
