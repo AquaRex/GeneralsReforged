@@ -228,6 +228,7 @@ found and fixed â€” EA's own, not port damage.**
 - HUD Size grows the console from its middle, and on a narrow screen it stops at the size that still fits.
 - The grid under a building you are placing is fainter and its lines thinner, and the red squares where nothing can stand are lighter, so the ground under them shows through. Untick grid placement on the Controls page and the lines go altogether.
 - Hold Ctrl while placing a building and grid placement flips for as long as the key is down. With the box unticked the building snaps to the grid and the lines come up, so one flush row is a held key away; with it ticked you get a free hand for the odd building that has to sit between two squares. It works the same in Classic.
+- The camera works the same way with Shift. Turn it with the middle button or the rotate keys while Shift is down and the 45 degree camera steps flip: with the box unticked the view clicks round the eight headings, with it ticked it turns freely, and letting go of Shift mid-turn hands back whatever the box says. A quick square-on look no longer means a trip to the options.
 - Your general's promotion screen opens in the middle of the screen, in the Classic interface as well, instead of hanging from the top edge. The battlefield dims behind it, and a click anywhere off the screen closes it without selecting or ordering anything underneath.
 
 ## Groups attack-move at their own speed

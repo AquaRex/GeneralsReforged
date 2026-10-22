@@ -625,7 +625,7 @@ GUI:SnapCamera45
 END
 
 TOOLTIP:SnapCamera45
-"Rotating the camera clicks to the eight 45 degree headings instead of stopping anywhere."
+"Rotating the camera clicks to the eight 45 degree headings instead of stopping anywhere. Hold Shift while turning to get the other behaviour for that turn."
 END
 
 GUI:GridBuild

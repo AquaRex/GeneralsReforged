@@ -2718,7 +2718,8 @@ void InGameUI::update( void )
 	// interval, which is what the rotate keys do in Stronghold.
 	//
 	const UnsignedInt CAMERA_SNAP_REPEAT_MS = 250;
-	if( TheGlobalData->m_snapCameraRotateTo45 )
+	// Shift flips it while held, the same as on the middle-button drag (LookAtXlat).
+	if( TheGlobalData->m_snapCameraRotateTo45 != TheKeyboard->isShift() )
 	{
 		if( (m_cameraRotatingLeft || m_cameraRotatingRight) && m_cameraRotatingLeft != m_cameraRotatingRight
 				&& cameraNowMs - m_cameraSnapRepeatMs >= CAMERA_SNAP_REPEAT_MS )

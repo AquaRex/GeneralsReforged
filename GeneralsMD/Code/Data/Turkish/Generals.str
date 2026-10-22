@@ -15114,7 +15114,7 @@ GUI:SnapCamera45
 END
 
 TOOLTIP:SnapCamera45
-"Döndürülen kamera herhangi bir yerde durmak yerine sekiz 45 derecelik yönden birine oturur."
+"Döndürülen kamera herhangi bir yerde durmak yerine sekiz 45 derecelik yönden birine oturur. Döndürürken Shift'i basılı tutarsan o dönüşte diğer davranış geçerli olur."
 END
 
 GUI:GridBuild
