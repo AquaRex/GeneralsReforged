@@ -484,8 +484,13 @@ void GameLogic::reset( void )
 	m_mouseVisibleMemory = TRUE;
 	setFPMode();
 
-	// destroy all objects
-	destroyAllObjectsImmediate();
+	// destroy all objects.  This is a clear-out the way clearGameData's is, and a Load from the in-game
+	// menu comes here without passing clearGameData: a paratrooper whose chute went first "landed" off
+	// the map, fired his death weapon, and its debris was built for a player list already emptied.
+	{
+		LatchRestore<Bool> clearing( m_clearingGameData, TRUE );
+		destroyAllObjectsImmediate();
+	}
 
 	m_nextObjID = (ObjectID)1;
 	m_pendingTechBuildings.clear();
@@ -1726,7 +1731,14 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
 				Int count = ScriptList::getReadScripts(scripts);
 				if (count)
 				{
+					// a map can be saved with no script list for a side, the first one these go to included
+					// (a player's custom map, a crash at the start of a skirmish): it gets an empty one
 					ScriptList *pSL = TheSidesList->getSideInfo(0)->getScriptList();
+					if (pSL == NULL)
+					{
+						pSL = newInstance(ScriptList);
+						TheSidesList->getSideInfo(0)->setScriptList(pSL);
+					}
 					Script *next = scripts[0]->getScript();
 					while (next)
 					{

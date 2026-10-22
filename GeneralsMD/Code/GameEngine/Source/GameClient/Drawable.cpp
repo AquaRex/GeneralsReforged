@@ -5543,10 +5543,16 @@ void Drawable::flushPendingTransform( Bool onDemand )
 //-------------------------------------------------------------------------------------------------
 /** The draw modules with whatever the tick has deferred applied now.  For the callers inside a tick
 	that act on the render object as it stands (animation timing, weapon fire FX, live bones, ghost
-	snapshots): the census counts these on their own channel, the list phase 3 has to resolve. */
+	snapshots): the census counts these on their own channel, the list phase 3 has to resolve.
+	Inside the overlap window the render asks too (a rider's model on its container's bone, an
+	attach-to-bone model, both from doDrawModule), and the tick beside it may be adding steps to this
+	same drawable: flushing there swapped m_pendingSteps out from under the logic thread's push_back,
+	and flushAfterTick then ran a step whose work had been freed.  As getDrawModules does, the window
+	reads the render objects as the sync point left them; flushAfterTick applies the rest. */
 DrawModule** Drawable::getDrawModulesFlushed()
 {
-	doPendingClientWork( TRUE );
+	if (!LogicThread::isInsideWindow())
+		doPendingClientWork( TRUE );
 	return getDrawModulesNonDirty();
 }
 

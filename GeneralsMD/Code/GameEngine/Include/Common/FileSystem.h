@@ -55,6 +55,8 @@
 #include "Common/STLTypedefs.h"
 #include "Common/SubsystemInterface.h"
 
+#include <mutex>
+
 //----------------------------------------------------------------------------
 //           Forward References
 //----------------------------------------------------------------------------
@@ -184,6 +186,9 @@ protected:
 	AsciiString focusedLooseFile(const AsciiString& filename) const;	///< the loose copy the focus sees, else empty
 	AsciiString modFolderFile(Int mod, const AsciiString& filename) const;	///< "<mod folder><filename>" when it is there, else empty
   mutable std::map<unsigned,bool> m_fileExist;
+	/// m_fileExist is asked from the main thread and from the logic thread's model loads in an overlapped
+	/// tick (and the texture loader's, if it ever runs): two inserts at once corrupt the tree and the heap
+	mutable std::mutex m_fileExistLock;
 	// static: GlobalData's constructor reads files through a TheFileSystem that a few engine tests leave
 	// NULL, and openFile has always answered NULL there without touching the object
 	static Int s_focus;

@@ -18554,6 +18554,12 @@ TEST(modfactions_prefix_the_mods_own_art)
 	strcpy( line, "  ShowSubObject = AVRanger" );			// a sub-object, not a file
 	CHECK( names.rewriteLine( line, sizeof( line ) ) );
 	CHECK_STR( line, "  ShowSubObject = AVRanger" );
+
+	// a texture named like a number leaves the animation's numbers alone
+	names.addAsset( 0, "Art\\Textures\\6.dds" );
+	strcpy( line, "  IdleAnimation = AVRanger_SKL.AVRanger_STND 0 6" );
+	CHECK( names.rewriteLine( line, sizeof( line ) ) );
+	CHECK_STR( line, "  IdleAnimation = M1~AVRanger_SKL.AVRanger_STND 0 6" );
 }
 
 // -modfactions: the file in a path-shaped word is its last part, past either slash

@@ -241,7 +241,10 @@ FileSystem::~FileSystem()
 
 void		FileSystem::init( void )
 {
-	m_fileExist.clear();		// see reset(): the cache outlives whatever it was an answer about
+	{
+		std::lock_guard<std::mutex> lock( m_fileExistLock );
+		m_fileExist.clear();		// see reset(): the cache outlives whatever it was an answer about
+	}
 	TheLocalFileSystem->init();
 	TheArchiveFileSystem->init();
 }
@@ -270,7 +273,10 @@ void		FileSystem::reset( void )
 	// mounted, or before Win32BIGFileSystem::init re-loaded the Patch*.big over the plain pass, made
 	// that file invisible for the rest of the run - and the cache is keyed by name, so nothing else
 	// would ever ask again.
-	m_fileExist.clear();
+	{
+		std::lock_guard<std::mutex> lock( m_fileExistLock );
+		m_fileExist.clear();
+	}
 
 	TheLocalFileSystem->reset();
 	TheArchiveFileSystem->reset();
@@ -350,7 +356,9 @@ File*		FileSystem::openFile( const Char *filename, Int access )
 		 map's (upstream #991). */
 	if ( file != NULL && (access & File::CREATE) )
 	{
-		m_fileExist[ TheNameKeyGenerator->nameToLowercaseKey( filename ) ] = true;
+		const unsigned key = TheNameKeyGenerator->nameToLowercaseKey( filename );
+		std::lock_guard<std::mutex> lock( m_fileExistLock );
+		m_fileExist[ key ] = true;
 	}
 
 	if ( (TheArchiveFileSystem != NULL) && (file == NULL) )
@@ -383,23 +391,21 @@ Bool FileSystem::doesFileExist(const Char *filename) const
 		return focusedLooseFile( AsciiString( filename ) ).isNotEmpty() || TheArchiveFileSystem->doesFileExist( filename );
 
   unsigned key=TheNameKeyGenerator->nameToLowercaseKey(filename);
-  std::map<unsigned,bool>::iterator i=m_fileExist.find(key);
-  if (i!=m_fileExist.end())
-    return i->second;
-
-	if (TheLocalFileSystem->doesFileExist(filename) || modLooseFile(AsciiString(filename)).isNotEmpty())
-  {
-    m_fileExist[key]=true;
-		return TRUE;
-	}
-	if (TheArchiveFileSystem != NULL && TheArchiveFileSystem->doesFileExist(filename))
-  {
-    m_fileExist[key]=true;
-		return TRUE;
+	{
+		std::lock_guard<std::mutex> lock( m_fileExistLock );
+		std::map<unsigned,bool>::iterator i=m_fileExist.find(key);
+		if (i!=m_fileExist.end())
+			return i->second;
 	}
 
-  m_fileExist[key]=false;
-	return FALSE;
+	// asked unlocked, so a slow disk does not hold the other thread up; two threads asking the same
+	// name both find the same answer and store it twice
+	const Bool exists = TheLocalFileSystem->doesFileExist(filename) || modLooseFile(AsciiString(filename)).isNotEmpty()
+		|| (TheArchiveFileSystem != NULL && TheArchiveFileSystem->doesFileExist(filename));
+
+	std::lock_guard<std::mutex> lock( m_fileExistLock );
+	m_fileExist[key]=exists != FALSE;
+	return exists;
 }
 
 //============================================================================

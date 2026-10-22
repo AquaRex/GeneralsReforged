@@ -12207,6 +12207,23 @@ static const UpgradeTemplate *helixUpgradeOn( const ThingTemplate *tmpl, Int kin
 	return NULL;
 }
 
+/** A Helix of this kind flies the napalm bomb flyRaid drops.  A mod's Helix can carry a "Bomb" upgrade
+	* on its buttons and drop something else, or nothing the AI knows: ShockWave's under -modfactions
+	* came out as a raider with no such power and the raid read a null one. */
+static Bool helixCarriesNapalmBomb( const ThingTemplate *tmpl )
+{
+	const ModuleInfo &modules = tmpl->getBehaviorModuleInfo();
+	for( Int m = 0; m < modules.getCount(); ++m )
+	{
+		if( modules.getNthName( m ).compareNoCase( "SpecialAbilityUpdate" ) != 0 )
+			continue;
+		const SpecialPowerTemplate *power = static_cast<const SpecialAbilityUpdateModuleData *>( modules.getNthData( m ) )->m_specialPowerTemplate;
+		if( power && power->getSpecialPowerType() == SPECIAL_HELIX_NAPALM_BOMB )
+			return TRUE;
+	}
+	return FALSE;
+}
+
 /** How much a raid wants a building: production, then income, then power; 0 for anything else. */
 static Int raidPreference( const Object *obj )
 {
@@ -12324,7 +12341,7 @@ Int AIPlayer::helixRoleWanted( const ThingTemplate *tmpl ) const
 	const Int healersWanted = tallyBase( m_player ).army >= HEALER_THIRD_ARMY ? MAX_HEALERS : MIN_HEALERS;
 	if( healers < healersWanted && helixUpgradeOn( tmpl, HELIX_TOWER ) )
 		return HELIX_HEALER;
-	if( raiders < MAX_RAIDERS && helixUpgradeOn( tmpl, HELIX_BOMB ) )
+	if( raiders < MAX_RAIDERS && helixUpgradeOn( tmpl, HELIX_BOMB ) && helixCarriesNapalmBomb( tmpl ) )
 		return HELIX_RAIDER;
 	return -1;
 }
