@@ -63,7 +63,6 @@ def main():
     for name in ("generals", "root", "overlay", "out"):
         p.add_argument("--" + name, type=Path, required=True)
     p.add_argument("--case", choices=CASES, default="solid")
-    p.add_argument("--mode", choices=("default", "legacy", "capture-only", "mapped"), default="default")
     p.add_argument("--quality", type=int, choices=(0, 1, 2), default=1, help="existing shadow quality: 1024/2048/4096")
     p.add_argument("--trees", choices=("yes", "no"), default="yes", help="ShowTrees preference; multiplayer can still load trees")
     p.add_argument("--geometry-shadows", choices=("yes", "no"), default="yes", help="set both ordinary shadow options")
@@ -74,18 +73,13 @@ def main():
     p.add_argument("--frame", type=int, help="override the case's screenshot frame (also the measurement length minus 60)")
     p.add_argument("--replay", type=Path, help="play an existing recording in isolated user data instead of starting a match")
     p.add_argument("--measure", action="store_true", help="omit the screenshot and its settling/pacing window")
-    p.add_argument("--logic-clock", action="store_true", help="use a fixed W3D animation/cloud clock for screenshot comparisons")
     p.add_argument("--report", action="store_true", help="read back sun depth occupancy (excluded from performance runs)")
-    p.add_argument("--depth-dump", action="store_true", help="save the latest reported map as a 16-bit PGM; requires --report")
-    p.add_argument("--fault", choices=("target", "receiver-program", "receiver-pipeline", "smoke-target", "smoke-pipeline"), help="inject a sun-specific creation failure")
     args = p.parse_args()
-    if args.depth_dump and not args.report:
-        p.error("--depth-dump requires --report")
-    if (args.report or args.logic_clock or args.gpu_debug or args.fault) and args.measure:
-        p.error("diagnostic readback/clocks/validation cannot be used with --measure")
+    if (args.report or args.gpu_debug) and args.measure:
+        p.error("diagnostic readback/validation cannot be used with --measure")
     replay = args.replay.resolve() if args.replay else None
-    if replay and (not replay.is_file() or args.logic_clock or CASES[args.case][4]):
-        p.error("--replay requires an existing file, an ordinary clock and a case without scenario actions")
+    if replay and (not replay.is_file() or CASES[args.case][4]):
+        p.error("--replay requires an existing file and a case without scenario actions")
     exe, root, overlay, out = (getattr(args, n).resolve() for n in ("generals", "root", "overlay", "out"))
     if not exe.is_file() or not root.is_dir() or not overlay.is_dir():
         p.error("executable, prepared root and overlay must already exist")
@@ -148,23 +142,14 @@ def main():
         command += ["-takeover", "-scenario", scenario]
     overrides = {"ZH_USER_DATA_DIR": str(user), "ZH_UNATTENDED": "1",
                  "ZH_AUDIO_BACKEND": "null", "SDL_GPU_DRIVER": "vulkan",
-                 "ZH_OFFSCREEN_HZ": "0",
-                 "ZH_SUN_SHADOW_MODE": args.mode, "ZH_GPU_TIMING": "0,1000000"}
-    if args.mode == "default":
-        overrides.pop("ZH_SUN_SHADOW_MODE")
+                 "ZH_OFFSCREEN_HZ": "0", "ZH_GPU_TIMING": "0,1000000"}
     if args.gpu_debug:
         overrides["ZH_GPU_DEBUG"] = "1"
-    if args.logic_clock:
-        overrides["ZH_SUN_SHADOW_CAPTURE_CLOCK"] = "logic"
-    if args.fault:
-        overrides["ZH_TEST_SUN_SHADOW_FAILURE"] = args.fault
-    if args.depth_dump:
-        overrides["ZH_SUN_SHADOW_DEPTH_DUMP"] = str(out / "sun-depth.pgm")
     if args.icd:
         overrides["VK_DRIVER_FILES"] = str(args.icd.resolve())
     repository = Path(__file__).resolve().parents[3]
     manifest = {"command": command, "environment": overrides, "case": args.case,
-                "mode": args.mode, "quality": args.quality, "exe_sha256": digest(exe),
+                "quality": args.quality, "exe_sha256": digest(exe),
                 "trees": args.trees, "geometry_shadows": args.geometry_shadows, "smoke_shadows": args.smoke_shadows,
                 "options_sha256": digest(user / "Options.ini"),
                 "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repository, text=True).strip(),
@@ -183,11 +168,7 @@ def main():
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     environment = dict(os.environ)
     # This switch is presence-based in the backend: "0" would still enable it.
-    environment.pop("ZH_SUN_SHADOW_MODE", None)
     environment.pop("ZH_GPU_DEBUG", None)
-    environment.pop("ZH_TEST_SUN_SHADOW_FAILURE", None)
-    environment.pop("ZH_SUN_SHADOW_DEPTH_DUMP", None)
-    environment.pop("ZH_SUN_SHADOW_CAPTURE_CLOCK", None)
     environment.update(overrides)
     start = time.monotonic()
     with (out / "run.log").open("w") as log:
@@ -220,10 +201,6 @@ def main():
                            if "PosixDevice9 timing:" in line and "LONG FRAME" not in line]
     manifest["shadow_diagnostics"] = [line for line in (out / "run.log").read_text(errors="replace").splitlines()
                                      if line.startswith("SunShadow:")]
-    depth_dump = out / "sun-depth.pgm"
-    if depth_dump.is_file():
-        manifest["depth_dump"] = {"path": str(depth_dump), "sha256": digest(depth_dump),
-                                  "time": "latest report, not necessarily the screenshot frame"}
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     print(json.dumps({"manifest": str(manifest_path), "returncode": process.returncode,
                       "screenshots": len(shots), "elapsed_seconds": manifest["elapsed_seconds"]}))

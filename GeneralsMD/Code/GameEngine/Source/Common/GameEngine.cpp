@@ -1728,24 +1728,8 @@ UnsignedInt GameEngine_pictureMilliseconds( void )
 	return shown <= 0 ? 0 : (UnsignedInt)(shown * 1000 / (LOGICFRAMES_PER_SECOND * pictures));
 }
 
-Bool GameEngine_isShadowCaptureClock( void )
-{
-#if defined(__linux__)
-	// Cache the request before the screenshot clears its pending frame. Never admit a replay
-	// or network session, and never enable this clock through ordinary graphics settings.
-	static const bool asked = TheGlobalData && TheGlobalData->m_screenShotFrame > 0
-		&& getenv("ZH_SUN_SHADOW_CAPTURE_CLOCK")
-		&& strcmp(getenv("ZH_SUN_SHADOW_CAPTURE_CLOCK"), "logic") == 0;
-	return asked && TheGlobalData->m_turbo && TheNetwork == NULL && TheGameLogic
-		&& !TheGameLogic->isInMultiplayerGame() && !TheGameLogic->isInReplayGame();
-#else
-	return FALSE;
-#endif
-}
-
 Real GameEngine_logicTickFraction( void )
 {
-	if (GameEngine_isShadowCaptureClock()) return 1.0f;
 	const Int pictures = GameEngine_videoPictures();
 	if (pictures > 1)
 		return (Real)(GameEngine_videoPicture() + 1) / (Real)pictures;
@@ -2926,9 +2910,6 @@ void GameEngine::planLogicPass( LogicPassPlan &plan )
 		&& turboFrame + TURBO_SETTLE_FRAMES >= TheGlobalData->m_screenShotFrame
 		&& turboFrame <= TheGlobalData->m_screenShotFrame;
 	fastMode = fastMode || ( TheGlobalData->m_turbo && !turboSettling && TheNetwork == NULL );
-	// A fixed scenery clock also needs one client update per logic frame. Wall-clock
-	// catch-up during screenshot settling otherwise skips tree/particle updates on a slower pass.
-	fastMode = fastMode || GameEngine_isShadowCaptureClock();
 
 	/* -video: one logic frame a pass across the range being recorded, so the draw in front of each
 		 logic frame is the one picture of it.  Paced by the wall clock, a pass that fell behind would
@@ -3008,7 +2989,7 @@ void GameEngine::planLogicPass( LogicPassPlan &plan )
 Bool GameEngine::planOverlappedTick( void )
 {
 	if (TheNetwork != NULL || !TheGameLogic->isInGame() || TheGameLogic->isInShellGame()
-			|| TheGameLogic->isLoadingMap() || isVideoPass() || GameEngine_isShadowCaptureClock())
+			|| TheGameLogic->isLoadingMap() || isVideoPass())
 		return FALSE;
 
 	TheMessageStream->propagateMessages();

@@ -1983,7 +1983,6 @@ Libraries/Include/Platform/RendererName.h
 Libraries/Include/Platform/SleepMilliseconds.h
 Libraries/Include/Platform/StrdupAsWindows.h
 Libraries/Include/Platform/SunShadow.h
-Libraries/Include/Platform/SunShadowMode.h
 Libraries/Include/Platform/SunSmoke.h
 Libraries/Include/rts/debug.h
 Libraries/Include/rts/profile.h

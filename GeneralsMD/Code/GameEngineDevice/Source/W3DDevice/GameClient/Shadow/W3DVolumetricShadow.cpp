@@ -75,7 +75,6 @@
 #include "WW3D2/sortingrenderer.h"
 #include "GameClient/View.h"
 #include "Platform/RenderTypes.h"
-#include "Platform/SunShadowMode.h"
 #include "Platform/SunShadow.h"
 #include "Lib/Clock.h"		// Clock_Ticks: QueryPerformanceCounter on Windows, a monotonic clock elsewhere
 #include "GameClient/ParticleSys.h"
@@ -4180,7 +4179,6 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 	// A failed, disabled or empty pass must not expose the previous view's shadow.
 	SunShadow::Clear(DX8Wrapper::_Get_D3D_Device());
 	DX8Wrapper::Flush_Deferred_D3D9_State();
-	const SunShadow::Mode mode = SunShadow::RequestedMode();
 	// Trees historically cast under either shadow option. Smoke has its own option;
 	// it may keep an otherwise empty depth capture alive without enabling geometry.
 #if defined(__linux__)
@@ -4204,7 +4202,7 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 	const UnsignedInt chosenTexels = (SHADOW_MAP_TEXELS / 2) << TheGlobalData->m_shadowQuality;
 	UnsignedInt texels = chosenTexels;
 	Bool begun = FALSE;
-	if (mode != SunShadow::Mode::Legacy && TheGlobalData->m_shadowMap && captureShadows && TheTacticalView != NULL)
+	if (TheGlobalData->m_shadowMap && captureShadows && TheTacticalView != NULL)
 	{
 		if (wholeMap && !wholeMapRefused && SunShadow::Begin( DX8Wrapper::_Get_D3D_Device(), SHADOW_MAP_WHOLE_MAP_TEXELS ))
 		{
@@ -4459,17 +4457,16 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 	// past the map's limit the smoke nearest the camera wins: the freecam's box is centred on the
 	// map's middle, which is not where it is looking from
 #if defined(__linux__)
-	const Bool fillSmoke = mode == SunShadow::Mode::Mapped && captured;
-#else
-	// Direct3D 11 fills the smoke map whether or not the depth capture bound, as it always has.
-	const Bool fillSmoke = TRUE;
-#endif
-	if (fillSmoke)
+	if (captured)
 		fillSmokeMap( transform, wholeMap ? sceneCamera.Get_Position() : focus, halfWidth, farClip );
 	else {
 		SunShadow::FillSmoke(DX8Wrapper::_Get_D3D_Device(), NULL, 0, 0.0f );
 		forgetSmokeInSunMap();
 	}
+#else
+	// Direct3D 11 fills the smoke map whether or not the depth capture bound, as it always has.
+	fillSmokeMap( transform, wholeMap ? sceneCamera.Get_Position() : focus, halfWidth, farClip );
+#endif
 
 	// The frame's own camera, put back: the view, the projection and the viewport all went with the
 	// sun.  Without this everything drawn after the pass is drawn from the sun's seat, which is the
@@ -4517,23 +4514,22 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 	if (TheGlobalData->m_lightingStyle == LIGHTING_STYLE_REFORGED && TheGlobalData->m_shadowMapStrength <= 0.0f)
 		strength = SHADOW_MAP_REFORGED_STRENGTH;
 
-	DX8Wrapper::Flush_Deferred_D3D9_State();
-#if defined(__linux__)
-	const bool receiving = captured && mode == SunShadow::Mode::Mapped
-		&& SunShadow::Parameters(DX8Wrapper::_Get_D3D_Device(), depthBias, strength, widest,
-			narrowest, penumbra / worldPerTexel, unitsPerUnitOfDepth, skyFill);
-#else
-	// Direct3D 11 takes the parameters whether or not the depth capture bound, as it always has.
-	const bool receiving = SunShadow::Parameters(DX8Wrapper::_Get_D3D_Device(), depthBias, strength, widest,
-		narrowest, penumbra / worldPerTexel, unitsPerUnitOfDepth, skyFill);
-#endif
-
 	/* Said last, and only on the way out: everything above can bail, and the volumes have to know
 		 whether this frame's shadows are in the map or still theirs to draw.  The count of casters is
 		 not part of that answer.  It was, and a frame that happened to hold none - a camera over open
 		 ground - handed the frame back to the volumes for that one frame, so the whole scene's
-		 shadows changed style and back again as the camera moved. */
-	(void)receiving; // backend scene ownership is installed only after successful parameters
+		 shadows changed style and back again as the camera moved. Backend scene ownership is
+		 installed only after successful parameters. */
+	DX8Wrapper::Flush_Deferred_D3D9_State();
+#if defined(__linux__)
+	if (captured)
+		SunShadow::Parameters(DX8Wrapper::_Get_D3D_Device(), depthBias, strength, widest,
+			narrowest, penumbra / worldPerTexel, unitsPerUnitOfDepth, skyFill);
+#else
+	// Direct3D 11 takes the parameters whether or not the depth capture bound, as it always has.
+	SunShadow::Parameters(DX8Wrapper::_Get_D3D_Device(), depthBias, strength, widest,
+		narrowest, penumbra / worldPerTexel, unitsPerUnitOfDepth, skyFill);
+#endif
 
 #ifdef DEBUG_LOGGING
 	{

@@ -2,7 +2,7 @@
 
 This feature starts directly from `reference/3.1.0` and has no dependency on the
 Modern water or volumetric hazard-cloud features. Linux uses mapped sun shadows
-by default through SDL GPU. Windows retains its existing Direct3D 11 shadows;
+through SDL GPU. Windows retains its existing Direct3D 11 shadows;
 macOS retains its existing scene shadows. Shadow capability is independent of
 per-pixel lighting.
 
@@ -23,16 +23,8 @@ can cast when the `ShowTrees` preference is off. `VolumetricSmokeShadows`
 independently controls smoke projection, including an otherwise empty capture
 when ordinary geometry shadows are disabled.
 
-`ZH_SUN_SHADOW_MODE` is a Linux diagnostic override:
-
-| Value | Result |
-| --- | --- |
-| unset or `mapped` | Capture and receive supported mapped shadows. |
-| `capture-only` | Capture depth while retaining legacy scene shadows. |
-| `legacy` or an unknown value | Skip capture and retain legacy shadows. |
-
-A request does not prove capture succeeded. `-shadowmapreport`, or the harness's
-`--report`, reads back depth occupancy and reports accepted receiver counts.
+`-shadowmapreport`, or the harness's `--report`, reads back depth occupancy and
+reports accepted receiver counts.
 Diagnostic readback affects timing.
 
 ## State and fallback
@@ -72,13 +64,11 @@ python3 GeneralsMD/Code/Tools/sun-shadow-check.py \
   --root /absolute/path/to/prepared-game-root \
   --overlay "$PWD/build-linux/overlay" \
   --out "$PWD/build-linux/shadow-solid-mapped" \
-  --case solid --mode mapped --logic-clock --gpu-debug --report
+  --case solid --gpu-debug --report
 ```
 
-For a matched legacy image, retain the executable, case and settings, select
-`--mode legacy` and choose a new output directory. `--logic-clock` fixes
-animation and authored shoreline phases for single-player screenshots. It does
-not admit multiplayer or replay sessions and leaves ordinary launches unchanged.
+Legacy comparisons use Classic graphics. Retain the executable, scene and
+settings when comparing images.
 
 Available cases are `solid`, `smoke`, `cloak`, `trees`, `forest`, `bridge`,
 `helicopter`, `water` and `river`. Water cases inspect unchanged legacy water and
@@ -86,10 +76,8 @@ reflection behavior. The harness also accepts `--quality 0|1|2`, `--trees yes|no
 `--geometry-shadows yes|no` and `--smoke-shadows yes|no`. Scenario fixtures are
 copied into a private overlay only for cases that need them.
 
-`--fault target|receiver-program|receiver-pipeline|smoke-target|smoke-pipeline`
-requests a specific creation failure. `--depth-dump --report` saves the latest
-reported depth map, which need not be the screenshot frame. `--replay` accepts an
-existing recording for a case without scenario actions or a fixed capture clock.
+`--replay` accepts an existing recording for a case without scenario actions.
+`--frame` sets the case's screenshot frame; the run ends 60 frames later.
 
 `manifest.json` records the command, explicit environment, executable hash,
 source SHA/diff, settings and scenario/replay hashes, exit status, limit-frame
@@ -98,8 +86,8 @@ provenance is bound to the harness's source checkout. Inspect images and logs
 and compare CRCs; process exit alone does not establish correct visuals.
 
 Use `--measure` for matched timing runs, with the same scene, settings,
-executable and driver. This excludes screenshots, reports, fixed clocks, fault
-injection and GPU validation. The device probe includes loading;
+executable and driver. This excludes screenshots, reports and GPU validation.
+The device probe includes loading;
 `HEADLESS FRAMETIME` starts after logic frame 60. These diagnostics are not a
 universal steady-state FPS result.
 
@@ -114,12 +102,11 @@ ctest --test-dir build-linux --output-on-failure \
   -R '^(posix_draw_resolve_selfcheck|posix_gpu_draw_selfcheck|sdl_gpu_frame_selfcheck|test_sun_shadow_sorting|test_ffshadercompile)$'
 ```
 
-Focused fixtures cover mode parsing, analytic translated-camera receivers,
+Focused fixtures cover analytic translated-camera receivers,
 smoke moments, tree silhouettes, sorted cloak coverage, state restoration,
 queued resource replacement, empty clears, reset and injected creation failures.
 The sun-target frame test retains the baseline gamma and clear checks. Runtime
-sun fixtures are Linux-only; portable parser expectations remain checked on
-other platforms. GPU tests skip when no usable device is available.
+sun fixtures are Linux-only. GPU tests skip when no usable device is available.
 
 Real-game scenes and replay comparisons complement these fixtures. No old
 stacked-branch result establishes this independent branch's validation. Record

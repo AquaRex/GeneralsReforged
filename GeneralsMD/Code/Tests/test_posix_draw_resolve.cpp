@@ -39,7 +39,6 @@
 #include "SdlConstants.h"
 #include "ffshader.h"
 #include "ffvertex.h"
-#include "Platform/SunShadowMode.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -291,34 +290,6 @@ static void check_constants(PosixDevice9 *device)
 
 int main()
 {
-	using SunShadow::Mode;
-	CHECK(SunShadow::ParseMode(NULL, Mode::Legacy) == Mode::Legacy);
-	CHECK(SunShadow::ParseMode("", Mode::Mapped) == Mode::Mapped);
-	CHECK(SunShadow::ParseMode("legacy", Mode::Mapped) == Mode::Legacy);
-	CHECK(SunShadow::ParseMode("capture-only", Mode::Legacy) == Mode::CaptureOnly);
-	CHECK(SunShadow::ParseMode("mapped", Mode::Legacy) == Mode::Mapped);
-	CHECK(SunShadow::ParseMode("mappde", Mode::Mapped) == Mode::Legacy);
-	const char *savedMode = getenv("ZH_SUN_SHADOW_MODE");
-	const bool hadMode = savedMode != NULL;
-	const std::string savedModeText = savedMode ? savedMode : "";
-	unsetenv("ZH_SUN_SHADOW_MODE");
-	CHECK(SunShadow::RequestedMode() == Mode::Mapped);
-	setenv("ZH_SUN_SHADOW_MODE", "mapped", 1);
-	CHECK(SunShadow::RequestedMode() == Mode::Mapped);
-	setenv("ZH_SUN_SHADOW_MODE", "capture-only", 1);
-#if defined(__linux__)
-	CHECK(SunShadow::RequestedMode() == Mode::CaptureOnly);
-#else
-	CHECK(SunShadow::RequestedMode() == Mode::Mapped);
-#endif
-	setenv("ZH_SUN_SHADOW_MODE", "legacy", 1);
-#if defined(__linux__)
-	CHECK(SunShadow::RequestedMode() == Mode::Legacy);
-#else
-	CHECK(SunShadow::RequestedMode() == Mode::Mapped);
-#endif
-	if (hadMode) setenv("ZH_SUN_SHADOW_MODE", savedModeText.c_str(), 1);
-	else unsetenv("ZH_SUN_SHADOW_MODE");
 	IDirect3D9 *d3d = NULL;
 	PosixDevice9 *device = make_device(d3d);
 	CHECK(device != NULL);

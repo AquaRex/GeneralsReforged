@@ -5,7 +5,6 @@
 #include "SdlPipelineCache.h"
 #include "SdlRenderMatrix.h"
 #include "engineshader.h"
-#include "Platform/SunShadowMode.h"
 #include "Platform/SunShadow.h"
 #include "Platform/SunSmoke.h"
 #include "ffshader.h"
@@ -13,7 +12,6 @@
 #include <cmath>
 #include <cstring>
 #include <cstdio>
-#include <cstdlib>
 
 // One list for declaration, capture and restoration, including shader register banks.
 #define SUN_VALUES(X) \
@@ -78,7 +76,7 @@ bool PosixDevice9::Begin_Sun_Shadow(unsigned size)
     // Refusing re-entry must leave the outer capture intact.
     if (SunActive || SunSceneExclusions) return false;
     SunReady = false;
-    if (!Gpu || (!SunReceiverFailure.empty() && SunShadow::RequestedMode() == SunShadow::Mode::Mapped)) return false;
+    if (!Gpu || !SunReceiverFailure.empty()) return false;
     SdlTarget target;
     std::string error;
     if (!Gpu->Sun_Shadow_Target(size, target, error)) {
@@ -145,8 +143,7 @@ bool PosixDevice9::Fill_Sun_Smoke(const float *casters, unsigned count, float st
     if (!Gpu || SunActive || SunSceneExclusions) return false;
     if (Sun) Sun->SmokeFilled = false;
     if (!casters || !count) return Gpu->Fill_Sun_Smoke(nullptr,nullptr,0);
-    if (!Sun || !SunReady || SunShadow::RequestedMode()!=SunShadow::Mode::Mapped
-        || !std::isfinite(strength) || strength<0 || strength>1) return false;
+    if (!Sun || !SunReady || !std::isfinite(strength) || strength<0 || strength>1) return false;
     if (!Gpu->Fill_Sun_Smoke(Sun->ViewProjection,casters,count)) return false;
     Sun->SmokeFilled = Gpu->Sun_Smoke_Texture()!=nullptr;
     Sun->SmokeStrength = strength;
@@ -184,25 +181,6 @@ std::string PosixDevice9::Sun_Shadow_Report()
     for (float d : depth) if (d < 1.0f) {
         ++covered; nearest=std::min(nearest,d); farthest=std::max(farthest,d);
     }
-    // Optional inspection of the latest report's map. Never read back or write files
-    // in ordinary rendering; this path is reached only by the explicit report.
-    if (const char *path = std::getenv("ZH_SUN_SHADOW_DEPTH_DUMP")) {
-        if (FILE *file = std::fopen(path,"wb")) {
-            std::fprintf(file,"P5\n# Row-vector world-to-shadow-clip matrix:");
-            for (float value : Sun->ViewProjection) std::fprintf(file," %.9g",value);
-            std::fprintf(file,"\n%u %u\n65535\n",Sun->Target.Width,Sun->Target.Height);
-            std::vector<unsigned char> pixels(depth.size()*2);
-            for (size_t i=0; i<depth.size(); ++i) {
-                const float d = std::isfinite(depth[i]) ? std::max(0.0f,std::min(1.0f,depth[i])) : 1.0f;
-                const unsigned value = unsigned(d*65535.0f+0.5f);
-                pixels[2*i] = static_cast<unsigned char>(value>>8);
-                pixels[2*i+1] = static_cast<unsigned char>(value&255);
-            }
-            const bool written = std::fwrite(pixels.data(),1,pixels.size(),file) == pixels.size();
-            const int closed = std::fclose(file);
-            if (!written || closed) std::fprintf(stderr,"SunShadow: depth dump write failed\n");
-        } else std::fprintf(stderr,"SunShadow: depth dump open failed\n");
-    }
     char line[360];
     std::snprintf(line,sizeof(line),"SDL sun %ux%u, %u draws, %u/%zu texels occupied, depth %.6f..%.6f, receiving=%u, cumulative receivers solid=%llu ground=%llu",
         Sun->Target.Width,Sun->Target.Height,Sun->Draws,covered,depth.size(),nearest,farthest,
@@ -217,7 +195,7 @@ bool PosixDevice9::Set_Sun_Shadow_Parameters(float bias, float strength, float w
 {
     if (!Sun || SunSceneExclusions || !SunReceiverFailure.empty()) return false;
     Sun->Receiving = false;
-    if (!SunReady || SunActive || SunShadow::RequestedMode() != SunShadow::Mode::Mapped) return false;
+    if (!SunReady || SunActive) return false;
     const float numbers[] = {bias,strength,widest,narrowest,texelsPerGap,unitsPerDepth,skyFill};
     for (float value : numbers) if (!std::isfinite(value)) return false;
     if (bias<0 || strength<0 || strength>1 || narrowest<0 || widest<narrowest || texelsPerGap<0
@@ -278,7 +256,6 @@ bool PosixDevice9::Sun_Camera_Space() const
 bool PosixDevice9::Sun_Receives_Target(const SdlTarget &target) const
 {
     return Sun && SunReady && Sun->Receiving && !SunActive && !SunSceneExclusions
-        && SunShadow::RequestedMode() == SunShadow::Mode::Mapped
         && target.Colour == Sun->Scene.Colour && target.Depth == Sun->Scene.Depth
         && target.Width == Sun->Scene.Width && target.Height == Sun->Scene.Height
         && std::memcmp(&Viewport,&Sun->SceneViewport,sizeof(Viewport)) == 0
@@ -322,7 +299,6 @@ bool PosixDevice9::Sun_Owns_Scene_Shadows()
         return Gpu && Sun && SunReady && Resolve_Target(target,error) && Sun_Receives_Target(target);
     return Sun && SunReady && Sun->Receiving && !SunActive && !SunSceneExclusions
         && Sun->SceneGeneration == SunSceneGeneration
-        && SunShadow::RequestedMode() == SunShadow::Mode::Mapped
         && Resolve_Target(target,error)
         && target.Colour == Sun->Scene.Colour && target.Depth == Sun->Scene.Depth
         && target.Width == Sun->Scene.Width && target.Height == Sun->Scene.Height

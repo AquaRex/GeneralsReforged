@@ -16,7 +16,6 @@
 #include "wwmath.h"
 #include <SDL3/SDL.h>
 #include <cstdio>
-#include <cstdlib>
 #include <vector>
 
 const Char *g_strFile = "data\\Generals.str";
@@ -110,7 +109,6 @@ static void check_sorted_coverage(PosixDevice9 *device, bool reverse)
 
 int main()
 {
-    setenv("ZH_SUN_SHADOW_MODE", "mapped", 1);
     if (!SDL_Init(SDL_INIT_VIDEO)) return 77;
     SDL_SetHint("ZH_OFFSCREEN_FRAMES", "1");
     SDL_SetHint("ZH_OFFSCREEN_HZ", "0");

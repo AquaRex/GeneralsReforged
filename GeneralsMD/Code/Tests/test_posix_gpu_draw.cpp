@@ -39,6 +39,7 @@
 #include "PosixDevice9.h"
 #include "SdlGpuFrame.h"
 #include "SdlResourceMirror.h"
+#include "SdlSunShadowDebug.h"
 #include "Platform/SunShadow.h"
 #include "Platform/SunSmoke.h"
 #include "../Libraries/Source/WWVegas/WW3D2/ffshader.h"
@@ -625,10 +626,6 @@ static void check_sun_capture(PosixDevice9 *device)
 // at z=.75, and a translated/scaled scene camera with a nonzero viewport origin.
 static void check_sun_receivers(PosixDevice9 *device)
 {
-    const char *oldMode = getenv("ZH_SUN_SHADOW_MODE");
-    const std::string savedMode = oldMode ? oldMode : "";
-    const bool hadMode = oldMode != NULL;
-    setenv("ZH_SUN_SHADOW_MODE","mapped",1);
     {
     SunShadow::SceneScope mainScene(device,true);
     D3DMATRIX identity = {}; identity._11=identity._22=identity._33=identity._44=1;
@@ -792,10 +789,7 @@ static void check_sun_receivers(PosixDevice9 *device)
     device->SetRenderState(D3DRS_DESTBLEND,D3DBLEND_ONE);
     draw(); CHECK_PIXEL(10,15,WHITE);
     device->SetRenderState(D3DRS_ALPHABLENDENABLE,0);
-    // Live selection cannot keep receiving an earlier map after switching modes.
-    setenv("ZH_SUN_SHADOW_MODE","capture-only",1);
-    CHECK(!SunShadow::ReceivesView(device)); CHECK(!parameters()); draw(); CHECK_PIXEL(10,15,WHITE);
-    setenv("ZH_SUN_SHADOW_MODE","mapped",1); CHECK(parameters()); draw(); CHECK(pixels==shadowed);
+    CHECK(parameters()); draw(); CHECK(pixels==shadowed);
     // Leave a receiver queued against the old allocation, then replace it. End
     // submits both in order; the queued draw must still sample the old blocker.
     device->Clear(0,NULL,D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER,BLUE,1,0);
@@ -819,16 +813,13 @@ static void check_sun_receivers(PosixDevice9 *device)
         SunShadow::SceneScope nextScene(device,true);
         CHECK(!SunShadow::OwnsSceneShadows(device));
     }
-    if(hadMode) setenv("ZH_SUN_SHADOW_MODE",savedMode.c_str(),1); else unsetenv("ZH_SUN_SHADOW_MODE");
-    printf("sun receivers: shared filter, offset/depth-range matrix, exclusions, nested scenes, targets, modes and empty replacement checked\n");
+    printf("sun receivers: shared filter, offset/depth-range matrix, exclusions, nested scenes, targets and empty replacement checked\n");
 }
 
 
 // Analytic two-sphere moments, then the production sampler/constant/camera paths.
 static void check_sun_smoke(PosixDevice9 *device)
 {
-    const char *mode=getenv("ZH_SUN_SHADOW_MODE"); const std::string saved=mode?mode:""; const bool had=mode;
-    setenv("ZH_SUN_SHADOW_MODE","mapped",1);
     D3DMATRIX identity={}; identity._11=identity._22=identity._33=identity._44=1;
     const float casters[]={0,0,.25f,.5f,1, 0,0,.75f,.5f,2};
     auto *gpu=device->Get_Gpu();
@@ -958,7 +949,6 @@ static void check_sun_smoke(PosixDevice9 *device)
     device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,2,v,sizeof(ScreenVertex));CHECK(SunShadow::End(device));
     std::vector<float> depth;CHECK(device->Read_Sun_Shadow(depth));for(float z:depth) CHECK(z<1);
     }
-    if(had)setenv("ZH_SUN_SHADOW_MODE",saved.c_str(),1);else unsetenv("ZH_SUN_SHADOW_MODE");
     printf("smoke: moments/front, offset/depth-range reconstruction, queued refill, alpha particles, fire glow, exclusions, empty map and cloak coverage checked\n");
 }
 
@@ -966,9 +956,6 @@ static void check_sun_smoke(PosixDevice9 *device)
 // actual displaced alpha silhouette, then receive sunlight through that same program.
 static void check_sun_trees(PosixDevice9 *device)
 {
-    const char *mode=getenv("ZH_SUN_SHADOW_MODE");
-    const bool hadMode=mode!=nullptr;const std::string savedMode=mode?mode:"";
-    setenv("ZH_SUN_SHADOW_MODE","mapped",1);
     {
     SunShadow::SceneScope scene(device,true);
     D3DMATRIX identity={};identity._11=identity._22=identity._33=identity._44=1;
@@ -1026,16 +1013,11 @@ static void check_sun_trees(PosixDevice9 *device)
     device->SetRenderState(D3DRS_ALPHATESTENABLE,0);
     device->SetRenderState(D3DRS_CULLMODE,D3DCULL_CCW);
     }
-    if(hadMode) setenv("ZH_SUN_SHADOW_MODE",savedMode.c_str(),1);else unsetenv("ZH_SUN_SHADOW_MODE");
     printf("sun trees: displaced alpha silhouette, transparent gaps and receiving checked\n");
 }
 
 static void check_sun_reset(PosixDevice9 *device)
 {
-    const char *oldMode=getenv("ZH_SUN_SHADOW_MODE");
-    const std::string savedMode=oldMode ? oldMode : "";
-    const bool hadMode=oldMode!=NULL;
-    setenv("ZH_SUN_SHADOW_MODE","mapped",1);
     begin(device,BLUE);
     CHECK(SunShadow::Begin(device,32)); CHECK(SunShadow::End(device));
     CHECK(SunShadow::Parameters(device,0,.5f,0,0,0,1,0));
@@ -1063,7 +1045,6 @@ static void check_sun_reset(PosixDevice9 *device)
         CHECK(resizedPixels[i]==0 && resizedPixels[i+1]==255 && resizedPixels[i+2]==0 && resizedPixels[i+3]==255);
     CHECK(device->Reset(&original)==D3D_OK);
     CHECK(!SunShadow::OwnsSceneShadows(device));
-    if(hadMode) setenv("ZH_SUN_SHADOW_MODE",savedMode.c_str(),1); else unsetenv("ZH_SUN_SHADOW_MODE");
     printf("sun reset: pending work drained, stale capture invalidated, resized capture and scene verified\n");
 }
 
@@ -1093,10 +1074,7 @@ static PosixDevice9 *sun_fault_device(IDirect3D9 *adapter)
 
 static void check_sun_failures(IDirect3D9 *adapter)
 {
-    const char *oldMode=getenv("ZH_SUN_SHADOW_MODE"),*oldFault=getenv("ZH_TEST_SUN_SHADOW_FAILURE");
-    const std::string savedMode=oldMode ? oldMode : "",savedFault=oldFault ? oldFault : "";
-    const bool hadMode=oldMode!=NULL,hadFault=oldFault!=NULL;
-    setenv("ZH_SUN_SHADOW_MODE","mapped",1);unsetenv("ZH_TEST_SUN_SHADOW_FAILURE");
+    Sdl_Sun_Shadow_Fault_Point() = nullptr;
     struct V {float x,y,z;uint32_t color;};
     const V caster[]={{-1,1,.25f,WHITE},{1,1,.25f,WHITE},{-1,-1,.25f,WHITE},
         {1,1,.25f,WHITE},{1,-1,.25f,WHITE},{-1,-1,.25f,WHITE}};
@@ -1112,13 +1090,13 @@ static void check_sun_failures(IDirect3D9 *adapter)
         CHECK(smokeDevice->DrawPrimitiveUP(D3DPT_TRIANGLELIST,2,caster,sizeof(V))==D3D_OK);
         CHECK(SunShadow::End(smokeDevice));
         const float cloud[]={0,0,.5f,.5f,2};
-        setenv("ZH_TEST_SUN_SHADOW_FAILURE",fault,1);
+        Sdl_Sun_Shadow_Fault_Point() = fault;
         CHECK(!SunShadow::FillSmoke(smokeDevice,cloud,1,.6f));
         CHECK(!smokeDevice->Get_Gpu()->Sun_Smoke_Texture());
         CHECK(parameters(smokeDevice));CHECK(SunShadow::OwnsSceneShadows(smokeDevice));
         smokeDevice->DrawPrimitiveUP(D3DPT_TRIANGLELIST,2,left,sizeof(V));
         read_back(smokeDevice);CHECK_PIXEL(8,16,0xFF808080); // core depth map still works
-        unsetenv("ZH_TEST_SUN_SHADOW_FAILURE");
+        Sdl_Sun_Shadow_Fault_Point() = nullptr;
         CHECK(!SunShadow::FillSmoke(smokeDevice,cloud,1,.6f)); // bounded refusal, no per-frame retry spam
         CHECK(!SunShadow::FillSmoke(smokeDevice,nullptr,0,0));
         }
@@ -1142,7 +1120,7 @@ static void check_sun_failures(IDirect3D9 *adapter)
                 device->SetRenderState(D3DRS_ALPHAREF,8);
                 CHECK(parameters(device)); // changing parameters cannot forget earlier draws
             }
-            setenv("ZH_TEST_SUN_SHADOW_FAILURE",fault,1);
+            Sdl_Sun_Shadow_Fault_Point() = fault;
             const unsigned recorded=device->Draws_Recorded();
             CHECK(device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,2,right,sizeof(V))==D3D_OK);
             CHECK(device->Draws_Recorded()==recorded+1);CHECK(device->Draw_Refusals().empty());
@@ -1150,8 +1128,8 @@ static void check_sun_failures(IDirect3D9 *adapter)
             CHECK_PIXEL(8,16,late ? 0xFF808080 : BLUE);
             CHECK(!SunShadow::ReceivesView(device));CHECK(SunShadow::OwnsSceneShadows(device)==late);
             CHECK(!parameters(device));CHECK(SunShadow::OwnsSceneShadows(device)==late);
-            unsetenv("ZH_TEST_SUN_SHADOW_FAILURE");
-            // The failure latch, not the injection environment, now selects ordinary draws.
+            Sdl_Sun_Shadow_Fault_Point() = nullptr;
+            // The failure latch now selects ordinary draws after clearing the fault point.
             CHECK(device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,2,left,sizeof(V))==D3D_OK);
             read_back(device);CHECK_PIXEL(8,16,WHITE);CHECK_PIXEL(24,16,WHITE);
         }
@@ -1166,9 +1144,6 @@ static void check_sun_failures(IDirect3D9 *adapter)
         }
         D3DPRESENT_PARAMETERS reset=device->Get_Present_Parameters();CHECK(device->Reset(&reset)==D3D_OK);
         CHECK(!SunShadow::Begin(device,32)); // Reset retains the refused program/pipeline cache
-        setenv("ZH_SUN_SHADOW_MODE","capture-only",1);
-        CHECK(SunShadow::Begin(device,32));CHECK(SunShadow::End(device));CHECK(!parameters(device));
-        setenv("ZH_SUN_SHADOW_MODE","mapped",1);
         CHECK(!SunShadow::Begin(device,32));
         device->Release(); // the next case recreates the device and can receive again
         printf("sun fault %s %s: geometry retained, submitted pixels preserved, ownership and next-scene latch checked\n",
@@ -1178,21 +1153,21 @@ static void check_sun_failures(IDirect3D9 *adapter)
     if(device) {
         {
             SunShadow::SceneScope scene(device,true);
-            setenv("ZH_TEST_SUN_SHADOW_FAILURE","target",1);
+            Sdl_Sun_Shadow_Fault_Point() = "target";
             CHECK(!SunShadow::Begin(device,32));CHECK(!parameters(device));
             CHECK(!SunShadow::OwnsSceneShadows(device));
             CHECK(device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,2,right,sizeof(V))==D3D_OK);
             read_back(device);CHECK_PIXEL(24,16,WHITE);
-            unsetenv("ZH_TEST_SUN_SHADOW_FAILURE");
+            Sdl_Sun_Shadow_Fault_Point() = nullptr;
             CHECK(SunShadow::Begin(device,32));
             CHECK(device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,2,caster,sizeof(V))==D3D_OK);
             CHECK(SunShadow::End(device));CHECK(parameters(device));
             CHECK(device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,2,left,sizeof(V))==D3D_OK);
-            setenv("ZH_TEST_SUN_SHADOW_FAILURE","target",1);
+            Sdl_Sun_Shadow_Fault_Point() = "target";
             CHECK(!SunShadow::Begin(device,64));CHECK(!parameters(device));
             CHECK(!SunShadow::OwnsSceneShadows(device));
             read_back(device);CHECK_PIXEL(8,16,0xFF808080);CHECK_PIXEL(24,16,WHITE);
-            unsetenv("ZH_TEST_SUN_SHADOW_FAILURE");
+            Sdl_Sun_Shadow_Fault_Point() = nullptr;
             CHECK(SunShadow::Begin(device,64));CHECK(SunShadow::End(device));CHECK(parameters(device));
             std::vector<float> depth;CHECK(device->Read_Sun_Shadow(depth));CHECK(depth.size()==64*64);
             for(float value:depth) CHECK(value==1.0f);
@@ -1202,8 +1177,7 @@ static void check_sun_failures(IDirect3D9 *adapter)
         device->Release();
         printf("sun allocation fault: first allocation and replacement refused, queued old reader retained, recovery and empty clear checked\n");
     }
-    if(hadMode) setenv("ZH_SUN_SHADOW_MODE",savedMode.c_str(),1);else unsetenv("ZH_SUN_SHADOW_MODE");
-    if(hadFault) setenv("ZH_TEST_SUN_SHADOW_FAILURE",savedFault.c_str(),1);else unsetenv("ZH_TEST_SUN_SHADOW_FAILURE");
+    Sdl_Sun_Shadow_Fault_Point() = nullptr;
 }
 
 #endif
