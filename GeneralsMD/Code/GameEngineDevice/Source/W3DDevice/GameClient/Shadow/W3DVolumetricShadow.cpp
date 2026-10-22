@@ -4190,13 +4190,6 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 	const Bool geometryShadows = TRUE;
 	const Bool captureShadows = m_shadowList != NULL;
 #endif
-	static bool modeReported = false;
-	static SunShadow::Mode lastMode = SunShadow::Mode::Legacy;
-	if (!modeReported || lastMode != mode) {
-		fprintf(stderr, "SunShadow: requested %s\n", SunShadow::ModeName(mode));
-		modeReported = true;
-		lastMode = mode;
-	}
 
 	/* The freecam asks for a map four times as wide and makes do with the usual one if refused.  A
 		 refusal is remembered until the freecam lands: asking again every frame released the usual
@@ -4211,8 +4204,7 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 	const UnsignedInt chosenTexels = (SHADOW_MAP_TEXELS / 2) << TheGlobalData->m_shadowQuality;
 	UnsignedInt texels = chosenTexels;
 	Bool begun = FALSE;
-	if (mode != SunShadow::Mode::Legacy && TheGlobalData->m_shadowMap && captureShadows && TheTacticalView != NULL
-		&& TheTerrainRenderObject != NULL && TheTerrainLogic != NULL && TheW3DShadowManager != NULL)
+	if (mode != SunShadow::Mode::Legacy && TheGlobalData->m_shadowMap && captureShadows && TheTacticalView != NULL)
 	{
 		if (wholeMap && !wholeMapRefused && SunShadow::Begin( DX8Wrapper::_Get_D3D_Device(), SHADOW_MAP_WHOLE_MAP_TEXELS ))
 		{
@@ -4458,13 +4450,21 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 	// unbinds textures and flushes deferred states. The restored scene must be the last writer.
 #if defined(__linux__)
 	DX8Wrapper::Invalidate_Cached_Render_States();
-#endif
 	const bool captured = SunShadow::End(DX8Wrapper::_Get_D3D_Device());
+#else
+	SunShadow::End(DX8Wrapper::_Get_D3D_Device());	// Direct3D 11 carries on whether or not it bound
+#endif
 
 	// The smoke goes into a map of its own through the sun the casters were just drawn with.
 	// past the map's limit the smoke nearest the camera wins: the freecam's box is centred on the
 	// map's middle, which is not where it is looking from
-	if (mode == SunShadow::Mode::Mapped && captured)
+#if defined(__linux__)
+	const Bool fillSmoke = mode == SunShadow::Mode::Mapped && captured;
+#else
+	// Direct3D 11 fills the smoke map whether or not the depth capture bound, as it always has.
+	const Bool fillSmoke = TRUE;
+#endif
+	if (fillSmoke)
 		fillSmokeMap( transform, wholeMap ? sceneCamera.Get_Position() : focus, halfWidth, farClip );
 	else {
 		SunShadow::FillSmoke(DX8Wrapper::_Get_D3D_Device(), NULL, 0, 0.0f );
@@ -4518,9 +4518,15 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 		strength = SHADOW_MAP_REFORGED_STRENGTH;
 
 	DX8Wrapper::Flush_Deferred_D3D9_State();
+#if defined(__linux__)
 	const bool receiving = captured && mode == SunShadow::Mode::Mapped
 		&& SunShadow::Parameters(DX8Wrapper::_Get_D3D_Device(), depthBias, strength, widest,
 			narrowest, penumbra / worldPerTexel, unitsPerUnitOfDepth, skyFill);
+#else
+	// Direct3D 11 takes the parameters whether or not the depth capture bound, as it always has.
+	const bool receiving = SunShadow::Parameters(DX8Wrapper::_Get_D3D_Device(), depthBias, strength, widest,
+		narrowest, penumbra / worldPerTexel, unitsPerUnitOfDepth, skyFill);
+#endif
 
 	/* Said last, and only on the way out: everything above can bail, and the volumes have to know
 		 whether this frame's shadows are in the map or still theirs to draw.  The count of casters is

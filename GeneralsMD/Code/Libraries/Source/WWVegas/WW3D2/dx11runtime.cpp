@@ -1255,7 +1255,8 @@ bool End(IDirect3DDevice9 *) {
     Direct3D11_End_Shadow_Map();
     return bound;
 }
-void Clear(IDirect3DDevice9 *) { receiving = false; Direct3D11_Clear_Shadow_Parameters(); }
+// The pass's start only hands the frame back to the volumes, as theShadowMapHoldsTheFrame did.
+void Clear(IDirect3DDevice9 *) { receiving = false; }
 bool Parameters(IDirect3DDevice9 *, float bias, float strength, float widest, float narrowest,
     float texelsPerGap, float unitsPerDepth, float skyFill) {
     if (!Direct3D11_Is_Active()) return false;
