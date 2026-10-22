@@ -1302,7 +1302,7 @@ UpdateSleepTime AIUpdateInterface::update( void )
 		// a rally point across the map is reached through the tunnels when they are shorter
 		const Real walkX = rallyPoint.x - getObject()->getPosition()->x;
 		const Real walkY = rallyPoint.y - getObject()->getPosition()->y;
-		Object *entrance = getObject()->getControllingPlayer()->getTunnelSystem()->findTunnelShortcut( getObject(), getObject()->getPosition(),
+		Object *entrance = TunnelTracker::findTunnelShortcut( getObject(), getObject()->getPosition(),
 			&rallyPoint, (Real)sqrt( walkX * walkX + walkY * walkY ) );
 		const Bool tunnelled = entrance != NULL
 			&& takeTunnelTrip( entrance, &rallyPoint, fights ? TUNNEL_TRIP_ATTACK_MOVE : TUNNEL_TRIP_MOVE, CMD_FROM_AI );

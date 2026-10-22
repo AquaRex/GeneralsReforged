@@ -11583,7 +11583,7 @@ void AIPlayer::sendWaveThroughTunnels( AIGroup *wave, const Coord3D *center, Way
 	const VecObjectID members = wave->getAllIDs();
 	const Object *walker = members.empty() ? NULL : TheGameLogic->findObjectByID( members.front() );
 	Object *entrance = walker == NULL || walker->getAI() == NULL ? NULL
-		: m_player->getTunnelSystem()->findTunnelShortcut( walker, center, end->getLocation(), walk );
+		: TunnelTracker::findTunnelShortcut( walker, center, end->getLocation(), walk );
 	if( entrance == NULL )
 		return;
 
@@ -13759,7 +13759,7 @@ void AIPlayer::doRetreats( void )
 				fallback.z = TheTerrainLogic->getGroundHeight( fallback.x, fallback.y );
 			const Real homeX = m_baseCenter.x - centre.x;
 			const Real homeY = m_baseCenter.y - centre.y;
-			Object *homeTunnel = shortOfHome ? NULL : m_player->getTunnelSystem()->findTunnelShortcut( walker, &centre, &m_baseCenter,
+			Object *homeTunnel = shortOfHome ? NULL : TunnelTracker::findTunnelShortcut( walker, &centre, &m_baseCenter,
 				(Real)sqrt( homeX * homeX + homeY * homeY ) );
 			if( homeTunnel )
 				DEBUG_LOG(("AI RETREAT frame %d player %d falls back through tunnel %d\n", TheGameLogic->getFrame(),

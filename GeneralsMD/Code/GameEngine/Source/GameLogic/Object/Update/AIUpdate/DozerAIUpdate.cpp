@@ -263,8 +263,7 @@ StateReturnType DozerActionPickActionPosState::update( void )
 	//
 	const Real walkX = goalPos.x - dozer->getPosition()->x;
 	const Real walkY = goalPos.y - dozer->getPosition()->y;
-	const TunnelTracker *tunnels = dozer->getControllingPlayer()->getTunnelSystem();
-	Object *entrance = tunnels->findTunnelShortcut( dozer, dozer->getPosition(), &goalPos,
+	Object *entrance = TunnelTracker::findTunnelShortcut( dozer, dozer->getPosition(), &goalPos,
 		(Real)sqrt( walkX * walkX + walkY * walkY ) );
 
 	if( entrance != NULL && ai->takeTunnelTrip( entrance, &goalPos, TUNNEL_TRIP_MOVE, CMD_FROM_AI ) )
