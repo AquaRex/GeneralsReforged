@@ -1381,8 +1381,8 @@ TEST(water_foam_horizon_window_preserves_near_water_across_yaw_pitch_and_resize)
 		CHECK(nearHits==(pitch<.5?2u:0u));
 	}
 	// A very distant centre/upper hit must not displace finite nearby lower hits.
-	const Point far[5]={{1,0,-.000001},{1,-.4,-.2},{1,.4,-.2},{1,-.4,-.00001},{1,.4,-.00001}};
-	const auto prioritized=Choose({0,0,30},far,0);
+	const Point farRays[5]={{1,0,-.000001},{1,-.4,-.2},{1,.4,-.2},{1,-.4,-.00001},{1,.4,-.00001}};
+	const auto prioritized=Choose({0,0,30},farRays,0);
 	CHECK(inside(prioritized,{150,-60,0},128) && inside(prioritized,{150,60,0},128));
 	CHECK(inside(prioritized,{0,0,0},128));
 	// Below-water and fully upward views remain finite and bounded without inventing
@@ -1408,17 +1408,17 @@ TEST(water_foam_horizon_window_preserves_near_water_across_yaw_pitch_and_resize)
 TEST(water_foam_stern_spread_is_size_bounded_and_emission_remains_time_integrated)
 {
 	using namespace WaterFoamHistory;
-	Sample small,large,tiny,huge;
-	auto hull=foamTestHull(0,0,30,0);CHECK(MakeSample(hull,0,small));
-	hull.data[1][3]=74;CHECK(MakeSample(hull,0,large));
-	hull.data[1][3]=1;CHECK(MakeSample(hull,0,tiny));
-	hull.data[1][3]=4096;CHECK(MakeSample(hull,0,huge));
-	CHECK(std::abs(small.width[0]-2.8)<1e-12 && tiny.width[0]==2.5);
-	CHECK(large.width[0]>29 && large.width[0]<30 && huge.width[0]==30);
-	CHECK(small.width[0]/small.halfWidth>large.width[0]/large.halfWidth);
-	CHECK(small.width[1]==.65 && large.width[1]==3 && huge.width[1]==3);
-	CHECK(std::abs(small.rate[0]-2*(.8+.25*std::sqrt(30.0)))<1e-12);
-	CHECK(std::abs(small.rate[1]/small.rate[0]-.22)<1e-12);
+	Sample smallHull,largeHull,tinyHull,hugeHull;
+	auto hull=foamTestHull(0,0,30,0);CHECK(MakeSample(hull,0,smallHull));
+	hull.data[1][3]=74;CHECK(MakeSample(hull,0,largeHull));
+	hull.data[1][3]=1;CHECK(MakeSample(hull,0,tinyHull));
+	hull.data[1][3]=4096;CHECK(MakeSample(hull,0,hugeHull));
+	CHECK(std::abs(smallHull.width[0]-2.8)<1e-12 && tinyHull.width[0]==2.5);
+	CHECK(largeHull.width[0]>29 && largeHull.width[0]<30 && hugeHull.width[0]==30);
+	CHECK(smallHull.width[0]/smallHull.halfWidth>largeHull.width[0]/largeHull.halfWidth);
+	CHECK(smallHull.width[1]==.65 && largeHull.width[1]==3 && hugeHull.width[1]==3);
+	CHECK(std::abs(smallHull.rate[0]-2*(.8+.25*std::sqrt(30.0)))<1e-12);
+	CHECK(std::abs(smallHull.rate[1]/smallHull.rate[0]-.22)<1e-12);
 	// A short live section must accumulate by elapsed dose time. Repeating the same
 	// render cannot stamp another full-opacity blob, even with the stronger response.
 	const Mapping map={-12.5,-.5,1,1,1,1};History history;
@@ -3027,8 +3027,8 @@ TEST(water_bow_pressure_size_and_speed_parameters_are_independently_measured)
         const auto a=BowPressure(beam,.301f),b=BowPressure(beam,.302f);
         CHECK(a.amplitude<.000001 && b.amplitude>3.9f*a.amplitude && b.amplitude<4.1f*a.amplitude);
     }
-    const auto small=BowPressure(8.37f,70),large=BowPressure(54,70);
-    CHECK(large.along>small.along && large.across>small.across && large.amplitude>small.amplitude);
+    const auto slowBow=BowPressure(8.37f,70),fastBow=BowPressure(54,70);
+    CHECK(fastBow.along>slowBow.along && fastBow.across>slowBow.across && fastBow.amplitude>slowBow.amplitude);
     CHECK(std::abs(BowPressure(8.37f,14).amplitude-BowPressure(8.37f,70).amplitude)>2);
 }
 
@@ -3554,9 +3554,9 @@ TEST(water_bow_refinement_protected_only_or_nonfresh_geometry_cannot_admit)
 	CHECK(HasRefinableDemand(mesh,view,corners,actual.prepared));
 	for(auto &vertex:mesh.vertices) vertex.lattice=-1;const auto nonfresh=mesh;
 	CHECK(!HasRefinableDemand(mesh,view,corners,actual.prepared));CHECK(bowTestSameMesh(mesh,nonfresh));
-	const Point small[4]={{-20,-20},{20,-20},{20,20},{-20,20}};
-	Mesh protectedMesh;CHECK(Build(small,view.projection,view.resolution,protectedMesh));CHECK(!protectedMesh.indices.empty());
-	CHECK(!HasRefinableDemand(protectedMesh,view,small,actual.prepared));
+	const Point smallPatch[4]={{-20,-20},{20,-20},{20,20},{-20,20}};
+	Mesh protectedMesh;CHECK(Build(smallPatch,view.projection,view.resolution,protectedMesh));CHECK(!protectedMesh.indices.empty());
+	CHECK(!HasRefinableDemand(protectedMesh,view,smallPatch,actual.prepared));
 }
 
 #include "Platform/WaterShoreFoam.h"
@@ -4767,9 +4767,9 @@ TEST(water_bow_shoulder_large_hull_scale_cap_support_and_small_boat_identity)
     // Small captured PT bodies, including reverse/rotation in the prior test, must
     // retain the exact old6-cap scalar. No tolerance can hide a changed footprint.
     for(unsigned pose=0;pose<3;++pose) {
-        const auto h=T::CapturedHull(pose);const auto small=T::contour(h);CHECK(small.width<6);
+        const auto h=T::CapturedHull(pose);const auto contourShape=T::contour(h);CHECK(contourShape.width<6);
         for(double x:{-45.31,20.31,38.17,43.13,46.21})for(double y:{-11.13,-2.17,6.19,10.23}) {
-            const auto p=S::ToWorld(small,{x,y});
+            const auto p=S::ToWorld(contourShape,{x,y});
             CHECK(T::oracle(h,p.x,p.y)==T::oracle(h,p.x,p.y,6));
         }
     }

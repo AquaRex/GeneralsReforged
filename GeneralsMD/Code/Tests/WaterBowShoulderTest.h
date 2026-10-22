@@ -32,13 +32,13 @@ double oracle(const WaterHullModel::Hull& h,double x,double y,double widthCap=12
  double best=1e99,support=-1e99;bool inside=true;unsigned n=unsigned(h.data[0][3]);
  auto vertex=[&](unsigned i,unsigned d){return double(h.data[4+i/2][2*(i%2)+d]);};
  for(unsigned i=0;i<n;++i){unsigned k=(i+1)%n;double ax=vertex(i,0),ay=vertex(i,1),ex=vertex(k,0)-ax,ey=vertex(k,1)-ay;
-  double t=std::max(0.,std::min(1.,((px-ax)*ex+(py-ay)*ey)/(ex*ex+ey*ey)));double qx=ax+t*ex,qy=ay+t*ey,d=(px-qx)*(px-qx)+(py-qy)*(py-qy);
-  if(d<best){best=d;}inside=inside&&ex*(py-ay)-ey*(px-ax)>=0;support=std::max(support,ax*fx+ay*fy);}
- const double beam=h.data[1][3],width=std::max(3.,std::min(widthCap,beam*double(.45f))),length=std::max(9.,std::min(32.,6+double(1.2f)*beam));
- const double u=std::max(0.,std::min(250.,speed)-double(.3f)),amplitude=std::max(3.,std::min(8.,1.8*std::sqrt(beam)))*u*u/(u*u+26*26);
- auto profile=[](double a){a=std::abs(a);if(a>=3)return 0.;double t=std::max(0.,std::min(1.,(a-1.5)/1.5));return std::exp(-a*a)*(1-t*t*(3-2*t));};
- const double ridge=((inside?-1:1)*std::sqrt(best)-.5*width)/width,aft=std::max(0.,support-px*fx-py*fy)/length;
- const double t=std::max(0.,std::min(1.,(radius-(reach-30))/30));return amplitude*profile(ridge)*profile(aft)*(1-t*t*(3-2*t));
+  double t=(std::max)(0.,(std::min)(1.,((px-ax)*ex+(py-ay)*ey)/(ex*ex+ey*ey)));double qx=ax+t*ex,qy=ay+t*ey,d=(px-qx)*(px-qx)+(py-qy)*(py-qy);
+  if(d<best){best=d;}inside=inside&&ex*(py-ay)-ey*(px-ax)>=0;support=(std::max)(support,ax*fx+ay*fy);}
+ const double beam=h.data[1][3],width=(std::max)(3.,(std::min)(widthCap,beam*double(.45f))),length=(std::max)(9.,(std::min)(32.,6+double(1.2f)*beam));
+ const double u=(std::max)(0.,(std::min)(250.,speed)-double(.3f)),amplitude=(std::max)(3.,(std::min)(8.,1.8*std::sqrt(beam)))*u*u/(u*u+26*26);
+ auto profile=[](double a){a=std::abs(a);if(a>=3)return 0.;double t=(std::max)(0.,(std::min)(1.,(a-1.5)/1.5));return std::exp(-a*a)*(1-t*t*(3-2*t));};
+ const double ridge=((inside?-1:1)*std::sqrt(best)-.5*width)/width,aft=(std::max)(0.,support-px*fx-py*fy)/length;
+ const double t=(std::max)(0.,(std::min)(1.,(radius-(reach-30))/30));return amplitude*profile(ridge)*profile(aft)*(1-t*t*(3-2*t));
 }
 
 // Original captured PT contact slabs at frames80/201/381, not current clock poses.
