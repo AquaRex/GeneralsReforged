@@ -31,6 +31,7 @@
 
 #define DEFINE_SHADOW_NAMES
 
+#include "Common/GlobalData.h"
 #include "Common/Player.h"
 #include "Common/PlayerList.h"
 #include "Common/Xfer.h"
@@ -55,8 +56,36 @@ RadiusDecalTemplate::RadiusDecalTemplate() :
 	m_color(0),
 	m_onlyVisibleToOwningPlayer(true),
 	m_spinTime(0),
+	m_lightReference(0.0f),
+	m_lightScaleMin(1.0f),
+	m_lightScaleMax(1.0f),
 	m_name(AsciiString::TheEmptyString)  // Added By Sadullah Nader for Init purposes
 {
+}
+
+// ------------------------------------------------------------------------------------------------
+/** How bright flat ground is lit at the map's time of day against LightReference, clamped to
+	* LightScaleMin..LightScaleMax.  An additive mark adds the same light whatever lies under it, so on a
+	* night map it reads far louder than by day; scaling by the ground's own light keeps it as quiet.
+	* The light the terrain shades a flat cell with (BaseHeightMap's doTheLight): the first light's
+	* ambient, plus each light's diffuse by how steeply it falls. */
+// ------------------------------------------------------------------------------------------------
+static Real groundLight()
+{
+	RGBColor shade = TheGlobalData->m_terrainAmbient[0];
+	for (Int i = 0; i < TheGlobalData->m_numGlobalLights; ++i)
+	{
+		const Real down = MAX(0.0f, -TheGlobalData->m_terrainLightPos[i].z);
+		shade.red += TheGlobalData->m_terrainDiffuse[i].red * down;
+		shade.green += TheGlobalData->m_terrainDiffuse[i].green * down;
+		shade.blue += TheGlobalData->m_terrainDiffuse[i].blue * down;
+	}
+	return 0.30f * shade.red + 0.59f * shade.green + 0.11f * shade.blue;
+}
+
+Real RadiusDecalTemplate::lightScale() const
+{
+	return MIN(m_lightScaleMax, MAX(m_lightScaleMin, groundLight() / m_lightReference));
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -94,8 +123,10 @@ void RadiusDecalTemplate::createRadiusDecal(const Coord3D& pos, Real radius, con
 		{
 			result.m_decal->setAngle(0.0f);
 			result.m_decal->setColor(m_color == 0 ? clientPlayerColor(owningPlayer) : m_color);
-			result.m_decal->setPosition(pos.x, pos.y, pos.z);	
+			result.m_decal->setPosition(pos.x, pos.y, pos.z);
 			result.m_template = this;
+			if (m_lightReference > 0.0f)
+				DEBUG_LOG(("AURA RING LIGHT %s ground=%.3f scale=%.2f\n", m_name.str(), groundLight(), lightScale()));
 		}
 		else
 		{
@@ -134,6 +165,9 @@ void RadiusDecalTemplate::xferRadiusDecalTemplate( Xfer *xfer )
 		{ "Color",											INI::parseColorInt,						NULL,							offsetof( RadiusDecalTemplate, m_color ) },
 		{ "OnlyVisibleToOwningPlayer",	INI::parseBool,								NULL,							offsetof( RadiusDecalTemplate, m_onlyVisibleToOwningPlayer ) },
 		{ "SpinTime",										INI::parseInt,								NULL,							offsetof( RadiusDecalTemplate, m_spinTime ) },
+		{ "LightReference",							INI::parseReal,								NULL,							offsetof( RadiusDecalTemplate, m_lightReference ) },
+		{ "LightScaleMin",							INI::parseReal,								NULL,							offsetof( RadiusDecalTemplate, m_lightScaleMin ) },
+		{ "LightScaleMax",							INI::parseReal,								NULL,							offsetof( RadiusDecalTemplate, m_lightScaleMax ) },
 		{ 0, 0, 0, 0 }
 	};
 
@@ -211,7 +245,10 @@ void RadiusDecal::update()
 		Int opac;
 		if( TheGameLogic->getDrawIconUI() && !CinemaDirector_hidesHud() )
 		{
-			opac = REAL_TO_INT((m_template->m_minOpacity + percent * (m_template->m_maxOpacity - m_template->m_minOpacity)) * 255.0f);
+			Real opacity = m_template->m_minOpacity + percent * (m_template->m_maxOpacity - m_template->m_minOpacity);
+			if (m_template->m_lightReference > 0.0f)
+				opacity *= m_template->lightScale();
+			opac = REAL_TO_INT(opacity * 255.0f);
 		}
 		else
 		{
