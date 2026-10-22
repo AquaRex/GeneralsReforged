@@ -2626,7 +2626,7 @@ TOOLTIP:BioStrategyLong_Turkiye
 END
 
 GUI:BioFeatures_Turkiye
-"Long-range artillery, short sight \n Combat Engineers build in place of a dozer \n Spotters, UAVs and radar towers aim the guns"
+"Long-range artillery, short sight \n Combat Engineers dig Siper bunkers at the front \n Spotters, UAVs and radar towers aim the guns"
 END
 
 OBJECT:TurkiyeInfantryMehmetcik
@@ -2674,7 +2674,7 @@ CONTROLBAR:ConstructTurkiyeInfantrySpotter
 END
 
 CONTROLBAR:ToolTipTurkiyeInfantrySpotter
-"Sees 450 and barely fights. Put it on a hill and the artillery behind it can shoot."
+"Sees 500, hides while it stands still and barely fights. Put it on a hill and the artillery behind it can shoot."
 END
 
 OBJECT:TurkiyeInfantryMaroonBeret
@@ -2686,7 +2686,7 @@ CONTROLBAR:ConstructTurkiyeInfantryMaroonBeret
 END
 
 CONTROLBAR:ToolTipTurkiyeInfantryMaroonBeret
-"Special forces. Clears buildings; carries no explosives."
+"Special forces. Camouflaged, sees 350 for the artillery and plants timed and remote charges."
 END
 
 OBJECT:TurkiyeVehicleSupplyTruck
@@ -2710,7 +2710,7 @@ CONTROLBAR:ConstructTurkiyeVehicleCobra
 END
 
 CONTROLBAR:ToolTipTurkiyeVehicleCobra
-"Fast, fragile scout car that sees 400: the cheapest spotter."
+"Fast, fragile car with a machine gun and seats for five infantry. Sees 250, too short to aim the artillery from afar."
 END
 
 OBJECT:TurkiyeVehicleKirpi
@@ -2746,7 +2746,7 @@ CONTROLBAR:ConstructTurkiyeVehicleKorkut
 END
 
 CONTROLBAR:ToolTipTurkiyeVehicleKorkut
-"Twin cannons out to 300 against aircraft and infantry."
+"Air defense: twin cannons out to 350 against aircraft. Cannot fire at the ground."
 END
 
 OBJECT:TurkiyeVehicleFirtina
@@ -2758,7 +2758,7 @@ CONTROLBAR:ConstructTurkiyeVehicleFirtina
 END
 
 CONTROLBAR:ToolTipTurkiyeVehicleFirtina
-"Fires 600 and sees 100: it needs a spotter, a UAV or a radar tower to aim."
+"Fires a heavy shell with a wide blast out to 600 and sees 100: it needs a spotter, a UAV or a radar tower to aim."
 END
 
 OBJECT:TurkiyeVehicleSakarya
@@ -2770,7 +2770,7 @@ CONTROLBAR:ConstructTurkiyeVehicleSakarya
 END
 
 CONTROLBAR:ToolTipTurkiyeVehicleSakarya
-"Fires a six-rocket salvo out to 500, then reloads for 15 seconds. Needs a spotter."
+"Fires a six-rocket salvo over a wide area out to 500, then reloads for 12 seconds. Needs a spotter."
 END
 
 OBJECT:TurkiyeTankKoral
@@ -2794,7 +2794,7 @@ CONTROLBAR:ConstructTurkiyeVehicleBayraktar
 END
 
 CONTROLBAR:ToolTipTurkiyeVehicleBayraktar
-"Hovers where it is sent and sees 400. Light munitions. The eye of the artillery."
+"Hovers where it is sent and sees 550, the artillery's best eye. Light munitions."
 END
 
 OBJECT:TurkiyeVehicleGokbey
@@ -2830,7 +2830,7 @@ CONTROLBAR:ConstructTurkiyeJetKizilelma
 END
 
 CONTROLBAR:ToolTipTurkiyeJetKizilelma
-"Air superiority only: it cannot hit the ground."
+"Strike fighter: its missiles hit aircraft and ground targets alike."
 END
 
 OBJECT:TurkiyeRadarTower
@@ -2842,19 +2842,19 @@ CONTROLBAR:ConstructTurkiyeRadarTower
 END
 
 CONTROLBAR:ToolTipTurkiyeRadarTower
-"Cheap fixed eye: sees 500 for the artillery. A target."
+"Fixed eye: sees 500 for the artillery. Draws power. A target."
 END
 
-OBJECT:TurkiyeAntiAirSite
-"Air Defense Site"
+OBJECT:TurkiyeSiper
+"Siper Bunker"
 END
 
-CONTROLBAR:ConstructTurkiyeAntiAirSite
-"Air &Defense Site"
+CONTROLBAR:ConstructTurkiyeSiper
+"Siper B&unker"
 END
 
-CONTROLBAR:ToolTipTurkiyeAntiAirSite
-"Fixed cannon against aircraft and ground."
+CONTROLBAR:ToolTipTurkiyeSiper
+"Trench bunker for five infantry, dug wherever the engineers stand. Mehmetcik in it hold off infantry, Sungur gunners hold off tanks."
 END
 
 OBJECT:TurkiyeLandMine
@@ -2894,11 +2894,11 @@ CONTROLBAR:ToolTipUpgradeTurkiyePrecisionGuidance
 END
 
 UPGRADE:TurkiyeArmorPack
-"Armor Pack"
+"Reinforced Hull"
 END
 
 CONTROLBAR:UpgradeTurkiyeArmorPack
-"Ar&mor Pack"
+"Reinforced &Hull"
 END
 
 CONTROLBAR:ToolTipUpgradeTurkiyeArmorPack
@@ -2966,11 +2966,11 @@ CONTROLBAR:ConstructTurkiyeSupplyCenter
 END
 
 OBJECT:TurkiyePatriotBattery
-"Siper Battery"
+"Hisar Battery"
 END
 
 CONTROLBAR:ConstructTurkiyePatriotBattery
-"S&iper Battery"
+"H&isar Battery"
 END
 
 SCIENCE:TurkiyeMinefield
@@ -3054,7 +3054,7 @@ CONTROLBAR:UpgradeTurkiyeThermal
 END
 
 CONTROLBAR:ToolTipUpgradeTurkiyeThermal
-"Spotter Teams and Cobras see out to 550 and spot camouflaged units."
+"Spotter Teams see out to 650 and Cobras to 320, and both spot camouflaged units."
 END
 
 UPGRADE:TurkiyeFuelCell
@@ -3085,10 +3085,50 @@ UPGRADE:TurkiyeFuelResupply
 "Fuel Resupply"
 END
 
-CONTROLBAR:TurkiyeHijack
-"Hi&jack Truck"
+SCIENCE:TurkiyeRapidDeployment
+"Rapid Deployment"
 END
 
-CONTROLBAR:ToolTipTurkiyeHijack
-"Takes an enemy supply truck, cargo and all. The Beret stays at the wheel."
+CONTROLBAR:ToolTipTurkiyeScienceRapidDeployment
+"A cargo plane drops six Mehmetcik and two Sungur gunners wherever you point. \n \n Deploy from: Headquarters"
+END
+
+CONTROLBAR:TurkiyeRapidDeployment
+"&Rapid Deployment"
+END
+
+CONTROLBAR:TooltipTurkiyeRapidDeployment
+"Rapid Deployment \n Recharge: 3:00"
+END
+
+SCIENCE:TurkiyeFireMission
+"Fire Mission"
+END
+
+CONTROLBAR:ToolTipTurkiyeScienceFireMission
+"Thirty-six heavy shells fall on the target from off the map. \n \n Deploy from: Headquarters"
+END
+
+CONTROLBAR:TurkiyeFireMission
+"Fire M&ission"
+END
+
+CONTROLBAR:TooltipTurkiyeFireMission
+"Fire Mission \n Recharge: 4:00"
+END
+
+SCIENCE:TurkiyeCommandoRaid
+"Commando Raid"
+END
+
+CONTROLBAR:ToolTipTurkiyeScienceCommandoRaid
+"A Maroon Beret and two spotter teams parachute wherever you point: eyes and charges behind the enemy's lines. \n \n Deploy from: Headquarters"
+END
+
+CONTROLBAR:TurkiyeCommandoRaid
+"&Commando Raid"
+END
+
+CONTROLBAR:TooltipTurkiyeCommandoRaid
+"Commando Raid \n Recharge: 5:00"
 END

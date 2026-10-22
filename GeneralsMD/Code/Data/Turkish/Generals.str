@@ -16923,7 +16923,7 @@ TOOLTIP:BioStrategyLong_Turkiye
 END
 
 GUI:BioFeatures_Turkiye
-"Uzun menzilli topçu, kısa görüş \n Dozer yerine istihkam takımı kurar \n Topçuya gözcü, İHA ve radar kulesi nişan aldırır"
+"Uzun menzilli topçu, kısa görüş \n İstihkam takımı cephede Siper kazar \n Topçuya gözcü, İHA ve radar kulesi nişan aldırır"
 END
 
 OBJECT:TurkiyeInfantryMehmetcik
@@ -16971,7 +16971,7 @@ CONTROLBAR:ConstructTurkiyeInfantrySpotter
 END
 
 CONTROLBAR:ToolTipTurkiyeInfantrySpotter
-"450 görür, neredeyse hiç savaşmaz. Tepeye çıkınca arkadaki topçunun gözü olur."
+"500 görür, dururken gizlenir, neredeyse hiç savaşmaz. Tepeye çıkınca arkadaki topçunun gözü olur."
 END
 
 OBJECT:TurkiyeInfantryMaroonBeret
@@ -16983,7 +16983,7 @@ CONTROLBAR:ConstructTurkiyeInfantryMaroonBeret
 END
 
 CONTROLBAR:ToolTipTurkiyeInfantryMaroonBeret
-"Özel kuvvet. Bina temizler, patlayıcı taşımaz."
+"Özel kuvvet. Kamufledir, topçu için 350 görür, zamanlı ve uzaktan kumandalı patlayıcı kurar."
 END
 
 OBJECT:TurkiyeVehicleSupplyTruck
@@ -17007,7 +17007,7 @@ CONTROLBAR:ConstructTurkiyeVehicleCobra
 END
 
 CONTROLBAR:ToolTipTurkiyeVehicleCobra
-"Hızlı, kırılgan keşif aracı, 400 görür: zincirin en ucuz halkası."
+"Makineli tüfekli, beş piyade taşıyan hızlı ve kırılgan araç. 250 görür, topçuya uzaktan nişan aldırmaya yetmez."
 END
 
 OBJECT:TurkiyeVehicleKirpi
@@ -17043,7 +17043,7 @@ CONTROLBAR:ConstructTurkiyeVehicleKorkut
 END
 
 CONTROLBAR:ToolTipTurkiyeVehicleKorkut
-"300 menzilli ikiz top: uçağa ve piyadeye."
+"Hava savunma: 350 menzilli ikiz top, yalnız uçağa. Yere ateş edemez."
 END
 
 OBJECT:TurkiyeVehicleFirtina
@@ -17055,7 +17055,7 @@ CONTROLBAR:ConstructTurkiyeVehicleFirtina
 END
 
 CONTROLBAR:ToolTipTurkiyeVehicleFirtina
-"600 atar, 100 görür: nişan için gözcü, İHA ya da radar kulesi ister."
+"Geniş etkili ağır mermiyi 600'e atar, 100 görür: nişan için gözcü, İHA ya da radar kulesi ister."
 END
 
 OBJECT:TurkiyeVehicleSakarya
@@ -17067,7 +17067,7 @@ CONTROLBAR:ConstructTurkiyeVehicleSakarya
 END
 
 CONTROLBAR:ToolTipTurkiyeVehicleSakarya
-"500 menzile altılı salvo atar, sonra 15 saniye dolar. Gözcü ister."
+"500 menzile geniş bir alana altılı salvo atar, sonra 12 saniye dolar. Gözcü ister."
 END
 
 OBJECT:TurkiyeTankKoral
@@ -17091,7 +17091,7 @@ CONTROLBAR:ConstructTurkiyeVehicleBayraktar
 END
 
 CONTROLBAR:ToolTipTurkiyeVehicleBayraktar
-"Gönderildiği yerde durur ve 400 görür. Hafif mühimmat. Topçunun gözü."
+"Gönderildiği yerde durur ve 550 görür, topçunun en iyi gözü. Hafif mühimmat."
 END
 
 OBJECT:TurkiyeVehicleGokbey
@@ -17127,7 +17127,7 @@ CONTROLBAR:ConstructTurkiyeJetKizilelma
 END
 
 CONTROLBAR:ToolTipTurkiyeJetKizilelma
-"Yalnız hava hakimiyeti: yere ateş edemez."
+"Taarruz uçağı: füzeleri havadaki ve yerdeki hedefi aynı vurur."
 END
 
 OBJECT:TurkiyeRadarTower
@@ -17139,19 +17139,19 @@ CONTROLBAR:ConstructTurkiyeRadarTower
 END
 
 CONTROLBAR:ToolTipTurkiyeRadarTower
-"Ucuz sabit göz: topçu için 500 görür. Bir hedeftir."
+"Sabit göz: topçu için 500 görür. Elektrik çeker. Bir hedeftir."
 END
 
-OBJECT:TurkiyeAntiAirSite
-"Uçaksavar Mevzisi"
+OBJECT:TurkiyeSiper
+"Siper"
 END
 
-CONTROLBAR:ConstructTurkiyeAntiAirSite
-"&Uçaksavar Mevzisi"
+CONTROLBAR:ConstructTurkiyeSiper
+"Si&per"
 END
 
-CONTROLBAR:ToolTipTurkiyeAntiAirSite
-"Uçağa ve yere karşı sabit top."
+CONTROLBAR:ToolTipTurkiyeSiper
+"Beş piyadelik siper, istihkam takımı nerede durursa orada kazılır. İçindeki Mehmetçik piyadeyi, Sungur nişancısı tankı durdurur."
 END
 
 OBJECT:TurkiyeLandMine
@@ -17191,11 +17191,11 @@ CONTROLBAR:ToolTipUpgradeTurkiyePrecisionGuidance
 END
 
 UPGRADE:TurkiyeArmorPack
-"Zırh Paketi"
+"Takviyeli Gövde"
 END
 
 CONTROLBAR:UpgradeTurkiyeArmorPack
-"&Zırh Paketi"
+"Takviyeli &Gövde"
 END
 
 CONTROLBAR:ToolTipUpgradeTurkiyeArmorPack
@@ -17263,11 +17263,11 @@ CONTROLBAR:ConstructTurkiyeSupplyCenter
 END
 
 OBJECT:TurkiyePatriotBattery
-"Siper Bataryası"
+"Hisar Bataryası"
 END
 
 CONTROLBAR:ConstructTurkiyePatriotBattery
-"Si&per Bataryası"
+"Hisar &Bataryası"
 END
 
 SCIENCE:TurkiyeMinefield
@@ -17347,11 +17347,11 @@ UPGRADE:TurkiyeThermal
 END
 
 CONTROLBAR:UpgradeTurkiyeThermal
-"T&ermal Görüş"
+"Termal Gö&rüş"
 END
 
 CONTROLBAR:ToolTipUpgradeTurkiyeThermal
-"Gözcü timi ve Cobra 550'ye kadar görür, kamufle birimleri fark eder."
+"Gözcü timi 650'ye, Cobra 320'ye kadar görür, ikisi de kamufle birimleri fark eder."
 END
 
 UPGRADE:TurkiyeFuelCell
@@ -17382,10 +17382,50 @@ UPGRADE:TurkiyeFuelResupply
 "Yakıt İkmali"
 END
 
-CONTROLBAR:TurkiyeHijack
-"Kamyonu Ka&p"
+SCIENCE:TurkiyeRapidDeployment
+"Hızlı İntikal"
 END
 
-CONTROLBAR:ToolTipTurkiyeHijack
-"Düşmanın tedarik kamyonunu yüküyle birlikte alır. Bordo bereli direksiyonda kalır."
+CONTROLBAR:ToolTipTurkiyeScienceRapidDeployment
+"Bir kargo uçağı gösterdiğin yere altı Mehmetçik ve iki Sungur nişancısı bırakır. \n \n Kullanıldığı yer: Karargah"
+END
+
+CONTROLBAR:TurkiyeRapidDeployment
+"&Hızlı İntikal"
+END
+
+CONTROLBAR:TooltipTurkiyeRapidDeployment
+"Hızlı İntikal \n Geri Sayım: 3:00"
+END
+
+SCIENCE:TurkiyeFireMission
+"Atış Desteği"
+END
+
+CONTROLBAR:ToolTipTurkiyeScienceFireMission
+"Harita dışından hedefe otuz altı ağır mermi düşer. \n \n Kullanıldığı yer: Karargah"
+END
+
+CONTROLBAR:TurkiyeFireMission
+"&Atış Desteği"
+END
+
+CONTROLBAR:TooltipTurkiyeFireMission
+"Atış Desteği \n Geri Sayım: 4:00"
+END
+
+SCIENCE:TurkiyeCommandoRaid
+"Komando Baskını"
+END
+
+CONTROLBAR:ToolTipTurkiyeScienceCommandoRaid
+"Bir Bordo Bereli ve iki gözcü timi gösterdiğin yere paraşütle iner: düşman hattının gerisinde göz ve patlayıcı. \n \n Kullanıldığı yer: Karargah"
+END
+
+CONTROLBAR:TurkiyeCommandoRaid
+"Komando &Baskını"
+END
+
+CONTROLBAR:TooltipTurkiyeCommandoRaid
+"Komando Baskını \n Geri Sayım: 5:00"
 END
