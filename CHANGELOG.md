@@ -38,6 +38,7 @@ found and fixed â€” EA's own, not port damage.**
 ## Computer players have personalities
 
 - Every computer seat in the skirmish, LAN and online lobbies has a new Personality box beside its team. It says how that player plays, and the difficulty still says how well, so a Hard Turtle and an Easy Turtle play the same way at different strengths.
+- Point at the Personality box and its tooltip says what the picked personality does, in one line, where every box used to give the same vague sentence. With the list open, each line explains itself as the pointer passes over it. In English and Turkish.
 - Normal is the computer player you know, unchanged. The others:
   - **Attacker** goes out early and often with smaller waves and spends everything it earns.
   - **Turtle** finds the narrow stretch of each road into its base and packs its defences there so they cover each other, rather than ringing its command centre. China mines the guns on that line, GLA lays demo traps in front of it and America leans on Fire Bases. It holds its army back for a few big late waves and pulls out of fights it is losing.
