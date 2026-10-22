@@ -28,6 +28,7 @@
 #include "Common/ThingTemplate.h"
 #include "Common/Xfer.h"
 #include "GameClient/FXList.h"
+#include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/Weapon.h"
 #include "GameLogic/Module/SwarmStrikeSpecialPower.h"
@@ -37,6 +38,7 @@ SwarmStrikeSpecialPowerModuleData::SwarmStrikeSpecialPowerModuleData( void )
 {
 	m_radius = 0.0f;
 	m_targetCount = 1;
+	m_repeatTargets = FALSE;
 	m_weapon = NULL;
 	m_targetFX = NULL;
 }
@@ -50,6 +52,7 @@ SwarmStrikeSpecialPowerModuleData::SwarmStrikeSpecialPowerModuleData( void )
 	{
 		{ "Radius",				INI::parseReal,						NULL, offsetof( SwarmStrikeSpecialPowerModuleData, m_radius ) },
 		{ "TargetCount",	INI::parseInt,						NULL, offsetof( SwarmStrikeSpecialPowerModuleData, m_targetCount ) },
+		{ "RepeatTargets",	INI::parseBool,					NULL, offsetof( SwarmStrikeSpecialPowerModuleData, m_repeatTargets ) },
 		{ "Weapon",				INI::parseWeaponTemplate,	NULL, offsetof( SwarmStrikeSpecialPowerModuleData, m_weapon ) },
 		{ "TargetFX",			INI::parseFXList,					NULL, offsetof( SwarmStrikeSpecialPowerModuleData, m_targetFX ) },
 		{ 0, 0, 0, 0 }
@@ -69,6 +72,30 @@ SwarmStrikeSpecialPower::~SwarmStrikeSpecialPower( void )
 }
 
 // ------------------------------------------------------------------------------------------------
+/** One shot, at the target or else at the point.  A projectile is made at the shooter's foot when its
+	* model has no launch bone, and a drone made at the foot of a building met the ground the frame it
+	* left, so it starts from the roof. */
+// ------------------------------------------------------------------------------------------------
+static void fireShot( const WeaponTemplate *weapon, const Object *source, Object *target, const Coord3D *pos )
+{
+	Weapon *w = TheWeaponStore->allocateNewWeapon( weapon, PRIMARY_WEAPON );
+	w->loadAmmoNow( source );
+	ObjectID projectileID = INVALID_ID;
+	if( target )
+		w->fireWeapon( source, target, &projectileID );
+	else
+		w->fireWeapon( source, pos, &projectileID );
+	w->deleteInstance();
+
+	Object *projectile = TheGameLogic->findObjectByID( projectileID );
+	if( projectile == NULL )
+		return;		// a hit with no projectile, the rank tree's munitions
+	Coord3D roof = *projectile->getPosition();
+	roof.z += source->getGeometryInfo().getMaxHeightAbovePosition();
+	projectile->setPosition( &roof );
+}
+
+// ------------------------------------------------------------------------------------------------
 void SwarmStrikeSpecialPower::doSpecialPowerAtLocation( const Coord3D *loc, Real angle, UnsignedInt commandOptions )
 {
 	if( getObject()->isDisabled() )
@@ -84,8 +111,17 @@ void SwarmStrikeSpecialPower::doSpecialPowerAtLocation( const Coord3D *loc, Real
 	{
 		DEBUG_LOG(( "SWARM '%s' picks '%s' %d\n", getPowerName().str(), (*it)->getTemplate()->getName().str(), (*it)->getID() ));
 		FXList::doFXPos( data->m_targetFX, (*it)->getPosition() );
-		TheWeaponStore->createAndFireTempWeapon( data->m_weapon, getObject(), *it );
+		fireShot( data->m_weapon, getObject(), *it, NULL );
 	}
+
+	if( !data->m_repeatTargets )
+		return;
+
+	// the spare shots: round the same targets again, dearest first, or at the click when none stood there
+	for( Int shot = (Int)targets.size(); shot < data->m_targetCount; ++shot )
+		fireShot( data->m_weapon, getObject(), targets.empty() ? NULL : targets[ shot % targets.size() ], loc );
+	DEBUG_LOG(( "SWARM '%s' frame %d sends %d at %d targets around (%.0f,%.0f)\n", getPowerName().str(),
+		TheGameLogic->getFrame(), data->m_targetCount, (Int)targets.size(), loc->x, loc->y ));
 }
 
 // ------------------------------------------------------------------------------------------------

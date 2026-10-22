@@ -19,7 +19,8 @@
 // FILE: SwarmStrikeSpecialPower.h ///////////////////////////////////////////////////////////////
 //
 // Turkiye's loitering munitions: within Radius of the click, the TargetCount most expensive enemies
-// on the ground each take one Weapon shot, and TargetFX plays on each of them.
+// on the ground each take one Weapon shot, and TargetFX plays on each of them.  With RepeatTargets
+// all TargetCount shots go: round the targets again, dearest first, or at the click with none.
 //
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -44,6 +45,7 @@ public:
 
 	Real m_radius;
 	Int m_targetCount;
+	Bool m_repeatTargets;
 	const WeaponTemplate *m_weapon;
 	const FXList *m_targetFX;
 };

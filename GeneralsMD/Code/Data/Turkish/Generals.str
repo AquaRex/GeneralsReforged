@@ -17429,3 +17429,27 @@ END
 CONTROLBAR:TooltipTurkiyeCommandoRaid
 "Komando Baskını \n Geri Sayım: 5:00"
 END
+
+OBJECT:TurkiyeKarguBase
+"Kargu İHA Üssü"
+END
+
+CONTROLBAR:ConstructTurkiyeKarguBase
+"Kar&gu İHA Üssü"
+END
+
+CONTROLBAR:ToolTipTurkiyeKarguBase
+"Haritanın herhangi bir yerine on iki kamikaze İHA'dan oluşan bir sürü gönderir. Her biri dairedeki en değerli hedeflerden birini bulur ve üstüne dalar; dağınık ordular en çok zarar görür. \n \n Gereken: Fabrika, Radar Kulesi \n Gereken Enerji: 10 \n Geri Sayım: 5:00"
+END
+
+CONTROLBAR:TurkiyeKarguSwarm
+"&Kargu Sürüsü"
+END
+
+CONTROLBAR:TooltipTurkiyeKarguSwarm
+"Kargu Sürüsü \n Geri Sayım: 5:00"
+END
+
+GUI:SuperweaponTurkiyeKarguSwarm
+"Kargu Sürüsü"
+END

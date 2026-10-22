@@ -3132,3 +3132,27 @@ END
 CONTROLBAR:TooltipTurkiyeCommandoRaid
 "Commando Raid \n Recharge: 5:00"
 END
+
+OBJECT:TurkiyeKarguBase
+"Kargu Drone Base"
+END
+
+CONTROLBAR:ConstructTurkiyeKarguBase
+"&Kargu Drone Base"
+END
+
+CONTROLBAR:ToolTipTurkiyeKarguBase
+"Sends a swarm of twelve kamikaze drones anywhere on the map. Each one hunts down one of the most valuable targets in the circle and dives into it; spread-out armies suffer most. \n \n Requires: Factory, Radar Tower \n Energy Required: 10 \n Recharge: 5:00"
+END
+
+CONTROLBAR:TurkiyeKarguSwarm
+"&Kargu Swarm"
+END
+
+CONTROLBAR:TooltipTurkiyeKarguSwarm
+"Kargu Swarm \n Recharge: 5:00"
+END
+
+GUI:SuperweaponTurkiyeKarguSwarm
+"Kargu Swarm"
+END

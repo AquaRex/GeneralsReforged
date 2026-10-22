@@ -252,7 +252,9 @@ Data/Scenarios/explreel.txt
 Data/Scenarios/firelook.txt
 Data/Scenarios/fogleak.txt
 Data/Scenarios/geproto_alpine.txt
+Data/Scenarios/geproto_fogedge.txt
 Data/Scenarios/geproto_glow.txt
+Data/Scenarios/geproto_hazefog.txt
 Data/Scenarios/geproto_hazemove.txt
 Data/Scenarios/geproto_oasis.txt
 Data/Scenarios/givemoney.txt
@@ -288,6 +290,7 @@ Data/Scenarios/jetpass.txt
 Data/Scenarios/jetrunway.txt
 Data/Scenarios/jetsturn.txt
 Data/Scenarios/jetturn.txt
+Data/Scenarios/kargu.txt
 Data/Scenarios/laserglow.txt
 Data/Scenarios/laserlook.txt
 Data/Scenarios/leadinfantry.txt

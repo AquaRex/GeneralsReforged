@@ -1,0 +1,36 @@
+# Turkiye's Kargu base fired across Twilight Flame into an American base: a War Factory, two power
+# plants and the command centre, eight Crusaders and six Humvees spread around them. The swarm is
+# called at frame 60; the twelve drones leave the hangar's roof and cross the 1400 to the base in
+# about eight seconds. Compare the tallies at frame 50 and frame 340, after the last hit and before
+# the American buildings heal, and read the SWARM lines for the targets the drones were sent at.
+# The drones themselves are tallied on the way.
+#
+#   generals.exe -headless -quickstart -noshellmap -observer -multiInstance -noFPSLimit
+#     -map "Maps\Twilight Flame\Twilight Flame.map" -autoskirmish 2 -takeover
+#     -side 0 FactionTurkiye -side 1 FactionAmerica -seed 1 -maxframes 800 -scenario kargu
+#     -logPrefix kargu_
+
+10    spawn      0  TurkiyeKarguBase                1   start0:0:250
+10    spawn      0  TurkiyePowerPlant               3   start0:-260:40    90
+
+20    spawn      1  AmericaWarFactory               1   start1:0:260
+20    spawn      1  AmericaPowerPlant               2   start1:-240:-200  120
+20    spawn      1  AmericaTankCrusader             8   start1:-300:150   60
+20    spawn      1  AmericaVehicleHumvee            6   start1:300:-150   80
+
+50    tally      1  AmericaWarFactory
+50    tally      1  AmericaPowerPlant
+50    tally      1  AmericaCommandCenter
+50    tally      1  AmericaTankCrusader
+50    tally      1  AmericaVehicleHumvee
+50    tally      1  *
+60    power      0  TurkiyeKarguBase                start1
+100   tally      0  TurkiyeKarguDrone
+200   tally      0  TurkiyeKarguDrone
+340   tally      0  TurkiyeKarguDrone
+340   tally      1  AmericaWarFactory
+340   tally      1  AmericaPowerPlant
+340   tally      1  AmericaCommandCenter
+340   tally      1  AmericaTankCrusader
+340   tally      1  AmericaVehicleHumvee
+340   tally      1  *

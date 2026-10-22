@@ -7647,14 +7647,37 @@ void AIPlayer::buildAsap( const ThingTemplate *tmpl )
 	* lobby's superweapon setting and Pro Rules still bind beside it; canMakeUnit asks all three.
 	* If the tech building it needs is missing, that goes up first, and copies follow once the first
 	* superweapon is standing, up to AI_TECH_BUILDING_COPIES, so one of them blowing up leaves the tree
-	* standing. Hard only, like the rest of the economy. */
+	* standing. Hard only, like the rest of the economy, except for a side whose scripts cannot build its
+	* superweapon (planNamesSuperweapon): Easy and Medium put that one up here too, as late as the scripts
+	* put up America's uplink. */
 //----------------------------------------------------------------------------------------------------------
+/** The scripts build a superweapon only through the side's build list (buildSpecificAIBuilding), so a
+	* plan that names none, Turkiye's, which runs America's scripts and has no uplink, never gets one
+	* from them.  The request buildAsap puts down is a build list entry of its own, so Easy and Medium
+	* ask for one, as the scripts' once-only line does for America. */
+static Bool planNamesSuperweapon( Player *player )
+{
+	for( BuildListInfo *info = player->getBuildList(); info; info = info->getNext() )
+	{
+		const ThingTemplate *tmpl = TheThingFactory->findTemplate( info->getTemplateName() );
+		if( tmpl && tmpl->isKindOf( KINDOF_FS_SUPERWEAPON ) )
+			return TRUE;
+	}
+	return FALSE;
+}
+
+/** Easy's and Medium's first superweapon when the scripts cannot build it: America's scripts ask for
+	* the uplink at escalation 180 and 100, a point every ten seconds. */
+static const UnsignedInt SCRIPTLESS_SUPERWEAPON_FRAMES[ AISKILL_COUNT ] =
+	{ 1800 * LOGICFRAMES_PER_SECOND, 1000 * LOGICFRAMES_PER_SECOND, 0 };
+
 void AIPlayer::doSuperweapons( void )
 {
-	if( !getSkillProfile()->m_economyBuildings )
-		return;
 	const Int phase = computeUpdatePhase( m_player->getPlayerIndex(), SUPERWEAPON_CHECK_RATE );
 	if( (TheGameLogic->getFrame() + phase) % SUPERWEAPON_CHECK_RATE != 0 )
+		return;
+	if( !getSkillProfile()->m_economyBuildings &&
+			( TheGameLogic->getFrame() < SCRIPTLESS_SUPERWEAPON_FRAMES[ m_skillLevel ] || planNamesSuperweapon( m_player ) ) )
 		return;
 	if( !m_player->getCanBuildBase() || !m_baseCenterSet || !m_player->getEnergy()->hasSufficientPower() )
 		return;		// a dark base's superweapon clock is stopped anyway; the money goes to the plant
