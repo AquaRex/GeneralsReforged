@@ -71,7 +71,7 @@ static const Real VEHICLE_STOP_SECONDS = 0.8f;				// no vehicle takes longer tha
 static const Real VEHICLE_YAW_EASE_FRAMES = ConvertRetailFrames(6.0f);			// frames for a turn to wind up to TurnRate, or back down from it
 static const Real VEHICLE_STILL_SHARE = 0.1f;					// below this share of top speed a vehicle may choose to go forward or back
 static const Real VEHICLE_REVERSE_SHARE = 0.45f;			// share of top speed a vehicle backs up at
-static const Real VEHICLE_REVERSE_BODY_LENGTHS = 3.0f;	// a goal behind and closer than this along the route is backed up to
+static const Real VEHICLE_REVERSE_BODY_LENGTHS = 3.0f;	// a car backs straight up to a goal behind and closer than this along the route; a tank times it
 static const Real VEHICLE_REVERSE_COS = -0.34f;				// cos 110 degrees: behind, for that
 static const Real VEHICLE_BEND_COS = 0.985f;					// cos 10 degrees: a gentler bend is driven at full speed
 static const Real VEHICLE_MIN_SLIDE = ConvertRetailPerFrameRate(0.08f);					// the slide onto the goal in the last cell moves at least this far a frame
@@ -1993,6 +1993,18 @@ void Locomotor::moveTowardsPositionVehicle(Object* obj, PhysicsBehavior *physics
 	{
 		Bool behind = (treads || m_template->m_canMoveBackward) && goalCos < VEHICLE_REVERSE_COS;
 		Bool close = onPathDistToGoal < VEHICLE_REVERSE_BODY_LENGTHS * bodyLength;
+		if (treads)
+		{
+			/* A tank backs up only while that is the quicker way there: the trip at VEHICLE_REVERSE_SHARE of
+				 its speed against pivoting round to the goal at TREAD_PIVOT_SHARE of its TurnRate and driving
+				 it at full speed.  Three body lengths backed a Crusader up as far as 90 units: sent 70 behind
+				 itself it took 5.6 seconds backing and takes 4.2 turning round.  It still backs up to about
+				 40 with the goal dead behind and 24 at 110 degrees.  Multiplied out, so a TurnRate of 0
+				 reverses rather than divides by it. */
+			Real turnAround = ATan2(fabs(goalSin), goalCos);
+			close = onPathDistToGoal * (1.0f - VEHICLE_REVERSE_SHARE) * TREAD_PIVOT_SHARE * turnRate
+				< turnAround * VEHICLE_REVERSE_SHARE * maxSpeed;
+		}
 		setFlag(MOVING_BACKWARDS, behind && (close || !treads));
 		setFlag(DOING_THREE_POINT_TURN, behind && !close && !treads);
 	}
