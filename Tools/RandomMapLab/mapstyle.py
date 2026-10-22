@@ -14,7 +14,10 @@ Both are read.
 
     python mapstyle.py <file.map> [-o profile.json]
     python mapstyle.py <archive.big> "maps\\Twilight Flame\\Twilight Flame.map" [-o profile.json]
+    python mapstyle.py <archive.big> "maps\\Twilight Flame\\Twilight Flame.map" --cpp twilight
     python mapstyle.py selfcheck
+
+--cpp prints the entry for theStyles in RandomMapGenerator.cpp instead of the JSON.
 
 Units: cells are map cells (10 world units), heights are height map bytes (MAP_HEIGHT_SCALE world
 units each), the generator's own units for both. Bearings are degrees, 0 along +x, counterclockwise,
@@ -818,6 +821,9 @@ def profile(data, source):
 
     supply_walks = [s["nearest_supply_walk"] for s in starts if s["nearest_supply_walk"]]
     players = max(len(starts), 1)
+    ring = [math.hypot(sx - m.playable_x / 2.0, sy - m.playable_y / 2.0) for sx, sy in m.starts]
+    ups = [-r["drop_bytes"] for s in starts for r in s["ramps"] if r["way"] == "up"]
+    downs = [r["width_cells"] for s in starts for r in s["ramps"] if r["way"] == "down"]
     return {
         "source": source,
         "map": {"size_cells": [m.playable_x, m.playable_y], "border_cells": m.border,
@@ -868,6 +874,10 @@ def profile(data, source):
             "ramps_per_base": median_of([s["ramp_exits"] for s in starts]),
             "ramps_down_per_base": median_of([s["ramp_exits_down"] for s in starts]),
             "ramp_width_cells": median_of([r["width_cells"] for s in starts for r in s["ramps"]]),
+            "ramp_down_width_cells": median_of(downs),
+            # a start's distance from the middle, a share of half the map
+            "start_ring_share": round(statistics.median(ring) / (m.playable / 2.0), 3) if ring else None,
+            "ridge_bytes": median_of(ups),          # what an "up" exit climbs to: the ground between seats
             # walk_distances steps four ways, so a walk is up to 1.41 times the straight line
             "home_supply_walk_cells": median_of(supply_walks),
             "home_supply_straight_cells": median_of(
@@ -881,6 +891,68 @@ def profile(data, source):
             "cells_per_tree": round(len(playable) / float(trees), 1) if trees else None,
         },
     }
+
+
+#-----------------------------------------------------------------------------------------------
+# The generator's own table entry
+#-----------------------------------------------------------------------------------------------
+
+BOWL_FOREST_THRESHOLD = 0.14         # theBowlType's forest column in RandomMapGenerator.cpp
+TREE_CELLS_EACH = 110.0              # RMG_TREE_CELLS_EACH
+GROVE_TREES = 22                     # RMG_GROVE_TREES
+# ponytail: a map's file holds texture names, not their colours; the preview gets a fixed brown set
+PREVIEW_COLOURS = ((150, 126, 90), (178, 154, 110), (196, 172, 130), (118, 108, 96))
+TIME_OF_DAY_NAMES = {"morning": "TIME_OF_DAY_MORNING", "afternoon": "TIME_OF_DAY_AFTERNOON",
+                     "evening": "TIME_OF_DAY_EVENING", "night": "TIME_OF_DAY_NIGHT"}
+
+
+def cpp_style(result, name):
+    """theStyles' entry (RandomMapGenerator.cpp, RMGStyle) for this profile, to paste in. Every
+    machine rebuilds a generated map from its name, so a style has to be compiled into the exe."""
+    g = result["generator"]
+    reduced = result["textures"]["reduced"]
+    textures = [reduced[r]["texture"] for r in ("grass", "sand", "dirt", "rock")]
+    if textures[1] is None:                         # no beach: the sand class is the second ground
+        grass = reduced["grass"]["members"]
+        textures[1] = grass[1] if len(grass) > 1 else textures[0]
+
+    def top(group):
+        names = [k for k in result["objects"][group] if not k.startswith("Amb_")][:4]
+        return (names * 4)[:4]
+
+    def real(v):
+        return "%.3ff" % v
+
+    def triple(values):
+        return "{ %s }" % ", ".join(real(v) for v in values)
+
+    light = result["lighting"]
+    # the generator plants GROVE_TREES beside every base before the woods, so those come off first
+    trees = sum(v for k, v in result["objects"]["trees"].items() if not k.startswith("Amb_"))
+    woods = max(0, trees - GROVE_TREES * result["map"]["players"])
+    area = result["map"]["size_cells"][0] * result["map"]["size_cells"][1]
+    share = TREE_CELLS_EACH * woods / (area * (1.3 - 4.0 * BOWL_FOREST_THRESHOLD))
+    lines = [
+        "\t{\t// %s, from %s" % (name, result["source"]),
+        "\t\t\"%s\", %d, %s, %s, %s, %s, %s, %s, %s, %d, %s," % (
+            name, g["playable_cells"], real(g["start_ring_share"]), real(g["start_raise_bytes"]),
+            real(g["ridge_bytes"]), real(g["base_flat_radius_cells"]),
+            real(g["base_plateau_radius_cells"]), real(g["ramp_down_width_cells"]),
+            real(g["home_supply_straight_cells"]), int(round(g["piles_per_player"])),
+            TIME_OF_DAY_NAMES[light["time_of_day"]]),
+        "\t\t{",
+        "\t\t\t{ %s }," % ", ".join('"%s"' % t for t in textures),
+        "\t\t\t{ %s }," % ", ".join('"%s"' % t for t in top("trees")),
+        "\t\t\t{ %s }," % ", ".join('"%s"' % t for t in top("rocks")),
+        "\t\t\t\"TwoLaneOld\", %s," % real(min(1.0, share)),
+        "\t\t\t%s, %s," % (triple(light["terrain"]["ambient"]), triple(light["terrain"]["diffuse"])),
+        "\t\t\t%s, %s," % (triple(light["objects"]["ambient"]), triple(light["objects"]["diffuse"])),
+        "\t\t\t%s," % triple(light["terrain"]["direction"]),
+        "\t\t\t{ %s }" % ", ".join("{ %d, %d, %d }" % c for c in PREVIEW_COLOURS),
+        "\t\t}",
+        "\t},",
+    ]
+    return "\n".join(lines)
 
 
 #-----------------------------------------------------------------------------------------------
@@ -914,11 +986,17 @@ def main():
     parser.add_argument("path", help="a .map file, or a .big archive")
     parser.add_argument("inner", nargs="?", help="the map's path inside the .big")
     parser.add_argument("-o", "--output", help="write the JSON here instead of stdout")
+    parser.add_argument("--cpp", metavar="NAME",
+                        help="print the generator's style table entry under this name instead")
     arguments = parser.parse_args()
 
     data = load_bytes(arguments.path, arguments.inner)
     source = arguments.inner or os.path.basename(arguments.path)
-    text = json.dumps(profile(data, source), indent=1)
+    result = profile(data, source)
+    if arguments.cpp:
+        print(cpp_style(result, arguments.cpp))
+        return 0
+    text = json.dumps(result, indent=1)
 
     if arguments.output:
         with open(arguments.output, "w") as handle:

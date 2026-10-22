@@ -57,6 +57,8 @@ param(
 	# and skinning load has to be the same on both sides of the comparison or the number means
 	# nothing. The seed still varies the match.
 	[string] $Map = "",
+	# generate the maps in a shipped map's style, e.g. "twilight" (-randommap's last argument)
+	[string] $Style = "",
 	# first seed of the batch. A change tuned against seeds 0..23 has to be confirmed on seeds it
 	# was not tuned on, or the number is a fit to twenty-four maps rather than a result
 	[int] $SeedStart = 0,
@@ -131,6 +133,7 @@ for ($i = 0; $i -lt $Runs; $i++) {
 	} else {
 		# a generated map is built in memory and written nowhere, so there is nothing to tidy up
 		$args += @("-randommap", $seed, $Players, $cells)
+		if ($Style) { $args += $Style }
 	}
 	$args += @(
 		"-autoskirmish", $Players,

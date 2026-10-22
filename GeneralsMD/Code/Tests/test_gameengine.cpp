@@ -11176,14 +11176,15 @@ TEST(the_generator_still_turns_a_seed_into_the_bytes_it_used_to)
 {
 	CHECK( bootOnce() );
 
-	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 15 );
+	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 16 );
 
-	struct RMGFingerprint { Int m_seed, m_players, m_cells; UnsignedInt m_crc; };
+	struct RMGFingerprint { Int m_seed, m_players, m_cells, m_style; UnsignedInt m_crc; };
 	static const RMGFingerprint theFingerprints[] =
 	{
-		{ 0, 2, 64, 0x47856063 },
-		{ 12345, 4, 96, 0x2863C7D9 },
-		{ 7, 8, 128, 0x2D7288D3 },
+		{ 0, 2, 64, 0, 0x47856463 },
+		{ 12345, 4, 96, 0, 0x2863C7E9 },
+		{ 7, 8, 128, 0, 0x317288D3 },
+		{ 7, 4, 200, 1, 0x100AD66B },
 	};
 	const Int numFingerprints = sizeof(theFingerprints) / sizeof(theFingerprints[0]);
 
@@ -11193,11 +11194,12 @@ TEST(the_generator_still_turns_a_seed_into_the_bytes_it_used_to)
 		settings.m_seed = theFingerprints[i].m_seed;
 		settings.m_numPlayers = theFingerprints[i].m_players;
 		settings.m_playableCells = theFingerprints[i].m_cells;
+		settings.m_style = theFingerprints[i].m_style;
 
 		UnsignedInt crc = RandomMapGenerator::fingerprint( settings );
 		if( crc != theFingerprints[i].m_crc )
-			printf( "  fingerprint seed %d players %d cells %d is 0x%08X\n",
-				settings.m_seed, settings.m_numPlayers, settings.m_playableCells, crc );
+			printf( "  fingerprint seed %d players %d cells %d style %d is 0x%08X\n",
+				settings.m_seed, settings.m_numPlayers, settings.m_playableCells, settings.m_style, crc );
 
 		CHECK( crc == theFingerprints[i].m_crc );
 	}
@@ -11296,6 +11298,103 @@ TEST(a_generated_map_is_served_out_of_memory_and_written_nowhere)
 	// nothing else is one of ours, and neither is a name from another generator version
 	CHECK( !isGeneratedMapPath( AsciiString( "Maps\\Tournament Desert\\Tournament Desert.map" ) ) );
 	CHECK( !isGeneratedMapPath( AsciiString( "Maps\\RMG_v1_7_2p_96c\\RMG_v1_7_2p_96c.map" ) ) );
+
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = saved;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Not a check: with RMG_DUMP set to "<dir> <seed>,<players>,<cells>,<style> ..." it writes each
+	map and its preview into dir, for mapscore.py and mapstyle.py to read. Nothing else writes a
+	generated map anywhere. Run as test_gameengine.exe write_the_maps_RMG_DUMP_names. */
+//-------------------------------------------------------------------------------------------------
+TEST(write_the_maps_RMG_DUMP_names)
+{
+	const char *dump = getenv( "RMG_DUMP" );
+	if( dump == NULL )
+		return;
+	CHECK( bootOnce() );
+
+	char dir[MAX_PATH];
+	Int read = 0;
+	CHECK( sscanf( dump, "%259s%n", dir, &read ) == 1 );
+	const char *next = dump + read;
+	RandomMapSettings settings;
+	while( sscanf( next, " %d,%d,%d,%d%n", &settings.m_seed, &settings.m_numPlayers,
+				 &settings.m_playableCells, &settings.m_style, &read ) == 4 )
+	{
+		next += read;
+		RandomMapGenerator::clampSettings( settings );
+		std::vector<char> map, preview;
+		RandomMapGenerator::generate( settings, map );
+		RandomMapGenerator::generatePreview( settings, preview );
+
+		char name[MAX_PATH];
+		snprintf( name, sizeof(name), "%s\\rmg_%d_%dp_%dc_s%d", dir, settings.m_seed, settings.m_numPlayers,
+			settings.m_playableCells, settings.m_style );
+		AsciiString file;
+		file.format( "%s.map", name );
+		FILE *out = fopen( file.str(), "wb" );
+		CHECK( out != NULL );
+		fwrite( &map[0], 1, map.size(), out );
+		fclose( out );
+		file.format( "%s.tga", name );
+		out = fopen( file.str(), "wb" );
+		CHECK( out != NULL );
+		fwrite( &preview[0], 1, preview.size(), out );
+		fclose( out );
+		printf( "  wrote %s.map (%d bytes)\n", name, (Int)map.size() );
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A map in a shipped map's style is rebuilt from its name like any other, so the style has to be
+	in the name and read back out of it; a name for a style this build does not have is not ours. */
+//-------------------------------------------------------------------------------------------------
+TEST(a_style_map_is_named_for_its_style_and_rebuilt_from_the_name)
+{
+	CHECK( bootOnce() );
+
+	GlobalData *saved = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+
+	CHECK_EQ( RandomMapGenerator::styleNamed( "Twilight" ), 1 );
+	CHECK_EQ( RandomMapGenerator::styleNamed( "dusk" ), 0 );
+
+	RandomMapSettings settings;
+	settings.m_seed = 77;
+	settings.m_numPlayers = 4;
+	settings.m_playableCells = 200;
+	settings.m_style = 1;
+
+	AsciiString path;
+	CHECK( stageRandomMap( settings, path ) );
+	CHECK( path.endsWithNoCase( "_77_4p_200c_twilight.map" ) );
+
+	std::vector<char> styled, plain;
+	RandomMapGenerator::generate( settings, styled );
+	RandomMapSettings unstyled = settings;
+	unstyled.m_style = 0;
+	RandomMapGenerator::generate( unstyled, plain );
+	CHECK( styled != plain );
+
+	const char *bytes = NULL;
+	Int size = 0;
+	CHECK( generatedMapBytes( path, &bytes, &size ) );
+	CHECK_EQ( size, (Int)styled.size() );
+	CHECK( size == (Int)styled.size() && memcmp( bytes, &styled[0], styled.size() ) == 0 );
+
+	AsciiString unknown;
+	unknown.format( "Maps\\RMG_v%d_77_4p_200c_dusk\\RMG_v%d_77_4p_200c_dusk.map",
+		RANDOM_MAP_GENERATOR_VERSION, RANDOM_MAP_GENERATOR_VERSION );
+	CHECK( !isGeneratedMapPath( unknown ) );
+
+	// with no size given, eight players get the shipped map's own
+	RandomMapSettings sized;
+	sized.m_numPlayers = 8;
+	sized.m_style = 1;
+	RandomMapGenerator::clampSettings( sized );
+	CHECK_EQ( sized.m_playableCells, 443 );
 
 	delete TheWritableGlobalData;
 	TheWritableGlobalData = saved;
