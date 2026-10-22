@@ -830,7 +830,7 @@ TEST(every_vertex_program_links_with_every_pixel_program_it_can_meet)
 }
 
 namespace {
-float opticalChannel(const WaterOpticalModel::RGB &rgb,int channel)
+float opticalChannel(const WaterOpticalModel::Rgb &rgb,int channel)
 {
 	return channel==0?rgb.r:(channel==1?rgb.g:rgb.b);
 }
@@ -849,17 +849,17 @@ TEST(water_optics_shores_and_unclassified_pools_keep_existing_shallow_transmissi
 	using namespace WaterOpticalModel;
 	for (float river:{0.0f,0.25f,0.5f,1.0f}) for (float distance:{0.0f,0.25f,2.0f,5.0f,10.0f,20.0f,80.0f}) {
 		const float materialPath=distance*(2.4f+(1.0f-2.4f)*river);
-		const RGB original={std::exp(-materialPath*0.065f),std::exp(-materialPath*0.026f),std::exp(-materialPath*0.019f)};
+		const Rgb original={std::exp(-materialPath*0.065f),std::exp(-materialPath*0.026f),std::exp(-materialPath*0.019f)};
 		for (float opacity:{0.0f,0.5f,0.75f,1.0f}) for (float depth:{0.25f,2.7f,3.0f,10.0f}) {
-			const RGB shore=Transmission(distance,river,0.0f,depth,opacity);
-			CHECK(memcmp(&shore,&original,sizeof(RGB))==0);
-			const RGB unauthored=Transmission(distance,river,1.0f,depth,0.0f);
-			CHECK(memcmp(&unauthored,&original,sizeof(RGB))==0);
+			const Rgb shore=Transmission(distance,river,0.0f,depth,opacity);
+			CHECK(memcmp(&shore,&original,sizeof(Rgb))==0);
+			const Rgb unauthored=Transmission(distance,river,1.0f,depth,0.0f);
+			CHECK(memcmp(&unauthored,&original,sizeof(Rgb))==0);
 		}
 	}
 	CHECK(std::abs(OffshoreExtinction(2.7f,0.75f)-(-std::log(0.25f)/2.7f))<0.000001f);
 	CHECK(std::abs(OffshoreExtinction(3.0f,1.0f)-(-std::log(0.01f)/3.0f))<0.000001f);
-	const RGB zero=Transmission(0,0,1,0,1);
+	const Rgb zero=Transmission(0,0,1,0,1);
 	CHECK(zero.r==1 && zero.g==1 && zero.b==1);
 	CHECK(std::abs(displayedBed(0.43f,0.028f,zero.g)-0.43f)<0.000001f);
 }
@@ -868,9 +868,9 @@ TEST(water_optics_authored_extinction_uses_unscaled_physical_ray_length)
 {
 	using namespace WaterOpticalModel;
 	for (float distance:{0.25f,1.0f,3.2f,10.0f,40.0f}) for (float river:{0.0f,0.5f,1.0f}) {
-		const RGB base=Transmission(distance,river,0,2.7f,0.75f);
-		const RGB offshore=Transmission(distance,river,1,2.7f,0.75f);
-		const RGB halfway=Transmission(distance,river,0.5f,2.7f,0.75f);
+		const Rgb base=Transmission(distance,river,0,2.7f,0.75f);
+		const Rgb offshore=Transmission(distance,river,1,2.7f,0.75f);
+		const Rgb halfway=Transmission(distance,river,0.5f,2.7f,0.75f);
 		const float authored=std::exp(-distance*OffshoreExtinction(2.7f,0.75f));
 		for (int channel=0;channel<3;++channel) {
 			const float a=opticalChannel(base,channel),b=opticalChannel(offshore,channel),m=opticalChannel(halfway,channel);
@@ -888,14 +888,14 @@ TEST(water_optics_transmission_is_finite_bounded_and_monotone)
 	const float inputs[]={-infinity,nan,-3,0,0.1f,0.5f,1,3,100,infinity};
 	for (float distance:inputs) for (float river:inputs) for (float offshore:inputs)
 		for (float depth:inputs) for (float opacity:inputs) {
-		const RGB t=Transmission(distance,river,offshore,depth,opacity);
+		const Rgb t=Transmission(distance,river,offshore,depth,opacity);
 		CHECK(std::isfinite(t.r) && std::isfinite(t.g) && std::isfinite(t.b));
 		CHECK(t.r>=0 && t.r<=1 && t.g>=0 && t.g<=1 && t.b>=0 && t.b<=1);
 	}
 	for (float river:{0.0f,1.0f}) for (float offshore:{0.0f,0.5f,1.0f}) {
-		RGB previous=Transmission(0,river,offshore,2.7f,0.75f);
+		Rgb previous=Transmission(0,river,offshore,2.7f,0.75f);
 		for (int i=1;i<=1000;++i) {
-			const RGB current=Transmission(i*0.5f,river,offshore,2.7f,0.75f);
+			const Rgb current=Transmission(i*0.5f,river,offshore,2.7f,0.75f);
 			CHECK(current.r<=previous.r && current.g<=previous.g && current.b<=previous.b);
 			previous=current;
 		}
@@ -906,13 +906,13 @@ TEST(water_optics_deep_water_converges_without_a_180_unit_visibility_plateau)
 {
 	using namespace WaterOpticalModel;
 	for (float river:{0.0f,1.0f}) {
-		const RGB at180=Transmission(180,river,0,3,0),at360=Transmission(360,river,0,3,0),deep=Transmission(100000,river,0,3,0);
+		const Rgb at180=Transmission(180,river,0,3,0),at360=Transmission(360,river,0,3,0),deep=Transmission(100000,river,0,3,0);
 		CHECK(at360.r<at180.r && at360.g<at180.g && at360.b<at180.b);
 		CHECK(deep.r<1e-30f && deep.g<1e-30f && deep.b<1e-30f);
 		CHECK(std::abs(displayedBed(0.65f,0.041f,deep.b)-std::pow(0.041f,1.0f/2.2f))<0.000001f);
 	}
 	for (float distance:{0.0f,1.0f,10.0f,100.0f}) {
-		const RGB t=Transmission(distance,0,1,3,1);
+		const Rgb t=Transmission(distance,0,1,3,1);
 		// A bed already equal to the scattering radiance must not brighten/darken with distance.
 		const float scatter=0.028f,displayScatter=std::pow(scatter,1.0f/2.2f);
 		CHECK(std::abs(displayedBed(displayScatter,scatter,t.g)-displayScatter)<0.000001f);
@@ -928,8 +928,8 @@ TEST(water_optics_authored_offshore_examples_hide_bed_in_display_space)
 	// units of vertical depth and a ~3.2-unit ray, opacity 1 at reference depth 3.
 	const float scenarios[][3]={{10.0f,0.75f,2.7f},{3.2f,1.0f,3.0f}};
 	for (const auto &scenario:scenarios) {
-		const RGB shore=Transmission(scenario[0],0,0,scenario[2],scenario[1]);
-		const RGB offshore=Transmission(scenario[0],0,1,scenario[2],scenario[1]);
+		const Rgb shore=Transmission(scenario[0],0,0,scenario[2],scenario[1]);
+		const Rgb offshore=Transmission(scenario[0],0,1,scenario[2],scenario[1]);
 		for (int channel=0;channel<3;++channel) {
 			CHECK(displayedBedContrast(opticalChannel(offshore,channel),scatter[channel])<0.05f);
 			CHECK(displayedBedContrast(opticalChannel(offshore,channel),scatter[channel])<
@@ -954,7 +954,7 @@ TEST(water_optical_ray_correction_preserves_camera_rays_and_zero_offshore)
 			CHECK(std::abs(distance-(100+shift))<0.00003f);
 			if (offshore==0) {
 				CHECK(shift==0 && x==5 && z==12);
-				const RGB before=Transmission(100,0,0,3,.75f),after=Transmission(100+shift,0,0,3,.75f);
+				const Rgb before=Transmission(100,0,0,3,.75f),after=Transmission(100+shift,0,0,3,.75f);
 				CHECK(before.r==after.r && before.g==after.g && before.b==after.b);
 			}
 		}
@@ -994,11 +994,11 @@ TEST(water_optical_ray_correction_keeps_submerged_objects_clearer_than_the_bed)
 	const float objectShift=RayShift(-2,.8f,1,7,.25f,100),bedShift=RayShift(-2,.8f,1,7,4,100);
 	const float objectGap=.25f+objectShift,bedGap=4+bedShift;
 	CHECK(std::abs(objectGap-.08f)<0.000001f && std::abs(bedGap-1.5f)<0.000001f);
-	const RGB object=Transmission(objectGap,0,1,3,.75f),bed=Transmission(bedGap,0,1,3,.75f);
+	const Rgb object=Transmission(objectGap,0,1,3,.75f),bed=Transmission(bedGap,0,1,3,.75f);
 	CHECK(object.r>bed.r && object.g>bed.g && object.b>bed.b);
 	// Armed control reproduces the old bug: a length() taken after passing the hit becomes
 	// positive again and makes the near object *darker* than the farther bed.
-	const RGB crossed=Transmission(std::abs(.25f-2.5f),0,1,3,.75f);
+	const Rgb crossed=Transmission(std::abs(.25f-2.5f),0,1,3,.75f);
 	CHECK(crossed.r<bed.r && crossed.g<bed.g && crossed.b<bed.b);
 	CHECK(RayShift(-2,.8f,1,7,.03f,100)==0); // preserve a hit closer than the safety margin
 	CHECK(std::abs(RayShift(2,.8f,1,7,10,.3f)-.22f)<0.000001f);
@@ -1029,13 +1029,13 @@ TEST(water_optics_shared_hlsl_compiles_and_translates_without_gpu_execution)
 TEST(water_source_zero_path_keeps_transmitted_scene_independent_of_face_lighting)
 {
     using namespace WaterOpticalModel;
-    const RGB scene={.17f,.38f,.61f};
+    const Rgb scene={.17f,.38f,.61f};
     unsigned oldControls=0;
     for(float river:{0.0f,.25f,1.0f})for(float rawOcean:{0.0f,.5f,1.0f})
     for(float daylight:{0.0f,.5f,1.0f})for(float face:{0.0f,.25f,1.0f})for(float caustic:{.82f,1.0f,1.55f}) {
         const float offshore=rawOcean*(1-river);
-        const RGB source=ScatteringSource(river,offshore,daylight,face);
-        const RGB body=Body(scene,Transmission(0,river,offshore,3,.75f),source,caustic,1);
+        const Rgb source=ScatteringSource(river,offshore,daylight,face);
+        const Rgb body=Body(scene,Transmission(0,river,offshore,3,.75f),source,caustic,1);
         for(int c=0;c<3;++c)CHECK(std::abs(opticalChannel(body,c)-opticalChannel(scene,c)*caustic)<1e-6f);
         // The pre-fix face multiplier also scales scene at T=1; an offshore face must expose it.
         if(offshore==1 && face==0) {
@@ -1049,14 +1049,14 @@ TEST(water_source_zero_path_keeps_transmitted_scene_independent_of_face_lighting
 TEST(water_source_face_lighting_does_not_change_transmitted_object_contrast)
 {
     using namespace WaterOpticalModel;
-    const RGB a={.72f,.51f,.29f},b={.12f,.08f,.04f};
+    const Rgb a={.72f,.51f,.29f},b={.12f,.08f,.04f};
     for(float path:{.1f,1.0f,4.0f,12.0f})for(float offshore:{0.0f,.4f,1.0f})
     for(float caustic:{.82f,1.0f,1.55f}) {
-        const RGB t=Transmission(path,0,offshore,3,.75f);
-        RGB contrasts[2];
+        const Rgb t=Transmission(path,0,offshore,3,.75f);
+        Rgb contrasts[2];
         for(int f=0;f<2;++f) {
-            const RGB source=ScatteringSource(0,offshore,1,float(f));
-            const RGB ba=Body(a,t,source,caustic,1),bb=Body(b,t,source,caustic,1);
+            const Rgb source=ScatteringSource(0,offshore,1,float(f));
+            const Rgb ba=Body(a,t,source,caustic,1),bb=Body(b,t,source,caustic,1);
             contrasts[f]={ba.r-bb.r,ba.g-bb.g,ba.b-bb.b};
             for(int c=0;c<3;++c) {
                 const float expected=(opticalChannel(a,c)-opticalChannel(b,c))*opticalChannel(t,c)*caustic;
@@ -1072,19 +1072,19 @@ TEST(water_source_face_lighting_does_not_change_transmitted_object_contrast)
 TEST(water_source_deep_limit_fallback_and_radiance_equilibrium)
 {
     using namespace WaterOpticalModel;
-    const RGB scene={.71f,.31f,.13f};
+    const Rgb scene={.71f,.31f,.13f};
     for(float river:{0.0f,1.0f})for(float ocean:{0.0f,.5f,1.0f})for(float face:{0.0f,.4f,1.0f}) {
         const float offshore=ocean*(1-river);
-        const RGB source=ScatteringSource(river,offshore,.7f,face);
+        const Rgb source=ScatteringSource(river,offshore,.7f,face);
         for(float path:{0.0f,.1f,3.0f,20.0f,100000.0f}) {
-            const RGB t=Transmission(path,river,offshore,3,.75f);
-            const RGB equilibrium=Body(source,t,source,1,1),fallback=Body(scene,t,source,1.5f,0);
+            const Rgb t=Transmission(path,river,offshore,3,.75f);
+            const Rgb equilibrium=Body(source,t,source,1,1),fallback=Body(scene,t,source,1.5f,0);
             for(int c=0;c<3;++c) {
                 CHECK(std::abs(opticalChannel(equilibrium,c)-opticalChannel(source,c))<1e-7f);
                 CHECK(std::abs(opticalChannel(fallback,c)-opticalChannel(source,c))<1e-7f);
             }
             if(path>1000) {
-                const RGB deep=Body(scene,t,source,1.5f,1);
+                const Rgb deep=Body(scene,t,source,1.5f,1);
                 for(int c=0;c<3;++c)CHECK(std::abs(opticalChannel(deep,c)-opticalChannel(source,c))<1e-7f);
             }
         }
@@ -1094,15 +1094,15 @@ TEST(water_source_deep_limit_fallback_and_radiance_equilibrium)
 TEST(water_source_context_is_continuous_and_does_not_gate_offshore_twice)
 {
     using namespace WaterOpticalModel;
-    const RGB clear=MaterialSource(0,0),ocean=MaterialSource(0,1),river=MaterialSource(1,0);
+    const Rgb clear=MaterialSource(0,0),ocean=MaterialSource(0,1),river=MaterialSource(1,0);
     // Migration checks pin existing art endpoints; they intentionally do not derive expected
     // values from the new preset constants, which would allow an accidental retint to self-pass.
     CHECK(std::abs(clear.r-.002f)<1e-8f && std::abs(clear.g-.028f)<1e-8f && std::abs(clear.b-.041f)<1e-8f);
     CHECK(std::abs(ocean.r-.002f)<1e-8f && std::abs(ocean.g-.035f)<1e-8f && std::abs(ocean.b-.075f)<1e-8f);
     CHECK(river.r==clear.r && river.g==clear.g && river.b==clear.b);
-    RGB previous=clear;
+    Rgb previous=clear;
     for(int i=1;i<=100;++i) {
-        const float offshore=i/100.0f;const RGB current=MaterialSource(0,offshore);
+        const float offshore=i/100.0f;const Rgb current=MaterialSource(0,offshore);
         for(int c=0;c<3;++c) {
             const float lo=opticalChannel(clear,c),hi=opticalChannel(ocean,c),value=opticalChannel(current,c);
             CHECK(value>=std::min(lo,hi)-1e-8f && value<=std::max(lo,hi)+1e-8f);
@@ -1112,11 +1112,11 @@ TEST(water_source_context_is_continuous_and_does_not_gate_offshore_twice)
     }
     // Valid continuous context: river .4 + effective offshore .6 = 1. River currently shares
     // the clear source, so changing the river share cannot shrink this already-gated ocean share.
-    const RGB partial=MaterialSource(.4f,.6f),ungated=MaterialSource(0,.6f);
+    const Rgb partial=MaterialSource(.4f,.6f),ungated=MaterialSource(0,.6f);
     CHECK(std::abs(partial.r-ungated.r)<1e-8f && std::abs(partial.g-ungated.g)<1e-8f && std::abs(partial.b-ungated.b)<1e-8f);
-    const RGB capped=MaterialSource(1,1);CHECK(capped.r==river.r && capped.g==river.g && capped.b==river.b);
+    const Rgb capped=MaterialSource(1,1);CHECK(capped.r==river.r && capped.g==river.g && capped.b==river.b);
     // Shared source colour does not erase the existing river/standing-water transmission distinction.
-    const RGB riverT=Transmission(5,1,0,3,.75f),poolT=Transmission(5,0,0,3,.75f);
+    const Rgb riverT=Transmission(5,1,0,3,.75f),poolT=Transmission(5,0,0,3,.75f);
     CHECK(riverT.r>poolT.r && riverT.g>poolT.g && riverT.b>poolT.b);
 }
 
@@ -1247,16 +1247,16 @@ TEST(water_macro_swell_gradients_and_curvature_include_warp_and_packet_derivativ
 TEST(foam_environment_positive_quadrature_preserves_energy_without_renormalizing)
 {
 	using namespace WaterFoamEnvironment;
-	const Table white=Build([](Vector){return RGB{1,1,1};});
-	const Table dark=Build([](Vector){return RGB{0,0,0};});
+	const Table white=Build([](Vector){return Rgb{1,1,1};});
+	const Table dark=Build([](Vector){return Rgb{0,0,0};});
 	// Independent analytic irradiance: for L(w)=1+.5*w.z, E/pi=1+n.z/3.
 	// A coloured HDR environment also proves neither radiance nor irradiance is saturated.
-	const Table gradient=Build([](Vector w){const double a=1+.5*w.z;return RGB{2*a,.75*a,3.5*a};});
+	const Table gradient=Build([](Vector w){const double a=1+.5*w.z;return Rgb{2*a,.75*a,3.5*a};});
 	double maximumLoss=0,maximumWhiteLoss=0;unsigned finiteBinLosses=0;
 	for(unsigned i=0;i<256;++i) {
 		const double z=1-2*(i+.5)/256,phase=i*2.399963229728653,r=std::sqrt(1-z*z);
 		const Vector n={r*std::cos(phase),r*std::sin(phase),z};
-		const RGB unit=Evaluate(white,n),black=Evaluate(dark,n),colour=Evaluate(gradient,n);
+		const Rgb unit=Evaluate(white,n),black=Evaluate(dark,n),colour=Evaluate(gradient,n);
 		CHECK(unit.r>=0 && unit.g>=0 && unit.b>=0);
 		CHECK(unit.r<=1.00002 && unit.g<=1.00002 && unit.b<=1.00002);
 		CHECK(black.r==0 && black.g==0 && black.b==0);
@@ -1272,7 +1272,7 @@ TEST(foam_environment_positive_quadrature_preserves_energy_without_renormalizing
 	// positivity while incorrectly increasing the current bright cloud's incident energy.
 	CHECK(finiteBinLosses>64);
 	CHECK(maximumLoss<.10 && maximumWhiteLoss<.10);
-	const RGB up=Evaluate(white,{0,0,1}),down=Evaluate(white,{0,0,-1});
+	const Rgb up=Evaluate(white,{0,0,1}),down=Evaluate(white,{0,0,-1});
 	CHECK(std::abs(up.r-1)<1e-12 && std::abs(down.r-1)<1e-12);
 	printf("  foam environment constant/linear maximum finite-bin losses %.6g/%.6g\n",maximumWhiteLoss,maximumLoss);
 }
@@ -1287,11 +1287,11 @@ TEST(foam_environment_canonical_rotation_daylight_and_generated_constants_are_st
 	// Rotate sun azimuth and normal together. Adding the inverse of oceanSky's small
 	// sun-axis bias retains exactly the same canonical direction at every orientation.
 	const Vector canonical={.3,.4,std::sqrt(.75)};
-	const RGB expected=Evaluate(CachedTable(),canonical);
+	const Rgb expected=Evaluate(CachedTable(),canonical);
 	for(double angle:{0.0,.2,1.7,3.1,5.4})for(double day:{0.0,.4,1.0}) {
 		const double x=std::cos(angle),y=std::sin(angle),scale=.06+.94*day;
 		const Vector normal={canonical.x*x-canonical.y*y,canonical.x*y+canonical.y*x,canonical.z};
-		const RGB actual=Evaluate(normal,{x-.00001,y,.45},day);
+		const Rgb actual=Evaluate(normal,{x-.00001,y,.45},day);
 		CHECK(std::abs(actual.r-expected.r*scale)<1e-12);
 		CHECK(std::abs(actual.g-expected.g*scale)<1e-12);
 		CHECK(std::abs(actual.b-expected.b*scale)<1e-12);
@@ -1299,7 +1299,7 @@ TEST(foam_environment_canonical_rotation_daylight_and_generated_constants_are_st
 	// All normals, including overturned FFT tangents, receive nonnegative radiance.
 	for(unsigned i=0;i<128;++i) {
 		const double z=1-2*(i+.5)/128,phase=i*2.399963229728653,r=std::sqrt(1-z*z);
-		const RGB value=Evaluate(CachedTable(),{r*std::cos(phase),r*std::sin(phase),z});
+		const Rgb value=Evaluate(CachedTable(),{r*std::cos(phase),r*std::sin(phase),z});
 		CHECK(std::isfinite(value.r) && value.r>=0 && std::isfinite(value.g) && value.g>=0 && std::isfinite(value.b) && value.b>=0);
 	}
 }

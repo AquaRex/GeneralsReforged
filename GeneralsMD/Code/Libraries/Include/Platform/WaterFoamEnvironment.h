@@ -11,7 +11,7 @@ namespace WaterFoamEnvironment {
 constexpr unsigned SampleCount=65536;
 constexpr unsigned BinCount=48;
 struct Vector { double x,y,z; };
-struct RGB { double r,g,b; };
+struct Rgb { double r,g,b; };
 // Each row is integral(L_channel(w) * w / pi) over one angular bin.
 struct Moment { double rgb[3][3]; };
 typedef std::array<Moment,BinCount> Table;
@@ -32,7 +32,7 @@ inline float Noise(float x,float y) {
 	x-=ix;y-=iy;x=x*x*(3-2*x);y=y*y*(3-2*y);
 	return Lerp(Lerp(Hash(ix,iy),Hash(ix+1,iy),x),Lerp(Hash(ix,iy+1),Hash(ix+1,iy+1),x),y);
 }
-inline RGB CanonicalSky(Vector direction) {
+inline Rgb CanonicalSky(Vector direction) {
 	// Float arithmetic mirrors oceanSky's shader operations. Its sun-relative frame is
 	// fixed: +X along the sun's azimuth, +Y toward the cloud bank. Exclude only the
 	// explicit solar halo: the authored direct light already supplies that source.
@@ -50,7 +50,7 @@ inline RGB CanonicalSky(Vector direction) {
 }
 
 namespace Detail {
-struct Sample {Vector direction;RGB radiance;double azimuth;};
+struct Sample {Vector direction;Rgb radiance;double azimuth;};
 struct Group {std::vector<unsigned> indices;Moment moment={};double loss=0;};
 inline void Summarize(Group &group,const std::vector<Sample> &samples) {
 	group.moment=Moment{};
@@ -122,7 +122,7 @@ inline const Table &CachedTable() {
 	static const Table table=Build([](Vector direction){return CanonicalSky(direction);});
 	return table;
 }
-inline RGB Evaluate(const Table &table,Vector normal) {
+inline Rgb Evaluate(const Table &table,Vector normal) {
 	// normal is unit length. For each channel, max(n . integral(L*w),0) is no
 	// greater than integral(L*max(n.w,0)). Thus these bins remain positive and
 	// conservatively lose energy at partially visible bins, including inverted normals.
@@ -134,11 +134,11 @@ inline RGB Evaluate(const Table &table,Vector normal) {
 	}
 	return {value[0],value[1],value[2]};
 }
-inline RGB Evaluate(Vector normal,Vector light,double daylight) {
+inline Rgb Evaluate(Vector normal,Vector light,double daylight) {
 	const double x=light.x+0.00001,y=light.y,inverseLength=1/std::sqrt(x*x+y*y);
 	const Vector canonical={normal.x*x*inverseLength+normal.y*y*inverseLength,
 		-normal.x*y*inverseLength+normal.y*x*inverseLength,normal.z};
-	RGB result=Evaluate(CachedTable(),canonical);
+	Rgb result=Evaluate(CachedTable(),canonical);
 	const double scale=0.06+0.94*(daylight<0?0:(daylight>1?1:daylight));
 	result.r*=scale;result.g*=scale;result.b*=scale;return result;
 }

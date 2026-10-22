@@ -803,7 +803,7 @@ static void check_gpu_water_optical_model(SdlGpuFrame *frame)
 	CHECK(frame->Read_Back(target, 3, count, bytes));
 	float max_model_error = 0;
 	for (unsigned int i=0; i<count; ++i) {
-		const WaterOpticalModel::RGB cpu=WaterOpticalModel::Transmission(
+		const WaterOpticalModel::Rgb cpu=WaterOpticalModel::Transmission(
 			fixtures[i][0],fixtures[i][1],fixtures[i][2],fixtures[i][3],fixtures[i][4]);
 		const float expected[3]={cpu.r,cpu.g,cpu.b};
 		for (unsigned int c=0; c<3; ++c) {
@@ -1519,7 +1519,7 @@ float4 main(float4 position:SV_Position):SV_Target0
         // but the displaced actual nearest is(1,0,-5), distance sqrt26, despite bad neighbours.
         CHECK(std::abs(actual[21*columns*4+3]-std::sqrt(26.0f))<3e-5f);
         CHECK(std::abs(actual[21*columns*4+3]-20.0f)>14.0f);
-        // All-valid RGB mixture retains hardware bilinear values. Differently deep neighbours
+        // All-valid Rgb mixture retains hardware bilinear values. Differently deep neighbours
         // do not turn transport into averaged depth: nearest red has depth2, not weighted3.9375.
         CHECK(std::abs(actual[23*columns*4+4]-.5625f)<3e-6f);
         CHECK(std::abs(actual[23*columns*4+5]-.25f)<3e-6f);
@@ -1924,9 +1924,9 @@ float4 main(float4 position:SV_Position):SV_Target0 {
     float maximumError=0;
     for(unsigned row=0;row<rows;++row){
         using namespace WaterOpticalModel;const float *f=base[row];
-        const RGB T=Transmission(f[0],f[1],f[2],f[12],f[13]),S=ScatteringSource(f[1],f[2],f[7],f[3]);
-        const RGB scene={f[4],f[5],f[6]},B=Body(scene,T,S,f[8],f[9]),M=MaterialSource(f[1],f[2]);
-        const RGB expected[4]={T,S,B,M};
+        const Rgb T=Transmission(f[0],f[1],f[2],f[12],f[13]),S=ScatteringSource(f[1],f[2],f[7],f[3]);
+        const Rgb scene={f[4],f[5],f[6]},B=Body(scene,T,S,f[8],f[9]),M=MaterialSource(f[1],f[2]);
+        const Rgb expected[4]={T,S,B,M};
         for(unsigned col=0;col<columns;++col)for(unsigned c=0;c<3;++c){
             const float e=c==0?expected[col].r:c==1?expected[col].g:expected[col].b;
             const float got=value(actual,row,col,c),difference=std::abs(got-e);
@@ -3942,9 +3942,9 @@ Result main(float4 pixel:SV_Position) {
 	const auto fine=render(256,256,0),coarse=render(128,128,0),values=render(count,1,2);
 	CHECK(fine.size()==65536*8 && coarse.size()==16384*8 && values.size()==count*8);
 	if(fine.size()!=65536*8 || coarse.size()!=16384*8 || values.size()!=count*8)return;
-	auto component=[](RGB rgb,unsigned c){return c==0?rgb.r:c==1?rgb.g:rgb.b;};
+	auto component=[](Rgb rgb,unsigned c){return c==0?rgb.r:c==1?rgb.g:rgb.b;};
 	auto integrate=[&](const std::vector<float>&samples,const Query &query) {
-		const unsigned n=unsigned(samples.size()/8);RGB out={};double sum[3]={};
+		const unsigned n=unsigned(samples.size()/8);Rgb out={};double sum[3]={};
 		for(unsigned i=0;i<n;++i) {
 			const float *ray=&samples[n*4+i*4];const double cosine=(std::max)(0.0,double(query.normal[0])*ray[0]+double(query.normal[1])*ray[1]+double(query.normal[2])*ray[2]);
 			for(unsigned c=0;c<3;++c)sum[c]+=samples[i*4+c]*cosine;
@@ -3953,7 +3953,7 @@ Result main(float4 pixel:SV_Position) {
 	};
 	double maxReferenceError=0,maxConvergence=0,maxCpuGpu=0,maxRotation=0,maxAmbient=0,maxCosineConvergence=0;
 	for(unsigned index=0;index<canonicalCount;++index) {
-		const RGB a=integrate(fine,queries[index]),b=integrate(coarse,queries[index]);
+		const Rgb a=integrate(fine,queries[index]),b=integrate(coarse,queries[index]);
 		for(unsigned c=0;c<3;++c) {
 			const double v=values[index*4+c],expected=component(a,c),convergence=std::abs(expected-component(b,c));
 			maxReferenceError=(std::max)(maxReferenceError,std::abs(v-expected));maxConvergence=(std::max)(maxConvergence,convergence);
@@ -3963,14 +3963,14 @@ Result main(float4 pixel:SV_Position) {
 	}
 	for(unsigned index:{0u,13u,16u,25u,43u}) {
 		const auto cosine=render(256,128,1,index);CHECK(cosine.size()==32768*8);if(cosine.size()!=32768*8)return;
-		const RGB reference=integrate(fine,queries[index]);
+		const Rgb reference=integrate(fine,queries[index]);
 		for(unsigned c=0;c<3;++c) {
 			double sum=0;for(unsigned i=0;i<32768;++i)sum+=cosine[i*4+c];const double difference=std::abs(sum/32768-component(reference,c));
 			maxCosineConvergence=(std::max)(maxCosineConvergence,difference);CHECK(difference<.003);
 		}
 	}
 	for(unsigned row=0;row<count;++row) {
-		const Query &f=queries[row];const RGB cpu=Evaluate({f.normal[0],f.normal[1],f.normal[2]},{f.light[0],f.light[1],f.light[2]},f.sun[3]);
+		const Query &f=queries[row];const Rgb cpu=Evaluate({f.normal[0],f.normal[1],f.normal[2]},{f.light[0],f.light[1],f.light[2]},f.sun[3]);
 		double sunDot=0,fill1=0,fill2=0;for(unsigned c=0;c<3;++c){sunDot+=double(f.normal[c])*f.light[c];fill1+=double(f.normal[c])*f.fillDirection1[c];fill2+=double(f.normal[c])*f.fillDirection2[c];}
 		for(unsigned c=0;c<3;++c) {
 			const double sky=values[row*4+c],value=values[count*4+row*4+c];
@@ -4001,12 +4001,12 @@ Result main(float4 pixel:SV_Position) {
 		}
 	}
 	CHECK(&CachedTable()==&CachedTable());
-	const Table dark=Build([](Vector){return RGB{0,0,0};});
-	const Table unit=Build([](Vector){return RGB{1,1,1};});
-	const Table coloured=Build([](Vector){return RGB{2,4,8};});
+	const Table dark=Build([](Vector){return Rgb{0,0,0};});
+	const Table unit=Build([](Vector){return Rgb{1,1,1};});
+	const Table coloured=Build([](Vector){return Rgb{2,4,8};});
 	double unitMaximum=0,unitMinimum=1;
 	for(const Query &f:queries) {
-		const Vector normal={f.normal[0],f.normal[1],f.normal[2]};const RGB d=Evaluate(dark,normal),u=Evaluate(unit,normal),h=Evaluate(coloured,normal);
+		const Vector normal={f.normal[0],f.normal[1],f.normal[2]};const Rgb d=Evaluate(dark,normal),u=Evaluate(unit,normal),h=Evaluate(coloured,normal);
 		CHECK(d.r==0 && d.g==0 && d.b==0);
 		unitMaximum=(std::max)(unitMaximum,u.r);unitMinimum=(std::min)(unitMinimum,u.r);
 		CHECK(u.r>=0 && u.r<=1.00001 && std::abs(u.r-u.g)<1e-12 && std::abs(u.r-u.b)<1e-12);

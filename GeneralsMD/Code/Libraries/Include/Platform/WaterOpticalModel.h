@@ -12,9 +12,9 @@
 #define WATER_OPTICAL_SOURCE_PRESETS(X) X(0.002f,0.028f,0.041f, 0.002f,0.028f,0.041f, 0.002f,0.035f,0.075f, 0.08f,0.40f,1.80f)
 
 namespace WaterOpticalModel {
-struct RGB { float r,g,b; };
+struct Rgb { float r,g,b; };
 #define WATER_OPTICAL_CPP_CONSTANTS(red,green,blue,standing,minDepth,minTransmission,maxExponent,maxFinite) \
-    constexpr RGB BaseExtinction={red,green,blue}; \
+    constexpr Rgb BaseExtinction={red,green,blue}; \
     constexpr float StandingPathScale=standing,MinimumReferenceDepth=minDepth; \
     constexpr float MinimumReferenceTransmission=minTransmission,MaximumExponent=maxExponent,MaximumFiniteInput=maxFinite;
 WATER_OPTICAL_CONSTANTS(WATER_OPTICAL_CPP_CONSTANTS)
@@ -49,7 +49,7 @@ inline float OffshoreExtinction(float transparentDepth,float minOpacity) {
     const float remaining=std::max(1.0f-Unit(minOpacity),MinimumReferenceTransmission);
     return -std::log(remaining)/ReferenceDepth(transparentDepth);
 }
-inline RGB Transmission(float path,float riverBlend,float offshoreFactor,float referenceDepth,float opacity) {
+inline Rgb Transmission(float path,float riverBlend,float offshoreFactor,float referenceDepth,float opacity) {
     path=Path(path);
     const float materialPath=path*(StandingPathScale+(1.0f-StandingPathScale)*Unit(riverBlend));
     // Authored opacity describes extinction per physical world distance. Applying the legacy
@@ -61,7 +61,7 @@ inline RGB Transmission(float path,float riverBlend,float offshoreFactor,float r
 }
 // Source-function radiances in linear RGB; these are not extinction coefficients.
 #define WATER_OPTICAL_SOURCE_CPP(clearR,clearG,clearB,riverR,riverG,riverB,oceanR,oceanG,oceanB,ambient,faceMin,faceRange) \
-    constexpr RGB ClearSource={clearR,clearG,clearB},RiverSource={riverR,riverG,riverB},OceanSource={oceanR,oceanG,oceanB}; \
+    constexpr Rgb ClearSource={clearR,clearG,clearB},RiverSource={riverR,riverG,riverB},OceanSource={oceanR,oceanG,oceanB}; \
     constexpr float SourceAmbient=ambient,SourceFaceMinimum=faceMin,SourceFaceRange=faceRange;
 WATER_OPTICAL_SOURCE_PRESETS(WATER_OPTICAL_SOURCE_CPP)
 #undef WATER_OPTICAL_SOURCE_CPP
@@ -70,7 +70,7 @@ inline float SourceOffshore(float riverBlend,float effectiveOffshore) {
     // multiplying by (1-river) here would apply that gate twice at continuous transitions.
     return std::min(Unit(effectiveOffshore),1.0f-Unit(riverBlend));
 }
-inline RGB MaterialSource(float riverBlend,float effectiveOffshore) {
+inline Rgb MaterialSource(float riverBlend,float effectiveOffshore) {
     const float river=Unit(riverBlend),offshore=SourceOffshore(river,effectiveOffshore);
     // Convex context weights are clear=(1-river-offshore), river, and offshore. Nearshore
     // connected water blends from clear to ocean; enclosed pools retain the clear endpoint.
@@ -78,15 +78,15 @@ inline RGB MaterialSource(float riverBlend,float effectiveOffshore) {
         ClearSource.g+(RiverSource.g-ClearSource.g)*river+(OceanSource.g-ClearSource.g)*offshore,
         ClearSource.b+(RiverSource.b-ClearSource.b)*river+(OceanSource.b-ClearSource.b)*offshore};
 }
-inline RGB ScatteringSource(float riverBlend,float effectiveOffshore,float daylight,float faceLight) {
-    const RGB material=MaterialSource(riverBlend,effectiveOffshore);
+inline Rgb ScatteringSource(float riverBlend,float effectiveOffshore,float daylight,float faceLight) {
+    const Rgb material=MaterialSource(riverBlend,effectiveOffshore);
     const float light=SourceAmbient+(1.0f-SourceAmbient)*Unit(daylight);
     const float face=1.0f+SourceOffshore(riverBlend,effectiveOffshore)
         *(SourceFaceMinimum+SourceFaceRange*Unit(faceLight)-1.0f);
     return {material.r*light*face,material.g*light*face,material.b*light*face};
 }
-inline RGB Body(RGB scene,RGB transmission,RGB source,float caustic,float sceneAvailable) {
-    const RGB integrated={scene.r*transmission.r*caustic+source.r*(1.0f-transmission.r),
+inline Rgb Body(Rgb scene,Rgb transmission,Rgb source,float caustic,float sceneAvailable) {
+    const Rgb integrated={scene.r*transmission.r*caustic+source.r*(1.0f-transmission.r),
         scene.g*transmission.g*caustic+source.g*(1.0f-transmission.g),
         scene.b*transmission.b*caustic+source.b*(1.0f-transmission.b)};
     const float available=Unit(sceneAvailable);
