@@ -75,12 +75,13 @@ static Real groundLight()
 	RGBColor shade = TheGlobalData->m_terrainAmbient[0];
 	for (Int i = 0; i < TheGlobalData->m_numGlobalLights; ++i)
 	{
-		const Real down = MAX(0.0f, -TheGlobalData->m_terrainLightPos[i].z);
+		const Real down = MIN(1.0f, MAX(0.0f, -TheGlobalData->m_terrainLightPos[i].z));
 		shade.red += TheGlobalData->m_terrainDiffuse[i].red * down;
 		shade.green += TheGlobalData->m_terrainDiffuse[i].green * down;
 		shade.blue += TheGlobalData->m_terrainDiffuse[i].blue * down;
 	}
-	return 0.30f * shade.red + 0.59f * shade.green + 0.11f * shade.blue;
+	// each channel saturates at 1 as the terrain's own vertex shade does
+	return 0.30f * MIN(1.0f, shade.red) + 0.59f * MIN(1.0f, shade.green) + 0.11f * MIN(1.0f, shade.blue);
 }
 
 Real RadiusDecalTemplate::lightScale() const

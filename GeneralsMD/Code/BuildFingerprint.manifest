@@ -60,6 +60,7 @@ Data/Cinema/filterbw.txt
 Data/Cinema/firelook.txt
 Data/Cinema/geproto_alpine.txt
 Data/Cinema/geproto_glow.txt
+Data/Cinema/geproto_hazemove.txt
 Data/Cinema/geproto_oasis.txt
 Data/Cinema/gunfx.txt
 Data/Cinema/headlights.txt
@@ -106,6 +107,7 @@ Data/Cinema/nukewarp.txt
 Data/Cinema/rankaura.txt
 Data/Cinema/rankauramaresal.txt
 Data/Cinema/rankauranight.txt
+Data/Cinema/rankaurasnow.txt
 Data/Cinema/rankladder.txt
 Data/Cinema/rankzero.txt
 Data/Cinema/rf_ai.txt
@@ -251,6 +253,7 @@ Data/Scenarios/firelook.txt
 Data/Scenarios/fogleak.txt
 Data/Scenarios/geproto_alpine.txt
 Data/Scenarios/geproto_glow.txt
+Data/Scenarios/geproto_hazemove.txt
 Data/Scenarios/geproto_oasis.txt
 Data/Scenarios/givemoney.txt
 Data/Scenarios/glowbase.txt
@@ -327,6 +330,7 @@ Data/Scenarios/rankaura.txt
 Data/Scenarios/rankauramaresal.txt
 Data/Scenarios/rankauranight.txt
 Data/Scenarios/rankaurareplay.txt
+Data/Scenarios/rankaurasnow.txt
 Data/Scenarios/rankladder.txt
 Data/Scenarios/rankzero.txt
 Data/Scenarios/reachshot.txt
