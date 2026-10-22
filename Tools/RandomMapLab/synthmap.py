@@ -26,9 +26,21 @@ through that map:
   cliffs   from the final heights: the exemplar's painted cliff bits are exactly its heights'.
   scenery  every tree, rock, tent, sound and hut whose source cell landed off the pads.
 
-The piles go where the exemplar keeps them, up on the high ground between two bases with a tent: a
-pair at the bearing halfway to the next seat ("mid") and a pair a third of the way ("field"),
-instead of the ramp's foot. One TechOilRefinery goes at the middle.
+Before the quilting the skeleton is given the exemplar's large features, which no 48 cell patch
+holds, at the sizes mapfeatures.py measures them and in a layout of the seed's (compose): its high
+ground and ways down when both maps raise their bases, a canyon through the middle with a mesa in it
+and the mesa's bridges, a river with its bridges (each the exemplar's own pair of bridge objects),
+its towns copied whole with every building, road and tree in their boxes, its tech buildings. What
+it cannot build yet it names. The trees are counted: the quilting pays for a patch whose trees miss
+the exemplar's density on the ground where trees may stand (off pads, ramps, AI paths, feature
+edges and water), and clumps of the exemplar's own trees make up what is still short.
+
+The piles go where the exemplar keeps them when it keeps them on high ground (Twilight's, between
+two bases with a tent): a pair at the bearing halfway to the next seat ("mid") and a pair a third of
+the way ("field"), instead of the ramp's foot.
+
+A generated map's name carries the CRC of the exemplar's stored bytes, so two machines can tell
+they built from the same file.
 
 Why not wave function collapse: `wfcprobe` measures it. Cut to six height bands and four texture
 groups the exemplar already shows 7101 distinct 3x3 patterns (11302 with its 21 textures), an
@@ -39,19 +51,20 @@ already is, and WFC hands back quantised symbols, so the height would want synth
 Quilting copies real cells and is a fixed amount of work.
 
     python synthmap.py <skeleton.map> [...] [-o outdir] [--source maps.big] [--seed N]
-    python synthmap.py table <twilight.json> <map> [...]
+    python synthmap.py table <exemplar.map> <map> [...]
     python synthmap.py render <out.png> <map> [...]
     python synthmap.py wfcprobe <skeleton.map>
     python synthmap.py selfcheck
 
 A skeleton is what `test_gameengine.exe write_the_maps_RMG_DUMP_names` writes with RMG_DUMP set.
-Output per skeleton: <name>_synth.map (raw CkMp, BlendTileData version 8 with the exemplar's texture
-table and the cliff bits) and <name>_synth.png, each cell its texture's average colour under the
-map's sun.
+Output per skeleton: <name>_<exemplar>_<crc>.map (raw CkMp, BlendTileData version 8 with the
+exemplar's texture table and the cliff bits, the exemplar's lighting, a water area per river) and
+the same name .png, each cell its texture's average colour under the map's sun. The line it prints
+says whether every start still reaches every other, every dock, derrick and tech building, over
+the bridges and round the water, and whether it would without the bridges.
 """
 
 import argparse
-import json
 import math
 import os
 import re
@@ -69,6 +82,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "..", "GeneralsMD", "Code", "Tools"))
 
 import bigfile                                       # noqa: E402
+import mapfeatures                                   # noqa: E402
 import mapstyle                                      # noqa: E402
 from mapscore import MAP_HEIGHT_SCALE, MAP_XY_FACTOR, CLIFF_WORLD_SPAN  # noqa: E402
 
@@ -93,7 +107,27 @@ PAD_RADIUS = (24, 34)       # a start's pad keeps the skeleton's height inside t
 SITE_RADIUS = (7, 12)       # the same round a dock or a derrick
 SLOPE_REACH = 100           # cells from a start the skeleton's walkable slopes are kept
 PILE_FLAT = 4               # cells round a pile levelled
-REFINERY_FLAT = 8
+TECH_FLAT = 8               # cells round a tech building levelled
+MIN_RELIEF = 60.0           # bytes: the unit of t where the bases are not raised
+
+# How the exemplar's features are built; their sizes come from its inventory (mapfeatures.py)
+RAMP_BANK = 10.0            # cells a widened way down takes to meet the ground beside it
+WALL_CELLS = 3.0            # a canyon or mesa wall, which is a cliff
+MESA_RAMP = 22.0            # the slope off an end of a mesa
+END_CELLS = 25.0            # the slope out of a canyon arm's end
+FORD_AT = 0.6               # of the open middle's radius, where an arm's ford is
+FORD_CELLS = 8.0            # half a ford's width
+SHORE_CELLS = 6.0           # a river's bed to its waterline
+VALLEY_CELLS = 20.0         # the waterline up to the banks
+RIVER_SLOPE = 3.0           # bytes a cell the ground past a river's banks may rise (a cliff is 15.7)
+TOWN_MARGIN = 10            # cells round a town's buildings copied with it
+TOWN_STEP = 8               # cells between the places tried for a town
+TOWN_RELIEF = 50            # bytes of rise under a town's box that levelling it may take away
+SCENERY_WEIGHT = 0.05       # a tree off the patch's share of the exemplar's density, against the guide
+PATH_CELLS = 4              # no tree this close to an AI path
+BRIDGE_CLEAR = 6            # no scenery this close to a bridge's end
+CLUMP_CELLS = 5             # the exemplar's trees this close to one go down together
+TREE_TRIES = 40             # clump placements tried a tree still wanted
 
 SCENERY = re.compile(r"^(Tree|Rocks|RockCluster|Tent|Amb_|AmbientWind|WoodTower|QuonsetHut)")
 SKELETON_SCENERY = re.compile(r"^(Tree|Rocks|RockCluster)")
@@ -133,8 +167,112 @@ class RawMap:
         self.chunks = [(cid, version, body) if self.names[cid] == name else (cid, v, b)
                        for cid, v, b in self.chunks]
 
+    def id_of(self, name):
+        """A name's id in the table, a new one at the end if the file has none."""
+        if name not in self.ids:
+            self.ids[name] = max(self.ids.values()) + 1
+            self.names[self.ids[name]] = name
+        return self.ids[name]
+
     def bytes(self):
-        return self.header + join_chunks(self.chunks)
+        table = b"".join(struct.pack("<B", len(name)) + name.encode("latin-1") + struct.pack("<I", i)
+                         for name, i in sorted(self.ids.items(), key=lambda kv: kv[1]))
+        return b"CkMp" + struct.pack("<i", len(self.ids)) + table + join_chunks(self.chunks)
+
+
+DICT_SIZES = {0: 1, 1: 4, 2: 4}                      # bool, int, real; ascii and unicode carry a length
+
+
+def dict_entries(body, pos, names):
+    """A Dict as (key, type, value bytes) entries and where it ends."""
+    entries = []
+    count = struct.unpack_from("<H", body, pos)[0]
+    pos += 2
+    for _ in range(count):
+        key, kind = divmod(struct.unpack_from("<I", body, pos)[0], 256)
+        pos += 4
+        if kind in DICT_SIZES:
+            size = DICT_SIZES[kind]
+        else:
+            size = 2 + struct.unpack_from("<H", body, pos)[0] * (2 if kind == 4 else 1)
+        entries.append((names[key], kind, body[pos:pos + size]))
+        pos += size
+    return entries, pos
+
+
+def encode_dict(entries, raw):
+    return struct.pack("<H", len(entries)) + b"".join(
+        struct.pack("<I", raw.id_of(key) << 8 | kind) + value for key, kind, value in entries)
+
+
+def object_entries(body, names):
+    return dict_entries(body, ascii_at(body, 20)[1], names)[0]
+
+
+def ascii_value(text):
+    return struct.pack("<H", len(text)) + text.encode("latin-1")
+
+
+def moved_object(body, names, raw, cx, cy, serial):
+    """An Object body from another file, standing at cell (cx, cy) of this one's playable area,
+    neutral, nameless (no script of ours knows it) and with a unique id of its own."""
+    template, end = ascii_at(body, 20)
+    entries, _ = dict_entries(body, end, names)
+    fresh = {"uniqueID": ascii_value("%s synth%d" % (template, serial)),
+             "originalOwner": ascii_value("team"), "objectName": ascii_value("")}
+    entries = [(key, kind, fresh.get(key, value)) for key, kind, value in entries]
+    return (raw.id_of("Object"), 3, struct.pack("<2f", cx * MAP_XY_FACTOR, cy * MAP_XY_FACTOR) +
+            body[8:end] + encode_dict(entries, raw))
+
+
+def waypoint_paths(raw, shape, border):
+    """Cells on the lines between linked waypoints (WaypointsList), the AI's ways about the map."""
+    _, objects = raw.body("ObjectsList")
+    where = {}
+    for _, _, body in split_chunks(objects, 0, len(objects)):
+        x, y, _, _ = object_head(body)
+        for key, _, value in object_entries(body, raw.names):
+            if key == "waypointID":
+                where[struct.unpack("<i", value)[0]] = (y / MAP_XY_FACTOR + border, x / MAP_XY_FACTOR + border)
+    _, links = raw.body("WaypointsList")
+    out = np.zeros(shape, bool)
+    for i in range(struct.unpack_from("<i", links, 0)[0]):
+        first, second = struct.unpack_from("<2i", links, 4 + 8 * i)
+        out |= line_cells(where[first], where[second], shape)
+    return out
+
+
+def line_cells(a, z, shape):
+    out = np.zeros(shape, bool)
+    steps = max(int(math.hypot(z[0] - a[0], z[1] - a[1])), 1)
+    for s in range(steps + 1):
+        y = int(a[0] + (z[0] - a[0]) * s / steps)
+        x = int(a[1] + (z[1] - a[1]) * s / steps)
+        out[min(max(y, 0), shape[0] - 1), min(max(x, 0), shape[1] - 1)] = True
+    return out
+
+
+def water_triggers(version, body, areas, border):
+    """PolygonTriggers with a water area per (points (y, x) in grid cells, surface bytes) added,
+    each with an id none of the others has."""
+    if version != 4:
+        raise ValueError("PolygonTriggers version %d, expected 4" % version)
+    count = struct.unpack_from("<i", body, 0)[0]
+    pos, ids = 4, []
+    for _ in range(count):
+        pos = ascii_at(body, pos)[1]
+        pos = ascii_at(body, pos)[1]
+        ids.append(struct.unpack_from("<i", body, pos)[0])
+        pos += 4 + 1 + 1 + 4
+        pos += 4 + 12 * struct.unpack_from("<i", body, pos)[0]
+    out = body[4:]
+    for number, (points, surface) in enumerate(areas):
+        out += ascii_value("Water%d" % (number + 1)) + ascii_value("")
+        out += struct.pack("<iBBii", max(ids + [0]) + 1 + number, 1, 0, 0, len(points))
+        z = int(surface * MAP_HEIGHT_SCALE + 0.5)
+        out += b"".join(struct.pack("<3i", int((x - border) * MAP_XY_FACTOR + 0.5),
+                                    int((y - border) * MAP_XY_FACTOR + 0.5), z) for y, x in points)
+    return struct.pack("<i", count + len(areas)) + out
 
 
 def split_chunks(data, pos, end):
@@ -264,7 +402,8 @@ def reach(passable, start):
 
 class Grid:
     """A map's heights and its two levels: the bowl's floor (the median of the middle, as
-    mapstyle measures it) and the bases' plateau (the median start)."""
+    mapstyle measures it) and the bases' plateau (the median start). t is the height over the
+    bowl's floor in units of the plateau's rise, or of MIN_RELIEF where the bases are not raised."""
 
     def __init__(self, data):
         self.m = mapstyle.StyleMap(data)
@@ -279,7 +418,13 @@ class Grid:
         middle = np.hypot(xx + 0.5 - cx, yy + 0.5 - cy) <= 0.25 * m.playable
         self.bowl = float(np.median(self.h[middle]))
         self.centre = (cy, cx)
-        self.t = np.clip((self.h - self.bowl) / (self.plateau - self.bowl), -0.6, 2.2)
+        self.scale = max(self.plateau - self.bowl, MIN_RELIEF)
+        self.t = np.clip((self.h - self.bowl) / self.scale, -0.6, 2.2)
+        self.guide = box(self.t, 2)
+
+    def set_heights(self, h):
+        self.h = np.clip(np.rint(h), 0, 255).astype(np.int32)
+        self.t = np.clip((self.h - self.bowl) / self.scale, -0.6, 2.2)
         self.guide = box(self.t, 2)
 
 
@@ -287,6 +432,9 @@ def load_exemplar(path, inner):
     data = mapstyle.load_bytes(path, inner)
     grid = Grid(data)
     raw = RawMap(data)
+    # what a generated map's name carries, so two machines agree on the exemplar: the stored bytes
+    grid.crc = zlib.crc32(data)
+    grid.label = re.sub(r"\W+", "", os.path.splitext(os.path.basename((inner or path).replace("\\", "/")))[0])
     version, body = raw.body("BlendTileData")
     grid.layers, grid.cliff, grid.tail = blend_cells(version, body, grid.m.width, grid.m.height)
     owner = np.zeros(4096, np.int32)
@@ -303,15 +451,36 @@ def load_exemplar(path, inner):
     grid.shapes = shapes
     grid.blend_shape = np.array([0] + [shapes.index((f, c)) for _, f, c in entries[1:]])
 
-    # the scenery that moves with the ground, by the cell it stands on
+    # the scenery that moves with the ground, by the cell it stands on, and its trees counted
     grid.scenery = {}
+    grid.trees = np.zeros(grid.h.shape, np.float64)
     _, objects = raw.body("ObjectsList")
-    for cid, _, body in split_chunks(objects, 0, len(objects)):
+    grid.raw = raw
+    grid.objects = split_chunks(objects, 0, len(objects))
+    for cid, _, body in grid.objects:
         x, y, angle, template = object_head(body)
         if SCENERY.match(template):
             cell = (int(y / MAP_XY_FACTOR) + grid.m.border, int(x / MAP_XY_FACTOR) + grid.m.border)
             grid.scenery.setdefault(cell, []).append(
                 (template, x / MAP_XY_FACTOR % 1.0, y / MAP_XY_FACTOR % 1.0, angle))
+            grid.trees[cell] += template.startswith("Tree")
+    # trees a cell where trees may stand: the playable ground off the pads and the water
+    b = grid.m.border
+    open_ground = np.zeros(grid.h.shape, bool)
+    open_ground[b:b + grid.m.playable_y, b:b + grid.m.playable_x] = True
+    yy, xx = np.mgrid[0:grid.h.shape[0], 0:grid.h.shape[1]]
+    for y, x in grid.starts:
+        open_ground &= np.hypot(yy - y, xx - x) > PAD_RADIUS[1] - 9
+    grid.m.passable_grid()
+    open_ground &= ~np.frombuffer(bytes(grid.m.water), np.uint8).reshape(grid.h.shape).astype(bool)
+    grid.tree_density = grid.trees[open_ground].sum() / max(open_ground.sum(), 1)
+    grid.inventory = mapfeatures.inventory(data, inner or path)
+    # a town's ground goes only with its stamp: smeared over open ground it paints streets anywhere
+    grid.town = np.zeros(grid.h.shape, bool)
+    for town in grid.inventory["towns"]:
+        x0, y0, x1, y1 = town["box"]
+        grid.town[max(int(y0) + b - TOWN_MARGIN, 0):int(y1) + b + TOWN_MARGIN + 1,
+                  max(int(x0) + b - TOWN_MARGIN, 0):int(x1) + b + TOWN_MARGIN + 1] = True
     return grid
 
 
@@ -332,6 +501,368 @@ def hash_cell(seed, x, y):
 
 def hash_unit(seed, x, y):
     return hash_cell(seed, x, y) / 4294967296.0
+
+
+#-----------------------------------------------------------------------------------------------
+# The skeleton, given the exemplar's large features
+#-----------------------------------------------------------------------------------------------
+
+def fade(x):
+    x = np.clip(x, 0.0, 1.0)
+    return x * x * (3.0 - 2.0 * x)
+
+
+class Plan:
+    """What compose() decided beside the heights."""
+
+    def __init__(self, shape):
+        self.gentle = np.zeros(shape, bool)     # slopes it made, kept from the detail like a ramp
+        self.keepout = np.zeros(shape, bool)    # no copied scenery: bridge ends, towns, the canyon walls
+        self.wet = np.zeros(shape, bool)        # inside a water polygon
+        self.water = []                         # (points (y, x) in cells of the grid, surface bytes)
+        self.bridges = []                       # (template, (y, x), (y, x)) in cells of the grid
+        self.stamps = []                        # (ty, tx, sy, sx, rows, cols): an exemplar rectangle copied whole
+        self.tech = []                          # (template, (y, x))
+        self.mesa = None                        # the mesa's middle, (y, x)
+        self.notes = []                         # what the exemplar has that was not built
+
+
+class Frame:
+    """The skeleton's coordinates: cell grids, its middle, its seats and sites, how big the open
+    middle is, and the guard that keeps every start pad, dock and derrick on its own ground."""
+
+    def __init__(self, skel):
+        m = skel.m
+        self.yy, self.xx = np.mgrid[0:m.height, 0:m.width].astype(np.float64)
+        self.cy, self.cx = skel.centre
+        self.k = min(1.0, max(0.6, m.playable / 356.0))         # the generator's m_styleScale
+        self.half = m.playable / 2.0
+        self.play = np.zeros(skel.h.shape, bool)
+        self.play[m.border:m.border + m.playable_y, m.border:m.border + m.playable_x] = True
+        self.seat_ring = float(np.mean([math.hypot(y - self.cy, x - self.cx) for y, x in skel.starts]))
+        self.bowl = skel.plateau - skel.bowl > MIN_RELIEF       # the skeleton is a style's bowl
+        # the open middle: a bowl's floor inside its rim (RMGLayout::placeBowlStarts' m_bowlRim)
+        self.middle = (self.seat_ring - (0.85 * 53.75 + 8.0) * self.k if self.bowl else 0.55 * self.seat_ring)
+        docks = [(y + m.border, x + m.border) for x, y in m.supplies]
+        derricks = [(y + m.border, x + m.border) for x, y in m.derricks]
+        self.sites = list(skel.starts) + docks + derricks
+        self.guard = np.zeros(skel.h.shape)
+        for (y, x), r in [(p, PAD_RADIUS[1]) for p in skel.starts] + [(p, SITE_RADIUS[1]) for p in docks + derricks]:
+            self.guard = np.maximum(self.guard, fade((r + 10.0 - np.hypot(self.yy - y, self.xx - x)) / 10.0))
+
+    def axis(self, seed, salt, offset=0.0):
+        """Of 32 bearings turned by the seed, the line through the middle (moved offset cells to its
+        side) passing furthest from any start, dock or derrick."""
+        turn = hash_unit(seed, salt, 1)
+        best = None
+        for q in range(32):
+            angle = math.pi * (q + turn) / 32.0
+            clear = min(abs((y - self.cy) * math.cos(angle) - (x - self.cx) * math.sin(angle) - offset)
+                        for y, x in self.sites)
+            if best is None or clear > best[0]:
+                best = (clear, angle)
+        return best[1]
+
+    def along(self, angle, cy, cx):
+        """s along a line through (cy, cx) at angle, c across it."""
+        s = (self.yy - cy) * math.sin(angle) + (self.xx - cx) * math.cos(angle)
+        c = (self.xx - cx) * math.sin(angle) - (self.yy - cy) * math.cos(angle)
+        return s, c
+
+    @staticmethod
+    def point(angle, cy, cx, s, c):
+        return (cy + s * math.sin(angle) - c * math.cos(angle), cx + s * math.cos(angle) + c * math.sin(angle))
+
+
+def compose(skel, src, seed):
+    """The exemplar's large features (its mapfeatures inventory) built into the skeleton before the
+    quilting, at the sizes the inventory measured, in a layout of the seed's: high ground, ways
+    down, the canyon and mesa of the middle with the mesa's bridges, a river with its bridges, its
+    towns (copied whole), its tech buildings. Changes the skeleton's heights; returns the Plan."""
+    inv = src.inventory
+    f = Frame(skel)
+    plan = Plan(skel.h.shape)
+    h = skel.h.astype(np.float64)
+    shortest = min(inv["size_cells"])
+
+    if f.bowl and inv["starts_raised"]:
+        if inv["high_ground"]:
+            h = raise_high(h, skel, f, inv["high_ground"]["dz_start"])
+        if inv["base"]["ramp_down_width_cells"]:
+            h = widen_ramps(h, skel, f, 0.5 * inv["base"]["ramp_down_width_cells"])
+    elif inv["high_ground"]:
+        plan.notes.append("high ground %+d over %d%% (the skeleton has no plateaus to raise)" % (
+            inv["high_ground"]["dz_start"], 100 * inv["high_ground"]["share"]))
+
+    canyons = [c for c in inv["canyons"] if c["length"] >= 0.5 * shortest and c["centre_share"] < 0.3]
+    mesas = [x for x in inv["mesas"] if x["centre_share"] < 0.3]
+    if canyons or mesas:
+        h = carve_middle(h, skel, f, plan, src, canyons[0] if canyons else None,
+                         mesas[0] if mesas else None, seed)
+    plan.notes += ["canyon %d long off the middle" % c["length"] for c in inv["canyons"] if c not in canyons]
+    plan.notes += ["mesa r%d off the middle" % x["radius"] for x in inv["mesas"] if x not in mesas]
+
+    rivers = [w for w in inv["water"] if w["kind"] == "river" and w["length"] >= 0.5 * shortest]
+    if rivers:
+        h = carve_river(h, skel, f, plan, src, rivers[0], seed)
+    plan.notes += ["%s of %d cells" % (w["kind"], w["area"]) for w in inv["water"] if w not in rivers[:1]]
+
+    h = stamp_towns(h, skel, f, plan, src, seed)
+    if inv["roads"]:
+        plan.notes.append("roads outside the towns (%d segments in the exemplar)" %
+                          sum(r["segments"] for r in inv["roads"]))
+    place_tech(h, skel, f, plan, inv, seed)
+    skel.set_heights(h)
+    return plan
+
+
+def raise_high(h, skel, f, dz_start):
+    """The skeleton's ridges (its ground well above the plateau) up to the exemplar's high ground."""
+    ridge = np.median(h[f.play & (h > skel.plateau + 0.25 * skel.scale)])
+    lift = skel.plateau + 0.1 * skel.scale
+    high = h > lift
+    h = h.copy()
+    h[high] = lift + (h[high] - lift) * (skel.plateau + dz_start - lift) / max(ridge - lift, 1.0)
+    return h
+
+
+def widen_ramps(h, skel, f, half):
+    """Each seat's way down, its height profile along the spoke laid out half cells to a side."""
+    t = (h - skel.bowl) / skel.scale
+    slope = walkable(span_cliff(skel.h)) & (t > 0.15) & (t < 0.85)
+    rim = f.middle + 8.0 * f.k
+    half *= f.k
+    bank = RAMP_BANK * f.k
+    for sy, sx in skel.starts:
+        d = math.hypot(sy - f.cy, sx - f.cx)
+        uy, ux = (sy - f.cy) / d, (sx - f.cx) / d
+        along = (f.yy - f.cy) * uy + (f.xx - f.cx) * ux
+        across = np.abs((f.xx - f.cx) * uy - (f.yy - f.cy) * ux)
+        core = slope & (across < 6) & (along > rim - 70) & (along < d - 10)
+        if core.sum() < 20:
+            continue
+        a = np.rint(along[core]).astype(int)
+        a0, a1 = a.min(), a.max()
+        sums = np.bincount(a - a0, h[core], a1 - a0 + 1)
+        counts = np.bincount(a - a0, None, a1 - a0 + 1)
+        known = counts > 0
+        profile = np.interp(np.arange(a1 - a0 + 1), np.nonzero(known)[0], (sums / np.maximum(counts, 1))[known])
+        profile = np.maximum.accumulate(profile)        # down the spoke only ever down
+        w = fade((half + bank - across) / bank) * fade((along - a0 + 8) / 8) * fade((a1 + 8 - along) / 8)
+        profile = box(profile[None, :], 3)[0]            # no steps down the ramp
+        h = w * np.interp(along - a0, np.arange(a1 - a0 + 1), profile) + (1.0 - w) * h
+    return h
+
+
+def carve_middle(h, skel, f, plan, src, canyon, mesa, seed):
+    """A canyon through the middle and a mesa in it, as the inventory has them. The canyon runs on
+    an axis clear of every start, dock and derrick, winding, its walls cliffs, out to the map's edge
+    if the exemplar's does, else ending on a slope short of the rim; it has a ford in each arm and
+    a moat round the mesa. The mesa is a cliff but where it slopes into the moat at the ends of the
+    axis (two ways up if the exemplar's has two or more), which is how Twilight's mesa is reached on
+    foot; its bridges go across the moat, half each side."""
+    angle = f.axis(seed, 77)
+    shift = (hash_unit(seed, 77, 2) - 0.5) * 16.0 * f.k
+    my, mx = f.cy + shift * math.sin(angle), f.cx + shift * math.cos(angle)
+    s, c = f.along(angle, my, mx)
+    shaped = np.zeros(h.shape)
+    out = h.copy()
+    mesa_a = mesa_b = moat = 0.0
+    if mesa:
+        r = min(mesa["radius"] * f.k, 0.3 * f.middle)
+        mesa_a, mesa_b = 1.15 * r, 0.87 * r
+    if canyon:
+        half = 0.45 * canyon["width"] * f.k
+        moat = 0.55 * canyon["width"] * f.k if mesa else 0.0
+        reach = 0.75 * min(skel.h.shape) if canyon["reaches_edge"] else f.middle - END_CELLS * f.k
+        phase = hash_unit(seed, 77, 3) * 2.0 * math.pi
+        wander = (1.4 * canyon["winding"] * np.sin(2.0 * math.pi * s / max(0.5 * canyon["length"], 120.0) + phase) *
+                  fade((np.abs(s) - mesa_a) / max(2.0 * moat, 1.0)))
+        ford = np.abs(np.abs(s) - FORD_AT * f.middle)
+        arm = fade((half + WALL_CELLS - np.abs(c - wander)) / WALL_CELLS) * (1.0 - 0.9 * fade((FORD_CELLS - ford) / 6.0))
+        if not canyon["reaches_edge"]:
+            arm *= fade((reach - np.abs(s)) / (END_CELLS * f.k))
+        cut = arm
+        if mesa:
+            ellipse = np.hypot(s / (mesa_a + moat), c / (mesa_b + moat))
+            cut = np.maximum(arm, fade((1.0 - ellipse) * (mesa_b + moat) / WALL_CELLS))
+        cut *= 1.0 - f.guard
+        floor = skel.bowl + canyon["floor_dz_middle"] + 0.3 * (h - skel.bowl)
+        out = (1.0 - cut) * out + cut * floor
+        shaped = np.maximum(shaped, cut)
+        plan.keepout |= (cut > 0.05) & (cut < 0.95)
+    if mesa:
+        e = np.hypot(s / mesa_a, c / mesa_b)
+        ends = np.abs(s) / np.maximum(np.hypot(s, c), 1e-6)
+        if mesa["exits"] < 2:
+            ends = np.where(s > 0, ends, 0.0)
+        width = WALL_CELLS + (MESA_RAMP - WALL_CELLS) * ends ** 8
+        lift = fade((1.0 - e) * mesa_b / width + 1.0) * (1.0 - f.guard)
+        out = (1.0 - lift) * out + lift * (skel.bowl + mesa["top_dz_middle"] + 0.3 * (h - skel.bowl))
+        shaped = np.maximum(shaped, lift)
+        plan.mesa = (int(round(my)), int(round(mx)))
+        top = skel.bowl + mesa["top_dz_middle"]
+        ours = [b for b in src.inventory["bridges"] if b["on_mesa"] == src.inventory["mesas"].index(mesa)]
+        for i, bridge in enumerate(ours):
+            side = 1.0 if i % 2 == 0 else -1.0
+            at = ((i // 2) - (len(ours) - 1) // 4) * 14.0
+            a = Frame.point(angle, my, mx, at, side * (mesa_b - 4.0))
+            z = Frame.point(angle, my, mx, at, side * (mesa_b - 4.0 + bridge["length"]))
+            ground = float(skel.bowl + bridge["ends_dz_middle"][1])
+            for (y, x), level_to in ((a, top), (z, ground)):
+                disc = np.hypot(f.yy - y, f.xx - x) <= 4.0
+                out[disc] = level_to
+            plan.bridges.append((bridge["template"], a, z))
+    plan.gentle |= (shaped > 0.05) & (shaped < 0.95)
+    return out
+
+
+def carve_river(h, skel, f, plan, src, river, seed):
+    """A river as the inventory has it, on an axis clear of every start, dock and derrick: its bed,
+    a shore up to the waterline and a valley up to its banks, winding, across the map if the
+    exemplar's is, with the exemplar's bridges evenly along it where it narrows to their length,
+    and a water area over it."""
+    inv = src.inventory
+    # as far under the middle as the exemplar's, but never so far that the bed would go below 0
+    surface = max(skel.bowl + river["surface_bytes"] - inv["levels"]["middle_bytes"], river["depth_bytes"] + 2.0)
+    bed = surface - river["depth_bytes"]
+    bank = surface + max(river["bank_bytes"], 4.0)
+    side = (1.0 if hash_unit(seed, 78, 4) < 0.5 else -1.0) * river["centre_share"] * f.half
+    angle = f.axis(seed, 78, side)
+    my, mx = Frame.point(angle, f.cy, f.cx, 0.0, side)
+    s, c = f.along(angle, my, mx)
+    length = 0.5 * math.hypot(*skel.h.shape) + 20.0 if river["reaches_edge"] else 0.5 * river["length"] * f.k
+    phase = hash_unit(seed, 78, 3) * 2.0 * math.pi
+    wave = max(river["length"] / 1.5, 120.0)
+    amp = 1.4 * river["winding"] * f.k
+
+    def wander(at):
+        return amp * np.sin(2.0 * math.pi * at / wave + phase)
+
+    ours = [b for b in inv["bridges"] if b["over"] == "water"]
+    inside = [v for v in np.arange(-length, length, 2.0)
+              if f.play[tuple(np.clip(np.rint(Frame.point(angle, my, mx, v, float(wander(v)))).astype(int), 0,
+                                      np.array(skel.h.shape) - 1))]]
+    s0, s1 = (min(inside), max(inside)) if inside else (-length, length)
+    # evenly along it, each moved to the nearest place clear of every start, dock and derrick
+    sites = []
+    for i, bridge in enumerate(ours):
+        even = s0 + (i + 1) * (s1 - s0) / (len(ours) + 1)
+        for nudge in sorted(range(-48, 52, 4), key=abs):
+            y, x = Frame.point(angle, my, mx, even + nudge, float(wander(even + nudge)))
+            clear = np.hypot(f.yy - y, f.xx - x) <= 0.5 * bridge["length"] + 8.0
+            if f.guard[clear].max() < 0.01 and all(abs(even + nudge - s) > 30.0 for s in sites):
+                sites.append(even + nudge)
+                break
+        else:
+            plan.notes.append("%s bridge (no crossing clear of the sites)" % bridge["template"])
+            ours = [b for b in ours if b is not bridge]
+    narrow = np.ones(h.shape)
+    half = 0.5 * river["width"] * f.k
+    for at, bridge in zip(sites, ours):
+        to = min(1.0, max(bridge["length"] - 2.0 * SHORE_CELLS - 4.0, 6.0) / (2.0 * half))
+        narrow = np.minimum(narrow, 1.0 - (1.0 - to) * fade((24.0 - np.abs(s - at)) / 12.0))
+    inner = half * narrow
+    d = np.abs(c - wander(s))
+    within = np.abs(s) <= length
+    # past the banks the ground may rise RIVER_SLOPE a cell, so higher ground is cut back to a
+    # walkable valley side and not to a wall
+    outside = d - inner - SHORE_CELLS - VALLEY_CELLS
+    target = np.where(d < inner, bed,
+                      np.where(d < inner + SHORE_CELLS, bed + (surface + 3.0 - bed) * (d - inner) / SHORE_CELLS,
+                               np.where(outside < 0.0,
+                                        surface + 3.0 + (bank - surface - 3.0) * fade((d - inner - SHORE_CELLS) / VALLEY_CELLS),
+                                        bank + RIVER_SLOPE * outside)))
+    w = fade((length - np.abs(s)) / VALLEY_CELLS) * (1.0 - f.guard)
+    out = h - w * np.maximum(h - target, 0.0)
+    plan.wet |= (d < inner + 0.5 * SHORE_CELLS) & within
+    plan.gentle |= (d >= inner) & (out < h - 0.5)
+
+    # the water area: the waterline either side of the bed, every eight cells along
+    shape = np.array(skel.h.shape, np.float64) - 1.0
+    left, right = [], []
+    for v in np.arange(-length, length + 8.0, 8.0):
+        width = half + 0.5 * SHORE_CELLS + 2.0
+        for out_list, sign in ((left, 1.0), (right, -1.0)):
+            out_list.append(tuple(np.clip(Frame.point(angle, my, mx, v, float(wander(v)) + sign * width), 0, shape)))
+    plan.water.append((left + right[::-1], surface))
+
+    for at, bridge in zip(sites, ours):
+        centre = float(wander(at))
+        tangent = 2.0 * math.pi * amp / wave * math.cos(2.0 * math.pi * at / wave + phase)
+        # across the river where it runs, not across the axis
+        turn = math.atan(tangent)
+        reach = 0.5 * bridge["length"]
+        a = Frame.point(angle, my, mx, at - reach * math.sin(turn), centre + reach * math.cos(turn))
+        z = Frame.point(angle, my, mx, at + reach * math.sin(turn), centre - reach * math.cos(turn))
+        for y, x in (a, z):
+            disc = np.hypot(f.yy - y, f.xx - x) <= 4.0
+            out[disc] = bank
+            plan.gentle |= np.hypot(f.yy - y, f.xx - x) <= 10.0
+        plan.bridges.append((bridge["template"], a, z))
+    return out
+
+
+def stamp_towns(h, skel, f, plan, src, seed):
+    """Each of the exemplar's towns copied whole, its ground, textures and every object in its box,
+    to a spot as far from the middle as it was, clear of the sites, the water and the canyon, on
+    ground the copy can level; the ground under it is levelled to its median, feathered."""
+    b = src.m.border
+    taken = plan.keepout | plan.wet | (f.guard > 0.01) | ~f.play | (protection(skel)[0] > 0.05)
+    for number, town in enumerate(sorted(src.inventory["towns"], key=lambda t: -t["buildings"])):
+        x0, y0, x1, y1 = town["box"]
+        sy, sx = int(y0) + b - TOWN_MARGIN, int(x0) + b - TOWN_MARGIN
+        rows, cols = int(y1 - y0) + 2 * TOWN_MARGIN + 1, int(x1 - x0) + 2 * TOWN_MARGIN + 1
+        sy, sx = max(sy, 0), max(sx, 0)
+        rows, cols = min(rows, src.h.shape[0] - sy), min(cols, src.h.shape[1] - sx)
+        # every clear place on an eight cell grid, the one nearest the town's own distance from the
+        # middle first, the seed breaking ties
+        count = np.pad(taken.astype(np.int32).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+        spot, best = None, None
+        for ty in range(6, h.shape[0] - rows - 6, TOWN_STEP):
+            for tx in range(6, h.shape[1] - cols - 6, TOWN_STEP):
+                y0_, x0_, y1_, x1_ = ty - 6, tx - 6, ty + rows + 6, tx + cols + 6
+                if count[y1_, x1_] - count[y0_, x1_] - count[y1_, x0_] + count[y0_, x0_]:
+                    continue
+                share = math.hypot(ty + rows / 2.0 - f.cy, tx + cols / 2.0 - f.cx) / f.half
+                score = abs(share - town["centre_share"]) + 0.05 * hash_unit(seed, 79 + number, ty * 4096 + tx)
+                if (best is None or score < best) and np.ptp(h[ty:ty + rows, tx:tx + cols]) <= TOWN_RELIEF:
+                    spot, best = (ty, tx), score
+        if not spot:
+            plan.notes.append("town of %d buildings (no clear ground %d x %d)" % (town["buildings"], cols, rows))
+            continue
+        ty, tx = spot
+        base = float(np.median(h[ty:ty + rows, tx:tx + cols]))
+        inside = np.minimum(np.minimum(f.yy - ty, ty + rows - 1 - f.yy), np.minimum(f.xx - tx, tx + cols - 1 - f.xx))
+        w = fade((inside + 8.0) / 8.0)
+        h = w * base + (1.0 - w) * h
+        plan.stamps.append((ty, tx, sy, sx, rows, cols))
+        plan.keepout[ty:ty + rows, tx:tx + cols] = True
+        taken[max(ty - 10, 0):ty + rows + 10, max(tx - 10, 0):tx + cols + 10] = True
+    return h
+
+
+def place_tech(h, skel, f, plan, inv, seed):
+    """The exemplar's tech buildings: one that stood on a mesa on ours, the rest as far from the
+    middle as they were, on the nearest flat ground."""
+    for number, tech in enumerate(inv["tech"]):
+        if tech["on_mesa"] is not None and plan.mesa:
+            plan.tech.append((tech["template"], plan.mesa))
+            continue
+        turn = hash_unit(seed, 80, number)
+        radius = tech["centre_share"] * f.half
+        for q in range(64):
+            angle = 2.0 * math.pi * (q + turn) / 64.0
+            y = int(f.cy + radius * math.sin(angle))
+            x = int(f.cx + radius * math.cos(angle))
+            near = (slice(y - TECH_FLAT, y + TECH_FLAT + 1), slice(x - TECH_FLAT, x + TECH_FLAT + 1))
+            if (f.play[near].all() and not (plan.keepout[near].any() or plan.wet[near].any())
+                    and f.guard[near].max() < 0.01 and np.ptp(h[near]) <= 12):
+                plan.tech.append((tech["template"], (y, x)))
+                plan.keepout[near] = True
+                break
+        else:
+            plan.notes.append("%s (no flat ground)" % tech["template"])
 
 
 #-----------------------------------------------------------------------------------------------
@@ -384,8 +915,11 @@ def protection(skel):
     return np.maximum(pads, slope), pads
 
 
-def quilt(src, skel, keep, seed, field):
-    """One source cell for every target cell, (sy, sx) arrays, and field read through them."""
+def quilt(src, skel, keep, seed, field, stamps, trees_allowed, tree_rate):
+    """One source cell for every target cell, (sy, sx) arrays, and field read through them. The
+    stamps are placed first and never written over, so the patches round them fit them. A patch
+    also pays for holding more or fewer trees on the ground where trees may stand than tree_rate
+    a cell of it."""
     th, tw = skel.h.shape
     sh, sw = src.h.shape
     weight = 1.0 + 4.0 * keep
@@ -396,12 +930,25 @@ def quilt(src, skel, keep, seed, field):
     src_cliff = windows(source_cliff, (PATCH, PATCH))
     src_t = windows(field, (PATCH, PATCH))
     src_cls = windows(src.cls, (PATCH, PATCH))
+    src_trees = windows(src.trees, (PATCH, PATCH))
+    # source patches touching a town are never picked
+    count = np.pad(src.town.astype(np.int32).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+    banned = (count[PATCH:, PATCH:] - count[:-PATCH, PATCH:] - count[PATCH:, :-PATCH] + count[:-PATCH, :-PATCH]) > 0
 
     sy_map = np.zeros((th, tw), np.int32)
     sx_map = np.zeros((th, tw), np.int32)
     t_out = np.zeros((th, tw))
     cls_out = np.zeros((th, tw), np.int32)
     filled = np.zeros((th, tw), bool)
+    locked = np.zeros((th, tw), bool)
+    for ty, tx, sy, sx, rows, cols in stamps:
+        yy, xx = np.mgrid[0:rows, 0:cols]
+        sy_map[ty + yy, tx + xx] = sy + yy
+        sx_map[ty + yy, tx + xx] = sx + xx
+        t_out[ty:ty + rows, tx:tx + cols] = field[sy:sy + rows, sx:sx + cols]
+        cls_out[ty:ty + rows, tx:tx + cols] = src.cls[sy:sy + rows, sx:sx + cols]
+        filled[ty:ty + rows, tx:tx + cols] = True
+        locked[ty:ty + rows, tx:tx + cols] = True
     used = np.zeros((sh, sw), np.int32)
     samples = range(0, PATCH, COARSE)
     ny = (sh - PATCH) // COARSE + 1
@@ -432,6 +979,7 @@ def quilt(src, skel, keep, seed, field):
                     total += w
             shift = s1 / total
             cost = (s2 / total - shift ** 2) + SHIFT_WEIGHT * shift ** 2 + CLIFF_WEIGHT * cliffs / total
+            cost[banned[::COARSE, ::COARSE][:ny, :nx]] = np.inf
             order = np.argsort(cost, axis=None, kind="stable")[:REFINE]
 
             # full: every offset round the best coarse ones, every cell, the overlap with what is placed
@@ -455,7 +1003,12 @@ def quilt(src, skel, keep, seed, field):
                     ((src_t[sy, sx] - t_out[ty:ty + PATCH, tx:tx + PATCH]) ** 2 +
                      CLASS_WEIGHT * (src_cls[sy, sx] != cls_out[ty:ty + PATCH, tx:tx + PATCH]))
                     * have).sum((1, 2)) / have.sum()
+            free = trees_allowed[ty:ty + PATCH, tx:tx + PATCH] & ~have
+            expected = tree_rate * free.sum()
+            held = (src_trees[sy, sx] * free).sum((1, 2))
+            c += SCENERY_WEIGHT * (held - expected) ** 2 / max(expected, 1.0)
             c += REUSE_WEIGHT * used[sy, sx]
+            c[banned[sy, sx]] = np.inf
             c *= 1.0 + JITTER * np.array([hash_unit(seed, patch_no, int(f)) for f in flat])
             best = int(np.argmin(c))
             sy, sx = int(sy[best]), int(sx[best])
@@ -475,6 +1028,7 @@ def quilt(src, skel, keep, seed, field):
                 path = min_cut(error[:height, :].T)
                 new &= np.arange(PATCH)[:, None] >= path[None, :]
             new |= ~have
+            new &= ~locked[ty:ty + PATCH, tx:tx + PATCH]
 
             yy, xx = np.nonzero(new)
             sy_map[ty + yy, tx + xx] = sy + yy
@@ -541,6 +1095,34 @@ def blend_chunk(src, sy_map, sx_map, cliff):
     return out
 
 
+def more_trees(src, sy_map, sx_map, allowed, wanted, seed):
+    """Clumps of the exemplar's trees laid on allowed ground until wanted trees stand, for what the
+    quilting could not bring: a clump is every tree within CLUMP_CELLS of one of the exemplar's,
+    put down on a cell of the same texture class, on cells that hold no tree yet."""
+    trees = sorted(cell for cell, objects in src.scenery.items() if any(o[0].startswith("Tree") for o in objects))
+    ground = src.cls[sy_map, sx_map]
+    cells = np.argwhere(allowed)
+    free = allowed.copy()
+    out = []
+    for attempt in range(TREE_TRIES * max(wanted, 1)):
+        if len(out) >= wanted or not len(cells):
+            break
+        y, x = cells[hash_cell(seed, 501, attempt) % len(cells)]
+        sy, sx = trees[hash_cell(seed, 502, attempt) % len(trees)]
+        if src.cls[sy, sx] != ground[y, x]:
+            continue
+        clump = [(ty - sy, tx - sx, o) for ty, tx in trees
+                 if abs(ty - sy) <= CLUMP_CELLS and abs(tx - sx) <= CLUMP_CELLS
+                 for o in src.scenery[(ty, tx)] if o[0].startswith("Tree")]
+        spots = [(y + dy, x + dx) for dy, dx, _ in clump]
+        if not all(0 <= py < free.shape[0] and 0 <= px < free.shape[1] and free[py, px] for py, px in spots):
+            continue
+        for (py, px), (_, _, (template, fx, fy, angle)) in zip(spots, clump):
+            out.append((template, px + fx, py + fy, angle))
+            free[max(py - 1, 0):py + 2, max(px - 1, 0):px + 2] = False
+    return out
+
+
 def bearing_of(centre, point):
     return math.atan2(point[0] - centre[0], point[1] - centre[1])
 
@@ -563,18 +1145,36 @@ def synthesise(skeleton_path, src, out_dir, seed):
     raw = RawMap(data)
     m = skel.m
     th, tw = skel.h.shape
+    play = np.zeros((th, tw), bool)
+    play[m.border:m.border + m.playable_y, m.border:m.border + m.playable_x] = True
+
+    # the exemplar's large features first, then what of the skeleton keeps its own height
+    plan = compose(skel, src, seed)
+    for _, a, z in plan.bridges:
+        plan.keepout |= box(line_cells(a, z, (th, tw)), BRIDGE_CLEAR) > 0
+    keep, pads = protection(skel)
+    gentle = plan.gentle & walkable(span_cliff(skel.h))
+    keep = np.maximum(keep, np.clip(box(gentle, 2) * 2.0 - 0.5, 0, 1))
+    keep = np.maximum(keep, box(plan.wet, 2) > 0)
+    paths = box(waypoint_paths(raw, (th, tw), m.border), PATH_CELLS) > 0
+    trees_allowed = play & (pads < 0.9) & (keep < 0.5) & ~paths & ~plan.keepout & ~plan.wet
+    # as many trees as the exemplar's density gives the open ground, all of them where trees may stand
+    trees_wanted = src.tree_density * (play & (pads < 0.9) & ~plan.wet).sum()
 
     # the exemplar's detail: what its height has that its own blur does not
-    keep, pads = protection(skel)
-    sy_map, sx_map, detail, patches = quilt(src, skel, keep, seed, src.t - box(src.t, DETAIL_RADIUS))
+    sy_map, sx_map, detail, patches = quilt(src, skel, keep, seed, src.t - box(src.t, DETAIL_RADIUS),
+                                            plan.stamps, trees_allowed, trees_wanted / trees_allowed.sum())
     quilted = time.time()
+    stamped = np.zeros((th, tw), bool)
+    for ty, tx, _, _, rows, cols in plan.stamps:
+        stamped[ty:ty + rows, tx:tx + cols] = True
 
     # heights: the skeleton's, with the detail on top, seams smoothed. The skeleton's cliffs take
     # none (an exemplar edge laid a cell or two off one doubles it) and the kept ground none either.
-    detail = np.where(seams(sy_map, sx_map), box(detail, 1), detail)
+    detail = np.where(seams(sy_map, sx_map) & ~stamped, box(detail, 1), detail)
     rim = np.clip(box(span_cliff(skel.h), RIM_CELLS) * 4.0, 0, 1)
     t = skel.t + (1.0 - rim) * detail
-    h = skel.bowl + t * (skel.plateau - skel.bowl)
+    h = skel.bowl + t * skel.scale
     h = keep * skel.h + (1.0 - keep) * h
     h = np.clip(np.rint(h), 0, 255).astype(np.int32)
     cliff = span_cliff(h)       # Twilight's painted bits are exactly its heights' (selfcheck)
@@ -582,43 +1182,58 @@ def synthesise(skeleton_path, src, out_dir, seed):
     # the skeleton's money and seats stay, its scenery goes; the piles move
     _, objects = raw.body("ObjectsList")
     kept, piles = [], []
+    civil = mapfeatures.civilian_buildings()
+    road = mapfeatures.FLAG_ROAD_POINT1 | mapfeatures.FLAG_ROAD_POINT2
     for chunk in split_chunks(objects, 0, len(objects)):
         template = object_head(chunk[2])[3]
-        if SKELETON_SCENERY.match(template):
+        # the generator's dressing goes, its towns and roads with its trees: the exemplar's come instead
+        if SKELETON_SCENERY.match(template) or template.lower() in civil or \
+                struct.unpack_from("<i", chunk[2], 16)[0] & road:
             continue
         (piles if template == "SupplyPileSmall" else kept).append(chunk)
 
-    passable = walkable(cliff)
+    wet = plan.wet & (h < max([surface for _, surface in plan.water] + [0.0]))
+    decks = np.zeros((th, tw), bool)
+    for _, a, z in plan.bridges:
+        decks |= box(line_cells(a, z, (th, tw)), 1) > 0
+    passable = walkable(cliff) & ~wet | decks
     reached = reach(passable, skel.starts[0])
-    centre = skel.centre
-    seats = sorted(range(len(skel.starts)), key=lambda i: bearing_of(centre, skel.starts[i]))
-    angles = [bearing_of(centre, skel.starts[i]) for i in seats]
-    seat_ring = np.mean([math.hypot(y - centre[0], x - centre[1]) for y, x in skel.starts])
-    outer = m.playable / 2.0 - 12.0
+    open_ground = passable & reached & ~plan.keepout & ~wet
+
+    # the piles: where the exemplar keeps its own when they stand on high ground (Twilight's, up
+    # between two bases, a pair halfway to the next seat and a pair a third of the way), with what
+    # stands beside the exemplar's; otherwise where the skeleton put them
+    piles_of = src.inventory["piles"]
+    company = [t for t, share in piles_of["company"].items() if share >= 0.5]
     spots = []
-    for k in range(len(seats)):
-        a = angles[k]
-        b = angles[(k + 1) % len(seats)]
-        gap = (b - a) % (2 * math.pi)
-        for share in (0.5, 0.38 if k % 2 == 0 else 0.62):       # the mid pair, then the field pair
-            # Twilight keeps its piles up on the high ground between two bases, with a camp
-            high = passable & reached & (h > skel.plateau + 0.25 * (skel.plateau - skel.bowl))
-            for ground in (high, passable & reached):
-                for nudge in (0.0, 0.05, -0.05, 0.1, -0.1):
-                    angle = a + (share + nudge) * gap
-                    spot = place_on_bearing(h, ground, centre, angle, 0.6 * seat_ring, outer)
+    if piles_of["count"] and piles_of["dz_start"] >= mapfeatures.HIGH_RISE:
+        centre = skel.centre
+        seats = sorted(range(len(skel.starts)), key=lambda i: bearing_of(centre, skel.starts[i]))
+        angles = [bearing_of(centre, skel.starts[i]) for i in seats]
+        seat_ring = np.mean([math.hypot(y - centre[0], x - centre[1]) for y, x in skel.starts])
+        outer = m.playable / 2.0 - 12.0
+        high = open_ground & (h > skel.plateau + 0.25 * skel.scale)
+        for k in range(len(seats)):
+            a = angles[k]
+            gap = (angles[(k + 1) % len(seats)] - a) % (2 * math.pi)
+            for share in (0.5, 0.38 if k % 2 == 0 else 0.62):       # the mid pair, then the field pair
+                for ground in (high, open_ground):
+                    for nudge in (0.0, 0.05, -0.05, 0.1, -0.1):
+                        angle = a + (share + nudge) * gap
+                        spot = place_on_bearing(h, ground, centre, angle, 0.6 * seat_ring, outer)
+                        if spot:
+                            break
                     if spot:
+                        spots.append((spot, angle))
                         break
-                if spot:
-                    spots.append((spot, angle))
-                    break
     sites = []
     added = []
     for (y, x), angle in spots:
         ty, tx = math.cos(angle) * 4.0, -math.sin(angle) * 4.0
         sites.extend([(y + ty, x + tx), (y - ty, x - tx)])
-        ry, rx = math.sin(angle) * 6.0, math.cos(angle) * 6.0
-        added.append(("Tent03", x + rx + 0.5, y + ry + 0.5, angle + math.pi))
+        for number, template in enumerate(company):
+            ry, rx = math.sin(angle) * (6.0 + 6.0 * number), math.cos(angle) * (6.0 + 6.0 * number)
+            added.append((template, x + rx + 0.5, y + ry + 0.5, angle + math.pi))
     for index, chunk in enumerate(piles):
         cid, version, body = chunk
         if index < len(sites):
@@ -628,34 +1243,32 @@ def synthesise(skeleton_path, src, out_dir, seed):
             level(h, int(y), int(x), PILE_FLAT)
         kept.append((cid, version, body))
 
-    # one refinery, at the nearest flat walkable cell to the middle clear of the derricks
-    yy, xx = np.nonzero(passable & reached)
-    order = np.argsort(np.hypot(yy - centre[0], xx - centre[1]), kind="stable")
-    derricks = [(y + m.border, x + m.border) for x, y in m.derricks]
-    refinery = None
-    for i in order[:4000]:
-        y, x = yy[i], xx[i]
-        if passable[y - 6:y + 7, x - 6:x + 7].all() and \
-                all(math.hypot(y - dy, x - dx) > 16 for dy, dx in derricks):
-            refinery = (y, x)
-            break
-    if refinery:
-        level(h, refinery[0], refinery[1], REFINERY_FLAT)
-        added.append(("TechOilRefinery", refinery[1] + 0.5, refinery[0] + 0.5, 0.0))
+    # the tech buildings compose() placed
+    for template, (y, x) in plan.tech:
+        level(h, y, x, TECH_FLAT)
+        added.append((template, x + 0.5, y + 0.5, 0.0))
 
-    # the exemplar's scenery, wherever its cell landed off the pads and the kept ways down
+    # the exemplar's scenery, wherever its cell landed off the pads, the kept ways down, the
+    # features' edges and the water; a tree only where the quilting counted trees
     hit = np.zeros(src.h.shape, bool)
     for cell in src.scenery:
         hit[cell] = True
-    landed = hit[sy_map, sx_map] & (pads < 0.9) & (keep < 0.95)
-    landed[:m.border, :] = landed[-m.border:, :] = False
-    landed[:, :m.border] = landed[:, -m.border:] = False
-    taken = [(int(p[0]), int(p[1])) for p in sites] + ([refinery] if refinery else [])
+    landed = hit[sy_map, sx_map] & play & (pads < 0.9) & (keep < 0.95) & ~plan.keepout & ~plan.wet & ~stamped
+    taken = [(int(p[0]), int(p[1])) for p in sites] + [p for _, p in plan.tech]
     for y, x in zip(*np.nonzero(landed)):
         if any(abs(y - py) < 6 and abs(x - px) < 6 for py, px in taken):
             continue
         for template, fx, fy, angle in src.scenery[(sy_map[y, x], sx_map[y, x])]:
+            if template.startswith("Tree") and not trees_allowed[y, x]:
+                continue
             added.append((template, x + fx, y + fy, angle))
+    standing = np.zeros((th, tw), bool)
+    for template, cx, cy, _ in added:
+        standing[int(cy), int(cx)] |= template.startswith("Tree")
+    free = trees_allowed & ~(box(standing, 1) > 0)
+    for py, px in taken:
+        free[max(py - 6, 0):py + 7, max(px - 6, 0):px + 7] = False
+    added += more_trees(src, sy_map, sx_map, free, int(round(trees_wanted)) - int(standing.sum()), seed)
 
     counter = [0]
 
@@ -664,7 +1277,7 @@ def synthesise(skeleton_path, src, out_dir, seed):
         ids = raw.ids
         body = struct.pack("<4fi", (cx - m.border) * MAP_XY_FACTOR, (cy - m.border) * MAP_XY_FACTOR,
                            0.0, angle, 0)
-        body += struct.pack("<H", len(template)) + template.encode("latin-1")
+        body += ascii_value(template)
         entries = [("objectInitialHealth", 1, struct.pack("<i", 100)),
                    ("objectEnabled", 0, b"\1"), ("objectIndestructible", 0, b"\0"),
                    ("objectUnsellable", 0, b"\0"), ("objectPowered", 0, b"\1"),
@@ -679,26 +1292,86 @@ def synthesise(skeleton_path, src, out_dir, seed):
         return (raw.ids["Object"], 3, body)
 
     kept.extend(neutral(*entry) for entry in added)
+
+    # the bridges, each the exemplar's own pair of objects for its template, moved to its two ends
+    pairs = {}
+    for (_, _, first), (_, _, second) in zip(src.objects, src.objects[1:]):
+        flags = struct.unpack_from("<i", first, 16)[0], struct.unpack_from("<i", second, 16)[0]
+        if flags[0] & mapfeatures.FLAG_BRIDGE_POINT1 and flags[1] & mapfeatures.FLAG_BRIDGE_POINT2:
+            pairs.setdefault(object_head(first)[3], (first, second))
+    for template, a, z in plan.bridges:
+        for body, (y, x) in zip(pairs[template], (a, z)):
+            counter[0] += 1
+            kept.append(moved_object(body, src.raw.names, raw, x - m.border, y - m.border, counter[0]))
+
+    # the towns: every object of the exemplar inside each stamped box, moved with it; a road only
+    # with both its ends inside
+    copied = 0
+    for ty, tx, sy, sx, rows, cols in plan.stamps:
+        def inside(body):
+            x, y, _, _ = object_head(body)
+            cy, cx = y / MAP_XY_FACTOR + src.m.border, x / MAP_XY_FACTOR + src.m.border
+            return sy <= cy < sy + rows and sx <= cx < sx + cols, (cy - sy + ty, cx - sx + tx)
+
+        objects_ = src.objects
+        index = 0
+        while index < len(objects_):
+            body = objects_[index][2]
+            template = object_head(body)[3]
+            flags = struct.unpack_from("<i", body, 16)[0]
+            group = [body]
+            if flags & mapfeatures.FLAG_ROAD_POINT1 and index + 1 < len(objects_):
+                group.append(objects_[index + 1][2])
+            index += len(group)
+            places = [inside(b) for b in group]
+            if not all(ok for ok, _ in places) or flags & (mapfeatures.FLAG_BRIDGE_POINT1 | mapfeatures.FLAG_BRIDGE_POINT2):
+                continue
+            if any(key == "waypointID" for key, _, _ in object_entries(body, src.raw.names)) or \
+                    re.match(r"(?i)(supply|tech|.*waypoint)", template):
+                continue
+            for b, (_, (cy, cx)) in zip(group, places):
+                counter[0] += 1
+                copied += 1
+                kept.append(moved_object(b, src.raw.names, raw, cx - m.border, cy - m.border, counter[0]))
     raw.replace("ObjectsList", 3, join_chunks(kept))
 
     version, body = raw.body("HeightMapData")
     raw.replace("HeightMapData", version, body[:-th * tw] + h.astype(np.uint8).tobytes())
     cliff = span_cliff(h)
     raw.replace("BlendTileData", 8, blend_chunk(src, sy_map, sx_map, cliff))
+    if plan.water:
+        version, body = raw.body("PolygonTriggers")
+        raw.replace("PolygonTriggers", version, water_triggers(version, body, plan.water, m.border))
+    raw.replace("GlobalLighting", *src.raw.body("GlobalLighting"))
 
-    name = os.path.splitext(os.path.basename(skeleton_path))[0] + "_synth"
+    name = "%s_%s_%08x" % (os.path.splitext(os.path.basename(skeleton_path))[0], src.label, src.crc)
     out = os.path.join(out_dir, name + ".map")
     with open(out, "wb") as handle:
         handle.write(raw.bytes())
     finished = time.time()
 
-    # every start still walks to every other one
-    reached = reach(walkable(cliff), skel.starts[0])
-    cut_off = sum(1 for y, x in skel.starts if not reached[y, x])
-    print("%s: %d patches, quilt %.1f s, total %.1f s, %d scenery, piles %d/%d, refinery %s, "
-          "starts cut off %d" % (name, patches, quilted - began, finished - began,
-                                 len(added) - (1 if refinery else 0), min(len(piles), len(sites)),
-                                 len(piles), "yes" if refinery else "no", cut_off))
+    # every start walks to every other one, and to every dock, derrick and tech building, over
+    # the bridges and round the water
+    passable = walkable(cliff) & ~(plan.wet & (h < max([s for _, s in plan.water] + [0.0]))) | decks
+    reached = reach(passable, skel.starts[0])
+    docks = [(int(y + 0.5) + m.border, int(x + 0.5) + m.border) for x, y in m.supplies + m.derricks]
+
+    def cut_off(points):
+        return sum(1 for y, x in points if not reached[y - 2:y + 3, x - 2:x + 3].any())
+
+    dry = reach(passable & ~decks, skel.starts[0])
+    unbridged = [sum(1 for y, x in points if not dry[y - 2:y + 3, x - 2:x + 3].any())
+                 for points in (skel.starts, [p for _, p in plan.tech])]
+    trees = sum(1 for entry in added if entry[0].startswith("Tree"))
+    print("%s: %d patches, quilt %.1f s, total %.1f s, %d scenery (%d trees, want %d), piles %d/%d, "
+          "tech %d, bridges %d, towns %d (%d objects), water %d, cut off: starts %d sites %d tech %d, "
+          "without the bridges: starts %d tech %d" % (
+              name, patches, quilted - began, finished - began, len(added) - len(plan.tech), trees,
+              round(trees_wanted), min(len(piles), len(sites)), len(piles),
+              len(plan.tech), len(plan.bridges), len(plan.stamps), copied, len(plan.water),
+              cut_off(skel.starts), cut_off(docks), cut_off([p for _, p in plan.tech]), *unbridged))
+    for note in plan.notes:
+        print("  not built: " + note)
     return out
 
 
@@ -745,7 +1418,8 @@ def texture_colour(name):
 
 def render(path):
     """Top-down picture of a map: each cell its texture's average colour, lit by the map's sun,
-    starts white, docks blue, derricks black, piles yellow, refinery magenta, trees dark green."""
+    water blue, starts white, docks blue, derricks black, piles yellow, tech magenta, trees dark
+    green, bridges red lines, roads grey lines, civilian buildings dark squares."""
     with open(path, "rb") as handle:
         data = handle.read()
     m = mapstyle.StyleMap(data)
@@ -765,6 +1439,8 @@ def render(path):
     sun = -np.array(light)[:, None, None]
     shade = 0.45 + 0.75 * np.clip((normal * sun).sum(0) / np.linalg.norm(sun), 0, 1)
     rgb = np.clip(rgb * shade[..., None], 0, 255)
+    wet = np.frombuffer(bytes(m.water_grid()), np.uint8).reshape(m.height, m.width).astype(bool)
+    rgb[wet] = 0.35 * rgb[wet] + 0.65 * np.array([40.0, 80.0, 150.0])
 
     b = m.border
     rgb = rgb[b:b + m.playable_y, b:b + m.playable_x]
@@ -775,11 +1451,20 @@ def render(path):
     def dot(x, y, r, colour):
         draw.ellipse((x - r, top - y - r, x + r, top - y + r), fill=colour, outline=(0, 0, 0))
 
+    civil = mapfeatures.civilian_buildings()
     for template, x, y in m.objects:
-        if template.startswith("Tree"):
+        if template.lower() in civil:
+            draw.rectangle((x - 1.5, top - y - 1.5, x + 1.5, top - y + 1.5), fill=(45, 40, 35))
+        elif template.startswith("Tree"):
             draw.point((x, top - y), fill=(30, 60, 25))
-        elif template.startswith("Tent") or template.startswith("Rock"):
+        elif template.startswith("Rock"):
             draw.point((x, top - y), fill=(70, 70, 70))
+    objects = mapfeatures.objects_in_order(data)
+    for (_, x1, y1, f1), (_, x2, y2, f2) in zip(objects, objects[1:]):
+        if f1 & mapfeatures.FLAG_ROAD_POINT1 and f2 & mapfeatures.FLAG_ROAD_POINT2:
+            draw.line((x1, top - y1, x2, top - y2), fill=(150, 150, 150), width=1)
+        elif f1 & mapfeatures.FLAG_BRIDGE_POINT1 and f2 & mapfeatures.FLAG_BRIDGE_POINT2:
+            draw.line((x1, top - y1, x2, top - y2), fill=(230, 50, 40), width=3)
     for x, y in m.piles:
         dot(x, y, 2, (240, 210, 40))
     for x, y in m.supplies:
@@ -787,7 +1472,7 @@ def render(path):
     for x, y in m.derricks:
         dot(x, y, 3, (10, 10, 10))
     for template, x, y in m.objects:
-        if template == "TechOilRefinery":
+        if template.startswith("Tech") and template != "TechOilDerrick":
             dot(x, y, 4, (220, 40, 200))
     for x, y in m.starts:
         dot(x, y, 4, (255, 255, 255))
@@ -817,7 +1502,7 @@ def texture_distance(a, b):
     return 0.5 * sum(abs(shares[0].get(n, 0) - shares[1].get(n, 0)) for n in set(shares[0]) | set(shares[1]))
 
 
-def table_row(result, twilight):
+def table_row(result, exemplar):
     g = result["generator"]
     ground = result["ground"]
     objects = result["objects"]
@@ -829,7 +1514,7 @@ def table_row(result, twilight):
         ("mid cliff", "%.1f%%" % (100 * ground["middle_cliff_share"])),
         ("mid stdev", "%.1f" % ground["middle_height_stdev"]),
         ("mid step", "%.2f" % ground["middle_step_bytes"]),
-        ("tex off Twilight", "%d%%" % round(100 * texture_distance(result, twilight))),
+        ("tex off exemplar", "%d%%" % round(100 * texture_distance(result, exemplar))),
         ("top tex", " ".join("%s %d" % (t["name"], round(100 * t["share"])) for t in top)),
         ("money", " ".join("%s %d" % (k, v) for k, v in sorted(result["money"]["classes"].items()))),
         ("trees", "%d (1/%s)" % (trees, g["cells_per_tree"])),
@@ -838,6 +1523,25 @@ def table_row(result, twilight):
         ("ramps", "%s (%s down, %s wide)" % (g["ramps_per_base"], g["ramps_down_per_base"],
                                              g["ramp_down_width_cells"])),
         ("plateau r", "%s" % g["base_plateau_radius_cells"]),
+    ] + feature_rows(result["inventory"])
+
+
+def feature_rows(inv):
+    """The large features as mapfeatures finds them, for the same table."""
+    high = inv["high_ground"]
+    canyon = max(inv["canyons"], key=lambda c: c["length"], default=None)
+    mesa = max(inv["mesas"], key=lambda x: x["area"], default=None)
+    river = max([w for w in inv["water"] if w["kind"] == "river"], key=lambda w: w["length"], default=None)
+    return [
+        ("high ground", "%+d, %d%%" % (high["dz_start"], 100 * high["share"]) if high else "-"),
+        ("canyon", "w%.0f l%.0f wind %.0f%s" % (canyon["width"], canyon["length"], canyon["winding"],
+                                                " edge" if canyon["reaches_edge"] else "") if canyon else "-"),
+        ("mesa", "r%.0f %+d, %d exits" % (mesa["radius"], mesa["top_dz_middle"], mesa["exits"]) if mesa else "-"),
+        ("river", "w%.0f l%.0f, %d deep" % (river["width"], river["length"], river["depth_bytes"]) if river else "-"),
+        ("bridges", "%d %s" % (len(inv["bridges"]), " ".join(sorted(set(b["template"] for b in inv["bridges"]))))
+         if inv["bridges"] else "-"),
+        ("towns", " ".join(str(t["buildings"]) for t in inv["towns"]) or "-"),
+        ("tech", " ".join(sorted(t["template"][4:] for t in inv["tech"])) or "-"),
     ]
 
 
@@ -1012,11 +1716,14 @@ def main():
         selfcheck()
         return 0
     if sys.argv[1:2] == ["table"]:
-        with open(sys.argv[2]) as handle:
-            profiles = [("Twilight", json.load(handle))]
-        for path in sys.argv[3:]:
+        # the first map is the exemplar, the one the texture distance is taken against
+        profiles = []
+        for path in sys.argv[2:]:
             with open(path, "rb") as handle:
-                profiles.append((os.path.basename(path)[4:-4], mapstyle.profile(handle.read(), path)))
+                data = handle.read()
+            result = mapstyle.profile(data, path)
+            result["inventory"] = mapfeatures.inventory(data, path)
+            profiles.append((os.path.splitext(os.path.basename(path))[0], result))
         table(profiles)
         return 0
     if sys.argv[1:2] == ["render"]:
