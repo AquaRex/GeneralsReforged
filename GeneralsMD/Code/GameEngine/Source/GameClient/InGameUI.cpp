@@ -1505,9 +1505,9 @@ void InGameUI::setRadiusCursor(RadiusCursorType cursorType, const SpecialPowerTe
 
 //-------------------------------------------------------------------------------------------------
 /** A leader's auras on the ground: one ring for each kind it gives, under a selected or hovered
-	* leader of the player at this machine or an ally, while that player can see it.  Each further ring
-	* of one leader is drawn a little inside the one before, so four of them do not lie on one line.
-	* Reads the logic's grades and draws; nothing goes back. */
+	* leader of the player at this machine or an ally, while that player can see it.  Every ring is the
+	* full aura radius; each kind's texture keeps to its own band of that disc (Tools/aura_rings.py),
+	* so any set of them reads as one dial.  Reads the logic's grades and draws; nothing goes back. */
 //-------------------------------------------------------------------------------------------------
 void InGameUI::updateAuraRings()
 {
@@ -1525,7 +1525,6 @@ void InGameUI::updateAuraRings()
 				|| obj->getShroudedStatus( local->getPlayerIndex() ) != OBJECTSHROUD_CLEAR )
 			return;
 		const Int grade = obj->getRankGrade();
-		Int shown = 0;
 		for( Int kind = 0; kind < RANK_AURA_COUNT && wantedCount < AURA_RING_MAX; ++kind )
 		{
 			if( ladder->aura( grade, (RankAura)kind ) <= 0.0f || !TheGlobalData->m_rankAuraRing[ kind ].valid() )
@@ -1535,10 +1534,9 @@ void InGameUI::updateAuraRings()
 				twice = twice || ( wanted[ i ].id == obj->getID() && wanted[ i ].kind == kind );
 			if( twice )
 				continue;
-			// ponytail: the inset makes an inner ring a little short of the real reach; one radius for all kinds today
 			wanted[ wantedCount ].id = obj->getID();
 			wanted[ wantedCount ].kind = kind;
-			wanted[ wantedCount ].radius = ladder->auraRadius( grade ) * ( 1.0f - 0.05f * shown++ );
+			wanted[ wantedCount ].radius = ladder->auraRadius( grade );
 			wanted[ wantedCount ].pos = *draw->getPosition();
 			++wantedCount;
 		}

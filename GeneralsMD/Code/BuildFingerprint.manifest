@@ -1,5 +1,9 @@
 CMakeLists.txt
-Data/Art/Textures/ReforgedAuraRing.tga
+Data/Art/Textures/ReforgedAuraGuard.tga
+Data/Art/Textures/ReforgedAuraRally.tga
+Data/Art/Textures/ReforgedAuraRange.tga
+Data/Art/Textures/ReforgedAuraRateOfFire.tga
+Data/Art/Textures/ReforgedAuraSight.tga
 Data/Art/Textures/ReforgedBarAmericaCenter.tga
 Data/Art/Textures/ReforgedBarAmericaLeft.tga
 Data/Art/Textures/ReforgedBarAmericaRight.tga
@@ -3904,6 +3908,7 @@ Tools/WorldBuilder/src/wbview3d.cpp
 Tools/asan-check.sh
 Tools/assetcull/assetcull.cpp
 Tools/assetcull/assetcull.dsp
+Tools/aura_rings.py
 Tools/bigfile.py
 Tools/build-posix.sh
 Tools/buildVersionUpdate/buildVersionUpdate.cpp
