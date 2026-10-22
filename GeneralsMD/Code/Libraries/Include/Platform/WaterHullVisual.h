@@ -3,17 +3,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <cstdlib>
-#include <cstring>
 #include <limits>
 
 namespace WaterHullVisual {
-// One launch-time policy for mesh collection, packet upload and shader generation.
-// Unset selects the validated mesh path; explicit values such as 0 disable it.
-inline bool Enabled() {
-    const char *value=std::getenv("ZH_WATER_HULL_CONTACT");
-    return !value || std::strcmp(value,"mesh")==0;
-}
 constexpr unsigned MaxVertices=64, MaxTriangles=96, RegistersPerHull=88;
 constexpr unsigned MaxSourceTriangles=8192;
 // Keep every intermediate float product finite. Native vessel local coordinates

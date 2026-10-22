@@ -48,8 +48,6 @@ struct SDL_GPUSampler;
 struct SDL_GPUShader;
 struct SDL_GPUTexture;
 struct SDL_Window;
-namespace WaterCoastalSurf { struct Node; struct Lookup; }
-namespace WaterShoreHistory { struct Mapping; }
 
 /// Where a pass draws: a colour texture of Target_Format() and a depth-stencil of Depth_Format(), the
 /// same size.  The back buffer is one; a render-target surface's GPU texture is another (A3d).
@@ -232,47 +230,6 @@ public:
 	SDL_GPUSampler * Ocean_Sampler() const;
 	uint64_t Ocean_Updates() const { return OceanUpdates; }
 
-	/// Bounded GPU coastal history; callers install one immutable graph across all levels.
-	/// Same revision with changed bytes is rejected. Empty graphs clear the feature.
-	bool Install_Coastal_Surf(uint64_t revision,const std::vector<WaterCoastalSurf::Node> &nodes,double spacing);
-	/// Known-format RGBA32F 256x256 target owned by this frame. The caller renders the current
-	/// incident Field here, then supplies this exact target to Prepare. No arbitrary native
-	/// texture metadata is trusted; SDL offers no public texture format/dimension query.
-	SdlTarget Coastal_Surf_Field_Target(uint64_t revision) const;
-	/// Render the incident Field only for Sample/GapDecay. First/reset Prepare clears to
-	/// density=age=height=0, rate=-1; it consumes no field. Call Prepare even when not due
-	/// to observe clock advances/rewinds without repeating GPU work at paused times.
-	bool Coastal_Surf_Field_Due(uint64_t revision,double water_time) const;
-	bool Prepare_Coastal_Surf(uint64_t revision,double water_time,const SdlTarget &field);
-	/// Production path: when due, sample only an already prepared matching-phase ocean,
-	/// then record incident/reaction/diffusion atomically. Never updates the FFT itself.
-	/// On false, caller must disable coastal composition for this draw, not use stale data.
-	bool Prepare_Coastal_Surf_From_Ocean(uint64_t revision,double water_time);
-	bool Clear_Coastal_Surf();
-	/// Borrowed handles remain valid until Clear or a different successful Install. Prepare
-	/// can rotate the state handle; resolve it after Prepare for each immutable recorded draw.
-	SDL_GPUTexture * Coastal_Surf_State(uint64_t revision) const;
-	/// Domain indices: 0 world,1 coast,2 surface,3 admission,4 neighbour IDs (index+1).
-	SDL_GPUTexture * Coastal_Surf_Domain(unsigned index,uint64_t revision) const;
-	SDL_GPUSampler * Coastal_Surf_Sampler(uint64_t revision) const;
-	double Coastal_Surf_Time(uint64_t revision) const;
-	unsigned Coastal_Surf_Nodes(uint64_t revision) const;
-	uint64_t Coastal_Surf_Updates() const { return CoastalSurfUpdates; }
-	uint64_t Coastal_Surf_Installs() const { return CoastalSurfInstalls; }
-	/// One active camera-view lookup across all water levels. Set caches/validates CPU
-	/// IDs and weights; Prepare uploads changed lookup and composes density/age moments
-	/// from the current history in one submission. Missing weights stay zero.
-	bool Set_Coastal_Surf_View(uint64_t revision,const WaterShoreHistory::Mapping &mapping,
-		double level,const std::vector<WaterCoastalSurf::Lookup> &lookups);
-	bool Prepare_Coastal_Surf_View(uint64_t revision);
-	bool Clear_Coastal_Surf_View();
-	/// Only current-state, successfully submitted output is exposed; B/A are zero.
-	SDL_GPUTexture *Coastal_Surf_View(uint64_t revision,double level) const;
-	SDL_GPUSampler *Coastal_Surf_View_Sampler(uint64_t revision,double level) const;
-	double Coastal_Surf_View_Time(uint64_t revision,double level) const;
-	uint64_t Coastal_Surf_View_Sets() const { return CoastalSurfViewSets; }
-	uint64_t Coastal_Surf_View_Updates() const { return CoastalSurfViewUpdates; }
-
 	unsigned int Width() const { return BackWidth; }
 	unsigned int Height() const { return BackHeight; }
 	/// The back buffer's format, and so what a Present_To target has to be.
@@ -358,16 +315,6 @@ private:
 	bool Create_Ocean();
 	void Release_Ocean();
 	bool Fail_Ocean(const char *reason);
-
-	struct CoastalSurfResources;
-	CoastalSurfResources *CoastalSurf=NULL;
-	uint64_t CoastalSurfUpdates=0,CoastalSurfInstalls=0;
-	void Release_Coastal_Surf();
-	bool Prepare_Coastal_Surf_Impl(uint64_t revision,double time,const SdlTarget &field,bool from_ocean);
-	struct CoastalSurfViewResources;
-	CoastalSurfViewResources *CoastalSurfView=NULL;
-	uint64_t CoastalSurfViewSets=0,CoastalSurfViewUpdates=0;
-	void Release_Coastal_Surf_View();
 
 	WaterSnapshot *Water_Snapshot(const SdlTarget &source);
 	void Invalidate_Water_Snapshots(SDL_GPUTexture *colour, SDL_GPUTexture *depth);

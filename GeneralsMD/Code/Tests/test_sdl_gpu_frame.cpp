@@ -46,15 +46,11 @@
 #include "Platform/WaterFoamShading.h"
 #include "Platform/WaterFoamEnvironment.h"
 #include "Platform/WaterShoreFoam.h"
-#include "Platform/WaterCoastalCrest.h"
-#include "Platform/WaterCoastalSurf.h"
-#include "Platform/WaterCoastalPresentation.h"
-#include "Platform/WaterCoastalView.h"
-#include "Platform/WaterCoastalIncident.h"
 #include "Platform/WaterShoreOverlay.h"
 #include "../Libraries/Source/WWVegas/WW3D2/ffshader.h"
 #include "Platform/WaterBowRefinement.h"
 #include <complex>
+#include <sstream>
 
 #include <SDL3/SDL.h>
 
@@ -72,15 +68,54 @@ static int failures = 0;
 // Bind the production fragment layout even when a normal-only fixture has no mesh hulls.
 static void push_empty_visual_water(SDL_GPUCommandBuffer *commands,const SdlWaterPixelConstants &water)
 {
-    if(!WaterHullVisual::Enabled()) {
-        SDL_PushGPUFragmentUniformData(commands,0,&water,sizeof(water));return;
-    }
     SdlWaterVisualPixelConstants common={};common.Water=water;
     SDL_PushGPUFragmentUniformData(commands,0,&common,sizeof(common));
     const float packets[WaterHullVisualLayout::PacketRegisters][4]={};
     for(unsigned block=0;block<WaterHullVisualLayout::BlockCount;++block)
         SDL_PushGPUFragmentUniformData(commands,block+1,packets[WaterHullVisualLayout::BlockOffset(block)],
             WaterHullVisualLayout::BlockRegisters(block)*16);
+}
+
+// Observe the production normal without a runtime shader variant or environment switch.
+static bool observe_water_normal(std::string &source)
+{
+    const std::string output="    return current;\n}";
+    const size_t at=source.rfind(output);
+    CHECK(at!=std::string::npos);
+    if(at==std::string::npos)return false;
+    source.insert(at,"    current.rgb = normal*0.5+0.5;\n");
+    return true;
+}
+
+// Compile the exact production refraction helpers with fixture inputs. Unrelated mesh-hull
+// buffers occupy b1..b3 in the complete material shader; these helpers need only its b0.
+static bool water_refraction_fixture_source(const std::string &production,std::string &source)
+{
+    const size_t input=production.find("struct Input");
+    const size_t terrain=production.find("float terrainHeight("),terrainEnd=production.find("float terrainSun(",terrain);
+    const size_t first=production.find("float2 pixelOffset("),last=production.find("WaterRefractionSample waterRefractedScene(",first);
+    const size_t opening=production.find('{',last);
+    CHECK(input!=std::string::npos && terrain<terrainEnd && terrainEnd!=std::string::npos
+        && first<last && last<opening && opening!=std::string::npos);
+    if(input==std::string::npos || terrain>=terrainEnd || terrainEnd==std::string::npos
+        || first>=last || last>=opening || opening==std::string::npos)return false;
+    size_t end=opening+1;int depth=1;
+    for(;end<production.size() && depth;++end) {
+        if(production[end]=='{')++depth;
+        else if(production[end]=='}')--depth;
+    }
+    CHECK(depth==0);if(depth)return false;
+    std::istringstream prefix(production.substr(0,input));std::string line;
+    source.clear();
+    while(std::getline(prefix,line)) {
+        if(line.find("cbuffer WaterVisualBlock")!=std::string::npos
+            || line.find("float4 VisualHullMeta[")!=std::string::npos)continue;
+        source+=line+'\n';
+    }
+    source+=production.substr(terrain,terrainEnd-terrain);
+    source+=production.substr(first,end-first);
+    source+=WaterOpticalModel::GetHlslSource();
+    return true;
 }
 
 static const unsigned int WIDTH = 64;
@@ -575,21 +610,16 @@ static void check_gpu_water_mesh_correction(SdlGpuFrame *frame)
 		}
 	} resources;
 	resources.device=frame->Device();
-	const char *previous=getenv("ZH_WATER_DEBUG");
-	const bool hadDebug=previous!=NULL;
-	const std::string previousDebug=previous?previous:"";
-	CHECK(setenv("ZH_WATER_DEBUG","normal",1)==0);
 	PixelPipelineDescription pixelDescription={};std::string pixelSource;
 	const bool generated=EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pixelDescription,
 		pixelSource,COMBINER_SHADER_TARGET_SDL3_GPU);
-	if(hadDebug) CHECK(setenv("ZH_WATER_DEBUG",previousDebug.c_str(),1)==0);
-	else CHECK(unsetenv("ZH_WATER_DEBUG")==0);
 	CHECK(generated);if(!generated) return;
+	if(!observe_water_normal(pixelSource)) return;
 	std::vector<unsigned char> spirv;std::string error;
 	bool compiled=SDL3_Compile_HLSL_To_SPIRV(pixelSource,false,spirv,error);CHECK(compiled);
 	if(!compiled) {printf("water correction pixel compile: %s\n",error.c_str());return;}
 	unsigned samplers=0,pixelUniforms=0;SDL3_Shader_Slots(spirv,false,samplers,pixelUniforms);
-	const unsigned expectedUniforms=WaterHullVisual::Enabled()?4u:1u;
+	const unsigned expectedUniforms=4u;
 	CHECK(samplers<=16 && pixelUniforms==expectedUniforms);if(samplers>16 || pixelUniforms!=expectedUniforms) return;
 	resources.pixel=SDL3_Create_Shader(resources.device,spirv,false,error);CHECK(resources.pixel);
 	if(!resources.pixel) return;
@@ -1010,7 +1040,8 @@ static void check_gpu_water_hull_effects(SdlGpuFrame *frame)
 	const char *vertexSource="float4 main(uint id : SV_VertexID) : SV_Position {return float4(id==1?3.0:-1.0,id==2?3.0:-1.0,0,1);}";
 	std::string pixelSource="cbuffer Samples : register(b0, space3) { float4 HullParameters; float4 HullData[80]; float4 Query; float4 TestBasis; float4 WaveInput; float4 ContactHullData[80]; };\n";
 	pixelSource+=waterSource.substr(noiseStart,noiseEnd-noiseStart);
-	pixelSource+=GetHlslSource();pixelSource+=GetEffectsHlslSource(true);
+	pixelSource+="static const float4 VisualHullMeta[8]={0,0,0,0,0,0,0,0};\n";
+	pixelSource+=GetHlslSource();pixelSource+=GetEffectsHlslSource();
 	pixelSource+="float main(float4 pixel : SV_Position) : SV_Target { "
 		"uint column=(uint)pixel.x, channel=column%3; float2 local=float2((int)(column/3)-150,(int)pixel.y-40); "
 		"float2 world=TestBasis.xy+local.x*TestBasis.zw+local.y*float2(-TestBasis.w,TestBasis.z); "
@@ -1254,23 +1285,11 @@ static void check_gpu_water_refraction_footprint(SdlGpuFrame *frame)
     } r;
     r.device=frame->Device();
     PixelPipelineDescription pd={};std::string ps;
-    const char *oldDebug=getenv("ZH_WATER_DEBUG");const bool hadDebug=oldDebug!=NULL;
-    const std::string savedDebug=oldDebug?oldDebug:"";
-    // This isolated optical probe reserves b1 for its cases, with no hull packets.
-    const char *oldContact=getenv("ZH_WATER_HULL_CONTACT");const bool hadContact=oldContact!=NULL;
-    const std::string savedContact=oldContact?oldContact:"";
-    CHECK(setenv("ZH_WATER_HULL_CONTACT","0",1)==0);
-    CHECK(unsetenv("ZH_WATER_DEBUG")==0);
     const bool generated=EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pd,ps,
         COMBINER_SHADER_TARGET_SDL3_GPU);
-    if(hadDebug)CHECK(setenv("ZH_WATER_DEBUG",savedDebug.c_str(),1)==0);
-    else CHECK(unsetenv("ZH_WATER_DEBUG")==0);
-    if(hadContact)CHECK(setenv("ZH_WATER_HULL_CONTACT",savedContact.c_str(),1)==0);
-    else CHECK(unsetenv("ZH_WATER_HULL_CONTACT")==0);
     CHECK(generated);if(!generated)return;
-    const std::string entry="float4 main(Input input)";
-    const size_t at=ps.find(entry);CHECK(at!=std::string::npos);if(at==std::string::npos)return;
-    ps.replace(at,entry.size(),"float4 unusedWaterMain(Input input)");
+    std::string production;production.swap(ps);
+    if(!water_refraction_fixture_source(production,ps))return;
     ps+=R"M4C(
 cbuffer M4cCases : register(b1, space3) { float4 M4cFixtures[27 * 3]; };
 // Armed M4A nearest-only control, retaining its corrected sign/shared viewport behaviour.
@@ -1547,27 +1566,14 @@ static void check_gpu_water_refraction_coordinates(SdlGpuFrame *frame)
     } r;
     r.device=frame->Device();
     PixelPipelineDescription pd={};std::string ps;
-    const char *oldDebug=getenv("ZH_WATER_DEBUG");const bool hadDebug=oldDebug!=NULL;
-    const std::string savedDebug=oldDebug?oldDebug:"";
-    // This isolated optical probe reserves b1 for its cases, with no hull packets.
-    const char *oldContact=getenv("ZH_WATER_HULL_CONTACT");const bool hadContact=oldContact!=NULL;
-    const std::string savedContact=oldContact?oldContact:"";
-    CHECK(setenv("ZH_WATER_HULL_CONTACT","0",1)==0);
-    CHECK(unsetenv("ZH_WATER_DEBUG")==0);
     const bool generated=EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pd,ps,
         COMBINER_SHADER_TARGET_SDL3_GPU);
-    if(hadDebug)CHECK(setenv("ZH_WATER_DEBUG",savedDebug.c_str(),1)==0);
-    else CHECK(unsetenv("ZH_WATER_DEBUG")==0);
-    if(hadContact)CHECK(setenv("ZH_WATER_HULL_CONTACT",savedContact.c_str(),1)==0);
-    else CHECK(unsetenv("ZH_WATER_HULL_CONTACT")==0);
     CHECK(generated);if(!generated)return;
-    const std::string entry="float4 main(Input input)";
-    const size_t at=ps.find(entry);CHECK(at!=std::string::npos);if(at==std::string::npos)return;
-    ps.replace(at,entry.size(),"float4 unusedWaterMain(Input input)");
+    std::string production;production.swap(ps);
+    if(!water_refraction_fixture_source(production,ps))return;
     ps+="\n#define M4aCaseCount 10\n";
     ps+=R"M4A(
-// Test-only wrapper appended to the exact generated production water pixel shader after
-// renaming its main to unusedWaterMain. This invokes the same helpers used by production main.
+// Test-only entry point invokes the exact helpers extracted from the production shader.
 // Set M4aCaseCount when constructing this shader; each case occupies four float4s.
 cbuffer M4aCases : register(b1, space3) { float4 M4aFixtures[M4aCaseCount * 4]; };
 
@@ -2054,10 +2060,7 @@ static void check_gpu_water_vertex_uniform_order(SdlGpuFrame *frame)
 	const unsigned contactRegister=offsetof(SdlWaterPixelConstants,ContactHullData)/16;
 	const unsigned lastContactRegister=contactRegister+79;
 	const unsigned fillRegister=offsetof(SdlWaterPixelConstants,FoamFillLights)/16;
-	const unsigned coastalAreaRegister=offsetof(SdlWaterPixelConstants,CoastalArea)/16;
-	const unsigned coastalParamsRegister=offsetof(SdlWaterPixelConstants,CoastalParams)/16;
-	CHECK(contactRegister==100 && fillRegister==180 && coastalAreaRegister==184 && coastalParamsRegister==185
-		&& sizeof(SdlWaterPixelConstants)==188*16);
+	CHECK(contactRegister==100 && fillRegister==180 && sizeof(SdlWaterPixelConstants)==186*16);
 	std::string block="cbuffer WaterBlock : register(b1,space1) { float4 Water[";
 	block+=std::to_string(sizeof(SdlWaterPixelConstants)/16)+"]; };\n";
 	const std::string output="struct Output { float4 Position:SV_Position; [[vk::location(0)]] float4 Value:TEXCOORD0; };\n";
@@ -2065,26 +2068,25 @@ static void check_gpu_water_vertex_uniform_order(SdlGpuFrame *frame)
 	std::string waterVertex="cbuffer FixedBlock : register(b0,space1) { float4 Fixed; };\n"+block+output;
 	waterVertex+="Output main(uint id:SV_VertexID) {"+position+
 		"o.Value=float4(Fixed.x,Water["+std::to_string(timeRegister)+"].x,Water["+
-		std::to_string(lastHullRegister)+"].w,Water["+std::to_string(fftRegister)+"].y);"
+		std::to_string(lastHullRegister)+"].w,Water["+std::to_string(fftRegister)+"].x);"
 		"o.Value.x+=Water["+std::to_string(historyAreaRegister)+"].x;"
 		"o.Value.z+=Water["+std::to_string(historyRegister)+"].w;"
 		"o.Value.x+=Water["+std::to_string(contactRegister)+"].w;"
 		"o.Value.y+=Water["+std::to_string(lastContactRegister)+"].w;"
 		"o.Value.x+=Water["+std::to_string(fillRegister)+"].w+Water["+std::to_string(fillRegister+1)+"].x;"
-		"o.Value+=Water["+std::to_string(coastalAreaRegister)+"]+Water["+std::to_string(coastalParamsRegister)+"];return o;}\n";
+		"return o;}\n";
 	std::string waterPixel="cbuffer WaterBlock : register(b0,space3) { float4 Water["+
 		std::to_string(sizeof(SdlWaterPixelConstants)/16)+"]; };\n";
 	waterPixel+="float4 main([[vk::location(0)]] float4 value:TEXCOORD0):SV_Target0 {\n"
 		"value.w+=abs(value.y-Water["+std::to_string(timeRegister)+"].x-Water["+
-		std::to_string(lastContactRegister)+"].w-Water["+std::to_string(coastalAreaRegister)+"].y-Water["+
-		std::to_string(coastalParamsRegister)+"].y)*100.0;"
+		std::to_string(lastContactRegister)+"].w)*100.0;"
 		"value.x-=Water["+std::to_string(historyAreaRegister)+"].x;"
 		"value.z+=Water["+std::to_string(historyAreaRegister)+"].w;"
 		"value.w+=Water["+std::to_string(historyRegister)+"].w;"
 		"value.z+=Water["+std::to_string(lastContactRegister)+"].z;"
 		"value.y+=Water["+std::to_string(fillRegister+3)+"].z;"
 		"value.z+=Water["+std::to_string(fillRegister+2)+"].z;"
-		"value+=2*Water["+std::to_string(coastalAreaRegister)+"]+3*Water["+std::to_string(coastalParamsRegister)+"];return value;}\n";
+		"return value;}\n";
 	const std::string plainVertex="cbuffer FixedBlock : register(b0,space1) { float4 Fixed; };\n"+output+
 		"Output main(uint id:SV_VertexID) {"+position+"o.Value=float4(9,8,7,6)*Fixed.x;return o;}\n";
 	const char *plainPixel="float4 main([[vk::location(0)]] float4 value:TEXCOORD0):SV_Target0 {return value;}\n";
@@ -2127,10 +2129,6 @@ static void check_gpu_water_vertex_uniform_order(SdlGpuFrame *frame)
 	const float historyTail[2][3]={{-128,.25f,24.25f},{192,.125f,26.0f}};
 	const float contactTail[2][3]={{12,-175.25f,91.5f},{0,0,0}};
 	const float fillTail[2][4]={{1,2.25f,-.875f,5.125f},{0,0,0,0}};
-	// Every native tail component is read in both stages. State 1 is explicit invalid/zero,
-	// including after non-water; state 0 returns immediately after a rectangle clear.
-	const float coastalArea[2][4]={{-32,48,256,128},{0,0,0,0}};
-	const float coastalParams[2][4]={{1,7,24.25f,24.375f},{0,0,0,0}};
 	for(unsigned row=0;row<rows;++row) {
 		if(row==3) {
 			// Engine rectangle-clear pipelines target its native UNORM scene format.
@@ -2144,7 +2142,7 @@ static void check_gpu_water_vertex_uniform_order(SdlGpuFrame *frame)
 		draw.VertexConstants=frame->Constants(0,fixed,sizeof(fixed));draw.VertexConstantsSize=sizeof(fixed);
 		if(waterRows[row]) {
 			SdlWaterPixelConstants water={};water.WaterParameters[0]=expectedWater[state[row]][1];
-			water.HullData[79][3]=expectedWater[state[row]][2];water.FftParameters[0]=1;water.FftParameters[1]=expectedWater[state[row]][3];
+			water.HullData[79][3]=expectedWater[state[row]][2];water.FftParameters[0]=expectedWater[state[row]][3];
 			water.FoamHistoryArea[0]=historyTail[state[row]][0];water.FoamHistoryArea[3]=historyTail[state[row]][1];
 			water.FoamHistoryParameters[3]=historyTail[state[row]][2];
 			water.ContactHullData[0][3]=contactTail[state[row]][0];
@@ -2152,8 +2150,6 @@ static void check_gpu_water_vertex_uniform_order(SdlGpuFrame *frame)
 			water.ContactHullData[79][2]=contactTail[state[row]][2];
 			water.FoamFillLights[0][3]=fillTail[state[row]][0];water.FoamFillLights[1][0]=fillTail[state[row]][1];
 			water.FoamFillLights[2][2]=fillTail[state[row]][2];water.FoamFillLights[3][2]=fillTail[state[row]][3];
-			memcpy(water.CoastalArea,coastalArea[state[row]],sizeof(water.CoastalArea));
-			memcpy(water.CoastalParams,coastalParams[state[row]],sizeof(water.CoastalParams));
 			draw.PixelConstants=frame->Constants(1,&water,sizeof(water));draw.PixelConstantsSize=sizeof(water);
 			draw.VertexWaterConstants=draw.PixelConstants;draw.VertexWaterConstantsSize=draw.PixelConstantsSize;
 			// Poison the source after recording: deferred execution must read its copied snapshot.
@@ -2170,11 +2166,10 @@ static void check_gpu_water_vertex_uniform_order(SdlGpuFrame *frame)
 		if(waterRows[row] && c>=2)expected+=historyTail[state[row]][2]+(c==2?historyTail[state[row]][1]:0);
 		if(waterRows[row] && c<3)expected+=contactTail[state[row]][c];
 		if(waterRows[row] && c<3)expected+=c==0?fillTail[state[row]][0]+fillTail[state[row]][1]:fillTail[state[row]][c==1?3:2];
-		if(waterRows[row])expected+=3*coastalArea[state[row]][c]+4*coastalParams[state[row]][c];
 		matched &= std::isfinite(values[(row*width+x)*4+c]) && std::abs(values[(row*width+x)*4+c]-expected)<0.00001f;
 	}
 	CHECK(matched);
-	printf("sdl_gpu_frame_selfcheck: GPU water VS slot1: %u queued draws, shared 188-float4 pixel snapshot, mean/FFT/history/contact/fill-light/coastal tails in both stages, explicit zero contact/light/coastal fallback, intervening non-water and rectangle clear checked\n",rows);
+	printf("sdl_gpu_frame_selfcheck: GPU water VS slot1: %u queued draws, shared 186-float4 pixel snapshot, mean/FFT/history/contact/fill-light tails in both stages, explicit zero contact/light fallback, intervening non-water and rectangle clear checked\n",rows);
 }
 
 static void check_gpu_water_visual_uniform_order(SdlGpuFrame *frame)
@@ -2188,11 +2183,10 @@ static void check_gpu_water_visual_uniform_order(SdlGpuFrame *frame)
 	std::string vs=std::string(output)+WaterFftSampling::UniformSource("WaterVertex",1)+
 		"cbuffer FixedBlock:register(b0){float4 Fixed;};\n"+
 		"Output main(uint id:SV_VertexID){"+position+
-		"o.Value=float4(WaterParameters.x,ContactHullData[79].w,FoamFillLights[3].z,1)+Fixed+CoastalArea+CoastalParams;return o;}\n";
+		"o.Value=float4(WaterParameters.x,ContactHullData[79].w,FoamFillLights[3].z,1)+Fixed;return o;}\n";
 	std::string ps=WaterFftSampling::UniformSource("WaterFragment",0,true)+R"HLSL(
 float4 main(float4 position:SV_Position,[[vk::location(0)]] float4 value:TEXCOORD0):SV_Target0 {
     int x=(int)position.x;
-    value+=2*CoastalArea+3*CoastalParams;
     if(x<704) {
         float4 packet;
         if(x<256) packet=VisualHullBlock0[x];
@@ -2266,10 +2260,6 @@ float4 main(float4 position:SV_Position,[[vk::location(0)]] float4 value:TEXCOOR
 			draw.VertexConstants=frame->Constants(0,fixed,sizeof(fixed));draw.VertexConstantsSize=sizeof(fixed);
 			water.Water.WaterParameters[0]=state+.125f;water.Water.ContactHullData[79][3]=state*2+.25f;
 			water.Water.FoamFillLights[3][2]=state*3+.5f;
-			for(unsigned c=0;c<4;++c) {
-				water.Water.CoastalArea[c]=state?float(state*8+c)+.25f:0;
-				water.Water.CoastalParams[c]=state?float(state*4+c)+.125f:0;
-			}
 			for(unsigned h=0;h<MaxHulls;++h)for(unsigned c=0;c<4;++c)
 				water.VisualHullMeta[h][c]=state?float(state*100+h*4+c)+.5f:0;
 			for(unsigned r=0;r<PacketRegisters;++r)for(unsigned c=0;c<4;++c)
@@ -2300,7 +2290,6 @@ float4 main(float4 position:SV_Position,[[vk::location(0)]] float4 value:TEXCOOR
 		if(waterRows[row]) {
 			const double prefix=c==0?state+.125:c==1?state*2+.25:c==2?state*3+.5:1;
 			expected=prefix+(c+1)*.0625+(state?state*100+h*4+c+.5:0);
-			if(state)expected+=3*(state*8+c+.25)+4*(state*4+c+.125);
 			if(x<PacketRegisters)expected+=state?state*10000+x*4+c+.25:0;
 		}
 		const double actual=values[(row*width+x)*4+c],error=std::abs(actual-expected);maxError=std::max(maxError,error);
@@ -2309,7 +2298,7 @@ float4 main(float4 position:SV_Position,[[vk::location(0)]] float4 value:TEXCOOR
 		if(waterRows[row] && state && (x==256 || x==512))armedBoundary+=std::abs(actual-(expected-1024))>100;
 	}
 	CHECK(matched && armedLatest>0 && armedBoundary>0);
-	printf("sdl_gpu_frame_selfcheck: visual hull transport: all704 packet float4s +8 metadata, PS slots0..3, 188-register VS alias and 196-register PS common, both coastal float4s in both stages, queued A/B/zero, non-water, clear, new batch, resize; max error %.9g, armed %u/%u\n",maxError,armedLatest,armedBoundary);
+	printf("sdl_gpu_frame_selfcheck: visual hull transport: all704 packet float4s +8 metadata, PS slots0..3, 186-register VS alias and 194-register PS common, queued A/B/zero, non-water, clear, new batch, resize; max error %.9g, armed %u/%u\n",maxError,armedLatest,armedBoundary);
 }
 
 static void check_gpu_water_visual_query(SdlGpuFrame *frame)
@@ -2450,15 +2439,8 @@ static void check_gpu_water_visual_zero_effect_skip(SdlGpuFrame *frame)
 	// contact response in the same fragment. Only the optimized body may skip a zero-effect query.
 	// The only test instrumentation is a counter immediately before each geometry query.
 	using namespace WaterHullVisualLayout;
-	const char *oldContact=getenv("ZH_WATER_HULL_CONTACT"),*oldDebug=getenv("ZH_WATER_DEBUG");
-	const bool hadContact=oldContact!=NULL,hadDebug=oldDebug!=NULL;
-	const std::string savedContact=oldContact?oldContact:"",savedDebug=oldDebug?oldDebug:"";
-	CHECK(unsetenv("ZH_WATER_HULL_CONTACT")==0); // Exercise the ordinary launch default.
-	CHECK(unsetenv("ZH_WATER_DEBUG")==0);
 	PixelPipelineDescription description={};std::string production;
 	const bool generated=EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,description,production,COMBINER_SHADER_TARGET_SDL3_GPU);
-	if(hadContact)CHECK(setenv("ZH_WATER_HULL_CONTACT",savedContact.c_str(),1)==0);else CHECK(unsetenv("ZH_WATER_HULL_CONTACT")==0);
-	if(hadDebug)CHECK(setenv("ZH_WATER_DEBUG",savedDebug.c_str(),1)==0);else CHECK(unsetenv("ZH_WATER_DEBUG")==0);
 	CHECK(generated);if(!generated)return;
 	auto extract=[&](const char *signature) {
 		const size_t start=production.find(signature),opening=start==std::string::npos?start:production.find('{',start);
@@ -2675,409 +2657,6 @@ float4 main(float4 pixel:SV_Position):SV_Target0 {
 		cases.size(),samplesX*samplesY,maxError,mismatches,skipped,active);
 }
 #endif // __linux__
-
-// Append after read_float_targets; include Platform/WaterCoastalSurf.h once and call
-// check_gpu_coastal_surf_owner(frame) in the GPU selfcheck after core math fixtures.
-// Runtime owner performs no readbacks; every readback below is test-only.
-// Insert after read_float_targets; invoke after check_gpu_fft_ocean and the
-// independent WaterCoastalIncident fixture so FFT initial-owner assertions remain valid.
-static void check_gpu_coastal_surf_from_ocean(SdlGpuFrame *frame)
-{
-    using namespace WaterCoastalSurf;
-    const uint64_t revision=0xc0a571;
-    struct Cleanup {SdlGpuFrame *frame;~Cleanup(){CHECK(frame->Clear_Coastal_Surf());frame->Set_Target(frame->Back_Buffer_Target());}} cleanup{frame};
-    CHECK(frame->Clear_Coastal_Surf());
-    std::vector<Node> nodes(3);
-    for(unsigned i=0;i<3;++i) {
-        nodes[i].world[0]=-137.25f+83*i;nodes[i].world[1]=91.5f;nodes[i].world[2]=7+4*i;
-        nodes[i].context={4,32,1,0,1,float(i)*.5f,.4f,.5f,1,1};
-    }
-    const bool installed=frame->Install_Coastal_Surf(revision,nodes,8);CHECK(installed);if(!installed)return;
-    const SdlTarget input=frame->Coastal_Surf_Field_Target(revision);CHECK(input.Colour);if(!input.Colour)return;
-    const uint64_t fftBefore=frame->Ocean_Updates();
-    CHECK(frame->Prepare_Coastal_Surf_From_Ocean(revision,2.25)); // reset needs no field/FFT phase
-    SDL_GPUTexture *initialState=frame->Coastal_Surf_State(revision);CHECK(initialState);if(!initialState)return;
-    CHECK(frame->Ocean_Updates()==fftBefore && !frame->Coastal_Surf_Field_Due(revision,2.25));
-    const auto initial=read_float_targets(frame,&initialState,1,256,256);
-    CHECK(initial.size()==MaxNodes*4);if(initial.size()!=MaxNodes*4)return;
-    auto field=[&](){return read_float_targets(frame,&input.Colour,1,256,256);};
-    const auto untouched=field();
-    const uint64_t resetUpdates=frame->Coastal_Surf_Updates();
-    CHECK(frame->Prepare_Ocean(9.0f)); // deliberately wrong phase for next source tick
-    const uint64_t wrongFft=frame->Ocean_Updates();
-    CHECK(!frame->Prepare_Coastal_Surf_From_Ocean(revision,2.35));
-    CHECK(frame->Coastal_Surf_Updates()==resetUpdates && frame->Ocean_Updates()==wrongFft);
-    CHECK(frame->Coastal_Surf_State(revision)==initialState && frame->Coastal_Surf_Time(revision)==2.25);
-    CHECK(field()==untouched);
-    CHECK(read_float_targets(frame,&initialState,1,256,256)==initial);
-
-    // An armed queued stale field must be overwritten by the real producer before
-    // Advance samples it in the same command buffer; caller input upload comes first.
-    uint32_t offset=0;float *poison=reinterpret_cast<float *>(frame->Upload_Space(MaxNodes*4*sizeof(float),offset));
-    CHECK(poison);if(!poison)return;
-    for(unsigned i=0;i<MaxNodes;++i){poison[i*4]=63;poison[i*4+1]=poison[i*4+2]=0;poison[i*4+3]=1;}
-    frame->Queue_Texture_Upload(input.Colour,0,256,256,offset);
-    CHECK(frame->Prepare_Ocean(float(2.35)*WaterFftSampling::TimeScale));
-    const uint64_t correctFft=frame->Ocean_Updates();
-    CHECK(frame->Prepare_Coastal_Surf_From_Ocean(revision,2.35));
-    CHECK(frame->Ocean_Updates()==correctFft && frame->Coastal_Surf_Updates()==resetUpdates+1);
-    SDL_GPUTexture *warmState=frame->Coastal_Surf_State(revision);CHECK(warmState);if(!warmState)return;
-    const auto generated=field(),warm=read_float_targets(frame,&warmState,1,256,256);
-    CHECK(generated.size()==MaxNodes*4 && warm.size()==MaxNodes*4);
-    if(generated.size()!=MaxNodes*4 || warm.size()!=MaxNodes*4)return;
-    bool finite=true,nonzero=false,tail=true;
-    for(unsigned i=0;i<MaxNodes;++i)for(unsigned c=0;c<4;++c)finite &= std::isfinite(generated[i*4+c])&&std::isfinite(warm[i*4+c]);
-    for(unsigned i=0;i<nodes.size();++i) {
-        CHECK(generated[i*4]!=63 && warm[i*4+2]==generated[i*4]);
-        CHECK(warm[i*4]==0 && warm[i*4+1]==0 && warm[i*4+3]==0);
-        nonzero |= std::abs(generated[i*4])>.001f || std::abs(generated[i*4+1])>.001f;
-    }
-    for(unsigned i=unsigned(nodes.size());i<MaxNodes;++i) {
-        tail &= generated[i*4]==0 && generated[i*4+1]==0 && generated[i*4+2]==0 && generated[i*4+3]==1;
-        tail &= warm[i*4]==0 && warm[i*4+1]==0 && warm[i*4+2]==0 && warm[i*4+3]==-1;
-    }
-    CHECK(finite && nonzero && tail);
-    CHECK(!frame->Coastal_Surf_Field_Due(revision,2.35));
-    CHECK(frame->Prepare_Coastal_Surf_From_Ocean(revision,2.35));
-    CHECK(frame->Coastal_Surf_Updates()==resetUpdates+1 && frame->Ocean_Updates()==correctFft);
-    CHECK(frame->Coastal_Surf_State(revision)==warmState && field()==generated);
-    CHECK(read_float_targets(frame,&warmState,1,256,256)==warm);
-
-    // Failed due-time phase checks leave the clock uncommitted, so a corrected
-    // existing FFT can retry that exact tick without losing or duplicating it.
-    CHECK(!frame->Prepare_Coastal_Surf_From_Ocean(revision,2.45));
-    CHECK(frame->Coastal_Surf_Time(revision)==2.35 && frame->Coastal_Surf_Updates()==resetUpdates+1);
-    CHECK(field()==generated);
-    CHECK(frame->Prepare_Ocean(float(2.45)*WaterFftSampling::TimeScale));
-    const uint64_t nextFft=frame->Ocean_Updates();
-    CHECK(frame->Prepare_Coastal_Surf_From_Ocean(revision,2.45));
-    CHECK(frame->Ocean_Updates()==nextFft && frame->Coastal_Surf_Updates()==resetUpdates+2);
-    SDL_GPUTexture *advancedState=frame->Coastal_Surf_State(revision);CHECK(advancedState);if(!advancedState)return;
-    const auto advanced=read_float_targets(frame,&advancedState,1,256,256),changedField=field();
-    CHECK(changedField!=generated);
-    for(unsigned i=0;i<nodes.size();++i)CHECK(advanced[i*4+2]==changedField[i*4]);
-    CHECK(!frame->Prepare_Coastal_Surf_From_Ocean(revision+1,2.55));
-    CHECK(!frame->Prepare_Coastal_Surf_From_Ocean(revision,NAN));
-    CHECK(frame->Coastal_Surf_Time(revision)==2.45 && frame->Coastal_Surf_Updates()==resetUpdates+2);
-    CHECK(frame->Prepare_Coastal_Surf_From_Ocean(revision,2.25)); // rewind: clear, do not force FFT backwards
-    CHECK(frame->Ocean_Updates()==nextFft);
-    SDL_GPUTexture *rewound=frame->Coastal_Surf_State(revision);CHECK(rewound);
-    if(rewound)CHECK(read_float_targets(frame,&rewound,1,256,256)==initial);
-    printf("sdl_gpu_frame_selfcheck: coastal production wrapper: same-phase existing FFT required, wrong-phase retry atomic, queued stale input replaced, actual field consumed by history, all atlas channels/tail, pause/rewind and no extra FFT updates checked\n");
-}
-
-// Insert after read_float_targets and invoke after the coastal owner fixture.
-static void check_gpu_coastal_surf_view(SdlGpuFrame *frame)
-{
-    using namespace WaterCoastalSurf;
-    const uint64_t revision=0xc051e;
-    const unsigned oldWidth=frame->Width(),oldHeight=frame->Height();
-    struct Cleanup {SdlGpuFrame *f;unsigned w,h;~Cleanup(){CHECK(f->Clear_Coastal_Surf());CHECK(f->Resize(w,h));f->Set_Target(f->Back_Buffer_Target());}} cleanup{frame,oldWidth,oldHeight};
-    CHECK(frame->Clear_Coastal_Surf());
-    std::vector<Node> nodes(257);
-    for(unsigned i=0;i<nodes.size();++i){nodes[i].world[0]=float(i*8);nodes[i].world[2]=7;nodes[i].context={4,32,1,0,1,1,.4f,.5f,1,1};}
-    nodes[2].world[2]=11;
-    const bool installed=frame->Install_Coastal_Surf(revision,nodes,8);CHECK(installed);if(!installed)return;
-    WaterCoastalView::Mapping mapping={-16,24,48,32,3,2};
-    std::vector<Lookup> lookups(6);
-    lookups[1].node[0]=1;lookups[1].weight[0]=1;
-    lookups[2].node[0]=2;lookups[2].weight[0]=1;
-    lookups[3].node[0]=1;lookups[3].node[1]=2;lookups[3].node[2]=257;
-    lookups[3].weight[0]=.25f;lookups[3].weight[1]=.5f;lookups[3].weight[2]=.125f;
-    lookups[4].node[0]=257;lookups[4].weight[0]=.25f;
-    lookups[5].node[0]=lookups[5].node[1]=1;lookups[5].weight[0]=lookups[5].weight[1]=.25f;
-    const uint64_t sets=frame->Coastal_Surf_View_Sets(),updates=frame->Coastal_Surf_View_Updates();
-    CHECK(frame->Set_Coastal_Surf_View(revision,mapping,7,lookups));
-    CHECK(!frame->Prepare_Coastal_Surf_View(revision) && !frame->Coastal_Surf_View(revision,7)); // history not ready
-    const SdlTarget input=frame->Coastal_Surf_Field_Target(revision);
-    CHECK(frame->Prepare_Coastal_Surf(revision,0,input));
-    SDL_GPUTexture *state=frame->Coastal_Surf_State(revision);CHECK(state);if(!state)return;
-    // Seed exact finite moments through a test-only GPU upload. The composition
-    // oracle is closed form and deliberately uses densities above coverage's range.
-    uint32_t offset=0;float *seed=reinterpret_cast<float *>(frame->Upload_Space(MaxNodes*4*sizeof(float),offset));
-    CHECK(seed);if(!seed)return;memset(seed,0,MaxNodes*4*sizeof(float));
-    for(unsigned i=0;i<MaxNodes;++i)seed[i*4+3]=i<nodes.size()?0:-1;
-    seed[0]=2;seed[1]=10;seed[4]=6;seed[5]=6;seed[8]=5;seed[9]=20;seed[256*4]=8;seed[256*4+1]=24;
-    frame->Queue_Texture_Upload(state,0,256,256,offset);
-    CHECK(frame->Prepare_Coastal_Surf_View(revision));
-    SDL_GPUTexture *view=frame->Coastal_Surf_View(revision,7);CHECK(view);if(!view)return;
-    CHECK(frame->Coastal_Surf_View_Sampler(revision,7));
-    CHECK(!frame->Coastal_Surf_View(revision,11) && !frame->Coastal_Surf_View(revision+1,7));
-    CHECK(frame->Coastal_Surf_View_Time(revision,7)==0);
-    CHECK(frame->Coastal_Surf_View_Sets()==sets+1 && frame->Coastal_Surf_View_Updates()==updates+1);
-    const double expected[6][2]={{0,0},{2,10},{6,6},{4.5,8.5},{2,6},{1,5}};
-    auto verify=[&](const std::vector<float>&values,double elapsed){
-        CHECK(values.size()==24);if(values.size()!=24)return;
-        const double q=std::exp(-elapsed/Lifetime);
-        for(unsigned i=0;i<6;++i){
-            CHECK(std::abs(values[i*4]-expected[i][0]*q)<2e-5);
-            CHECK(std::abs(values[i*4+1]-(expected[i][1]+elapsed*expected[i][0])*q)<2e-5);
-            CHECK(values[i*4+2]==0 && values[i*4+3]==0);
-        }
-    };
-    const auto first=read_float_targets(frame,&view,1,3,2);CHECK(first.size()==24);if(first.size()!=24)return;verify(first,0);
-    CHECK(first[4]>1 && first[4*4]==2); // raw density, quarter weight remains quarter
-    CHECK(frame->Set_Coastal_Surf_View(revision,mapping,7,lookups));CHECK(frame->Prepare_Coastal_Surf_View(revision));
-    CHECK(frame->Coastal_Surf_View_Updates()==updates+1 && frame->Coastal_Surf_View_Sets()==sets+1);
-    CHECK(read_float_targets(frame,&view,1,3,2)==first);
-    auto invalid=lookups;invalid[1].node[0]=3; // valid atlas index, wrong exact level
-    CHECK(!frame->Set_Coastal_Surf_View(revision,mapping,7,invalid));
-    CHECK(!frame->Coastal_Surf_View(revision,7) && !frame->Coastal_Surf_View_Sampler(revision,7));
-    invalid=lookups;invalid[1].weight[0]=NAN;CHECK(!frame->Set_Coastal_Surf_View(revision,mapping,7,invalid));
-    invalid=lookups;invalid[1].node[1]=2;invalid[1].weight[1]=.25f;CHECK(!frame->Set_Coastal_Surf_View(revision,mapping,7,invalid));
-    invalid=lookups;invalid[1].node[0]=258;CHECK(!frame->Set_Coastal_Surf_View(revision,mapping,7,invalid));
-    auto badMapping=mapping;badMapping.widthPixels=513;CHECK(!frame->Set_Coastal_Surf_View(revision,badMapping,7,lookups));
-    CHECK(!frame->Set_Coastal_Surf_View(revision,mapping,7.1,lookups));
-    CHECK(!frame->Set_Coastal_Surf_View(revision+1,mapping,7,lookups));
-    CHECK(frame->Set_Coastal_Surf_View(revision,mapping,7,lookups));CHECK(frame->Prepare_Coastal_Surf_View(revision));
-    CHECK(frame->Coastal_Surf_View(revision,7)==view);
-    CHECK(frame->Prepare_Coastal_Surf(revision,.1,input)); // pure decay; initial incident field is still zero
-    CHECK(!frame->Coastal_Surf_View(revision,7)); // stale composed moments may not be exposed
-    const uint64_t beforeCompose=frame->Coastal_Surf_View_Updates();
-    CHECK(frame->Prepare_Coastal_Surf_View(revision));CHECK(frame->Coastal_Surf_View_Updates()==beforeCompose+1);
-    CHECK(frame->Coastal_Surf_View(revision,7)==view && frame->Coastal_Surf_View_Time(revision,7)==.1);
-    const auto decayed=read_float_targets(frame,&view,1,3,2);CHECK(decayed.size()==24);if(decayed.size()!=24)return;verify(decayed,.1);
-    CHECK(frame->Resize(oldWidth+7,oldHeight+5));
-    CHECK(frame->Coastal_Surf_View(revision,7)==view && frame->Coastal_Surf_State(revision));
-    CHECK(frame->Prepare_Coastal_Surf_View(revision) && frame->Coastal_Surf_View_Updates()==beforeCompose+1);
-    CHECK(read_float_targets(frame,&view,1,3,2)==decayed);
-    mapping.originX+=8;CHECK(frame->Set_Coastal_Surf_View(revision,mapping,7,lookups));
-    CHECK(!frame->Coastal_Surf_View(revision,7));CHECK(frame->Prepare_Coastal_Surf_View(revision));
-    CHECK(frame->Coastal_Surf_View(revision,7)==view);verify(read_float_targets(frame,&view,1,3,2),.1);
-
-    // A recorded ordinary draw must read the old composition before the same
-    // output texture is reused, and before a different-sized view releases it.
-    struct Reader {
-        SdlGpuFrame *f;SDL_GPUShader *vs=NULL,*ps=NULL;SDL_GPUGraphicsPipeline *pipeline=NULL;SDL_GPUTexture *target=NULL;
-        ~Reader(){CHECK(f->Flush());f->Set_Target(f->Back_Buffer_Target());if(target)SDL_ReleaseGPUTexture(f->Device(),target);
-            if(pipeline)SDL_ReleaseGPUGraphicsPipeline(f->Device(),pipeline);if(vs)SDL_ReleaseGPUShader(f->Device(),vs);if(ps)SDL_ReleaseGPUShader(f->Device(),ps);}
-    } reader{frame};
-    std::string error;std::vector<unsigned char> spirv;
-    bool ok=SDL3_Compile_HLSL_To_SPIRV(WaterFftSpectrum::VertexHlsl(),true,spirv,error);CHECK(ok);
-    if(ok)reader.vs=SDL3_Create_Shader(frame->Device(),spirv,true,error);
-    const char *ps="Texture2D<float4> View:register(t0,space2);float4 main(float4 p:SV_Position):SV_Target0{return View.Load(int3((int2)p.xy,0));}";
-    ok=SDL3_Compile_HLSL_To_SPIRV(ps,false,spirv,error);CHECK(ok);
-    if(ok){unsigned samplers=0,uniforms=0;SDL3_Shader_Slots(spirv,false,samplers,uniforms);CHECK(samplers==1&&uniforms==0);
-        if(samplers==1&&uniforms==0)reader.ps=SDL3_Create_Shader(frame->Device(),spirv,false,error);}
-    CHECK(reader.vs&&reader.ps);if(!reader.vs||!reader.ps)return;
-    SDL_GPUColorTargetDescription colour={};colour.format=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
-    SDL_GPUGraphicsPipelineCreateInfo pi={};pi.vertex_shader=reader.vs;pi.fragment_shader=reader.ps;pi.primitive_type=SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
-    pi.target_info.color_target_descriptions=&colour;pi.target_info.num_color_targets=1;pi.target_info.has_depth_stencil_target=true;
-    pi.target_info.depth_stencil_format=(SDL_GPUTextureFormat)frame->Depth_Format();reader.pipeline=SDL_CreateGPUGraphicsPipeline(frame->Device(),&pi);
-    SDL_GPUTextureCreateInfo ti={};ti.type=SDL_GPU_TEXTURETYPE_2D;ti.format=colour.format;ti.usage=SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
-    ti.width=3;ti.height=2;ti.layer_count_or_depth=ti.num_levels=1;reader.target=SDL_CreateGPUTexture(frame->Device(),&ti);
-    CHECK(reader.pipeline&&reader.target);if(!reader.pipeline||!reader.target)return;
-    auto record=[&]()->bool{frame->Set_Target({reader.target,frame->Depth_For(3,2),3,2});SdlRecordedDraw draw={};
-        draw.Pipeline=reader.pipeline;draw.Count=3;draw.SamplerCount=1;
-        void *staged=frame->Stage(16,draw.VertexOffset);CHECK(staged);if(!staged)return false;memset(staged,0,16);
-        draw.Textures[0]=frame->Coastal_Surf_View(revision,7);draw.Samplers[0]=frame->Coastal_Surf_View_Sampler(revision,7);
-        CHECK(draw.Textures[0]&&draw.Samplers[0]);if(!draw.Textures[0]||!draw.Samplers[0])return false;
-        draw.Viewport[2]=3;draw.Viewport[3]=2;draw.Viewport[5]=1;draw.Scissor[2]=3;draw.Scissor[3]=2;frame->Record_Draw(draw);return true;};
-    if(!record())return;const uint64_t batch=frame->Batch();
-    auto changed=lookups;changed[1].weight[0]=.25f;changed[2].node[0]=1;
-    CHECK(frame->Set_Coastal_Surf_View(revision,mapping,7,changed));CHECK(frame->Prepare_Coastal_Surf_View(revision));
-    CHECK(frame->Batch()>batch && frame->Coastal_Surf_View(revision,7)==view);
-    CHECK(read_float_targets(frame,&reader.target,1,3,2)==decayed);
-    const auto changedValues=read_float_targets(frame,&view,1,3,2);CHECK(changedValues.size()==24);if(changedValues.size()!=24)return;
-    CHECK(std::abs(changedValues[4]-.25f*decayed[4])<1e-6 && changedValues[8]==decayed[4]);
-    if(!record())return;WaterCoastalView::Mapping narrow=mapping;narrow.widthPixels=4;narrow.heightPixels=1;
-    std::vector<Lookup> single(4);for(auto &l:single){l.node[0]=1;l.weight[0]=1;}
-    CHECK(frame->Set_Coastal_Surf_View(revision,narrow,7,single));CHECK(!frame->Coastal_Surf_View(revision,7));
-    CHECK(frame->Prepare_Coastal_Surf_View(revision));SDL_GPUTexture *newView=frame->Coastal_Surf_View(revision,7);
-    CHECK(newView&&newView!=view);if(!newView)return;
-    CHECK(read_float_targets(frame,&reader.target,1,3,2)==changedValues);
-    for(auto &l:single)l.node[0]=3;
-    CHECK(frame->Set_Coastal_Surf_View(revision,narrow,11,single));CHECK(frame->Prepare_Coastal_Surf_View(revision));
-    CHECK(!frame->Coastal_Surf_View(revision,7) && frame->Coastal_Surf_View(revision,11)==newView);
-    const auto level=read_float_targets(frame,&newView,1,4,1);CHECK(level.size()==16);if(level.size()!=16)return;const double q=std::exp(-.1/Lifetime);
-    for(unsigned i=0;i<4;++i){CHECK(std::abs(level[i*4]-5*q)<2e-5);CHECK(std::abs(level[i*4+1]-20.5*q)<2e-5);}
-    frame->Set_Target({newView,NULL,4,1});CHECK(frame->Clear_Coastal_Surf_View());
-    CHECK(!frame->Coastal_Surf_View(revision,11) && frame->Coastal_Surf_State(revision));
-    frame->Clear_Back_Buffer(true,false,false,0xFF102030,1,0);CHECK(frame->Flush()); // released current target invalidated
-    CHECK(frame->Set_Coastal_Surf_View(revision,mapping,7,lookups));CHECK(frame->Prepare_Coastal_Surf_View(revision));
-    CHECK(frame->Install_Coastal_Surf(revision+1,nodes,8));CHECK(!frame->Coastal_Surf_View(revision,7));
-    CHECK(!frame->Prepare_Coastal_Surf_View(revision+1));
-    printf("sdl_gpu_frame_selfcheck: coastal view: raw density/age, quarter/missing weights without renormalization, row-crossing IDs, exact levels, invalid input, cache/state refresh, resize/remap, queued reuse/release and independent history lifetime checked\n");
-}
-
-static void check_gpu_coastal_surf_owner(SdlGpuFrame *frame)
-{
-    using namespace WaterCoastalSurf;
-    const unsigned oldWidth=frame->Width(),oldHeight=frame->Height();
-    CHECK(frame->Clear_Coastal_Surf());
-    CHECK(!frame->Coastal_Surf_State(71) && !frame->Coastal_Surf_Field_Target(71).Colour);
-    CHECK(!frame->Coastal_Surf_Field_Due(71,0));
-    const SDL_GPUTextureUsageFlags usage=SDL_GPU_TEXTUREUSAGE_COLOR_TARGET|SDL_GPU_TEXTUREUSAGE_SAMPLER;
-    if(!SDL_GPUTextureSupportsFormat(frame->Device(),SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT,
-        SDL_GPU_TEXTURETYPE_2D,usage)) {
-        std::vector<Node> probe(1);probe[0].context={1,8,1,0,1,1,0,0,1,1};
-        CHECK(!frame->Install_Coastal_Surf(71,probe,8));
-        CHECK(!frame->Coastal_Surf_State(71));
-        printf("sdl_gpu_frame_selfcheck: coastal owner RGBA32F unsupported: safe fallback checked\n");return;
-    }
-    // Only nodes 0 and 256 exchange. Their IDs cross an atlas row. Isolated node 1
-    // occupies the same XY as node 0 at a distinct exact level and must stay empty.
-    std::vector<Node> nodes(257);
-    for(unsigned i=0;i<nodes.size();++i) {
-        nodes[i].world[0]=float(100+i*8);nodes[i].world[1]=16;nodes[i].world[2]=7;
-        nodes[i].context={1,200,1,0,1,1,0,0,1,1}; // valid wet no-birth spread support
-    }
-    nodes[0].world[0]=nodes[0].world[1]=0;nodes[0].context.distance=8;
-    nodes[1].world[0]=nodes[1].world[1]=0;nodes[1].world[2]=11;
-    nodes[256].world[0]=8;nodes[256].world[1]=0;nodes[256].context.distance=8;
-    nodes[0].neighbour[1]=257;nodes[256].neighbour[0]=1;
-    CHECK(ValidGraph(nodes,8));
-    const uint64_t installs=frame->Coastal_Surf_Installs(),updates=frame->Coastal_Surf_Updates();
-    CHECK(frame->Install_Coastal_Surf(71,nodes,8));
-    SdlTarget input=frame->Coastal_Surf_Field_Target(71);
-    CHECK(input.Colour && !input.Depth && input.Width==256 && input.Height==256);
-    if(!input.Colour) return;
-    CHECK(frame->Coastal_Surf_Installs()==installs+1 && frame->Coastal_Surf_Nodes(71)==257);
-    CHECK(!frame->Coastal_Surf_State(71) && !frame->Coastal_Surf_State(72));
-    CHECK(frame->Coastal_Surf_Sampler(71) && !frame->Coastal_Surf_Sampler(72));
-    for(unsigned i=0;i<5;++i)CHECK(frame->Coastal_Surf_Domain(i,71));
-    CHECK(!frame->Coastal_Surf_Domain(5,71) && !frame->Coastal_Surf_Domain(0,72));
-    CHECK(!frame->Coastal_Surf_Field_Due(71,0));
-    CHECK(frame->Prepare_Coastal_Surf(71,0,input));
-    CHECK(frame->Coastal_Surf_Updates()==updates+1 && frame->Coastal_Surf_Time(71)==0);
-    auto state=[&]() {
-        SDL_GPUTexture *texture=frame->Coastal_Surf_State(71);CHECK(texture);
-        return texture?read_float_targets(frame,&texture,1,256,256)
-            :std::vector<float>(MaxNodes*4,std::numeric_limits<float>::quiet_NaN());
-    };
-    auto sentinel=[&](const std::vector<float>&v,unsigned start) {
-        bool ok=v.size()==MaxNodes*4;
-        if(ok)for(unsigned i=start;i<MaxNodes;++i) {
-            ok &= v[i*4]==0 && v[i*4+1]==0 && v[i*4+2]==0 && v[i*4+3]==-1;
-        }
-        CHECK(ok);
-    };
-    const auto reset=state();sentinel(reset,0);
-    auto field=[&](float height) {
-        uint32_t offset=0;float *p=reinterpret_cast<float *>(frame->Upload_Space(MaxNodes*4*sizeof(float),offset));
-        CHECK(p);if(!p)return;
-        for(unsigned i=0;i<MaxNodes;++i) {
-            p[i*4]=height;p[i*4+1]=i==256?-.4f:.4f;p[i*4+2]=0;p[i*4+3]=.5f;
-        }
-        frame->Queue_Texture_Upload(input.Colour,0,256,256,offset);
-    };
-    CHECK(frame->Coastal_Surf_Field_Due(71,.1));
-    field(.5f); // Deliberately no Flush: Prepare must submit this upload first.
-    CHECK(frame->Prepare_Coastal_Surf(71,.1,input));
-    const auto warm=state();sentinel(warm,257);
-    CHECK(warm[0]==0 && warm[2]==.5f && warm[3]==0);
-    CHECK(warm[256*4]==0 && warm[256*4+2]==.5f && warm[256*4+3]==0);
-    field(1.5f);CHECK(frame->Prepare_Coastal_Surf(71,.2,input));
-    const auto born=state();sentinel(born,257);
-    CHECK(born[3]>.99f*MaximumRate && born[256*4+3]==0);
-    // Independent Simpson integration of a linear 0 -> 1.2 source, with age
-    // measured from the source time. It does not call Integrate/Advance/Diffuse.
-    double mass=0,moment=0;const unsigned steps=1000;const double dt=.1;
-    for(unsigned i=0;i<=steps;++i) {
-        const double u=dt*i/steps,weight=i==0||i==steps?1:i%2?4:2;
-        const double value=MaximumRate*(u/dt)*std::exp(-(dt-u)/Lifetime);
-        mass+=weight*value;moment+=weight*value*(dt-u);
-    }
-    mass*=dt/(3*steps);moment*=dt/(3*steps);
-    const double alpha=Diffusivity*dt/64;
-    CHECK(std::abs(born[0]-mass*(1-alpha))<2e-6 && std::abs(born[1]-moment*(1-alpha))<2e-6);
-    CHECK(std::abs(born[256*4]-mass*alpha)<2e-6 && std::abs(born[256*4+1]-moment*alpha)<2e-6);
-    CHECK(born[4]==0 && born[5]==0); // exact-level isolation
-    CHECK(born[0]>.05f && born[256*4]>0.0001f); // armed, non-vacuous source and diffusion
-
-    const uint64_t pausedUpdates=frame->Coastal_Surf_Updates();
-    SDL_GPUTexture *paused=frame->Coastal_Surf_State(71);
-    CHECK(!frame->Coastal_Surf_Field_Due(71,.2));
-    CHECK(frame->Prepare_Coastal_Surf(71,.2,input));
-    CHECK(frame->Coastal_Surf_Updates()==pausedUpdates && frame->Coastal_Surf_State(71)==paused);
-    CHECK(state()==born);
-    CHECK(frame->Install_Coastal_Surf(71,nodes,8));
-    CHECK(frame->Coastal_Surf_Installs()==installs+1 && frame->Coastal_Surf_State(71)==paused);
-    auto badNodes=nodes;badNodes[0].context.depth=2;
-    CHECK(!frame->Install_Coastal_Surf(71,badNodes,8)); // same revision, changed payload
-    badNodes=nodes;badNodes[256].context.wet=0;
-    CHECK(!frame->Install_Coastal_Surf(72,badNodes,8)); // dry graph endpoint
-    badNodes=nodes;badNodes[0].neighbour[1]=MaxNodes+1;
-    CHECK(!frame->Install_Coastal_Surf(72,badNodes,8));
-    CHECK(!frame->Install_Coastal_Surf(0,nodes,8));
-    SdlTarget wrong=input;wrong.Width=255;CHECK(!frame->Prepare_Coastal_Surf(71,.3,wrong));
-    wrong=input;wrong.Depth=frame->Back_Buffer_Target().Depth;CHECK(!frame->Prepare_Coastal_Surf(71,.3,wrong));
-    wrong=input;wrong.Colour=frame->Coastal_Surf_State(71);CHECK(!frame->Prepare_Coastal_Surf(71,.3,wrong));
-    wrong=input;wrong.Colour=frame->Coastal_Surf_Domain(0,71);CHECK(!frame->Prepare_Coastal_Surf(71,.3,wrong));
-    CHECK(!frame->Prepare_Coastal_Surf(72,.3,input) && !frame->Prepare_Coastal_Surf(71,NAN,input));
-    CHECK(frame->Coastal_Surf_State(71)==paused && frame->Coastal_Surf_Updates()==pausedUpdates && state()==born);
-    CHECK(frame->Resize(oldWidth+5,oldHeight+3));
-    CHECK(frame->Coastal_Surf_Field_Target(71).Colour==input.Colour && frame->Coastal_Surf_State(71)==paused);
-    CHECK(state()==born && !frame->Coastal_Surf_Field_Due(71,.2));
-
-    // Queue an ordinary draw reading the old state, then advance far enough to
-    // recycle that exact physical state texture. The unsubmitted reader must
-    // retain the old values instead of observing the overwritten ping-pong slot.
-    struct Reader {
-        SDL_GPUDevice *device;SDL_GPUShader *vs=NULL,*ps=NULL;SDL_GPUGraphicsPipeline *pipeline=NULL;
-        SDL_GPUTexture *target=NULL;
-        ~Reader(){if(target)SDL_ReleaseGPUTexture(device,target);if(pipeline)SDL_ReleaseGPUGraphicsPipeline(device,pipeline);
-            if(vs)SDL_ReleaseGPUShader(device,vs);if(ps)SDL_ReleaseGPUShader(device,ps);}
-    } reader;reader.device=frame->Device();
-    std::vector<unsigned char> spirv;std::string error;
-    const char *vs="float4 main(uint id:SV_VertexID):SV_Position{return float4(id==1?3.0:-1.0,id==2?3.0:-1.0,0,1);}";
-    const char *ps="Texture2D<float4> State:register(t0,space2);float4 main(float4 p:SV_Position):SV_Target0{return State.Load(int3(0,(uint)p.x==0?0:1,0));}";
-    bool ok=SDL3_Compile_HLSL_To_SPIRV(vs,true,spirv,error);CHECK(ok);
-    if(ok)reader.vs=SDL3_Create_Shader(reader.device,spirv,true,error);
-    ok=SDL3_Compile_HLSL_To_SPIRV(ps,false,spirv,error);CHECK(ok);
-    if(ok) {
-        unsigned samplers=0,uniforms=0;SDL3_Shader_Slots(spirv,false,samplers,uniforms);
-        CHECK(samplers==1 && uniforms==0);
-        if(samplers==1 && uniforms==0)reader.ps=SDL3_Create_Shader(reader.device,spirv,false,error);
-    }
-    CHECK(reader.vs && reader.ps);
-    if(reader.vs && reader.ps) {
-        SDL_GPUColorTargetDescription colour={};colour.format=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
-        SDL_GPUGraphicsPipelineCreateInfo pi={};pi.vertex_shader=reader.vs;pi.fragment_shader=reader.ps;
-        pi.primitive_type=SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;pi.target_info.color_target_descriptions=&colour;pi.target_info.num_color_targets=1;
-        pi.target_info.has_depth_stencil_target=true;pi.target_info.depth_stencil_format=(SDL_GPUTextureFormat)frame->Depth_Format();
-        reader.pipeline=SDL_CreateGPUGraphicsPipeline(reader.device,&pi);
-        SDL_GPUTextureCreateInfo ti={};ti.type=SDL_GPU_TEXTURETYPE_2D;ti.format=colour.format;ti.usage=usage;
-        ti.width=2;ti.height=1;ti.layer_count_or_depth=ti.num_levels=1;
-        reader.target=SDL_CreateGPUTexture(reader.device,&ti);CHECK(reader.pipeline && reader.target);
-        if(reader.pipeline && reader.target) {
-            frame->Set_Target({reader.target,frame->Depth_For(2,1),2,1});
-            SdlRecordedDraw draw={};draw.Pipeline=reader.pipeline;draw.Count=3;draw.SamplerCount=1;
-            memset(frame->Stage(16,draw.VertexOffset),0,16);draw.Textures[0]=paused;draw.Samplers[0]=frame->Coastal_Surf_Sampler(71);
-            draw.Viewport[2]=2;draw.Viewport[3]=1;draw.Viewport[5]=1;draw.Scissor[2]=2;draw.Scissor[3]=1;
-            frame->Record_Draw(draw);const uint64_t batch=frame->Batch();
-            field(2.5f);CHECK(frame->Prepare_Coastal_Surf(71,.3,input));CHECK(frame->Batch()>batch);
-            field(3.5f);CHECK(frame->Prepare_Coastal_Surf(71,.4,input));
-            const auto saved=read_float_targets(frame,&reader.target,1,2,1);
-            for(unsigned c=0;c<4;++c) {
-                CHECK(std::abs(saved[c]-born[c])<1e-6);
-                CHECK(std::abs(saved[4+c]-born[256*4+c])<1e-6);
-            }
-            const auto current=state();CHECK(current[0]>born[0]+.1f);
-        }
-    }
-    CHECK(frame->Flush());frame->Set_Target(frame->Back_Buffer_Target());
-    const auto beforeGap=state();const double beforeGapTime=frame->Coastal_Surf_Time(71);field(4.5f);
-    CHECK(frame->Coastal_Surf_Field_Due(71,1.4));CHECK(frame->Prepare_Coastal_Surf(71,1.4,input));
-    const auto gap=state();const double elapsed=1.4-beforeGapTime;
-    // Gap performs pure decay, no diffusion/birth, and commits the fresh height.
-    CHECK(elapsed>MaximumSourceInterval);
-    CHECK(std::abs(gap[0]-beforeGap[0]*std::exp(-elapsed/Lifetime))<2e-6);
-    CHECK(gap[2]==4.5f && gap[3]==0);
-    CHECK(frame->Prepare_Coastal_Surf(71,1.3,input));sentinel(state(),0); // rewind reset
-    CHECK(!frame->Coastal_Surf_Field_Due(71,1.3));
-    CHECK(frame->Install_Coastal_Surf(72,nodes,8));
-    CHECK(!frame->Coastal_Surf_State(71) && !frame->Coastal_Surf_State(72));
-    CHECK(!frame->Prepare_Coastal_Surf(72,0,input)); // stale pointer rejected
-    input=frame->Coastal_Surf_Field_Target(72);CHECK(input.Colour);
-    CHECK(frame->Prepare_Coastal_Surf(72,0,input) && frame->Coastal_Surf_State(72));
-    frame->Set_Target(input);CHECK(frame->Clear_Coastal_Surf());
-    CHECK(!frame->Coastal_Surf_State(72) && !frame->Coastal_Surf_Field_Target(72).Colour);
-    // Release invalidates an owned CurrentTarget. A subsequent ordinary clear is safe.
-    frame->Clear_Back_Buffer(true,false,false,0xFF102030,1,0);CHECK(frame->Flush());
-    CHECK(frame->Resize(oldWidth,oldHeight));frame->Set_Target(frame->Back_Buffer_Target());
-    printf("sdl_gpu_frame_selfcheck: coastal owner: source ordering, independent linear-source integral, reciprocal row-crossing diffusion, level isolation, inactive tail, pause, queued old reader, gap/rewind, immutable revision, input/alias guards, resize and clear checked\n");
-}
 
 static void check_gpu_foam_history_upload(SdlGpuFrame *frame)
 {
@@ -4790,28 +4369,11 @@ static void check_gpu_coastal_material(SdlGpuFrame *frame)
 }
 #endif // __linux__
 
-// Independent scalar pressure reference: intentionally does not call the production parameter
-// builder, constants, dual arithmetic, or derivative expressions. GPU slopes use differences
-// of this double-precision height, so a shared CPU/HLSL derivative mistake cannot self-confirm.
-static void vessel_test_pressure_parameters(double beam,double speed,double result[3])
-{
-	result[0]=result[1]=result[2]=0;
-	if(!std::isfinite(beam)||!std::isfinite(speed)||beam<0||speed<0)return;
-	const double u=(std::max)(0.0,(std::min)(speed,250.0)-.3);
-	result[0]=(std::max)(9.0,(std::min)(32.0,6+1.2*beam));
-	result[1]=(std::max)(4.0,(std::min)(60.0,1.5+.95*beam));
-	result[2]=(std::max)(3.0,(std::min)(8.0,1.8*std::sqrt(beam)))*u*u/(u*u+26*26);
-}
-static double vessel_test_pressure(double along,double across,double beam,double speed)
-{
-	double p[3];vessel_test_pressure_parameters(beam,speed,p);if(p[2]<=0)return 0;
-	const double q=across/p[1],s=along/p[0]+.6*(std::sqrt(1+q*q)-1);
-	return p[2]*std::exp(-s*s-q*q);
-}
+// Independent scalar stern reference. The contour bow has its own closed-form oracle.
 static double vessel_test_packet(const WaterHullModel::Hull &h,double x,double y,double level,double time,
-	double *sternOut=NULL,double *bowOut=NULL)
+	double *sternOut=NULL)
 {
-	if(sternOut)*sternOut=0;if(bowOut)*bowOut=0;
+	if(sternOut)*sternOut=0;
 	const double speed=std::hypot(h.data[2][0],h.data[2][1]);
 	if(h.data[0][3]<3||std::abs(level-h.data[0][2])>.1||speed<=double(.3f))return 0;
 	auto smooth=[](double a,double b,double v){const double t=(std::max)(0.0,(std::min)(1.0,(v-a)/(b-a)));return t*t*(3-2*t);};
@@ -4819,7 +4381,6 @@ static double vessel_test_packet(const WaterHullModel::Hull &h,double x,double y
 	const double fx=h.data[2][0]/speed,fy=h.data[2][1]/speed,ax=h.data[1][0],ay=h.data[1][1],beam=h.data[1][3];
 	const double blend=smooth(-.25,.25,fx*ax+fy*ay);
 	const double sx=h.data[3][2]+(h.data[3][0]-h.data[3][2])*blend,sy=h.data[3][3]+(h.data[3][1]-h.data[3][3])*blend;
-	const double bx=h.data[3][0]+(h.data[3][2]-h.data[3][0])*blend,by=h.data[3][1]+(h.data[3][3]-h.data[3][1])*blend;
 	const double dx=x-h.data[0][0]-(ax*sx-ay*sy),dy=y-h.data[0][1]-(ay*sx+ax*sy);
 	const double along=-dx*fx-dy*fy,across=-dx*fy+dy*fx;
 	const double length=(std::max)(30.0,(std::min)(110.0,speed*3.2+beam*2));
@@ -4829,334 +4390,7 @@ static double vessel_test_packet(const WaterHullModel::Hull &h,double x,double y
 	const double radial=std::hypot(x-h.data[0][0],y-h.data[0][1]);
 	const double support=1-smooth(h.data[2][3]+80,h.data[2][3]+110,radial);
 	const double stern=(arms*1.35+churn)*smooth(0,10,along)*(1-smooth(length*.5,length,along))*smooth(.3,14,speed)*support;
-	const double dbx=x-h.data[0][0]-(ax*bx-ay*by),dby=y-h.data[0][1]-(ay*bx+ax*by);
-	const double bow=vessel_test_pressure(dbx*fx+dby*fy,-dbx*fy+dby*fx,beam,speed)*support;
-	if(sternOut)*sternOut=stern;if(bowOut)*bowOut=bow;return stern+bow;
-}
-
-static void check_gpu_vessel_wave_model(SdlGpuFrame *frame)
-{
-	using WaterHullModel::Hull;
-	Hull hulls[8];
-	auto rectangle=[](Hull &h,float velocity) {
-		h.data[0][2]=7;h.data[0][3]=4;h.data[1][0]=1;h.data[1][2]=20;h.data[1][3]=6;
-		h.data[2][0]=velocity;h.data[2][2]=.23f;h.data[2][3]=sqrtf(436.0f);
-		h.data[3][0]=-20;h.data[3][2]=20;
-		const float points[8]={-20,-6,20,-6,20,6,-20,6};memcpy(h.data[4],points,sizeof(points));
-	};
-	rectangle(hulls[0],0);rectangle(hulls[1],12);rectangle(hulls[2],-12);rectangle(hulls[4],.3f);
-	hulls[3]=hulls[1];const float cosine=cosf(.63f),sine=sinf(.63f);
-	hulls[3].data[0][0]=137;hulls[3].data[0][1]=-83;hulls[3].data[1][0]=cosine;hulls[3].data[1][1]=sine;
-	hulls[3].data[2][0]=12*cosine;hulls[3].data[2][1]=12*sine;
-	hulls[5]=hulls[1];hulls[5].data[0][3]=2;hulls[7]=hulls[1];
-	rectangle(hulls[6],.00001f);hulls[6].data[2][1]=12;
-	struct Fixture { float point[4],other[4]; };
-	std::vector<Fixture> fixtures;
-	auto add=[&](float x,float y,unsigned h,float time=4,float level=7) {
-		Fixture f={{x,y,level,time},{float(h),0,0,0}};fixtures.push_back(f);return unsigned(fixtures.size()-1);
-	};
-	const unsigned edge=add(0,8,0),corner=add(23,10,0),inside=add(0,0,0),far=add(90,70,0);
-	const unsigned wrong=add(0,8,0,4,8),fade=add(0,34,0),leftCorner=add(19.999f,10,0),rightCorner=add(20.001f,10,0);
-	const unsigned wake=add(-40,9,1),bow=add(28,0,1),stationary=add(-40,9,0),reverse=add(40,-9,2);
-	const unsigned rotated=add(137-40*cosine-9*sine,-83-40*sine+9*cosine,3);
-	const unsigned slow=add(-40,9,4),bad=add(-40,9,5),last=add(-40,9,7);
-	const unsigned repeat=add(-40,9,1),churn=add(-40,0,1),later=add(-40,0,1,5),wakeEnd=add(-140,0,1),bowFar=add(100,0,1);
-	// Keep the broadside endpoint control inside the corner region: x==20 is
-	// an edge/corner derivative crease, so a central difference is not valid there.
-	const unsigned sideBow=add(0,8,6),sideSwitch=add(20.1f,8,6),sideStern=add(0,-20,6),sideWing=add(9,-20,6);
-	add(-24,-10,0);add(-15,-7,0);add(8,19,0);add(137+23*cosine-10*sine,-83+23*sine+10*cosine,3);
-	const double horizontalBound=8/std::sqrt(2.0);
-	const unsigned translatedPeak=add(float(20-.5*horizontalBound*std::tanh(4/horizontalBound)),
-		float(.5*horizontalBound*std::tanh(3/horizontalBound)),1);
-	const unsigned packetCount=unsigned(fixtures.size());
-	const float beams[4]={6,9,30,80},speeds[7]={0,5,14,25,40,60,250};
-	unsigned pressureRows[4][7];
-	for(unsigned b=0;b<4;++b)for(unsigned v=0;v<7;++v) {
-		double p[3];vessel_test_pressure_parameters(beams[b],speeds[v],p);
-		Fixture f={{float(p[0]*.45),float(p[1]*.65),0,0},{0,beams[b],speeds[v],1}};
-		pressureRows[b][v]=unsigned(fixtures.size());fixtures.push_back(f);
-	}
-	const float invalidInputs[][2]={{-1,40},{9,-1},{NAN,40},{9,INFINITY}};
-	for(const auto &invalid:invalidInputs) {
-		Fixture f={{2,3,0,0},{0,invalid[0],invalid[1],1}};fixtures.push_back(f);
-	}
-	const unsigned columns=24,count=unsigned(fixtures.size());
-	std::string ps="cbuffer FixturesBlock : register(b0,space3) { float4 HullData[80]; float4 Fixtures[";
-	ps+=std::to_string(count*2)+"]; };\nstatic const float4 HullParameters=float4(0,0,0,0);\n";
-	ps+=WaterFftSampling::CommonSource()+WaterVesselWaves::Source(false,false); // Independent Gaussian fallback oracle below.
-	ps+=R"HLSL(
-float3 incident(float2 p) {return float3(2.0*sin(.07*p.x+.025*p.y),1.5*cos(.035*p.x-.045*p.y),3.0*sin(.055*p.x-.08*p.y));}
-float3 incidentX(float2 p) {return float3(.14*cos(.07*p.x+.025*p.y),-.0525*sin(.035*p.x-.045*p.y),.165*cos(.055*p.x-.08*p.y));}
-float3 incidentY(float2 p) {return float3(.05*cos(.07*p.x+.025*p.y),.0675*sin(.035*p.x-.045*p.y),-.24*cos(.055*p.x-.08*p.y));}
-float4 main(float4 pixel:SV_Position):SV_Target0 {
-    uint row=(uint)pixel.y,col=(uint)pixel.x;float4 f=Fixtures[row*2];int h=(int)Fixtures[row*2+1].x;
-    float4 mode=Fixtures[row*2+1];
-    if(mode.w>0.5) {
-        float3 parameters=vesselBowPressure(mode.y,mode.z);
-        if(col==0) return float4(parameters,0);
-        float2 queryPoint=f.xy;
-        if(col>=2 && col<=5) queryPoint+=col==2?float2(.03125,0):col==3?float2(-.03125,0):col==4?float2(0,.03125):float2(0,-.03125);
-        if(col==6) queryPoint=0;
-        float halfCoordinate=sqrt(log(2.0));
-        if(col==7) queryPoint=float2(parameters.x*halfCoordinate,0);
-        if(col==8) queryPoint=float2(-.6*parameters.x*(sqrt(1.0+halfCoordinate*halfCoordinate)-1.0),parameters.y*halfCoordinate);
-        return float4(vesselBowPressureField(float3(queryPoint.x,1,0),float3(queryPoint.y,0,1),parameters),0);
-    }
-    if(col>=20) {
-        // All four asymptotic component-limit corners. This fails if the emitter
-        // accidentally uses radial8 as each component's bound instead of 8/sqrt(2).
-        float2 sign=float2((col&1)!=0?1.0:-1.0,(col&2)!=0?1.0:-1.0);
-        float2 shifted=fftHorizontalPosition(float2(0,0),float3(sign*1000.0,0),1.0);
-        return float4(shifted,length(shifted),0);
-    }
-    if(col>=10) {
-        float2 p=f.xy;
-        if(col>=11 && col<=14) p+=col==11?float2(.03125,0):col==12?float2(-.03125,0):col==13?float2(0,.03125):float2(0,-.03125);
-        float3 oldBow;
-        float3 oldGenerated=vesselGeneratedWave(p,f.z,f.w,h,oldBow);
-        float3 raw=incident(p),rawX=incidentX(p),rawY=incidentY(p);
-        float phase=.013*p.x-.017*p.y;
-        float3 scale=float3(.5+.1*sin(phase),.0013*cos(phase),-.0017*cos(phase));
-        if(col==15) {raw=0;rawX=0;rawY=0;scale=float3(.5,0,0);}
-        if(col==18) {raw=float3(4,-3,0);rawX=0;rawY=0;scale=float3(.5,0,0);}
-        FftHorizontalRegistration map=fftHorizontalRegistration(p,raw,rawX,rawY,scale);
-        float3 correction=vesselRegisteredBowDifference(map.position,map.derivativeX,map.derivativeY,f.z,h,oldBow);
-        float3 registered=oldGenerated+correction;
-        if(col==15) return float4(registered-oldGenerated,0);
-        if(col==16) return float4(map.position,scale.x,0);
-        if(col==17) {
-            float3 mapped=vesselGeneratedBow(map.position,f.z,h);
-            mapped.yz=float2(dot(mapped.yz,map.derivativeX),dot(mapped.yz,map.derivativeY));
-            return float4((registered-mapped)-(oldGenerated-oldBow),0);
-        }
-        if(col==19) return float4(oldGenerated,0);
-        return float4(registered,0);
-    }
-    float2 p=f.xy;
-    if(col>=6) p+=col==6?float2(.03125,0):col==7?float2(-.03125,0):col==8?float2(0,.03125):float2(0,-.03125);
-    VesselReflection v=vesselReflection(p,f.z,h);float3 d=incident(v.samplePosition);
-    float3 value=vesselReflectedValue(d,v),generated=vesselGeneratedWave(p,f.z,f.w,h);
-    if(col==0 || col>=6) return float4(value,generated.x);
-    if(col==1) return float4(vesselReflectedDerivative(d,incidentX(v.samplePosition),incidentY(v.samplePosition),float2(1,0),v),0);
-    if(col==2) return float4(vesselReflectedDerivative(d,incidentX(v.samplePosition),incidentY(v.samplePosition),float2(0,1),v),0);
-    if(col==3) return float4(v.samplePosition,v.weight,v.corner);
-    if(col==4) return float4(v.weightGradient,v.normal);
-    return float4(generated,0);
-}
-
-)HLSL";
-	const char *vs="float4 main(uint id:SV_VertexID):SV_Position {return float4(id==1?3.0:-1.0,id==2?3.0:-1.0,0,1);}";
-	std::vector<unsigned char> spirv;std::string error;
-	bool compiled=SDL3_Compile_HLSL_To_SPIRV(vs,true,spirv,error);CHECK(compiled);if(!compiled) return;
-	SDL_GPUShader *vertex=SDL3_Create_Shader(frame->Device(),spirv,true,error);CHECK(vertex);
-	compiled=SDL3_Compile_HLSL_To_SPIRV(ps,false,spirv,error);CHECK(compiled);
-	if(!compiled) {printf("vessel wave model: %s\n",error.c_str());if(vertex) SDL_ReleaseGPUShader(frame->Device(),vertex);return;}
-	SDL_GPUShader *pixel=SDL3_Create_Shader(frame->Device(),spirv,false,error);CHECK(pixel);
-	SDL_GPUColorTargetDescription colour={};colour.format=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
-	SDL_GPUGraphicsPipelineCreateInfo info={};info.vertex_shader=vertex;info.fragment_shader=pixel;
-	info.primitive_type=SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;info.target_info.color_target_descriptions=&colour;info.target_info.num_color_targets=1;
-	SDL_GPUGraphicsPipeline *pipeline=vertex&&pixel?SDL_CreateGPUGraphicsPipeline(frame->Device(),&info):NULL;CHECK(pipeline);
-	SDL_GPUTextureCreateInfo texture={};texture.type=SDL_GPU_TEXTURETYPE_2D;texture.format=colour.format;
-	texture.usage=SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;texture.width=columns;texture.height=count;texture.layer_count_or_depth=texture.num_levels=1;
-	SDL_GPUTexture *target=SDL_CreateGPUTexture(frame->Device(),&texture);CHECK(target);
-	if(pipeline && target) {
-		std::vector<float> uniforms(80*4+count*8);memcpy(uniforms.data(),hulls,sizeof(hulls));
-		CHECK(uniforms.size()*sizeof(float)<=4096); // bundled Vulkan uniform section limit
-		memcpy(uniforms.data()+80*4,fixtures.data(),fixtures.size()*sizeof(Fixture));
-		auto render=[&]() {
-			CHECK(frame->Flush());SDL_GPUCommandBuffer *commands=SDL_AcquireGPUCommandBuffer(frame->Device());CHECK(commands);
-			SDL_GPUColorTargetInfo attachment={};attachment.texture=target;attachment.load_op=SDL_GPU_LOADOP_DONT_CARE;attachment.store_op=SDL_GPU_STOREOP_STORE;
-			SDL_GPURenderPass *pass=SDL_BeginGPURenderPass(commands,&attachment,1,NULL);CHECK(pass);
-			SDL_BindGPUGraphicsPipeline(pass,pipeline);SDL_PushGPUFragmentUniformData(commands,0,uniforms.data(),uniforms.size()*sizeof(float));
-			SDL_DrawGPUPrimitives(pass,3,1,0,0);SDL_EndGPURenderPass(pass);CHECK(SDL_SubmitGPUCommandBuffer(commands));
-			return read_float_targets(frame,&target,1,columns,count);
-		};
-		const auto values=render();
-		auto value=[&](unsigned row,unsigned col,unsigned component){return double(values[(row*columns+col)*4+component]);};
-		// Independent CPU geometry: clamp to a rectangle, then mirror about that closest point.
-		// This does not call the production closest-edge, mirror-Jacobian, or derivative helpers.
-		auto reflected=[&](unsigned row,double x,double y,double result[3]) {
-			const Fixture &f=fixtures[row];const Hull &h=hulls[unsigned(f.other[0])];
-			result[0]=result[1]=result[2]=0;
-			if(h.data[0][3]<3 || std::abs(f.point[2]-h.data[0][2])>.1) return;
-			const double ax=h.data[1][0],ay=h.data[1][1],dx=x-h.data[0][0],dy=y-h.data[0][1];
-			const double lx=dx*ax+dy*ay,ly=-dx*ay+dy*ax;
-			if(std::abs(lx)<=20 && std::abs(ly)<=6) return;
-			const double qx=(std::max)(-20.0,(std::min)(20.0,lx)),qy=(std::max)(-6.0,(std::min)(6.0,ly));
-			const double distance=std::hypot(lx-qx,ly-qy);if(distance>=28 || distance<.0001) return;
-			const double nx=(ax*(lx-qx)-ay*(ly-qy))/distance,ny=(ay*(lx-qx)+ax*(ly-qy))/distance;
-			const double mx=x-2*distance*nx,my=y-2*distance*ny,t=distance/28,fade=1-t*t*(3-2*t),weight=.68*fade*fade;
-			const double d[3]={2*std::sin(.07*mx+.025*my),1.5*std::cos(.035*mx-.045*my),3*std::sin(.055*mx-.08*my)};
-			const double normal=nx*d[0]+ny*d[1];result[0]=(d[0]-2*nx*normal)*weight;result[1]=(d[1]-2*ny*normal)*weight;result[2]=d[2]*weight;
-		};
-		double maxValue=0,maxDerivative=0,maxPacketDerivative=0,maxPacketValue=0,maxScalarPacketDerivative=0,maxSternError=0;
-		for(unsigned row=0;row<packetCount;++row) {
-			const double x=fixtures[row].point[0],y=fixtures[row].point[1];double expected[3];reflected(row,x,y,expected);
-			const auto &h=hulls[unsigned(fixtures[row].other[0])];double sternValue=0,bowValue=0;
-			const double packet=vessel_test_packet(h,x,y,fixtures[row].point[2],fixtures[row].point[3],&sternValue,&bowValue);
-			maxPacketValue=(std::max)(maxPacketValue,std::abs(value(row,5,0)-packet));CHECK(std::abs(value(row,5,0)-packet)<.00002);
-			const double sternError=std::abs((value(row,5,0)-bowValue)-sternValue);
-			maxSternError=(std::max)(maxSternError,sternError);CHECK(sternError<.00002);
-			for(unsigned c=0;c<3;++c) {maxValue=(std::max)(maxValue,std::abs(value(row,0,c)-expected[c]));CHECK(std::abs(value(row,0,c)-expected[c])<.00002);}
-			for(unsigned axis=0;axis<2;++axis) {
-				double plus[3],minus[3];const double step=.0001;
-				reflected(row,x+(axis==0?step:0),y+(axis==1?step:0),plus);
-				reflected(row,x-(axis==0?step:0),y-(axis==1?step:0),minus);
-				for(unsigned c=0;c<3;++c) {
-					const double difference=std::abs(value(row,1+axis,c)-(plus[c]-minus[c])/(2*step));
-					maxDerivative=(std::max)(maxDerivative,difference);CHECK(difference<.0002);
-				}
-				const double numeric=(value(row,6+axis*2,3)-value(row,7+axis*2,3))/.0625;
-				const double difference=std::abs(numeric-value(row,5,axis+1));
-				maxPacketDerivative=(std::max)(maxPacketDerivative,difference);CHECK(difference<.0003);
-				const double packetPlus=vessel_test_packet(h,x+(axis==0?.0001:0),y+(axis==1?.0001:0),fixtures[row].point[2],fixtures[row].point[3]);
-				const double packetMinus=vessel_test_packet(h,x-(axis==0?.0001:0),y-(axis==1?.0001:0),fixtures[row].point[2],fixtures[row].point[3]);
-				const double scalarError=std::abs(value(row,5,axis+1)-(packetPlus-packetMinus)/.0002);
-				maxScalarPacketDerivative=(std::max)(maxScalarPacketDerivative,scalarError);CHECK(scalarError<.00003);
-			}
-			for(unsigned col=0;col<columns;++col) for(unsigned c=0;c<4;++c) CHECK(std::isfinite(value(row,col,c)));
-		}
-		// The reference maps scalar query positions and separately evaluates the original
-		// stern and mapped bow. It never calls the production Jacobian or dual helpers.
-		auto registeredScalar=[&](unsigned row,double x,double y,bool constant=false) {
-			const Fixture &f=fixtures[row];const Hull &h=hulls[unsigned(f.other[0])];
-			double stern=0;vessel_test_packet(h,x,y,f.point[2],f.point[3],&stern);
-			const double scale=constant?.5:.5+.1*std::sin(.013*x-.017*y);
-			const double rawX=constant?4:2*std::sin(.07*x+.025*y),rawY=constant?-3:1.5*std::cos(.035*x-.045*y);
-			const double mappedX=x+scale*horizontalBound*std::tanh(rawX/horizontalBound);
-			const double mappedY=y+scale*horizontalBound*std::tanh(rawY/horizontalBound);
-			double bow=0;vessel_test_packet(h,mappedX,mappedY,f.point[2],f.point[3],NULL,&bow);
-			return stern+bow;
-		};
-		double registrationValueError=0,registrationDerivativeError=0,registrationDifferenceError=0,registrationOldControl=0;
-		for(unsigned row=0;row<packetCount;++row) {
-			const double x=fixtures[row].point[0],y=fixtures[row].point[1];
-			const double error=std::abs(value(row,10,0)-registeredScalar(row,x,y));
-			registrationValueError=(std::max)(registrationValueError,error);CHECK(error<.00003);
-			registrationOldControl=(std::max)(registrationOldControl,std::abs(value(row,10,0)-value(row,19,0)));
-			for(unsigned axis=0;axis<2;++axis) {
-				const double step=.0001;
-				const double plus=registeredScalar(row,x+(axis==0?step:0),y+(axis==1?step:0));
-				const double minus=registeredScalar(row,x-(axis==0?step:0),y-(axis==1?step:0));
-				const double error=std::abs(value(row,10,1+axis)-(plus-minus)/(2*step));
-				registrationDerivativeError=(std::max)(registrationDerivativeError,error);CHECK(error<.00005);
-				const double gpuDifference=(value(row,11+2*axis,0)-value(row,12+2*axis,0))/.0625;
-				const double gpuError=std::abs(value(row,10,1+axis)-gpuDifference);
-				registrationDifferenceError=(std::max)(registrationDifferenceError,gpuError);CHECK(gpuError<.0004);
-			}
-			for(unsigned c=0;c<3;++c) {CHECK(value(row,15,c)==0);CHECK(std::abs(value(row,17,c))<.000002);}
-			CHECK(std::abs(value(row,18,0)-registeredScalar(row,x,y,true))<.00003);
-			const double horizontal=std::hypot(value(row,16,0)-x,value(row,16,1)-y);
-			CHECK(horizontal<=8*value(row,16,2)+.00002);
-			for(unsigned col=20;col<24;++col) {
-				CHECK(std::abs(value(row,col,0)-((col&1)?1:-1)*horizontalBound)<.000002);
-				CHECK(std::abs(value(row,col,1)-((col&2)?1:-1)*horizontalBound)<.000002);
-				CHECK(value(row,col,2)<=8.000002 && value(row,col,2)>7.999998);
-			}
-		}
-		double peakParameters[3];vessel_test_pressure_parameters(6,12,peakParameters);
-		CHECK(std::abs(value(translatedPeak,18,0)-peakParameters[2])<.000003);
-		CHECK(registrationOldControl>.005);
-		printf("sdl_gpu_frame_selfcheck: registered bow %u scalar fixtures: value %.8g, derivative %.8g, GPU finite difference %.8g; old-coordinate control %.8g; translated world peak, exact zero-chop and stern preservation checked\n",
-			packetCount,registrationValueError,registrationDerivativeError,registrationDifferenceError,registrationOldControl);
-		double maxPressureParameter=0,maxPressureValue=0,maxPressureDerivative=0,maxPressureCpu=0,maxPressureDifference=0;
-		for(unsigned row=packetCount;row<count;++row) {
-			const Fixture &f=fixtures[row];double expected[3];vessel_test_pressure_parameters(f.other[1],f.other[2],expected);
-			const auto cpu=WaterVesselWaves::BowPressure(f.other[1],f.other[2]);const float cpuParameters[3]={cpu.along,cpu.across,cpu.amplitude};
-			for(unsigned c=0;c<3;++c) {
-				maxPressureParameter=(std::max)(maxPressureParameter,std::abs(value(row,0,c)-expected[c]));
-				CHECK(std::abs(value(row,0,c)-expected[c])<.00001 && std::abs(value(row,0,c)-cpuParameters[c])<.00001);
-			}
-			const double scalar=vessel_test_pressure(f.point[0],f.point[1],f.other[1],f.other[2]);
-			maxPressureValue=(std::max)(maxPressureValue,std::abs(value(row,1,0)-scalar));CHECK(std::abs(value(row,1,0)-scalar)<.00001);
-			const auto cpuValue=WaterVesselWaves::EvaluateBowPressure(cpu,f.point[0],f.point[1]);
-			const float cpuSample[3]={cpuValue.height,cpuValue.dAlong,cpuValue.dAcross};
-			for(unsigned c=0;c<3;++c) {
-				maxPressureCpu=(std::max)(maxPressureCpu,std::abs(value(row,1,c)-cpuSample[c]));CHECK(std::abs(value(row,1,c)-cpuSample[c])<.00002);
-			}
-			for(unsigned axis=0;axis<2;++axis) {
-				const double plus=vessel_test_pressure(f.point[0]+(axis==0?.0001:0),f.point[1]+(axis==1?.0001:0),f.other[1],f.other[2]);
-				const double minus=vessel_test_pressure(f.point[0]-(axis==0?.0001:0),f.point[1]-(axis==1?.0001:0),f.other[1],f.other[2]);
-				const double derivativeError=std::abs(value(row,1,axis+1)-(plus-minus)/.0002);
-				maxPressureDerivative=(std::max)(maxPressureDerivative,derivativeError);CHECK(derivativeError<.00002);
-				const double differenceError=std::abs(value(row,1,axis+1)-(value(row,2+axis*2,0)-value(row,3+axis*2,0))/.0625);
-				maxPressureDifference=(std::max)(maxPressureDifference,differenceError);CHECK(differenceError<.00003);
-			}
-			CHECK(std::abs(value(row,6,0)-expected[2])<.000003);
-			CHECK(std::abs(value(row,7,0)-expected[2]*.5)<.000003 && std::abs(value(row,8,0)-expected[2]*.5)<.000003);
-			for(unsigned col=0;col<columns;++col)for(unsigned c=0;c<4;++c)CHECK(std::isfinite(value(row,col,c)));
-		}
-		for(unsigned b=0;b<4;++b) {
-			CHECK(value(pressureRows[b][0],6,0)==0);
-			for(unsigned v=1;v<7;++v)CHECK(value(pressureRows[b][v],6,0)>value(pressureRows[b][v-1],6,0));
-			CHECK(value(pressureRows[b][4],6,0)>value(pressureRows[b][2],6,0)*3);
-		}
-		CHECK(value(pressureRows[3][4],0,1)>value(pressureRows[0][4],0,1)*8 && value(pressureRows[3][4],6,0)>value(pressureRows[0][4],6,0));
-		CHECK(std::abs(value(edge,3,0))<.00001 && std::abs(value(edge,3,1)-4)<.00001 && value(edge,3,3)==0);
-		CHECK(std::abs(value(corner,3,0)-17)<.00001 && std::abs(value(corner,3,1)-2)<.00001 && value(corner,3,3)==1);
-		for(unsigned row:{inside,far,wrong,fade}) CHECK(value(row,3,2)==0);
-		for(unsigned c=0;c<3;++c) CHECK(std::abs(value(leftCorner,0,c)-value(rightCorner,0,c))<.001);
-		CHECK(value(wake,5,0)>.05 && value(bow,5,0)>.5);
-		for(unsigned row:{stationary,slow,bad,wakeEnd,bowFar}) CHECK(std::abs(value(row,5,0))<.00001);
-		CHECK(std::abs(value(reverse,5,0)-value(wake,5,0))<.00002);
-		CHECK(std::abs(value(reverse,5,1)+value(wake,5,1))<.00002 && std::abs(value(reverse,5,2)+value(wake,5,2))<.00002);
-		CHECK(std::abs(value(rotated,5,0)-value(wake,5,0))<.00002);
-		CHECK(std::abs(value(rotated,5,1)-(value(wake,5,1)*cosine-value(wake,5,2)*sine))<.00002);
-		CHECK(std::abs(value(rotated,5,2)-(value(wake,5,1)*sine+value(wake,5,2)*cosine))<.00002);
-		for(unsigned c=0;c<3;++c) CHECK(value(repeat,5,c)==value(wake,5,c) && value(last,5,c)==value(wake,5,c));
-		// The divergent crests are steady in the boat frame. Animate the centre churn instead:
-		// at along=20/across=0 both spatial envelopes are one, so its expected temporal delta
-		// is independently just the scalar sinusoid times the measured-speed gate.
-		const double speedT=(12.0-.3)/(14.0-.3),speedGate=speedT*speedT*(3-2*speedT);
-		const double phase=6.0+double(hulls[1].data[2][2])*6.2831853;
-		const double expectedDelta=.24*speedGate*(std::sin(phase-5*1.15)-std::sin(phase-4*1.15));
-		CHECK(expectedDelta>.15 && std::abs((value(later,5,0)-value(churn,5,0))-expectedDelta)<.00002);
-		// The travel direction crosses sideways by only 0.00000167 radians. Heights and slopes
-		// must not jump from one end of a forty-unit hull to the other. Check active bow/churn and
-		// both old endpoint regions; the armed endpoint-forcing control proves this catches a snap.
-		hulls[6].data[2][0]=-.00001f;memcpy(uniforms.data()+6*40,&hulls[6],sizeof(Hull));
-		const auto oppositeSide=render();double maxSideChange=0;
-		CHECK(value(sideBow,5,0)>.5);
-		for(unsigned row:{sideBow,sideSwitch,sideStern,sideWing}) for(unsigned c=0;c<3;++c) {
-			const double change=std::abs(value(row,5,c)-oppositeSide[(row*columns+5)*4+c]);
-			maxSideChange=(std::max)(maxSideChange,change);CHECK(change<.0003);
-		}
-		hulls[6].data[2][0]=.00001f;hulls[6].data[3][0]=hulls[6].data[3][2]=20;
-		memcpy(uniforms.data()+6*40,&hulls[6],sizeof(Hull));const auto forcedRight=render();
-		const double forcedRightExpected=vessel_test_packet(hulls[6],fixtures[sideSwitch].point[0],fixtures[sideSwitch].point[1],7,4);
-		hulls[6].data[2][0]=-.00001f;hulls[6].data[3][0]=hulls[6].data[3][2]=-20;
-		memcpy(uniforms.data()+6*40,&hulls[6],sizeof(Hull));const auto forcedLeft=render();
-		const double forcedLeftExpected=vessel_test_packet(hulls[6],fixtures[sideSwitch].point[0],fixtures[sideSwitch].point[1],7,4);
-		const double forcedDelta=forcedRight[(sideSwitch*columns+5)*4]-forcedLeft[(sideSwitch*columns+5)*4];
-		CHECK(std::abs(forcedDelta)>.4 && std::abs(forcedDelta-(forcedRightExpected-forcedLeftExpected))<.00002);
-		// This armed old-model control catches accidental retention of the detached fixed8/1.9
-		// bump; it is separate from numerical error tolerances, which remain tight.
-		CHECK(std::abs(value(bow,5,0)-1.9*speedGate)>.5);
-		double maxScaledPacket=0;
-		for(float beam:beams) {
-			double previousHeight=0;
-			for(float speed:{14.0f,40.0f}) {
-				Hull large;rectangle(large,speed);large.data[1][2]=beam*3;large.data[1][3]=beam;
-				large.data[2][3]=std::hypot(beam*3,beam);large.data[3][0]=-beam*3;large.data[3][2]=beam*3;
-				const float points[8]={-beam*3,-beam,beam*3,-beam,beam*3,beam,-beam*3,beam};memcpy(large.data[4],points,sizeof(points));
-				memcpy(uniforms.data()+7*40,&large,sizeof(large));
-				Fixture sample=fixtures[last];sample.point[0]=beam*3+9;sample.point[1]=beam*.5f;
-				memcpy(uniforms.data()+80*4+last*8,&sample,sizeof(sample));const auto scaled=render();
-				const double observed=scaled[(last*columns+5)*4],expected=vessel_test_packet(large,sample.point[0],sample.point[1],7,4);
-				maxScaledPacket=(std::max)(maxScaledPacket,std::abs(observed-expected));CHECK(std::abs(observed-expected)<.00002);
-				for(unsigned axis=0;axis<2;++axis) {
-					const double plus=vessel_test_packet(large,sample.point[0]+(axis==0?.0001:0),sample.point[1]+(axis==1?.0001:0),7,4);
-					const double minus=vessel_test_packet(large,sample.point[0]-(axis==0?.0001:0),sample.point[1]-(axis==1?.0001:0),7,4);
-					CHECK(std::abs(scaled[(last*columns+5)*4+axis+1]-(plus-minus)/.0002)<.00003);
-				}
-				if(previousHeight>0)CHECK(observed>previousHeight*3);previousHeight=observed;
-			}
-		}
-		printf("sdl_gpu_frame_selfcheck: GPU bow pressure: %u beam/speed/invalid fixtures, independent parameters %.8f/value %.8f/gradient %.8f, CPU agreement %.8f, GPU height differences %.8f, full scaled packet %.8f; actual bow anchor, curved half-height widths, monotonic speed beyond14 and beam-dependent extent checked\n",count-packetCount,maxPressureParameter,maxPressureValue,maxPressureDerivative,maxPressureCpu,maxPressureDifference,maxScaledPacket);
-		printf("sdl_gpu_frame_selfcheck: GPU physical vessel waves: %u fixtures, independent reflection value %.8f/gradient %.8f, packet value %.8f/scalar gradient %.8f/GPU finite-difference %.8f, unchanged stern %.8f, sideways height/slope change %.8f; stationary/corners/reverse/rotation/level/speed/pause/support/final hull and armed endpoint snap checked\n",packetCount,maxValue,maxDerivative,maxPacketValue,maxScalarPacketDerivative,maxPacketDerivative,maxSternError,maxSideChange);
-	}
-	if(target) SDL_ReleaseGPUTexture(frame->Device(),target);if(pipeline) SDL_ReleaseGPUGraphicsPipeline(frame->Device(),pipeline);
-	if(vertex) SDL_ReleaseGPUShader(frame->Device(),vertex);if(pixel) SDL_ReleaseGPUShader(frame->Device(),pixel);
+	if(sternOut)*sternOut=stern;return stern;
 }
 
 static void check_gpu_vessel_hull_damping(SdlGpuFrame *frame)
@@ -5299,7 +4533,7 @@ static void check_gpu_water_wave_cage(SdlGpuFrame *frame)
 	} r;r.device=frame->Device();
 	VertexPipelineDescription vd={};vd.FVF=FF_FVF_XYZ|FF_FVF_NORMAL|FF_FVF_DIFFUSE|FF_FVF_TEX2;vd.StageCount=4;
 	vd.Stages[0].TextureCoordinateIndex=0;vd.Stages[1].TextureCoordinateIndex=1;
-	std::string vs;CHECK(VertexShader_Generate(vd,VERTEX_SHADER_TARGET_D3D11,vs));CHECK(WaterFftSampling::WrapVertex(vs,false,false));
+	std::string vs;CHECK(VertexShader_Generate(vd,VERTEX_SHADER_TARGET_D3D11,vs));CHECK(WaterFftSampling::WrapVertex(vs));
 	CHECK(SDL3_Shader_Retarget(vs,true));
 	const std::string entry="Output main(Input input)";const size_t at=vs.find(entry);CHECK(at!=std::string::npos);if(at==std::string::npos)return;
 	vs.replace(at,entry.size(),"Output cageWaterVertex(Input input)");
@@ -5453,7 +4687,7 @@ Result main(CageProbe input) {
 static void check_gpu_water_hull_normal(SdlGpuFrame *frame)
 {
 	// A constant spectral height has zero spectral slope. Its production normal is therefore
-	// independently the derivative of the analytic hull envelope. Changing a coarse quad's
+	// independently the derivative of its reflected height and clearance envelopes. A coarse quad's
 	// diagonal must not change that normal; the old interpolated-envelope control must change it.
 	const unsigned width=96,height=32;
 	struct Resources {
@@ -5464,11 +4698,9 @@ static void check_gpu_water_hull_normal(SdlGpuFrame *frame)
 			if(sampler)SDL_ReleaseGPUSampler(device,sampler);}
 	} resources;
 	resources.device=frame->Device();
-	const char *previous=getenv("ZH_WATER_DEBUG");const bool hadDebug=previous!=NULL;const std::string oldDebug=previous?previous:"";
-	CHECK(setenv("ZH_WATER_DEBUG","normal",1)==0);
 	PixelPipelineDescription pd={};std::string ps;const bool generated=EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pd,ps,COMBINER_SHADER_TARGET_SDL3_GPU);
-	if(hadDebug)CHECK(setenv("ZH_WATER_DEBUG",oldDebug.c_str(),1)==0);else CHECK(unsetenv("ZH_WATER_DEBUG")==0);
 	CHECK(generated);if(!generated)return;
+	if(!observe_water_normal(ps)) return;
 	VertexPipelineDescription vd={};vd.FVF=FF_FVF_XYZ|FF_FVF_NORMAL|FF_FVF_DIFFUSE|FF_FVF_TEX2;vd.StageCount=4;
 	vd.Stages[0].TextureCoordinateIndex=0;vd.Stages[1].TextureCoordinateIndex=1;
 	std::string vs;CHECK(VertexShader_Generate(vd,VERTEX_SHADER_TARGET_D3D11,vs));CHECK(WaterFftSampling::WrapVertex(vs));
@@ -5504,7 +4736,7 @@ Output main(uint id:SV_VertexID) {
 	resources.vertex=SDL3_Create_Shader(resources.device,spirv,true,error);CHECK(resources.vertex);
 	compiled=SDL3_Compile_HLSL_To_SPIRV(ps,false,spirv,error);CHECK(compiled);
 	if(!compiled){printf("hull normal PS: %s\n",error.c_str());return;}
-	unsigned samplers=0,uniforms=0;SDL3_Shader_Slots(spirv,false,samplers,uniforms);CHECK(samplers<=16 && uniforms==(WaterHullVisual::Enabled()?4u:1u));
+	unsigned samplers=0,uniforms=0;SDL3_Shader_Slots(spirv,false,samplers,uniforms);CHECK(samplers<=16 && uniforms==(4u));
 	resources.pixel=SDL3_Create_Shader(resources.device,spirv,false,error);CHECK(resources.pixel);
 	SDL_GPUColorTargetDescription colour={};colour.format=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
 	SDL_GPUGraphicsPipelineCreateInfo pi={};pi.vertex_shader=resources.vertex;pi.fragment_shader=resources.pixel;
@@ -5527,7 +4759,7 @@ Output main(uint id:SV_VertexID) {
 	water.SunDirection[2]=1;water.SunColour[0]=water.SunColour[1]=water.SunColour[2]=1;
 	water.TerrainParameters[1]=100;water.SceneParameters[1]=water.SceneParameters[2]=1;
 	water.OpticalParameters[0]=3;water.OpticalParameters[1]=water.OpticalParameters[2]=1;
-	water.FftParameters[0]=1;water.FftParameters[1]=0; // isolate clearance from optional reflected/generated waves
+	water.FftParameters[0]=1;
 	water.HullParameters[0]=1;water.HullData[0][2]=.5f;water.HullData[0][3]=4;
 	water.HullData[1][0]=1;water.HullData[1][2]=20;water.HullData[1][3]=6;
 	const float outline[8]={-20,-6,20,-6,20,6,-20,6};memcpy(water.HullData[4],outline,sizeof(outline));
@@ -5559,30 +4791,44 @@ Output main(uint id:SV_VertexID) {
 	const auto seam=render(0,false,0,1),floor=render(1,false,1,WaterFftGeometry::SafeDamping(1,2.25f));
 	CHECK(first.size()==width*height*4 && second.size()==first.size() && coarseFirst.size()==first.size() && coarseSecond.size()==first.size() && seam.size()==first.size() && floor.size()==first.size());
 	if(first.size()!=width*height*4 || second.size()!=first.size() || coarseFirst.size()!=first.size() || coarseSecond.size()!=first.size() || seam.size()!=first.size() || floor.size()!=first.size())return;
-	const double waveHeight=WaterFftGeometry::MaxVerticalDisplacement*std::tanh(1.0/WaterFftGeometry::MaxVerticalDisplacement);
+    auto surfaceHeight=[](double x,double y,double freeDamping) {
+        const double dx=x<-20?x+20:x>20?x-20:0,dy=y>6?y-6:y<-6?y+6:0;
+        const double distance=std::hypot(dx,dy),t=std::min(1.0,distance/9);
+        const double damping=std::min(freeDamping,t*t*(3-2*t));
+        double reflected=0;
+        if(distance>.0001 && distance<28) {
+            const double r=distance/28,fade=1-r*r*(3-2*r);
+            reflected=.68*fade*fade;
+        }
+        const double bound=WaterFftGeometry::MaxVerticalDisplacement;
+        return bound*std::tanh((1+reflected)/bound)*damping;
+    };
+    auto scalarNormal=[&](double x,double y,double freeDamping) {
+        const double step=.0001;
+        const double gx=(surfaceHeight(x+step,y,freeDamping)-surfaceHeight(x-step,y,freeDamping))/(2*step);
+        const double gy=(surfaceHeight(x,y+step,freeDamping)-surfaceHeight(x,y-step,freeDamping))/(2*step);
+        const double length=std::sqrt(1+gx*gx+gy*gy);
+        return std::array<double,3>{-gx/length,-gy/length,1/length};
+    };
 	double maximumError=0,maximumDiagonal=0,maximumControl=0,maximumSeam=0,maximumFloor=0;unsigned controls=0,active=0;
 	for(unsigned y=1;y<height-1;++y)for(unsigned x=1;x<width-1;++x) {
 		const double px=-24+52*(x+.5)/width,py=17-13*(y+.5)/height;
-		const double sx=px<-20?px+20:px>20?px-20:0,sy=py>6?py-6:py<-6?py+6:0,distance=std::hypot(sx,sy);
-		const double t=(std::min)(1.0,distance/9),damping=t*t*(3-2*t),slope=6*t*(1-t)/9;
-		const double gx=distance>0?slope*sx/distance:0,gy=distance>0?slope*sy/distance:0;
-		const double normalLength=std::sqrt(1+waveHeight*waveHeight*(gx*gx+gy*gy));
-		const double normal[3]={-waveHeight*gx/normalLength,-waveHeight*gy/normalLength,1/normalLength};
-		const bool floorWins=WaterFftGeometry::SafeDamping(1,2.25f)<=damping;
+        const auto normal=scalarNormal(px,py,1);
+        const auto floorNormal=scalarNormal(px,py,WaterFftGeometry::SafeDamping(1,2.25f));
 		for(unsigned c=0;c<3;++c) {
 			const unsigned offset=(y*width+x)*4+c;
 			const double error=std::abs(first[offset]-(.5+.5*normal[c]));maximumError=(std::max)(maximumError,error);
 			maximumDiagonal=(std::max)(maximumDiagonal,double(std::abs(first[offset]-second[offset])));
 			const double control=std::abs(coarseFirst[offset]-coarseSecond[offset]);maximumControl=(std::max)(maximumControl,control);controls+=control>.005;
 			maximumSeam=(std::max)(maximumSeam,std::abs(seam[offset]-(c==2?1.0:.5)));
-			const double expected=floorWins?(c==2?1.0:.5):(.5+.5*normal[c]);maximumFloor=(std::max)(maximumFloor,std::abs(floor[offset]-expected));
+			const double expected=.5+.5*floorNormal[c];maximumFloor=(std::max)(maximumFloor,std::abs(floor[offset]-expected));
 		}
 		active+=std::abs(normal[0])+std::abs(normal[1])>.08;
 	}
 	for(const auto *image:{&first,&second,&coarseFirst,&coarseSecond,&seam,&floor})for(float v:*image)CHECK(std::isfinite(v));
 	CHECK(maximumError<.0001 && maximumDiagonal<.0001 && maximumFloor<.0001 && maximumSeam<.0001);
 	CHECK(active>200 && maximumControl>.01 && controls>100);
-	printf("sdl_gpu_frame_selfcheck: GPU production hull normal: %u renders, independent normal %.8f/diagonal %.8f/floor %.8f/zero-weight %.8f; armed interpolated damping diagonal error %.8f (%u components), disabled vessel-wave gate checked\n",renders,maximumError,maximumDiagonal,maximumFloor,maximumSeam,maximumControl,controls);
+	printf("sdl_gpu_frame_selfcheck: GPU production hull normal: %u renders, independent normal %.8f/diagonal %.8f/floor %.8f/zero-weight %.8f; armed interpolated damping diagonal error %.8f (%u components), composed reflected-wave clearance checked\n",renders,maximumError,maximumDiagonal,maximumFloor,maximumSeam,maximumControl,controls);
 }
 #endif // __linux__
 
@@ -5604,7 +4850,8 @@ static void check_gpu_water_bow_shoulder(SdlGpuFrame *frame)
     add(7,286,0);add(7,292,0);add(7,298,0);add(7,322,0); // carrier cap/wing/derivative/compact
     const unsigned rows=unsigned(fixtures.size()),columns=12;
     std::string common="cbuffer BowShoulderFixtures : register(b0) {float4 HullData[80];float4 Fixture["+std::to_string(rows)+"];};\nstatic const float4 HullParameters=float4(8,0,0,0);\n";
-    common+=WaterFftSampling::CommonSource()+WaterVesselWaves::Source(false,true);
+    common+="static const float4 ContactHullData[80]={0};\n";
+    common+=WaterFftSampling::CommonSource()+WaterVesselWaves::Source();
     common+=R"HLSL(
 float3 shoulderEval(uint row,uint col) {
     float4 f=Fixture[row];int h=(int)f.w;float2 p=f.xy;
@@ -5885,12 +5132,12 @@ Result main(ProbeOutput input) {Result o;o.Parameter=input.Parameter;o.Metadata=
 	printf("sdl_gpu_frame_selfcheck: GPU production bow refinement: %u meshes/%u stable pixels, raster world-coordinate error %.8f; fresh metadata/depth errors %.8f/%.8f (bounds .00003/.00003), pixel XY errors %.8f/%.8f (independent bounds %.8f/%.8f), coarse collapse %.8f/near-limit %.8f, full-change %u, stale metadata control %.8f, exact locked-boundary coverage, bounded height %.5f\n",renders,totalStable,maxCoordinateError,maxMetadataError,maxDepthError,maxPixelErrorX,maxPixelErrorY,coverageBoundX,coverageBoundY,zeroError,nearError,changed,staleDifference,maxBound);
 }
 
-static void check_gpu_fft_vessel_composition(SdlGpuFrame *frame,bool bowLift=false,bool bowShoulder=false)
+static void check_gpu_fft_vessel_composition(SdlGpuFrame *frame)
 {
 	// Known Fourier modes, independently packed into the six real field maps, make a numerical
 	// derivative meaningful: the random full-band spectrum is too close to texture Nyquist for a
 	// small finite difference of bilinear samples to approximate its stored spectral derivative.
-	const unsigned side=256,rows=10,columns=bowLift?51:40,plane=side*side*4;
+	const unsigned side=256,rows=10,columns=41,plane=side*side*4;
 	const double amplitude[3]={.13,.17,.32},phase[3]={.31,-.42,.71},chop[3]={-1.2,-1.5,-1.5};
 	const int modes[3][2]={{1,1},{1,-1},{1,0}};
 	const float points[rows][4]={{0,8,7,0},{23,10,7,.5f},{-24,-10,7,1.5f},{12,18,7,3},{28,0,7,8},
@@ -5953,33 +5200,33 @@ static void check_gpu_fft_vessel_composition(SdlGpuFrame *frame,bool bowLift=fal
 	};
 	CHECK(frame->Flush());if(!upload()) return;
 	const std::string basicVS="float4 main(uint id:SV_VertexID):SV_Position {return float4(id==1?3.0:-1.0,id==2?3.0:-1.0,0,1);}";
-	std::string sampleVS=WaterFftSampling::UniformSource("WaterBlock",0)+WaterFftSampling::VertexSource(bowLift,bowShoulder)+R"HLSL(
+	std::string sampleVS=WaterFftSampling::UniformSource("WaterBlock",0)+WaterFftSampling::VertexSource()+R"HLSL(
 cbuffer PointBlock:register(b1) {float4 PointData;};
 struct Output {float4 Position:SV_Position;[[vk::location(0)]] float4 Value:TEXCOORD0;[[vk::location(1)]] nointerpolation float4 Registered:TEXCOORD1;};
 Output main(uint id:SV_VertexID) {Output o;o.Position=float4(id==1?3.0:-1.0,id==2?3.0:-1.0,0,1);
 o.Value=float4(fftVertexDisplacement(PointData.xy,PointData.z),1);
 o.Registered=float4(fftVertexDisplacement(PointData.xy,PointData.z,.559713426),1);return o;}
 )HLSL";
-	std::string samplePS="float4 main(float4 pixel:SV_Position,[[vk::location(0)]] float4 value:TEXCOORD0,[[vk::location(1)]] nointerpolation float4 registered:TEXCOORD1):SV_Target0 {return pixel.x>=36.0?registered:value;}";
+	std::string samplePS="float4 main(float4 pixel:SV_Position,[[vk::location(0)]] float4 value:TEXCOORD0,[[vk::location(1)]] nointerpolation float4 registered:TEXCOORD1):SV_Target0 {return pixel.x>=30.0?registered:value;}";
 	std::string surfacePS=WaterFftSampling::UniformSource("WaterBlock",0);
 	for(unsigned i=0;i<6;++i) surfacePS+="Texture2D Texture"+std::to_string(8+i)+":register(t"+std::to_string(i)+");SamplerState Sampler"+std::to_string(8+i)+":register(s"+std::to_string(i)+");\n";
 	surfacePS+="cbuffer PointBlock:register(b1) {float4 Points["+std::to_string(rows)+"];};\n";
-	surfacePS+=WaterFftSampling::PixelSource(bowLift,bowShoulder);
+	surfacePS+=WaterFftSampling::PixelSource();
 	surfacePS+=R"HLSL(
-float4 main(float4 pixel:SV_Position):SV_Target0 {uint col=(uint)pixel.x;float4 p=Points[(uint)pixel.y];
+float4 main(float4 pixel:SV_Position):SV_Target0 {uint col=(uint)pixel.x;if(col>=6)col+=6;if(col>=45)col+=4;float4 p=Points[(uint)pixel.y];
 FftSurface s=fftSurface(p.xy,p.z);
 if(col>=36) {
     FftSurface registered=fftSurface(p.xy,p.z,p.w,float3(.559713426,0,0));
     if(col==36)return float4(registered.displacement,registered.vesselCrest);
-    if(col==37)return float4(registered.derivativeX,registered.generatedRaw);
-    if(col==38)return float4(registered.derivativeY,registered.generatedHeight);
+    if(col==37)return float4(registered.derivativeX,0);
+    if(col==38)return float4(registered.derivativeY,0);
     FftSurface unfiltered=fftSurface(p.xy,p.z,0.0,float3(.559713426,0,0));
     return float4(max(abs(registered.displacement-unfiltered.displacement),
         max(abs(registered.derivativeX-unfiltered.derivativeX),abs(registered.derivativeY-unfiltered.derivativeY))),
-        abs(registered.generatedRaw-unfiltered.generatedRaw));
+        0);
 }
-if(col==0) return float4(s.displacement,s.compression);
-if(col==1) return float4(s.derivativeX,s.vesselHeight);
+if(col==0) return float4(s.displacement,0);
+if(col==1) return float4(s.derivativeX,0);
 if(col==2) return float4(s.derivativeY,s.vesselCrest);
 if(col==3) return float4(normalize(cross(float3(1,0,0)+s.derivativeX,float3(0,1,0)+s.derivativeY)),s.incidentCompression);
 if(col==4) return float4(vesselGeneratedFoam(s.vesselCrest,1,saturate((4.0-0.15)/fftVerticalBound)),
@@ -5987,18 +5234,6 @@ if(col==4) return float4(vesselGeneratedFoam(s.vesselCrest,1,saturate((4.0-0.15)
     vesselGeneratedFoam(s.vesselCrest,0,1),vesselGeneratedFoam(s.vesselCrest,1,0));
 if(col==5) return float4(vesselGeneratedFoam(-1,1,1),vesselGeneratedFoam(2,1,2),
     vesselGeneratedFoam(1,-2,1),vesselGeneratedFoam(1,2,1));
-float damping=saturate((4.0-0.15)/fftVerticalBound);
-float coverage=vesselGeneratedFoam(s.vesselCrest,1,damping);
-if(col==6) return float4(s.generatedRaw,s.generatedHeight,fftVerticalBound*tanh(s.generatedRaw/fftVerticalBound),s.vesselHeight);
-if(col==7) return float4(fftPressureDebug(s,1,damping,coverage),0);
-if(col==8) return float4(fftPressureRetentionDebug(s,1,damping,coverage),0);
-if(col==9) return float4(fftPressureDebug(s,0,damping,0),0);
-if(col==10) return float4(fftPressureDebug(s,1,0,0),0);
-if(col==11) {
-    FftSurface masked=s;uint maskCase=(uint)pixel.y%3;
-    masked.generatedRaw=maskCase==0?0.0:maskCase==1?-1.0:0.000001;
-    return float4(fftPressureRetentionDebug(masked,1,1,1),0);
-}
 float3 lod=fftShadingLod(p.w);
 if(col==19)return Texture8.SampleLevel(Sampler8,p.xy/(450.0*fftWorldScale),lod.x);
 if(col==20)return Texture9.SampleLevel(Sampler9,p.xy/(450.0*fftWorldScale),lod.x);
@@ -6030,7 +5265,7 @@ if(col>=25) {
         // Actual mirrored positions whenever this hull contributes; otherwise several
         // negative/positive world-period wraps exercise arbitrary signed coordinates.
         queryPosition+=float2(-18000.25,4120.5);
-        if(FftParameters.y>0.5 && HullParameters.x>0.5) {
+        if(HullParameters.x>0.5) {
             int hullIndex=(int)HullParameters.x-1;
             VesselReflection reflected=vesselReflection(p.xy,p.z,hullIndex);
             if(reflected.weight>0.0)queryPosition=reflected.samplePosition;
@@ -6054,15 +5289,14 @@ if(col==12) return float4(filtered.shadingDisplacement,filtered.unresolvedSlopeV
 if(col==13) return float4(filtered.shadingDerivativeX,filtered.vesselCrest);
 if(col==14) return float4(filtered.shadingDerivativeY,filtered.incidentCompression);
 if(col==15) return float4(normalize(cross(float3(1,0,0)+filtered.shadingDerivativeX,
-    float3(0,1,0)+filtered.shadingDerivativeY)),filtered.compression);
+    float3(0,1,0)+filtered.shadingDerivativeY)),0);
 if(col==16) return float4(lod,fftShadingVariance(lod));
 if(col==17) return float4(max(abs(filtered.displacement-s.displacement),
     max(abs(filtered.derivativeX-s.derivativeX),abs(filtered.derivativeY-s.derivativeY))),
-    abs(filtered.compression-s.compression)+abs(filtered.incidentCompression-s.incidentCompression));
-return float4(abs(filtered.generatedRaw-s.generatedRaw),abs(filtered.generatedHeight-s.generatedHeight),
-    abs(filtered.vesselHeight-s.vesselHeight),abs(filtered.vesselCrest-s.vesselCrest));}
+    abs(filtered.incidentCompression-s.incidentCompression));
+return float4(0,0,0,abs(filtered.vesselCrest-s.vesselCrest));}
 )HLSL";
-	if(bowLift) {
+	{
         const std::string oldStruct="nointerpolation float4 Registered:TEXCOORD1;";
         sampleVS.replace(sampleVS.find(oldStruct),oldStruct.size(),oldStruct+"[[vk::location(2)]] nointerpolation float4 Lifted:TEXCOORD2;");
         const std::string oldReturn="return o;}";
@@ -6075,8 +5309,8 @@ o.Lifted=float4(v.xy*(w*d),(v.z*d+added)*w,fftBowLiftFoam(added,w));return o;}
         const std::string oldArgument="nointerpolation float4 registered:TEXCOORD1)";
         samplePS.replace(samplePS.find(oldArgument),oldArgument.size(),
             "nointerpolation float4 registered:TEXCOORD1,[[vk::location(2)]] nointerpolation float4 lifted:TEXCOORD2)");
-        const std::string oldChoice="return pixel.x>=36.0?registered:value;";
-        samplePS.replace(samplePS.find(oldChoice),oldChoice.size(),"return pixel.x>=40.0?lifted:pixel.x>=36.0?registered:value;");
+        const std::string oldChoice="return pixel.x>=30.0?registered:value;";
+        samplePS.replace(samplePS.find(oldChoice),oldChoice.size(),"return pixel.x>=34.0?lifted:pixel.x>=30.0?registered:value;");
         const std::string before="if(col>=36) {";
         surfacePS.insert(surfacePS.find(before),R"HLSL(
 if(col>=40) {
@@ -6096,7 +5330,7 @@ if(col>=40) {
 )HLSL");
     }
 
-    if(bowLift) {
+    {
         surfacePS.insert(surfacePS.find("if(col>=40) {"),R"HLSL(
 if(col==49) return float4(s.contactIncident,0);
 if(col==50) {
@@ -6108,38 +5342,9 @@ if(col==50) {
    length(filtered.contactIncident-s.contactIncident));
 }
 )HLSL");
-        // Same-fragment bow attribution: actual physical raw composition is checked
-        // independently below. The synthetic column only isolates the display helper.
-        const std::string before="if(col>=40) {";
-        surfacePS.insert(surfacePS.find(before),R"HLSL(
-if(col>=45) {
- float f=.559713426,d=f*saturate(abs(p.x)/28.0),w=.65+.002*p.y;
- float3 df=float3(d,abs(p.x)>0.0 && abs(p.x)<28.0?f/28.0*sign(p.x):0.0,0);
- float3 scale=float3(w*d,w*df.y,.002*d);
- FftSurface q=fftSurface(p.xy,p.z,p.w,scale);
- if(col==45)return float4(fftBowRetentionDebug(q,w,f,d),q.bowLimitedDelta);
- if(col==46) {
-  FftSurface noBow=q;noBow.bow=0;noBow.bowLimitedDelta=0;
-  return float4(fftBowRetentionDebug(q,w,f,0).y,fftBowRetentionDebug(q,w,d,d).y,
-    fftBowRetentionDebug(q,0,f,d).y,fftBowRetentionDebug(noBow,w,f,d).y);
- }
- if(col==47) {
-  const float background[10]={-32,-10,-1,0,1,10,32,0,0,0};
-  const float bow[10]={64,8,.2,3,8,8,64,0,.000001,8};
-  uint row=(uint)pixel.y;float a=background[row],b=bow[row];
-  FftSurface synthetic=(FftSurface)0;synthetic.bow=float3(b,0,0);
-  synthetic.bowLimitedDelta=fftVerticalBound*(tanh((a+b)/fftVerticalBound)-tanh(a/fftVerticalBound));
-  return float4(fftBowRetentionDebug(synthetic,row==0?1.0:.7,1.0,row==0?1.0:.6),synthetic.bowLimitedDelta);
- }
- FftSurface zero=fftSurface(p.xy,p.z,0.0,scale);
- return float4(abs(fftBowRetentionDebug(q,w,f,d)-fftBowRetentionDebug(zero,w,f,d)),
-    abs(q.bowLimitedDelta-zero.bowLimitedDelta));
-}
-)HLSL");
     }
 
-    if(bowShoulder) {
-        CHECK(bowLift);
+    {
         // Full emitted fftSurface integration. Remove only the incident/reflected field
         // difference between physical and filtered maps; generated bow/stern corrections
         // must be common to both. The scalar field itself has separate independent CPU
@@ -6156,7 +5361,7 @@ if(col==44) {
  FftSurface incident,filtered;
  fftRawAndShadingSurface(p.xy,lod,incident,filtered);
  float oldBowTotal=0;
- if(FftParameters.y>0.5)for(int h=0;h<clamp((int)HullParameters.x,0,8);++h) {
+ for(int h=0;h<clamp((int)HullParameters.x,0,8);++h) {
   VesselReflection r=vesselReflection(p.xy,p.z,h);
   if(r.weight>0.0) {
    FftSurface a,b;fftRawAndShadingSurface(r.samplePosition,lod,a,b);
@@ -6199,7 +5404,7 @@ if(col==44) {
 		info.primitive_type=SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;info.target_info.color_target_descriptions=&colour;info.target_info.num_color_targets=1;
 		resources.pipelines[stage]=SDL_CreateGPUGraphicsPipeline(resources.device,&info);CHECK(resources.pipelines[stage]);if(!resources.pipelines[stage]) return;
 	}
-	SdlWaterPixelConstants water={};water.FftParameters[0]=water.FftParameters[1]=1;water.WaterParameters[0]=4;
+	SdlWaterPixelConstants water={};water.FftParameters[0]=1;water.WaterParameters[0]=4;
 	WaterHullModel::Hull hull;hull.data[0][2]=7;hull.data[0][3]=4;hull.data[1][0]=1;hull.data[1][2]=20;hull.data[1][3]=6;
 	hull.data[2][2]=.23f;hull.data[2][3]=sqrtf(436.0f);hull.data[3][0]=-20;hull.data[3][2]=20;
 	const float outline[8]={-20,-6,20,-6,20,6,-20,6};memcpy(hull.data[4],outline,sizeof(outline));
@@ -6207,7 +5412,7 @@ if(col==44) {
 	// not from copying the production derivative/Jacobian expressions.
 	auto smooth=[](double a,double b,double x) {const double t=(std::max)(0.0,(std::min)(1.0,(x-a)/(b-a)));return t*t*(3-2*t);};
     // Separate scalar contour oracle from WaterBowShoulderTest: no production query,
-    // gradient or registration helper. Keep the first two legacy invocations unchanged.
+    // gradient or registration helper.
     auto shoulderScalar=[&](double x,double y,double halfLength) {
         WaterHullModel::Hull selected=hull;selected.data[0][2]=7;selected.data[0][3]=4;
         selected.data[1][2]=float(halfLength);selected.data[2][3]=float(std::hypot(halfLength,6.0));
@@ -6222,23 +5427,18 @@ if(col==44) {
 		const double arms=gaussian(across-width,strip)*std::cos((across-width)*.40)+gaussian(across+width,strip)*std::cos((across+width)*.40);
 		const double churn=gaussian(across,3.3)*std::sin(along*.30-4*1.15+.23*6.2831853)*.24;
 		const double trail=smooth(0,10,along)*(1-smooth(length*.5,length,along));
-		const double bow=bowShoulder?0.0:vessel_test_pressure(x-halfLength,y,6,12);
 		const double radius=std::sqrt(halfLength*halfLength+36);
-		return (trail*(arms*1.35+churn)*smooth(.3,14,12)+bow)*(1-smooth(radius+80,radius+110,std::hypot(x,y)))+
-            (bowShoulder?shoulderScalar(x,y,halfLength):0.0);
+		return (trail*(arms*1.35+churn)*smooth(.3,14,12))*(1-smooth(radius+80,radius+110,std::hypot(x,y)))+
+            shoulderScalar(x,y,halfLength);
 	};
 	double maxValue=0,maxDerivative=0,maxNormal=0,maxVertex=0,maxIncident=0;
 	double registeredStageError=0,registeredChanged=0,registeredPhysicalError=0;
     double liftStageError=0,liftHeightError=0,liftGradientError=0,liftBowError=0;
-    double bowRetentionError=0,bowLimitedError=0,bowFilterError=0,bowSyntheticError=0;
     double contactIncidentError=0;
-    unsigned bowCrestControls=0,bowTroughControls=0,bowWithoutLiftControls=0,bowIsolatedControls=0,bowOverEnvelopeControls=0;
     double shoulderFilteredError=0,shoulderMissingCorrection=0;unsigned shoulderFilteredControls=0;unsigned liftActive=0,liftZero=0,liftNonconstant=0;
 	unsigned registeredPhysicalDifferences=0;
-	unsigned changedStationary=0,changedMoving=0,changedGradient=0,changedCompression=0;
+	unsigned changedStationary=0,changedMoving=0,changedGradient=0;
 	unsigned visibleShallowCrests=0;double maxGeneratedFoam=0;
-	double maxGeneratedRaw=0,maxGeneratedDelta=0,maxPressureDebug=0,maxRetentionDebug=0;
-	unsigned positiveIncidentCases=0,negativeIncidentCases=0,maskedDiagnostics=0;
 	std::vector<float> baseline,generatedBaseline,flatBaseline,contactBaseline;
 	double idealSamplerError=0;
 	double armedAnchorChange=0,maxShadingValue=0,maxShadingDerivative=0,maxShadingNormal=0,maxLod=0,maxVariance=0;
@@ -6247,8 +5447,9 @@ if(col==44) {
 	double maxSelectedCompression=0,maxFineValue=0,maxFineDerivative=0;
 	const auto &varianceTable=WaterFftFiltering::SpectrumVariance();
 	for(unsigned scenario=0;scenario<18;++scenario) {
-		const bool enabled=scenario!=3,hasHull=scenario!=0,moving=scenario==2 || scenario==3 || scenario==5 || scenario>=6;
-		const bool applicable=hasHull && enabled && scenario!=4,flat=scenario>=6;
+        if(scenario==3)continue; // former vessel-wave disable mode was removed
+		const bool hasHull=scenario!=0,moving=scenario==2 || scenario==5 || scenario>=6;
+		const bool applicable=hasHull && scenario!=4,flat=scenario>=6;
 		const bool contact=scenario==7 || scenario==8 || scenario==10 || scenario==11 || scenario==12;
 		const bool lastSlot=scenario==5 || scenario==11;
 		if(scenario==6) {std::fill(fields.begin(),fields.end(),0);if(!upload()) return;}
@@ -6257,14 +5458,14 @@ if(col==44) {
 			for(unsigned pixel=0;pixel<side*side;++pixel)fields[pixel*4+1]=scenario==16?.5f:-.5f;
 			if(!upload())return; // exactly +10/-10 world-unit incident height, zero derivatives
 		}
-		water.FftParameters[1]=enabled?1:0;water.HullParameters[0]=hasHull?(lastSlot?8:1):0;
+		water.HullParameters[0]=hasHull?(lastSlot?8:1):0;
 		water.SunColour[0]=water.SunColour[1]=water.SunColour[2]=scenario==8?1.0f:0.0f;
 		memset(water.HullData,0,sizeof(water.HullData));hull.data[2][0]=moving?12:0;hull.data[0][2]=scenario==4?8:7;
 		memset(water.ContactHullData,0,sizeof(water.ContactHullData));
 		const float meanLength=scenario==8 || scenario==9?11.0f:20.0f;
 		hull.data[1][2]=meanLength;hull.data[2][3]=sqrtf(meanLength*meanLength+36);
 		hull.data[3][0]=-meanLength;hull.data[3][2]=meanLength;
-        if(bowShoulder) {
+        {
             const float contour[8]={-meanLength,-6,meanLength,-6,meanLength,6,-meanLength,6};
             memcpy(hull.data[4],contour,sizeof(contour));
         }
@@ -6272,7 +5473,7 @@ if(col==44) {
 		if(contact || (scenario>=13 && scenario<=15)) {
 			WaterHullModel::Hull stable=hull;stable.data[1][2]=28;stable.data[2][3]=sqrtf(820.0f);
 			stable.data[3][0]=-28;stable.data[3][2]=28;
-            if(bowShoulder) {const float contour[8]={-28,-6,28,-6,28,6,-28,6};memcpy(stable.data[4],contour,sizeof(contour));}
+            {const float contour[8]={-28,-6,28,-6,28,6,-28,6};memcpy(stable.data[4],contour,sizeof(contour));}
 			stable.data[0][2]=scenario==10?8:7;stable.data[0][3]=scenario==13?2:scenario==14?13:scenario==15?0:4;
 			memcpy(water.ContactHullData+(lastSlot?70:0),&stable,sizeof(stable));
 		}
@@ -6298,7 +5499,8 @@ if(col==44) {
 			SDL_EndGPURenderPass(pass);
 		}
 		CHECK(SDL_SubmitGPUCommandBuffer(commands));const auto values=read_float_targets(frame,resources.targets,2,columns,rows);
-		auto gpu=[&](unsigned row,unsigned col,unsigned c){return double(values[(row*columns+col)*4+c]);};
+		auto columnIndex=[](unsigned column){return column>=49?column-10:column>=12?column-6:column;};
+		auto gpu=[&](unsigned row,unsigned col,unsigned c){return double(values[(row*columns+columnIndex(col))*4+c]);};
 		auto raw=[&](double x,double y,double out[3],unsigned cascades=3) {
 			out[0]=out[1]=out[2]=0;if(scenario>=16) {out[2]=scenario==16?10:-10;return;}if(flat) return;
 			for(unsigned c=0;c<cascades;++c) {
@@ -6308,7 +5510,7 @@ if(col==44) {
 				out[1]+=20*chop[c]*amplitude[c]*modes[c][1]/length*std::sin(a);out[2]+=20*amplitude[c]*std::cos(a);
 			}
 		};
-		auto surface=[&](double x,double y,double out[3],bool includeGenerated=true,bool limited=true) {
+		auto surface=[&](double x,double y,double out[3]) {
 			raw(x,y,out);
 			if(applicable) {
 				const double qx=(std::max)(-20.0,(std::min)(20.0,x)),qy=(std::max)(-6.0,(std::min)(6.0,y));
@@ -6318,14 +5520,14 @@ if(col==44) {
 					double d[3];raw(2*qx-x,2*qy-y,d);const double dot=d[0]*nx+d[1]*ny;
 					out[0]+=(d[0]-2*nx*dot)*weight;out[1]+=(d[1]-2*ny*dot)*weight;out[2]+=d[2]*weight;
 				}
-				if(includeGenerated && moving && scenario!=10) out[2]+=packet(x,y,contact?28.0:double(meanLength));
+				if(moving && scenario!=10) out[2]+=packet(x,y,contact?28.0:double(meanLength));
 			}
 			const double bounds[3]={8/std::sqrt(2.0),8/std::sqrt(2.0),WaterFftGeometry::MaxVerticalDisplacement};
-			if(limited)for(unsigned c=0;c<3;++c) out[c]=bounds[c]*std::tanh(out[c]/bounds[c]);
+			for(unsigned c=0;c<3;++c) out[c]=bounds[c]*std::tanh(out[c]/bounds[c]);
 		};
 		for(unsigned row=0;row<rows;++row) {
 			const double x=points[row][0],y=points[row][1];double expected[3],gradient[2][3];surface(x,y,expected);
-            if(bowLift) {
+            {
                 // Columns30/32/33 independently expose the already-verified broad/medium
                 // raw field. Contact uses its own vertical limiter before vessel additions.
                 const double v=WaterFftGeometry::MaxVerticalDisplacement;
@@ -6340,10 +5542,10 @@ if(col==44) {
                     CHECK(gpu(row,50,c)<.000002);
                 }
                 if(scenario>0 && !flat) for(unsigned c=0;c<3;++c)
-                    CHECK(gpu(row,49,c)==baseline[(row*columns+49)*4+c]);
+                    CHECK(gpu(row,49,c)==baseline[(row*columns+columnIndex(49))*4+c]);
             }
 			for(unsigned c=0;c<3;++c) {
-				const double vertex=values[rows*columns*4+(row*columns+36)*4+c];
+				const double vertex=values[rows*columns*4+(row*columns+columnIndex(36))*4+c];
 				const double error=std::abs(vertex-gpu(row,36,c));
 				registeredStageError=(std::max)(registeredStageError,error);CHECK(error<.00002);
 				registeredPhysicalError=(std::max)(registeredPhysicalError,double(gpu(row,39,c)));
@@ -6353,11 +5555,11 @@ if(col==44) {
 			}
 			CHECK(gpu(row,39,3)==0);
 			registeredChanged=(std::max)(registeredChanged,std::abs(gpu(row,36,2)-gpu(row,0,2)));
-            if(bowLift) {
+            {
                 const double free=.559713426,mean=free*(std::min)(1.0,std::abs(x)/28.0),weight=.65+.002*y;
                 const double bound=WaterFftGeometry::MaxVerticalDisplacement;
                 for(unsigned c=0;c<4;++c) {
-                    const double vertex=values[rows*columns*4+(row*columns+40)*4+c];
+                    const double vertex=values[rows*columns*4+(row*columns+columnIndex(40))*4+c];
                     const double error=std::abs(vertex-gpu(row,40,c));liftStageError=(std::max)(liftStageError,error);CHECK(error<.00003);
                 }
                 CHECK(std::abs(gpu(row,40,2))<=free*weight*bound+.000003);
@@ -6377,8 +5579,8 @@ if(col==44) {
                     // derivative, registration helper or production lift helper is reused.
                     auto bow=[&](double px,double py) {
                         if(!applicable || !moving || scenario==10)return 0.0;
-                        const double length=contact?28.0:double(meanLength),radius=std::hypot(length,6.0);
-                        return bowShoulder?shoulderScalar(px,py,length):vessel_test_pressure(px-length,py,6,12)*(1-smooth(radius+80,radius+110,std::hypot(px,py)));
+                        const double length=contact?28.0:double(meanLength);
+                        return shoulderScalar(px,py,length);
                     };
                     auto composed=[&](double px,double py) {
                         double current[3];surface(px,py,current);
@@ -6391,47 +5593,6 @@ if(col==44) {
                     double independent[3];surface(x,y,independent);
                     const double expectedBow=bow(x+independent[0]*weight*mean,y+independent[1]*weight*mean);
                     const double expectedHeight=composed(x,y);
-                    // Independently reconstruct RAW incident + reflection + stern + old
-                    // bow from known modes, then replace only the bow at registered XY.
-                    // Do not invert the limited GPU result or reuse its bow accumulator.
-                    double rawTotal[3];surface(x,y,rawTotal,true,false);
-                    const double background=rawTotal[2]-bow(x,y);
-                    const double limitedDelta=bound*(std::tanh((background+expectedBow)/bound)-std::tanh(background/bound));
-                    const double marginal=weight*(mean*limitedDelta+(free-mean)*bound*std::tanh(expectedBow/bound));
-                    const double expectedRGB[3]={expectedBow/8,marginal/bound,weight*free};
-                    const double tolerance=flat?.00003:.004; // existing independent known-map precision
-                    bowLimitedError=(std::max)(bowLimitedError,std::abs(limitedDelta-gpu(row,45,3)));
-                    CHECK(std::abs(limitedDelta-gpu(row,45,3))<tolerance);
-                    for(unsigned c=0;c<3;++c) {
-                        const double error=std::abs(expectedRGB[c]-gpu(row,45,c));
-                        bowRetentionError=(std::max)(bowRetentionError,error);CHECK(error<tolerance);
-                    }
-                    CHECK(gpu(row,45,1)>=0 && gpu(row,45,1)<=weight*(free+mean)+.000003);
-                    const double dZero=weight*free*std::tanh(expectedBow/bound);
-                    const double freeEqualsD=weight*mean*limitedDelta/bound;
-                    CHECK(std::abs(gpu(row,46,0)-dZero)<tolerance);
-                    CHECK(std::abs(gpu(row,46,1)-freeEqualsD)<tolerance);
-                    CHECK(gpu(row,46,2)==0 && gpu(row,46,3)==0);
-                    for(unsigned c=0;c<4;++c) {
-                        bowFilterError=(std::max)(bowFilterError,gpu(row,48,c));CHECK(gpu(row,48,c)<.000001);
-                    }
-                    if(expectedBow>.01) {
-                        bowCrestControls+=scenario==16;bowTroughControls+=scenario==17;
-                        bowWithoutLiftControls+=std::abs(marginal-weight*mean*limitedDelta)>.001;
-                        bowIsolatedControls+=std::abs(marginal-weight*free*bound*std::tanh(expectedBow/bound))>.001;
-                    }
-                    const double a[10]={-32,-10,-1,0,1,10,32,0,0,0};
-                    const double b[10]={64,8,.2,3,8,8,64,0,.000001,8};
-                    const double sw=row==0?1.:.7,sd=row==0?1.:.6;
-                    const double delta=bound*(std::tanh((a[row]+b[row])/bound)-std::tanh(a[row]/bound));
-                    const double synthetic[4]={b[row]/8,sw*(sd*delta/bound+(1-sd)*std::tanh(b[row]/bound)),sw,delta};
-                    for(unsigned c=0;c<4;++c) {
-                        const double error=std::abs(synthetic[c]-gpu(row,47,c));
-                        bowSyntheticError=(std::max)(bowSyntheticError,error);CHECK(error<.00001);
-                    }
-                    // The final total is bounded, but marginal trough-to-crest rise is
-                    // not bounded by the blue envelope (nor by 1 before display clamp).
-                    if(row==0) {CHECK(gpu(row,47,1)>1.9 && gpu(row,47,1)>gpu(row,47,2));++bowOverEnvelopeControls;}
                     liftBowError=(std::max)(liftBowError,std::abs(expectedBow-gpu(row,41,3)));
                     liftHeightError=(std::max)(liftHeightError,std::abs(expectedHeight-gpu(row,40,2)));
                     // Nonconstant ideal Fourier modes differ slightly from sampled
@@ -6449,7 +5610,7 @@ if(col==44) {
                     }
                 }
             }
-            if(bowShoulder) {
+            {
                 for(unsigned c=0;c<3;++c) {
                     shoulderFilteredError=(std::max)(shoulderFilteredError,gpu(row,44,c));
                     CHECK(gpu(row,44,c)<.00003);
@@ -6513,7 +5674,7 @@ if(col==44) {
 				pairedError=(std::max)(pairedError,std::abs(gpu(row,column,c)));CHECK(gpu(row,column,c)==0);
 			}
 			if(scenario==0) for(unsigned c=0;c<3;++c)armedReuse+=gpu(row,29,c)>.001;
-			CHECK(gpu(row,13,3)==gpu(row,2,3) && gpu(row,14,3)==gpu(row,3,3) && gpu(row,15,3)==gpu(row,0,3));
+			CHECK(gpu(row,13,3)==gpu(row,2,3) && gpu(row,14,3)==gpu(row,3,3));
 			CHECK(gpu(row,12,3)>=0);
 			if(row<=1 || flat) {
 				for(unsigned c=0;c<3;++c) {
@@ -6544,32 +5705,6 @@ if(col==44) {
 			}
 			const double generated=applicable && moving && scenario!=10?packet(x,y,contact?28.0:double(meanLength)):0;
 			const double expectedCrest=(std::min)(1.0,(std::max)(0.0,generated)*.32);
-			double without[3];surface(x,y,without,false);
-			const double generatedDelta=expected[2]-without[2],bound=WaterFftGeometry::MaxVerticalDisplacement;
-			const double isolated=bound*std::tanh(generated/bound),damping=WaterFftGeometry::SafeDamping(1,4);
-			const double coverage=expectedCrest*.65*smooth(.15,.65,damping);
-			const double rawError=std::abs(gpu(row,6,0)-generated),deltaError=std::abs(gpu(row,6,1)-generatedDelta);
-			maxGeneratedRaw=(std::max)(maxGeneratedRaw,rawError);maxGeneratedDelta=(std::max)(maxGeneratedDelta,deltaError);
-			CHECK(rawError<.00001 && deltaError<(flat?.00001:.0015));
-			CHECK(std::abs(gpu(row,6,2)-isolated)<.00001);
-			const double pressure[3]={(std::max)(0.0,generated)/8,(std::max)(0.0,generatedDelta)*damping/3.85,coverage};
-			const bool mask=generated>.0001;
-			const double retention[3]={mask?1-(std::max)(0.0,(std::min)(1.0,generatedDelta/(std::max)(isolated,.000001))):0,mask?damping:0,mask?coverage:0};
-			for(unsigned c=0;c<3;++c) {
-				const double pressureError=std::abs(gpu(row,7,c)-pressure[c]),retentionError=std::abs(gpu(row,8,c)-retention[c]);
-				maxPressureDebug=(std::max)(maxPressureDebug,pressureError);maxRetentionDebug=(std::max)(maxRetentionDebug,retentionError);
-				CHECK(pressureError<.0003 && retentionError<.003);
-				CHECK(gpu(row,11,c)==0);++maskedDiagnostics;
-				if(!mask)CHECK(gpu(row,8,c)==0);
-			}
-			for(unsigned col:{9u,10u}) {
-				CHECK(std::abs(gpu(row,col,0)-pressure[0])<.00001);
-				CHECK(gpu(row,col,1)==0 && gpu(row,col,2)==0);
-			}
-			if(scenario>=16 && generated>.01) {
-				CHECK(generatedDelta>0 && generatedDelta<isolated*.6 && gpu(row,8,0)>.4);
-				if(scenario==16)++positiveIncidentCases;else ++negativeIncidentCases;
-			}
 			CHECK(std::abs(gpu(row,2,3)-expectedCrest)<.00001);
 			for(unsigned c=0;c<2;++c) {
 				const double damping=WaterFftGeometry::SafeDamping(1,c?2.25f:4.0f);
@@ -6615,30 +5750,24 @@ if(col==44) {
 				for(unsigned col=1;col<=2;++col) for(unsigned c=0;c<3;++c)
 					difference=(std::max)(difference,std::abs(gpu(row,col,c)-baseline[(row*columns+col)*4+c]));
 				changedGradient+=difference>.001;
-				changedCompression+=std::abs(gpu(row,0,3)-gpu(row,3,3))>.001;
 			}
 			if(flat) changedMoving+=std::abs(gpu(row,0,2))>.01;
 		}
 		for(float v:values) CHECK(std::isfinite(v));
 		if(scenario==0) baseline=values;
 		if(scenario==2) generatedBaseline=values;
-		if(scenario==3 || scenario==4) {
+		if(scenario==4) {
 			double previousMaximum=0,newMaximum=0;unsigned mismatches=0;
 			for(size_t i=0;i<values.size();++i)if(values[i]!=baseline[i]) {
 				const double error=std::abs(double(values[i])-baseline[i]);
-				if(i/4%columns<36)previousMaximum=(std::max)(previousMaximum,error);else newMaximum=(std::max)(newMaximum,error);
+				if(i/4%columns<columnIndex(36))previousMaximum=(std::max)(previousMaximum,error);else newMaximum=(std::max)(newMaximum,error);
 				++mismatches;
 			}
 			printf("registered disabled scenario%u previous/new maxima %.9g / %.9g, mismatches%u\n",scenario,previousMaximum,newMaximum,mismatches);
-			// Retain the previous 36-column exact contract. Registered evaluations
+			// Retain the physical-field exact contract. Registered evaluations
 			// permit <1e-6 world units for differently optimized uniform branches;
 			// observed maxima were 4.77e-7, not a change to their physical model.
-			// The new shoulder shader's enabled/count-zero path and disabled/count-one
-			// path have identical scalar fields but differ by 2.39e-7 on this GPU.
-			// Preserve both old exact contracts and the wrong-level exact comparison;
-			// bound only this new inactive-path comparison at registered-map precision.
-			if(bowShoulder && scenario==3)CHECK(previousMaximum<.000001);
-			else CHECK(previousMaximum==0);
+			CHECK(previousMaximum==0);
 			CHECK(newMaximum<.000001);
 		}
 		if(scenario==5) CHECK(values==generatedBaseline);
@@ -6648,22 +5777,20 @@ if(col==44) {
 		if(scenario==8) {
 			// Contact packet remains exact while the mean hull changes. Its incident
 			// reflection variance is allowed to follow that changed mean-hull bound.
-			for(size_t i=0;i<values.size();++i)if(!(i/4%columns==12 && i%4==3))CHECK(values[i]==contactBaseline[i]);
+			for(size_t i=0;i<values.size();++i)if(!(i/4%columns==columnIndex(12) && i%4==3))CHECK(values[i]==contactBaseline[i]);
 		}
 		if(scenario==9)for(unsigned row=0;row<rows;++row)
 			armedAnchorChange=(std::max)(armedAnchorChange,std::abs(double(values[row*columns*4+2])-flatBaseline[row*columns*4+2]));
 		if(scenario>=13 && scenario<=15)CHECK(values==flatBaseline);
 	}
-    if(bowLift) printf("contact incident: broad/medium limiter and gradients; fine/reflection/generated/footprint isolation maximum %.9g\n",contactIncidentError);
-    if(bowShoulder) {
+    printf("contact incident: broad/medium limiter and gradients; fine/reflection/generated/footprint isolation maximum %.9g\n",contactIncidentError);
+    {
         CHECK(shoulderFilteredControls>5 && shoulderMissingCorrection>.05);
-        printf("sdl_gpu_frame_selfcheck: full contour shoulder FFT integration: physical/filtered generated correction %.9g, armed omitted-filter correction %.9g (%u cases); actual VertexSource(true,true)/PixelSource(true,true), known Fourier modes, varying weight/damping, zero chop, fallback/contact/last-slot and independent scalar/derivative/foam checks retained\n",shoulderFilteredError,shoulderMissingCorrection,shoulderFilteredControls);
+        printf("sdl_gpu_frame_selfcheck: full contour shoulder FFT integration: physical/filtered generated correction %.9g, armed omitted-filter correction %.9g (%u cases); actual production vertex/pixel source, known Fourier modes, varying weight/damping, zero chop, fallback/contact/last-slot and independent scalar/derivative/foam checks retained\n",shoulderFilteredError,shoulderMissingCorrection,shoulderFilteredControls);
     }
-    if(bowLift) {
+    {
         CHECK(liftActive>5 && liftZero>20 && liftNonconstant>1);
-        CHECK(bowCrestControls>0 && bowTroughControls>0 && bowWithoutLiftControls>0 && bowIsolatedControls>0 && bowOverEnvelopeControls==18);
-        printf("sdl_gpu_frame_selfcheck: bow retention physical raw decomposition: RGB %.9g/limited marginal %.9g, helper %.9g, filtered identity %.9g; crest/trough %u/%u, omitted-lift %u, isolated-peak %u, G>envelope controls %u; zero bow/weight, F=D and D=0 checked\n",bowRetentionError,bowLimitedError,bowSyntheticError,bowFilterError,bowCrestControls,bowTroughControls,bowWithoutLiftControls,bowIsolatedControls,bowOverEnvelopeControls);
-        printf("sdl_gpu_frame_selfcheck: optional bow lift actual FFT VS/PS %.9g, independent bow %.9g/height %.9g/finite-difference derivative %.9g; active %u, exact zero %u and nonconstant derivative controls %u, floor bound, physical filtering and actual-height foam checked\n",liftStageError,liftBowError,liftHeightError,liftGradientError,liftActive,liftZero,liftNonconstant);
+        printf("sdl_gpu_frame_selfcheck: bow lift actual FFT VS/PS %.9g, independent bow %.9g/height %.9g/finite-difference derivative %.9g; active %u, exact zero %u and nonconstant derivative controls %u, floor bound, physical filtering and actual-height foam checked\n",liftStageError,liftBowError,liftHeightError,liftGradientError,liftActive,liftZero,liftNonconstant);
     }
 	CHECK(registeredChanged>.001);
 	printf("sdl_gpu_frame_selfcheck: registered physical footprint comparison max %.9g across %u nonzero values\n",registeredPhysicalError,registeredPhysicalDifferences);
@@ -6672,16 +5799,14 @@ if(col==44) {
 	// control; the observed maximum is 2.27e-7. Raw generated terms remain exact.
 	CHECK(registeredPhysicalError<.000001);
 	printf("sdl_gpu_frame_selfcheck: registered bow texture/stage parity %.8g, armed coordinate displacement %.8g; physical footprint agreement <1e-6, exact flat-chop identity and bounds checked\n",registeredStageError,registeredChanged);
-	CHECK(changedStationary>=3 && changedGradient>=3 && changedCompression>=2 && changedMoving>=2 && armedAnchorChange>.2);
+	CHECK(changedStationary>=3 && changedGradient>=3 && changedMoving>=2 && armedAnchorChange>.2);
 	CHECK(visibleShallowCrests>10);CHECK(filteredChanged>=5 && preservedPacket>=20);CHECK(armedReuse>=5);
 	CHECK(armedFineBreaking>=5 && broadBreaking>=5 && mediumBreaking>=5 && physicalFineSamples>=5);
 	printf("sdl_gpu_frame_selfcheck: FFT breaking scale: coarse/medium limiter error %.9f; fine-only compression exactly1 with %u physical ripple samples, %u armed old fine-breaking controls and %u/%u broad/medium responses; independent fine value %.9f/derivative %.9f, full physical/vessel/reflection checks retained\n",maxSelectedCompression,physicalFineSamples,armedFineBreaking,broadBreaking,mediumBreaking,maxFineValue,maxFineDerivative);
 	printf("sdl_gpu_frame_selfcheck: FFT paired sampling reuse: bit-exact displacement/derivatives at arbitrary, negative-wrapped and real mirrored queries with zero/mixed/all positive LOD; maxdifference %.9f, armed missing-filter controls %u\n",pairedError,armedReuse);
-	printf("sdl_gpu_frame_selfcheck: FFT footprint filtering: sampled-channel value %.9f/tangent %.9f/normal %.9f, LOD %.9f/variance %.9f; %u changed components, %u constant-field packet samples preserved, all physical/diagnostic outputs bit-exact across footprints0..8192; arbitrary-coordinate ideal sampler discrepancy %.9f reported separately\n",maxShadingValue,maxShadingDerivative,maxShadingNormal,maxLod,maxVariance,filteredChanged,preservedPacket,idealSamplerError);
-	CHECK(positiveIncidentCases>=3 && negativeIncidentCases>=3 && maskedDiagnostics==18*rows*3);
-	printf("sdl_gpu_frame_selfcheck: GPU pressure diagnostics: raw %.8f, generated-only limited delta %.8f, pressure RGB %.8f, retention RGB %.8f; independent with/without-generated composition, +10/-10 incident cases %u/%u, zero/negative/tiny-footprint masks %u and zero weight/damping checked\n",maxGeneratedRaw,maxGeneratedDelta,maxPressureDebug,maxRetentionDebug,positiveIncidentCases,negativeIncidentCases,maskedDiagnostics);
+	printf("sdl_gpu_frame_selfcheck: FFT footprint filtering: sampled-channel value %.9f/tangent %.9f/normal %.9f, LOD %.9f/variance %.9f; %u changed components, %u constant-field packet samples preserved, all physical outputs bit-exact across footprints0..8192; arbitrary-coordinate ideal sampler discrepancy %.9f reported separately\n",maxShadingValue,maxShadingDerivative,maxShadingNormal,maxLod,maxVariance,filteredChanged,preservedPacket,idealSamplerError);
 	printf("sdl_gpu_frame_selfcheck: GPU generated vessel foam: independent packet-crest/coverage error %.8f, %u active depth4/2.25 samples; rest/disabled/zero weight/zero hull damping, bounded inputs, unchanged coverage under changed sunlight checked\n",maxGeneratedFoam,visibleShallowCrests);
-	printf("sdl_gpu_frame_selfcheck: GPU FFT-vessel composition: 18 known-mode/constant atlases, value %.8f/gradient %.8f/normal %.8f/VS-PS %.8f/incident compression %.8f; coarse+medium incident compression, stable contact packet despite changing mean slice, armed old-anchor height jump %.8f, independent curved-pressure/stern reference, contact level/pause/final-slot/count0/2/13 fallback, stationary reflection and bounds checked\n",maxValue,maxDerivative,maxNormal,maxVertex,maxIncident,armedAnchorChange);
+	printf("sdl_gpu_frame_selfcheck: GPU FFT-vessel composition: 17 known-mode/constant atlases, value %.8f/gradient %.8f/normal %.8f/VS-PS %.8f/incident compression %.8f; coarse+medium incident compression, stable contact packet despite changing mean slice, armed old-anchor height jump %.8f, independent contour-bow/stern reference, contact level/pause/final-slot/count0/2/13 fallback, stationary reflection and bounds checked\n",maxValue,maxDerivative,maxNormal,maxVertex,maxIncident,armedAnchorChange);
 }
 
 // Direct O(N^2) Fourier sum at a few points: deliberately independent of GPU butterfly ordering,
@@ -6901,272 +6026,6 @@ static unsigned int mismatches(const std::vector<uint8_t> &got, const uint16_t (
 	}
 	return bad;
 }
-
-// Execute the actual generated integration, including UV0 residual and screen-to-world
-// derivatives. Field sampling is controlled here; native terrain/mesh sampling is separate.
-static void check_gpu_water_coastal_crest_injection(SdlGpuFrame *frame,const std::string &production)
-{
-    auto block=[&](const char *first,const char *last) {
-        const size_t a=production.find(first),b=a==std::string::npos?std::string::npos:production.find(last,a);
-        CHECK(a!=std::string::npos && b!=std::string::npos);
-        return a!=std::string::npos && b!=std::string::npos?production.substr(a,b-a):std::string();
-    };
-    const std::string composition=block("    float determinant = parameterDx.x", "    WaveCage cage=waveCage(");
-    const std::string gradient=block("float2 fftParameterGradient(", "\n}")+"\n}\n";
-    const std::string metadata=block("    float meshCorrection=OpticalParameters.w", "    float2 materialUV=");
-    const std::string offshoreSource=block("    float offshore = opticalContext.r", "    // The mesh and this derivative");
-    CHECK(composition.find("slope+=coastalCorrection.yz;meshCorrection+=coastalCorrection.x;")!=std::string::npos);
-    if(composition.empty() || metadata.empty() || offshoreSource.empty() || gradient.size()<10)return;
-    const std::string shore=WaterShoreFoam::Source(),crest=WaterCoastalCrest::Source();
-    CHECK(production.find(shore)!=std::string::npos && production.find(crest)!=std::string::npos);
-    // Each scenario occupies four raster rows so every derivative quad stays in one case.
-    // The two eight-pixel output tiles have identical parameter fields and return height/
-    // slopes/residual and normal separately. All test fields vary in world, not screen, axes.
-    struct Query {float f[8][4];};
-    Query ordinary={{{1.7f,-2.3f,0,1},{20,.25f,.11f,.31f},{2,.75f,.65f,.9f},{1,1,0,0},
-        {.013f,-.008f,.03f,-.025f},{.003f,-.002f,.021f,.017f},{.04f,-.03f,.005f,-.002f},{.004f,.003f,-.001f,.002f}}};
-    auto broad=[](double x,double y,double time) {
-        double value=0;
-        for(unsigned i=0;i<WaterShoreFoam::ModeCount;++i) {
-            const auto &m=WaterShoreFoam::Modes[i];
-            const double phase=x*m.kx+y*m.ky-time*m.omega+m.phase;
-            value+=m.amplitude*(std::sin(phase)+.13*std::sin(2*phase));
-        }
-        return value;
-    };
-    float crestTime=-1,troughTime=-1;
-    for(unsigned i=0;i<600 && (crestTime<0 || troughTime<0);++i) {
-        const double value=broad(ordinary.f[0][0],ordinary.f[0][1],i/30.);
-        if(crestTime<0 && value>1)crestTime=float(i)/30;
-        if(troughTime<0 && value<-1)troughTime=float(i)/30;
-    }
-    CHECK(crestTime>=0 && troughTime>=0);if(crestTime<0 || troughTime<0)return;
-    ordinary.f[0][2]=crestTime;
-    std::vector<Query> queries(14,ordinary);
-    queries[1].f[1][3]=-.27f;queries[1].f[5][2]=-.019f;queries[1].f[5][3]=.029f; // signed collar residual
-    queries[2].f[2][0]=.45f; // varying depth inside the wet gate
-    queries[3].f[1][2]=.95f; // obstacle restoration gain closed
-    queries[4].f[2][1]=0;queries[4].f[6][2]=queries[4].f[6][3]=0;
-    queries[5].f[2][2]=0;queries[5].f[7][0]=queries[5].f[7][1]=0;
-    queries[6].f[3][3]=.2f; // nonzero offshore
-    queries[7].f[3][2]=1; // river
-    queries[8].f[3][0]=0; // missing optical context
-    queries[9].f[3][1]=0; // missing terrain texture
-    queries[10].f[0][2]=troughTime;
-    queries[11].f[2][0]=.1f;queries[11].f[6][0]=queries[11].f[6][1]=0;
-    queries[12].f[0][3]=0; // metadata gate off; crest still active
-    queries[13].f[1][3]=0;queries[13].f[5][2]=queries[13].f[5][3]=0;
-    const unsigned width=16,height=unsigned(queries.size())*4;
-    CHECK(queries.size()*sizeof(Query)<=4096);if(queries.size()*sizeof(Query)>4096)return;
-    std::string ps="struct Query{float4 f[8];};cbuffer CoastComposition:register(b0){Query Queries["+std::to_string(queries.size())+"];};\n"
-        "struct Input{float4 Diffuse;float2 TexCoord0;};\n"+shore+crest+gradient+R"COAST(
-float4 main(float4 pixel:SV_Position):SV_Target0 {
-    uint row=(uint)pixel.y/4;Query q=Queries[row];
-    float2 tile=float2((uint)pixel.x%8,(uint)pixel.y%4);
-    float2 offset=tile.x*float2(.35,.11)+tile.y*float2(-.09,.29);
-    float2 wavePosition=q.f[0].xy+offset;
-    float2 parameterDx=ddx(wavePosition),parameterDy=ddy(wavePosition);
-    float time=q.f[0].z;
-    float4 OpticalParameters=float4(0,0,q.f[3].x,q.f[0].w);
-    float4 TerrainParameters=float4(0,0,0,q.f[3].y);
-    float4 WaterParameters=float4(time,q.f[3].z,0,0);
-    float baseLevel=q.f[1].x+dot(q.f[4].xy,offset);
-    float attenuation=q.f[1].z+dot(q.f[5].xy,offset);
-    float surfaceTerrainHeight=baseLevel-(q.f[2].x+dot(q.f[6].xy,offset));
-    float4 opticalContext=float4(q.f[3].w,0,q.f[2].z+dot(q.f[7].xy,offset),q.f[2].y+dot(q.f[6].zw,offset));
-    Input input;input.Diffuse=float4(q.f[2].w+dot(q.f[7].zw,offset),0,0,1);
-    input.TexCoord0=float2(q.f[1].w+dot(q.f[5].zw,offset),0);
-    float3 wave=float3(q.f[1].y+dot(q.f[4].zw,offset),q.f[4].zw);
-    float3 legacyWave=wave,oceanWave=wave;
-)COAST"+metadata+offshoreSource+composition+R"COAST(
-    if(pixel.x<8)return float4(continuousHeight,slope,meshCorrection);
-    return float4(normal,1);
-}
-)COAST";
-    const bool placed=sdl3target_detail::place_registers(ps,false);CHECK(placed);if(!placed)return;
-    const char *vs="float4 main(uint id:SV_VertexID):SV_Position{return float4(id==1?3.0:-1.0,id==2?3.0:-1.0,0,1);}";
-    struct Resources {
-        SDL_GPUDevice*device;SDL_GPUShader*vs=nullptr,*ps=nullptr;SDL_GPUGraphicsPipeline*pipeline=nullptr;SDL_GPUTexture*target=nullptr;
-        ~Resources(){if(target)SDL_ReleaseGPUTexture(device,target);if(pipeline)SDL_ReleaseGPUGraphicsPipeline(device,pipeline);
-            if(vs)SDL_ReleaseGPUShader(device,vs);if(ps)SDL_ReleaseGPUShader(device,ps);}
-    }r;r.device=frame->Device();std::vector<unsigned char>spirv;std::string error;
-    bool ok=SDL3_Compile_HLSL_To_SPIRV(vs,true,spirv,error);CHECK(ok);if(!ok)return;
-    r.vs=SDL3_Create_Shader(r.device,spirv,true,error);CHECK(r.vs);if(!r.vs)return;
-    ok=SDL3_Compile_HLSL_To_SPIRV(ps,false,spirv,error);CHECK(ok);if(!ok){printf("coastal injection PS: %s\n",error.c_str());return;}
-    unsigned samplers=0,buffers=0;SDL3_Shader_Slots(spirv,false,samplers,buffers);CHECK(samplers==0&&buffers==1);if(samplers!=0||buffers!=1)return;
-    r.ps=SDL3_Create_Shader(r.device,spirv,false,error);CHECK(r.ps);if(!r.ps)return;
-    SDL_GPUColorTargetDescription colour={};colour.format=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
-    SDL_GPUGraphicsPipelineCreateInfo pi={};pi.vertex_shader=r.vs;pi.fragment_shader=r.ps;pi.primitive_type=SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
-    pi.target_info.color_target_descriptions=&colour;pi.target_info.num_color_targets=1;
-    r.pipeline=SDL_CreateGPUGraphicsPipeline(r.device,&pi);CHECK(r.pipeline);if(!r.pipeline)return;
-    SDL_GPUTextureCreateInfo ti={};ti.type=SDL_GPU_TEXTURETYPE_2D;ti.format=colour.format;ti.usage=SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
-    ti.width=width;ti.height=height;ti.layer_count_or_depth=ti.num_levels=1;r.target=SDL_CreateGPUTexture(r.device,&ti);CHECK(r.target);if(!r.target)return;
-    CHECK(frame->Flush());
-    auto render=[&](){SDL_GPUCommandBuffer*cmd=SDL_AcquireGPUCommandBuffer(r.device);CHECK(cmd);if(!cmd)return std::vector<float>();
-        SDL_GPUColorTargetInfo target={};target.texture=r.target;target.load_op=SDL_GPU_LOADOP_DONT_CARE;target.store_op=SDL_GPU_STOREOP_STORE;
-        SDL_GPURenderPass*pass=SDL_BeginGPURenderPass(cmd,&target,1,nullptr);CHECK(pass);if(!pass){SDL_CancelGPUCommandBuffer(cmd);return std::vector<float>();}
-        SDL_BindGPUGraphicsPipeline(pass,r.pipeline);SDL_PushGPUFragmentUniformData(cmd,0,queries.data(),unsigned(queries.size()*sizeof(Query)));
-        SDL_DrawGPUPrimitives(pass,3,1,0,0);SDL_EndGPURenderPass(pass);CHECK(SDL_SubmitGPUCommandBuffer(cmd));return read_float_targets(frame,&r.target,1,width,height);};
-    const auto actual=render(),repeat=render();CHECK(actual==repeat&&actual.size()==width*height*4);if(actual.size()!=width*height*4)return;
-    auto scalar=[&](const Query&q,double ox,double oy,double &addition,double &residual) {
-        auto unit=[](double x){return (std::max)(0.,(std::min)(1.,x));};
-        auto smooth=[&](double a,double b,double x){const double t=unit((x-a)/(b-a));return t*t*(3-2*t);};
-        const double base=q.f[1][0]+q.f[4][0]*ox+q.f[4][1]*oy;
-        const double wave=q.f[1][1]+q.f[4][2]*ox+q.f[4][3]*oy;
-        const double damping=q.f[1][2]+q.f[5][0]*ox+q.f[5][1]*oy;
-        const double depth=q.f[2][0]+q.f[6][0]*ox+q.f[6][1]*oy;
-        const double support=q.f[2][1]+q.f[6][2]*ox+q.f[6][3]*oy;
-        const double exposure=q.f[2][2]+q.f[7][0]*ox+q.f[7][1]*oy;
-        const double obstacle=q.f[2][3]+q.f[7][2]*ox+q.f[7][3]*oy;
-        const double h=broad(q.f[0][0]+ox,q.f[0][1]+oy,q.f[0][2]);
-        residual=q.f[0][3]>.5?q.f[1][3]+q.f[5][2]*ox+q.f[5][3]*oy:0;
-        addition=0;
-        const double offshore=q.f[3][3]*q.f[3][0]*(1-q.f[3][2]);
-        if(q.f[3][0]>.5 && q.f[3][1]>.5 && q.f[3][2]<.5 && offshore==0 && support>0 && exposure>0 && h>0 && depth>double(WaterShoreFoam::MinDepth)) {
-            const double clearance=depth-double(WaterShoreFoam::MinDepth);
-            const double gain=(std::max)(0.,unit(obstacle)-double(.5f/255.f)-unit(damping));
-            addition=unit(support)*unit(exposure)*smooth(WaterShoreFoam::MinDepth,WaterShoreFoam::WetDepth,depth)*gain
-                *clearance*std::tanh(h/clearance)*smooth(0,WaterShoreFoam::CrestHeight,h);
-        }
-        return base+wave*damping+residual+addition;
-    };
-    double maximum=0,omittedHeight=0,duplicateHeight=0,omittedResidual=0;unsigned active=0,inactive=0;
-    for(unsigned c=0;c<queries.size();++c)for(unsigned y=0;y<4;++y)for(unsigned x=0;x<8;++x) {
-        const Query&q=queries[c];const double ox=x*.35-y*.09,oy=x*.11+y*.29;
-        double addition=0,residual=0;const double h=scalar(q,ox,oy,addition,residual);
-        auto heightAt=[&](double px,double py){double a=0,r=0;return scalar(q,px,py,a,r);};
-        const double gx=(heightAt(ox+1e-4,oy)-heightAt(ox-1e-4,oy))/.0002;
-        const double gy=(heightAt(ox,oy+1e-4)-heightAt(ox,oy-1e-4))/.0002;
-        const double inverse=1/std::sqrt(1+gx*gx+gy*gy);
-        const double expected[8]={h,gx,gy,residual+addition,-gx*inverse,-gy*inverse,inverse,1};
-        for(unsigned channel=0;channel<8;++channel) {
-            const unsigned index=((c*4+y)*width+x+(channel>=4?8:0))*4+channel%4;
-            const double error=std::abs(double(actual[index])-expected[channel]);maximum=(std::max)(maximum,error);
-            if(!(std::isfinite(actual[index])&&error<.0001))printf("coastal injection case%u xy%u,%u channel%u actual%.9g expected%.9g\n",c,x,y,channel,double(actual[index]),expected[channel]);
-            CHECK(std::isfinite(actual[index])&&error<.0001);
-        }
-        // Explicit controls: missing/doubled crest and losing the signed UV0 residual would
-        // all be detected at this threshold; they are not merely alternate algebraic labels.
-        omittedHeight=(std::max)(omittedHeight,std::abs(addition));duplicateHeight=(std::max)(duplicateHeight,std::abs(addition));
-        omittedResidual=(std::max)(omittedResidual,std::abs(residual));
-        if(addition>.01)++active;else if(addition==0)++inactive;
-        if(c==0) {
-            // Real generated-branch controls under identical fields: optical gate off
-            // removes exactly one crest; zero UV0 removes exactly one signed residual.
-            const unsigned index=(y*width+x)*4;
-            CHECK(std::abs(double(actual[index])-actual[((8*4+y)*width+x)*4]-addition)<.0001);
-            CHECK(std::abs(double(actual[index+3])-actual[((8*4+y)*width+x)*4+3]-addition)<.0001);
-            CHECK(std::abs(double(actual[index])-actual[((13*4+y)*width+x)*4]-residual)<.0001);
-            CHECK(std::abs(double(actual[index+3])-actual[((13*4+y)*width+x)*4+3]-residual)<.0001);
-        }
-    }
-    CHECK(active>64&&inactive>192);CHECK(omittedHeight>.1&&duplicateHeight>.1&&omittedResidual>.2);
-    printf("sdl_gpu_frame_selfcheck: actual coastal injection %zu cases, %u raster samples, scalar/FD-normal max %.9g; active%u inactive%u, omitted/doubled crest %.7g/%.7g, omitted UV0 %.7g, exact repeat\n",
-        queries.size(),unsigned(queries.size())*32,maximum,active,inactive,omittedHeight,duplicateHeight,omittedResidual);
-}
-
-
-#if defined(__linux__)
-static void check_gpu_water_coastal_crest(SdlGpuFrame *frame)
-{
-    struct Env {
-        bool present;std::string saved;
-        Env(){const char*p=getenv("ZH_WATER_COAST_CREST");present=p!=nullptr;saved=p?p:"";}
-        ~Env(){if(present)setenv("ZH_WATER_COAST_CREST",saved.c_str(),1);else unsetenv("ZH_WATER_COAST_CREST");}
-    }restore;
-    PixelPipelineDescription description={};std::string baseline,production,disabled;
-    CHECK(unsetenv("ZH_WATER_COAST_CREST")==0);
-    bool generated=EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,description,baseline,COMBINER_SHADER_TARGET_SDL3_GPU);CHECK(generated);if(!generated)return;
-    CHECK(setenv("ZH_WATER_COAST_CREST","0",1)==0);
-    generated=EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,description,disabled,COMBINER_SHADER_TARGET_SDL3_GPU);CHECK(generated&&disabled==baseline);if(!generated)return;
-    CHECK(setenv("ZH_WATER_COAST_CREST","1",1)==0);
-    generated=EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,description,production,COMBINER_SHADER_TARGET_SDL3_GPU);CHECK(generated);if(!generated)return;
-    const std::string helper=WaterCoastalCrest::Source();const size_t at=production.find(helper);CHECK(at!=std::string::npos);if(at==std::string::npos)return;
-    const std::string marker="    // All screen derivatives are evaluated before the eligibility branch.";
-    const size_t begin=production.find(marker),end=production.find("    float3 normal = normalize(float3(-slope, 1.0));",begin);
-    CHECK(begin!=std::string::npos&&end!=std::string::npos);if(begin==std::string::npos||end==std::string::npos)return;
-    const std::string injection=production.substr(begin,end-begin);
-    CHECK(injection.find("slope+=coastalCorrection.yz;meshCorrection+=coastalCorrection.x;")!=std::string::npos);
-    CHECK(injection.find("offshore==0.0 && opticalContext.a>0.0 && opticalContext.b>0.0")!=std::string::npos);
-    CHECK(injection.find("WaterParameters.y<0.5")!=std::string::npos);
-    std::string stripped=production;stripped.erase(begin,end-begin);stripped.erase(at,helper.size());CHECK(stripped==baseline);
-    // Compile both actual production variants with opt-in, not merely the small helper fixture.
-    std::vector<unsigned char> fullSpirv;std::string fullError;
-    CHECK(SDL3_Compile_HLSL_To_SPIRV(production,false,fullSpirv,fullError));
-    std::string river;generated=EngineShader_Pixel_Program(ENGINE_SHADER_WATER_RIVER,description,river,COMBINER_SHADER_TARGET_SDL3_GPU);CHECK(generated);
-    if(generated)CHECK(SDL3_Compile_HLSL_To_SPIRV(river,false,fullSpirv,fullError));
-    struct Query {float f[6][4];};std::vector<Query> queries;
-    for(unsigned i=0;i<32;++i) {
-        Query q={{{.05f+.085f*i,.17f,-.23f,0},{.17f+.11f*i,.07f,-.04f,0},
-            {.13f+float(i%6)*.11f,.031f,-.023f,0},{.21f+float(i%5)*.13f,-.017f,.021f,0},
-            {.67f+float(i%4)*.07f,.011f,-.019f,0},{.03f+float(i%7)*.035f,.013f,.009f,0}}};queries.push_back(q);
-    }
-    Query q=queries[7];q.f[0][0]=-1;queries.push_back(q);q=queries[7];q.f[1][0]=0;queries.push_back(q);
-    q=queries[7];q.f[2][0]=0;queries.push_back(q);q=queries[7];q.f[3][0]=0;queries.push_back(q);
-    q=queries[7];q.f[4][0]=q.f[5][0];queries.push_back(q);q=queries[7];q.f[0][0]=std::numeric_limits<float>::quiet_NaN();queries.push_back(q);
-    const unsigned rows=unsigned(queries.size()),columns=2;CHECK(rows*sizeof(Query)<=4096);if(rows*sizeof(Query)>4096)return;
-    const char *vs="float4 main(uint id:SV_VertexID):SV_Position{return float4(id==1?3.0:-1.0,id==2?3.0:-1.0,0,1);}";
-    const std::string shore=WaterShoreFoam::Source();CHECK(production.find(shore)!=std::string::npos);
-    std::string ps="struct Query{float4 f[6];};cbuffer CoastQueries:register(b0){Query Queries["+std::to_string(rows)+"];};\n"+
-        shore+production.substr(at,helper.size())+R"COAST(
-float4 main(float4 pixel:SV_Position):SV_Target0 {
-    Query q=Queries[(uint)pixel.y];float3 d=waterCoastalCrest(q.f[0].xyz,q.f[1].xyz,q.f[2].xyz,q.f[3].xyz,q.f[4].xyz,q.f[5].xyz);
-    if(pixel.x<1)return float4(d,.2+d.x);
-    return float4(normalize(float3(-float2(.03,-.02)-d.yz,1)),1);
-}
-)COAST";
-    const bool placed=sdl3target_detail::place_registers(ps,false);CHECK(placed);if(!placed)return;
-    struct Resources {
-        SDL_GPUDevice*device;SDL_GPUShader*vs=nullptr,*ps=nullptr;SDL_GPUGraphicsPipeline*pipeline=nullptr;SDL_GPUTexture*target=nullptr;
-        ~Resources(){if(target)SDL_ReleaseGPUTexture(device,target);if(pipeline)SDL_ReleaseGPUGraphicsPipeline(device,pipeline);
-            if(vs)SDL_ReleaseGPUShader(device,vs);if(ps)SDL_ReleaseGPUShader(device,ps);}
-    }r;r.device=frame->Device();std::vector<unsigned char>spirv;std::string error;
-    bool ok=SDL3_Compile_HLSL_To_SPIRV(vs,true,spirv,error);CHECK(ok);if(!ok)return;
-    r.vs=SDL3_Create_Shader(r.device,spirv,true,error);CHECK(r.vs);if(!r.vs)return;
-    ok=SDL3_Compile_HLSL_To_SPIRV(ps,false,spirv,error);CHECK(ok);if(!ok){printf("coastal crest PS: %s\n",error.c_str());return;}
-    unsigned samplers=0,buffers=0;SDL3_Shader_Slots(spirv,false,samplers,buffers);CHECK(samplers==0&&buffers==1);if(samplers!=0||buffers!=1)return;
-    r.ps=SDL3_Create_Shader(r.device,spirv,false,error);CHECK(r.ps);if(!r.ps)return;
-    SDL_GPUColorTargetDescription colour={};colour.format=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
-    SDL_GPUGraphicsPipelineCreateInfo pi={};pi.vertex_shader=r.vs;pi.fragment_shader=r.ps;pi.primitive_type=SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
-    pi.target_info.color_target_descriptions=&colour;pi.target_info.num_color_targets=1;
-    r.pipeline=SDL_CreateGPUGraphicsPipeline(r.device,&pi);CHECK(r.pipeline);if(!r.pipeline)return;
-    SDL_GPUTextureCreateInfo ti={};ti.type=SDL_GPU_TEXTURETYPE_2D;ti.format=colour.format;ti.usage=SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
-    ti.width=columns;ti.height=rows;ti.layer_count_or_depth=ti.num_levels=1;r.target=SDL_CreateGPUTexture(r.device,&ti);CHECK(r.target);if(!r.target)return;
-    CHECK(frame->Flush());
-    auto render=[&](){SDL_GPUCommandBuffer*cmd=SDL_AcquireGPUCommandBuffer(r.device);CHECK(cmd);if(!cmd)return std::vector<float>();
-        SDL_GPUColorTargetInfo target={};target.texture=r.target;target.load_op=SDL_GPU_LOADOP_DONT_CARE;target.store_op=SDL_GPU_STOREOP_STORE;
-        SDL_GPURenderPass*pass=SDL_BeginGPURenderPass(cmd,&target,1,nullptr);CHECK(pass);if(!pass){SDL_CancelGPUCommandBuffer(cmd);return std::vector<float>();}
-        SDL_BindGPUGraphicsPipeline(pass,r.pipeline);SDL_PushGPUFragmentUniformData(cmd,0,queries.data(),unsigned(rows*sizeof(Query)));
-        SDL_DrawGPUPrimitives(pass,3,1,0,0);SDL_EndGPURenderPass(pass);CHECK(SDL_SubmitGPUCommandBuffer(cmd));return read_float_targets(frame,&r.target,1,columns,rows);};
-    const auto actual=render(),paused=render();CHECK(actual==paused&&actual.size()==rows*columns*4);if(actual.size()!=rows*columns*4)return;
-    auto scalar=[](const double f[6]) {
-        auto unit=[](double x){return (std::max)(0.,(std::min)(1.,x));};
-        auto smooth=[&](double a,double b,double x){const double t=unit((x-a)/(b-a));return t*t*(3-2*t);};
-        for(unsigned i=0;i<6;++i)if(!std::isfinite(f[i]))return 0.;
-        if(f[0]<=0||f[1]<=double(WaterShoreFoam::MinDepth))return 0.;
-        const double c=f[1]-double(WaterShoreFoam::MinDepth);
-        const double gain=(std::max)(0.,unit(f[4])-double(.5f/255.f)-unit(f[5]));
-        return unit(f[2])*unit(f[3])*smooth(WaterShoreFoam::MinDepth,WaterShoreFoam::WetDepth,f[1])*gain*c*std::tanh(f[0]/c)*smooth(0,WaterShoreFoam::CrestHeight,f[0]);
-    };
-    double maximum=0;unsigned active=0;
-    for(unsigned row=0;row<rows;++row) {
-        double f[6];for(unsigned n=0;n<6;++n)f[n]=queries[row].f[n][0];
-        double d[3]={scalar(f),0,0};
-        for(unsigned axis=0;axis<2;++axis){double a[6],b[6];for(unsigned n=0;n<6;++n){a[n]=f[n]-1e-4*queries[row].f[n][axis+1];b[n]=f[n]+1e-4*queries[row].f[n][axis+1];}d[axis+1]=(scalar(b)-scalar(a))/.0002;}
-        // At closed guards the production field is identically zero, including endpoint derivatives.
-        if(row>=32)d[0]=d[1]=d[2]=0;
-        double nx=-.03-d[1],ny=.02-d[2],nz=1,norm=std::sqrt(nx*nx+ny*ny+1);nx/=norm;ny/=norm;nz/=norm;
-        const double expected[8]={d[0],d[1],d[2],.2+d[0],nx,ny,nz,1};
-        for(unsigned c=0;c<8;++c){const double error=std::abs(double(actual[row*8+c])-expected[c]);maximum=(std::max)(maximum,error);
-            if(!(std::isfinite(actual[row*8+c])&&error<.0001))printf("coastal crest row%u channel%u actual%.9g expected%.9g\n",row,c,double(actual[row*8+c]),expected[c]);
-            CHECK(std::isfinite(actual[row*8+c])&&error<.0001);}
-        active+=d[0]>.01;
-    }
-    CHECK(active>15);
-    printf("sdl_gpu_frame_selfcheck: coastal crest %u cases; actual production helper vs independent scalar/FD-normal max %.9g, exact pause, opt-out source identity\n",rows,maximum);
-    check_gpu_water_coastal_crest_injection(frame,production);
-}
-#endif // __linux__
 
 #if defined(__linux__)
 static void check_gpu_water_shore_front(SdlGpuFrame *frame)
@@ -7575,18 +6434,15 @@ static void check_gpu_water_shore_depth_gate(SdlGpuFrame *frame)
     // not bottomPosition(), which deliberately has a different terrain-fallback contract.
     using namespace WaterShoreFoam;
     PixelPipelineDescription description={};std::string production;
-    const char *old=getenv("ZH_WATER_SHORE_FOAM");const bool had=old!=nullptr;const std::string saved=old?old:"";
-    CHECK(setenv("ZH_WATER_SHORE_FOAM","1",1)==0);
     const bool generated=EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,description,production,COMBINER_SHADER_TARGET_SDL3_GPU);
-    if(had)CHECK(setenv("ZH_WATER_SHORE_FOAM",saved.c_str(),1)==0);else CHECK(unsetenv("ZH_WATER_SHORE_FOAM")==0);
     CHECK(generated);if(!generated)return;
     const size_t pixelAt=production.find("float2 waterScenePixel("),pixelEnd=production.find("// Depth is a point-sampled",pixelAt);
     const size_t blockAt=production.find("    float shoreRate=0.0,shoreSupport=0.0;"),blockEnd=production.find("    // At a known hull",blockAt);
-    const size_t cageAt=production.find("    // Contact wash follows",blockAt),shoreAt=production.find("    if(shoreFoamEnabled &&",cageAt);
+    const size_t cageAt=production.find("    // Contact wash follows",blockAt),shoreAt=production.find("    if(WaterParameters.y<0.5 &&",cageAt);
     CHECK(pixelAt!=std::string::npos && pixelEnd!=std::string::npos && blockAt<cageAt && cageAt<shoreAt && shoreAt<blockEnd && blockEnd!=std::string::npos);
     if(pixelAt==std::string::npos || pixelEnd==std::string::npos || !(blockAt<cageAt && cageAt<shoreAt && shoreAt<blockEnd) || blockEnd==std::string::npos)return;
     // Keep the original source/history initialization and actual analytic depth-gated
-    // branch. Cage wash and optional GPU surf have their own resources and fixtures.
+    // branch. Cage wash has its own resources and fixture.
     const std::string block=production.substr(blockAt,cageAt-blockAt)+production.substr(shoreAt,blockEnd-shoreAt);
     CHECK(block.find("waterShoreSceneDepth(SceneParameters.w,shoreRawDepth)")!=std::string::npos);
     CHECK(block.find("floor(input.Position.xy)+0.5")!=std::string::npos);
@@ -7597,7 +6453,6 @@ cbuffer ShoreCase:register(b0,space3) {
 };
 Texture2D<float> Texture6:register(t0,space2);SamplerState Sampler6:register(s0,space2);
 struct Input {float4 Position;};
-static const bool shoreFoamEnabled=true;
 float terrainHeight(float2 p) {return 0.0;}
 float waterShoreHistory(float2 p,float level,float time) {return CaseGradient.z;}
 )SHORE"+Source()+production.substr(pixelAt,pixelEnd-pixelAt)+R"SHORE(
@@ -7718,438 +6573,6 @@ float4 main(float4 pixel:SV_Position):SV_Target0 {
 }
 #endif // __linux__
 
-// Core-only fixture: actual production FFT decode/limiter feeds the proposed source.
-// Native texture binding, graph transport and scene masks remain separate rollout gates.
-static void check_gpu_water_coastal_surf_core(SdlGpuFrame *frame)
-{
-    struct Query {float f[12][4];};
-    Query base={{{.015f,.065f,-.004f,.01f},{-.35f,.08f,.02f,.025f},
-        {.005f,.035f,.007f,.005f},{-.15f,.02f,.03f,.02f},
-        {10,20,30,40},{50,60,70,80},{2.4f,-.3f,.08f,1},
-        {4,64,-1,0},{1,.4f,.4f,.5f},{1,1,0,0},{.7f,1.3f,2,.4f},{.1f,1,.25f,0}}};
-    std::vector<Query> queries(20,base);
-    queries[1].f[8][1]=0;queries[2].f[8][1]=1;queries[2].f[10][2]=1.7f;
-    for(float &v:queries[3].f[4])v*=100000;for(float &v:queries[3].f[5])v*=100000;
-    queries[4].f[6][0]=-1;queries[4].f[0][1]=queries[4].f[2][1]=-.05f;
-    queries[5].f[7][2]=1;queries[6].f[10][2]=3;
-    queries[7].f[7][0]=.1f;queries[8].f[8][0]=0;queries[9].f[7][1]=128;
-    queries[10].f[7][0]=12;queries[11].f[9][0]=0;queries[12].f[9][1]=0;
-    queries[13].f[11][0]=0;queries[14].f[11][0]=1.3f;queries[15].f[10][3]=-1;
-    queries[16].f[1][0]=(std::numeric_limits<float>::max)();
-    queries[17].f[7][2]=(std::numeric_limits<float>::max)();queries[18].f[11][0]=1e-40f;
-    queries[19].f[6][1]=queries[19].f[6][2]=0;
-    queries[19].f[1][0]=queries[19].f[1][1]=queries[19].f[3][0]=queries[19].f[3][1]=0;
-    const std::string production=WaterFftSampling::PixelSource(false,false);
-    const size_t start=production.find("struct FftSurface {"),end=production.find("struct FftMapSamples");
-    const size_t decode=production.find("FftSurface fftDecodeSamples("),after=production.find("FftSurface fftRawSurface(");
-    CHECK(start!=std::string::npos&&end>start&&decode!=std::string::npos&&after>decode);
-    if(start==std::string::npos||end<=start||decode==std::string::npos||after<=decode)return;
-    std::string ps="struct Query{float4 f[12];};cbuffer Queries:register(b0,space3){Query Q[20];};\n"
-        +WaterFftSampling::CommonSource()+production.substr(start,end-start)
-        +"struct FftMapSamples {float4 a,ad,b,bd,c,cd;};\n"+production.substr(decode,after-decode)
-        +WaterCoastalSurf::IncidentSource()+WaterCoastalSurf::Source()+R"SURF(
-float4 main(float4 pixel:SV_Position):SV_Target0 {
- Query q=Q[(uint)pixel.y];FftMapSamples samples;
- samples.a=q.f[0];samples.ad=q.f[1];samples.b=q.f[2];samples.bd=q.f[3];samples.c=q.f[4];samples.cd=q.f[5];
- float4 incident=waterSurfIncident(samples),field=waterSurfBlend(q.f[6],incident,q.f[8].y);
- WaterSurfContext context;context.coast=q.f[7];context.surface=q.f[8];context.admission=q.f[9];
- float4 updated=waterSurfAdvance(context,field,q.f[10],q.f[11].x,q.f[11].y>.5);
- if(pixel.x<1)return incident;if(pixel.x<2)return field;
- if(pixel.x<3)return float4(waterSurfRate(context,field,q.f[10],q.f[11].x),waterSurfDomain(context),waterSurfCoverage(updated,q.f[11].z),1);
- if(pixel.x<4)return updated;
- return waterSurfDiffuse(q.f[10],float4(0,0,0,0),float4(1,2,3,0),float4(4,8,0,0),float4(0,0,0,0),6,5,min(q.f[11].x,.25));
-})SURF";
-    const char *vs="float4 main(uint id:SV_VertexID):SV_Position{return float4(id==1?3.0:-1.0,id==2?3.0:-1.0,0,1);}";
-    struct Resources {
-        SDL_GPUDevice *device;SDL_GPUShader *vs=nullptr,*ps=nullptr;SDL_GPUGraphicsPipeline *pipeline=nullptr;SDL_GPUTexture *target=nullptr;
-        ~Resources(){if(target)SDL_ReleaseGPUTexture(device,target);if(pipeline)SDL_ReleaseGPUGraphicsPipeline(device,pipeline);
-            if(vs)SDL_ReleaseGPUShader(device,vs);if(ps)SDL_ReleaseGPUShader(device,ps);}
-    }r;r.device=frame->Device();std::vector<unsigned char>spirv;std::string error;
-    bool ok=SDL3_Compile_HLSL_To_SPIRV(vs,true,spirv,error);CHECK(ok);if(!ok)return;
-    r.vs=SDL3_Create_Shader(r.device,spirv,true,error);CHECK(r.vs);if(!r.vs)return;
-    ok=SDL3_Compile_HLSL_To_SPIRV(ps,false,spirv,error);CHECK(ok);if(!ok){printf("coastal surf core PS: %s\n",error.c_str());return;}
-    unsigned samplers=0,buffers=0;SDL3_Shader_Slots(spirv,false,samplers,buffers);CHECK(samplers==0&&buffers==1);
-    r.ps=SDL3_Create_Shader(r.device,spirv,false,error);CHECK(r.ps);if(!r.ps)return;
-    SDL_GPUColorTargetDescription colour={};colour.format=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
-    SDL_GPUGraphicsPipelineCreateInfo pi={};pi.vertex_shader=r.vs;pi.fragment_shader=r.ps;pi.primitive_type=SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
-    pi.target_info.color_target_descriptions=&colour;pi.target_info.num_color_targets=1;
-    r.pipeline=SDL_CreateGPUGraphicsPipeline(r.device,&pi);CHECK(r.pipeline);if(!r.pipeline)return;
-    const unsigned width=5,height=unsigned(queries.size());CHECK(sizeof(Query)*height<=4096);
-    SDL_GPUTextureCreateInfo ti={};ti.type=SDL_GPU_TEXTURETYPE_2D;ti.format=colour.format;ti.usage=SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
-    ti.width=width;ti.height=height;ti.layer_count_or_depth=ti.num_levels=1;
-    r.target=SDL_CreateGPUTexture(r.device,&ti);CHECK(r.target);if(!r.target)return;CHECK(frame->Flush());
-    auto render=[&](){
-        SDL_GPUCommandBuffer *commands=SDL_AcquireGPUCommandBuffer(r.device);CHECK(commands);if(!commands)return std::vector<float>();
-        SDL_GPUColorTargetInfo target={};target.texture=r.target;target.load_op=SDL_GPU_LOADOP_DONT_CARE;target.store_op=SDL_GPU_STOREOP_STORE;
-        SDL_GPURenderPass *pass=SDL_BeginGPURenderPass(commands,&target,1,nullptr);CHECK(pass);if(!pass){SDL_CancelGPUCommandBuffer(commands);return std::vector<float>();}
-        SDL_BindGPUGraphicsPipeline(pass,r.pipeline);SDL_PushGPUFragmentUniformData(commands,0,queries.data(),unsigned(queries.size()*sizeof(Query)));
-        SDL_DrawGPUPrimitives(pass,3,1,0,0);SDL_EndGPURenderPass(pass);CHECK(SDL_SubmitGPUCommandBuffer(commands));
-        return read_float_targets(frame,&r.target,1,width,height);
-    };
-    const auto actual=render(),repeat=render();CHECK(actual==repeat&&actual.size()==width*height*4);if(actual.size()!=width*height*4)return;
-    auto clamp=[](double x,double a,double b){return (std::max)(a,(std::min)(b,x));};
-    auto smooth=[&](double a,double b,double x){const double t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t);};
-    const double vz=WaterFftGeometry::MaxVerticalDisplacement,xy=WaterFftGeometry::MaxHorizontalDisplacement/std::sqrt(2.0);
-    double maximum=0;unsigned active=0,suppressed=0;double armedFine=0;
-    for(unsigned row=0;row<height;++row){const Query&q=queries[row];
-        const double h=(double(q.f[0][1])+q.f[2][1])*20;
-        const double hx=double(q.f[1][0])+q.f[3][0],hy=double(q.f[1][1])+q.f[3][1];
-        const double d0=(-1.2*double(q.f[0][0])-1.5*double(q.f[2][0]))*20;
-        const double d1=(-1.2*double(q.f[0][2])-1.5*double(q.f[2][2]))*20;
-        const double lx=1-std::pow(std::tanh(d0/xy),2),ly=1-std::pow(std::tanh(d1/xy),2);
-        const double xx=(-1.2*double(q.f[1][2])-1.5*double(q.f[3][2]))*lx;
-        const double cross=-1.2*double(q.f[0][3])-1.5*double(q.f[2][3]);
-        const double yy=(-1.2*double(q.f[1][3])-1.5*double(q.f[3][3]))*ly;
-        const double incident[4]={vz*std::tanh(h/vz),hx*(1-std::pow(std::tanh(h/vz),2)),hy*(1-std::pow(std::tanh(h/vz),2)),(1+xx)*(1+yy)-cross*cross*lx*ly};
-        const double weight=q.f[8][1];double field[4];for(unsigned i=0;i<3;++i)field[i]=q.f[6][i]+(incident[i]-q.f[6][i])*weight;
-        field[3]=1+(incident[3]-1)*weight;
-        if(row==16){field[0]=field[1]=field[2]=0;field[3]=1;}
-        const double dt=q.f[11][0],depth=q.f[7][0],distance=q.f[7][1],n=std::hypot(q.f[7][2],q.f[7][3]),slope=std::hypot(field[1],field[2]);
-        const bool contextValid=std::abs(q.f[7][2])<=1024;
-        const bool fieldValid=std::abs(field[0])<=64&&std::abs(field[1])<=1024&&std::abs(field[2])<=1024&&std::abs(field[3])<=1048576;
-        const bool wet=contextValid&&q.f[9][0]>=.5&&q.f[9][1]>=.5&&q.f[8][0]>0&&depth>.15;
-        const double domain=wet&&distance>=0?smooth(.15,.8,depth)*(1-smooth(8,12,depth))*(1-smooth(96,128,distance))*q.f[8][0]:0;
-        const double ht=dt>0?(field[0]-q.f[10][2])/dt:0;double rate=0;
-        if(domain>0&&fieldValid&&q.f[10][3]>=0&&dt>1e-6&&dt<=.25&&field[0]>0&&ht>0&&n>1e-8&&slope>1e-8){
-            const double incoming=smooth(0,.25,(field[1]/slope)*(q.f[7][2]/n)+(field[2]/slope)*(q.f[7][3]/n));
-            const double breaking=(std::max)(smooth(.4,.85,2*field[0]/(std::max)(depth+.5,1.0)),smooth(.04,.30,1-field[3]));
-            const double damping=q.f[8][2]+(q.f[8][3]-q.f[8][2])*q.f[8][0];
-            rate=1.2*domain*incoming*breaking*(1-damping*damping)*smooth(0,.5,field[0])*smooth(0,.08,ht);
-        }
-        double next[4]={0,0,0,-1};
-        if(dt<=1e-6)for(unsigned i=0;i<4;++i)next[i]=q.f[10][i];
-        else if(wet&&fieldValid){const double decay=std::exp(-dt/5);next[0]=decay*q.f[10][0];next[1]=decay*(q.f[10][1]+dt*q.f[10][0]);next[2]=field[0];next[3]=dt<=.25?rate:0;
-            if(dt<=.25){ // independent numerical convolution, not production integral series
-                constexpr unsigned steps=2048;double density=0,age=0;
-                for(unsigned i=0;i<=steps;++i){const double a=dt*i/steps,r0=clamp(q.f[10][3],0,1.2),r=rate+(r0-rate)*a/dt;
-                    const double mass=std::exp(-a/5)*r,w=(i==0||i==steps)?1:(i%2?4:2);density+=w*mass;age+=w*a*mass;}
-                next[0]+=density*dt/(3*steps);next[1]+=age*dt/(3*steps);
-            }}
-        double coverage=0;if(next[0]>0){const double age=next[1]/next[0];coverage=(1-std::exp(-next[0]))*(1-smooth(.4,3,age)*(1-q.f[11][2]))*(1-smooth(8,14,age));}
-        const double status[4]={rate,domain,coverage,1};
-        double diffusion[4]={q.f[10][0],q.f[10][1],q.f[10][2],q.f[10][3]};const double amount=2*(std::min)(dt,.25)/25;
-        diffusion[0]+=amount*(5-2*diffusion[0]);diffusion[1]+=amount*(10-2*diffusion[1]);
-        for(unsigned col=0;col<5;++col)for(unsigned c=0;c<4;++c){
-            if(row==16&&col<2)continue; // adversarial finite magnitude is a source-admission control
-            const double expected=col==0?incident[c]:col==1?field[c]:col==2?status[c]:col==3?next[c]:diffusion[c];
-            const double value=actual[(row*width+col)*4+c],error=std::abs(value-expected);maximum=(std::max)(maximum,error);
-            if(!(std::isfinite(value)&&error<.00003))printf("surf core row%u col%u ch%u got%.9g expected%.9g\n",row,col,c,value,expected);
-            CHECK(std::isfinite(value)&&error<.00003);
-        }
-        active+=rate>.1;suppressed+=rate==0;
-        if(row==0)armedFine=std::abs(vz*std::tanh((h+q.f[4][1]*20)/vz)-incident[0]);
-    }
-    CHECK(active>=3&&suppressed>=12&&armedFine>1);
-    for(unsigned i=0;i<width*4;++i)CHECK(actual[i]==actual[(3*width)*4+i]); // fine-scale trigger is exactly absent
-    printf("sdl_gpu_frame_selfcheck: coastal surf core %u cases actual FFT decode/shared limiter + independent blend/rate/convolution/age/diffusion max%.9g active%u suppressed%u fine-control%.6g repeat exact\n",height,maximum,active,suppressed,armedFine);
-}
-
-
-// Append after read_ocean and invoke AFTER check_gpu_fft_ocean, whose initial-state
-// assertions deliberately precede every other use of the real ocean owner.
-static void check_gpu_water_coastal_incident(SdlGpuFrame *frame)
-{
-    using namespace WaterCoastalSurf;
-    const uint64_t revision=0xc04157;
-    std::vector<Node> nodes;
-    const float positions[][2]={{0,0},{-137.25f,91.5f},{1938,736},{3050,-330}};
-    for(const auto &p:positions)for(unsigned support=0;support<2;++support)for(unsigned weight=0;weight<3;++weight){
-        Node node;node.world[0]=p[0];node.world[1]=p[1];node.world[2]=7+4*(support*3+weight);
-        node.context={4,64,-1,0,support==0?1.f:.4f,weight==0?0.f:weight==1?.4f:1.f,.4f,.5f,1,1};
-        nodes.push_back(node);
-    }
-    CHECK(ValidGraph(nodes,5));
-    struct Resources {
-        SdlGpuFrame *frame=nullptr;SDL_GPUShader *vertex=nullptr,*pixel=nullptr;SDL_GPUGraphicsPipeline *pipeline=nullptr;bool installed=false;
-        ~Resources(){if(installed)CHECK(frame->Clear_Coastal_Surf());
-            if(pipeline)SDL_ReleaseGPUGraphicsPipeline(frame->Device(),pipeline);
-            if(vertex)SDL_ReleaseGPUShader(frame->Device(),vertex);if(pixel)SDL_ReleaseGPUShader(frame->Device(),pixel);}
-    } resources;resources.frame=frame;
-    std::string source,error;std::vector<unsigned char>spirv;
-    const bool generated=WaterCoastalIncident::PixelSource(source);CHECK(generated);if(!generated)return;
-    bool ok=SDL3_Compile_HLSL_To_SPIRV(WaterCoastalIncident::VertexSource(),true,spirv,error);CHECK(ok);if(!ok)return;
-    resources.vertex=SDL3_Create_Shader(frame->Device(),spirv,true,error);CHECK(resources.vertex);if(!resources.vertex)return;
-    ok=SDL3_Compile_HLSL_To_SPIRV(source,false,spirv,error);CHECK(ok);
-    if(!ok){printf("coastal incident shader: %s\n",error.c_str());return;}
-    unsigned samplers=0,buffers=0;SDL3_Shader_Slots(spirv,false,samplers,buffers);
-    CHECK(samplers==WaterCoastalIncident::SamplerCount&&buffers==1);
-    resources.pixel=SDL3_Create_Shader(frame->Device(),spirv,false,error);CHECK(resources.pixel);if(!resources.pixel)return;
-    SDL_GPUColorTargetDescription colour={};colour.format=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
-    SDL_GPUGraphicsPipelineCreateInfo pipeline={};pipeline.vertex_shader=resources.vertex;pipeline.fragment_shader=resources.pixel;
-    pipeline.primitive_type=SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;pipeline.target_info.color_target_descriptions=&colour;pipeline.target_info.num_color_targets=1;
-    resources.pipeline=SDL_CreateGPUGraphicsPipeline(frame->Device(),&pipeline);CHECK(resources.pipeline);if(!resources.pipeline)return;
-    resources.installed=frame->Install_Coastal_Surf(revision,nodes,5);CHECK(resources.installed);if(!resources.installed)return;
-    const SdlTarget target=frame->Coastal_Surf_Field_Target(revision);
-    CHECK(target.Colour&&target.Depth==nullptr&&target.Width==256&&target.Height==256);if(!target.Colour)return;
-    auto render=[&](float time,float count){
-        CHECK(frame->Flush());SDL_GPUCommandBuffer *commands=SDL_AcquireGPUCommandBuffer(frame->Device());CHECK(commands);
-        if(!commands)return std::vector<float>();
-        SDL_GPUColorTargetInfo attachment={};attachment.texture=target.Colour;attachment.load_op=SDL_GPU_LOADOP_DONT_CARE;attachment.store_op=SDL_GPU_STOREOP_STORE;
-        SDL_GPURenderPass *pass=SDL_BeginGPURenderPass(commands,&attachment,1,nullptr);CHECK(pass);
-        if(!pass){SDL_CancelGPUCommandBuffer(commands);return std::vector<float>();}
-        SDL_BindGPUGraphicsPipeline(pass,resources.pipeline);
-        SDL_GPUTextureSamplerBinding bindings[WaterCoastalIncident::SamplerCount]={};
-        for(unsigned i=0;i<4;++i){bindings[i].texture=frame->Coastal_Surf_Domain(i,revision);bindings[i].sampler=frame->Coastal_Surf_Sampler(revision);}
-        for(unsigned i=0;i<4;++i){bindings[4+i].texture=frame->Ocean_Map(i);bindings[4+i].sampler=frame->Ocean_Sampler();}
-        SDL_BindGPUFragmentSamplers(pass,0,bindings,WaterCoastalIncident::SamplerCount);
-        const WaterCoastalIncident::Parameters parameters{time,count,0,0};
-        SDL_PushGPUFragmentUniformData(commands,0,&parameters,sizeof(parameters));
-        SDL_DrawGPUPrimitives(pass,3,1,0,0);SDL_EndGPURenderPass(pass);CHECK(SDL_SubmitGPUCommandBuffer(commands));
-        return read_float_targets(frame,&target.Colour,1,256,256);
-    };
-    struct Mode{double x,y,a,w,p;};
-#define COASTAL_INCIDENT_MODE(kx,ky,a,w,p) {kx,ky,a,w,p},
-    const Mode legacyModes[]={WATER_SURFACE_MODES(COASTAL_INCIDENT_MODE)};
-    const Mode oceanModes[]={WATER_OCEAN_MODES(COASTAL_INCIDENT_MODE)};
-#undef COASTAL_INCIDENT_MODE
-    // Independent scalar equations using the source coefficient data. Derivatives
-    // come from double central differences, not either generated analytic derivative.
-    auto scalar=[&](double x,double y,double time,bool ocean){
-        double sum=0;
-        if(!ocean){for(unsigned i=0;i<3;++i){const Mode&m=legacyModes[i];const double phase=x*m.x+y*m.y-time*m.w+m.p;
-            sum+=m.a*(std::sin(phase)+.13*std::sin(2*phase));}return sum;}
-        const double s0=std::sin(x*.0241+y*.0157-time*.23+.4),s1=std::sin(x*-.0173+y*.0299-time*.19+2.1);
-        x+=5*s0;y+=4*s1;
-        for(const Mode&m:oceanModes)if(m.x*m.x+m.y*m.y<.18){const double phase=x*m.x+y*m.y-time*m.w+m.p;
-            sum+=m.a*(std::sin(phase)+.08*std::sin(2*phase));}
-        return sum*(.86+.14*s0*s1);
-    };
-    auto analytic=[&](double x,double y,double time,bool ocean){const double epsilon=.0001;
-        return std::array<double,4>{scalar(x,y,time,ocean),
-            (scalar(x+epsilon,y,time,ocean)-scalar(x-epsilon,y,time,ocean))/(2*epsilon),
-            (scalar(x,y+epsilon,time,ocean)-scalar(x,y-epsilon,time,ocean))/(2*epsilon),1};};
-    struct Texel {std::array<double,4> value{},error{};};
-    auto sample=[&](const std::vector<float>&maps,unsigned map,float worldX,float worldY){
-        const unsigned cascade=map/2;const float period=WaterFftSpectrum::Sizes[cascade]*WaterFftSampling::WorldScale;
-        // Float division matches the production UV arithmetic; interpolation itself
-        // is independent double bilinear of the REAL sampled mip-zero texels.
-        const float u=worldX/period,v=worldY/period;
-        const double x=double(u)*256-.5,y=double(v)*256-.5;const int ix=int(std::floor(x)),iy=int(std::floor(y));
-        const double fx=x-ix,fy=y-iy;Texel result;
-        auto at=[&](int px,int py,unsigned c){px=(px%256+256)%256;py=(py%256+256)%256;return double(maps[((map*256+py)*256+px)*4+c]);};
-        for(unsigned c=0;c<4;++c){const double a=at(ix,iy,c),b=at(ix+1,iy,c),d=at(ix,iy+1,c),e=at(ix+1,iy+1,c);
-            result.value[c]=(a+(b-a)*fx)*(1-fy)+(d+(e-d)*fx)*fy;
-            // A portable 8-bit subtexel precision bound, plus float UV rounding.
-            // Neighbouring cells are included if rounding crosses a bilinear edge.
-            double sx=0,sy=0,magnitude=0;
-            for(int yy=iy-1;yy<=iy+1;++yy)for(int xx=ix-1;xx<=ix+1;++xx){
-                sx=(std::max)(sx,std::abs(at(xx+1,yy,c)-at(xx,yy,c)));
-                sy=(std::max)(sy,std::abs(at(xx,yy+1,c)-at(xx,yy,c)));
-                magnitude=(std::max)(magnitude,std::abs(at(xx,yy,c)));}
-            const double ex=1./256+4*std::numeric_limits<float>::epsilon()*std::abs(u)*256;
-            const double ey=1./256+4*std::numeric_limits<float>::epsilon()*std::abs(v)*256;
-            result.error[c]=sx*ex+sy*ey+2e-7*(1+magnitude);
-        }return result;
-    };
-    auto spectral=[&](const std::vector<float>&maps,float x,float y,bool fine){
-        std::array<Texel,6> samples;for(unsigned i=0;i<(fine?6:4);++i)samples[i]=sample(maps,i,x,y);
-        double displacement[3]={},derivative[5]={},de[3]={},ge[5]={};
-        for(unsigned cascade=0;cascade<(fine?3:2);++cascade){const auto&a=samples[cascade*2],&b=samples[cascade*2+1];
-            const double chop=cascade?-1.5:-1.2,scale=WaterFftSampling::WorldScale;
-            displacement[0]+=chop*scale*a.value[0];displacement[1]+=chop*scale*a.value[2];displacement[2]+=scale*a.value[1];
-            de[0]+=std::abs(chop)*scale*a.error[0];de[1]+=std::abs(chop)*scale*a.error[2];de[2]+=scale*a.error[1];
-            derivative[0]+=b.value[0];derivative[1]+=b.value[1];derivative[2]+=chop*b.value[2];derivative[3]+=chop*b.value[3];derivative[4]+=chop*a.value[3];
-            ge[0]+=b.error[0];ge[1]+=b.error[1];ge[2]+=std::abs(chop)*b.error[2];ge[3]+=std::abs(chop)*b.error[3];ge[4]+=std::abs(chop)*a.error[3];
-        }
-        const double vertical=WaterFftGeometry::MaxVerticalDisplacement,horizontal=WaterFftGeometry::MaxHorizontalDisplacement/std::sqrt(2.0);
-        double limiter[3],le[3];for(unsigned i=0;i<3;++i){const double bound=i==2?vertical:horizontal;
-            limiter[i]=1-std::pow(std::tanh(displacement[i]/bound),2);le[i]=2*de[i]/bound;}
-        Texel result;result.value[0]=vertical*std::tanh(displacement[2]/vertical);
-        result.value[1]=derivative[0]*limiter[2];result.value[2]=derivative[1]*limiter[2];
-        const double a=1+derivative[2]*limiter[0],b=1+derivative[3]*limiter[1],cross=derivative[4];
-        result.value[3]=a*b-cross*cross*limiter[0]*limiter[1];
-        result.error[0]=de[2];result.error[1]=ge[0]+std::abs(derivative[0])*le[2];result.error[2]=ge[1]+std::abs(derivative[1])*le[2];
-        const double ae=ge[2]+std::abs(derivative[2])*le[0],be=ge[3]+std::abs(derivative[3])*le[1];
-        result.error[3]=std::abs(a)*be+std::abs(b)*ae+ae*be+2*std::abs(cross)*ge[4]+ge[4]*ge[4]+cross*cross*(le[0]+le[1]);
-        return result;
-    };
-    double maximum=0,maximumBound=0,wrongBlend=0,wrongTime=0,fineArmed=0,advanced=0,oldCoastPhase=0;
-    std::vector<float> first;
-    for(float time:{3.4375f,7.75f}){
-        CHECK(frame->Prepare_Ocean(time*WaterFftSampling::TimeScale));
-        const auto maps=read_ocean(frame),actual=render(time,float(nodes.size())),repeat=render(time,float(nodes.size()));
-        CHECK(actual.size()==256*256*4 && actual==repeat);if(actual.size()!=256*256*4)return;
-        for(unsigned n=0;n<nodes.size();++n){const Node&node=nodes[n];
-            const double r=node.context.offshore,w=node.context.exposure;
-            const auto river=analytic(node.world[0],node.world[1],time,false),ocean=analytic(node.world[0],node.world[1],time,true);
-            const auto wrongClock=analytic(node.world[0],node.world[1],time*WaterFftSampling::TimeScale,false);
-            const auto fft=spectral(maps,node.world[0],node.world[1],false),full=spectral(maps,node.world[0],node.world[1],true);
-            fineArmed=(std::max)(fineArmed,std::abs(fft.value[0]-full.value[0]));
-            for(unsigned c=0;c<4;++c){const double a=c==3?1:river[c]+(ocean[c]-river[c])*r;
-                const double expected=c==3?1+(fft.value[3]-1)*w*r:a+(fft.value[c]-a)*w;
-                // Analytic tolerance retains the existing float-phase model bound;
-                // spectral tolerance is derived from THIS point's real texel gradients.
-                const double bound=.0025*(1-w)+w*fft.error[c]+.00002;
-                const double error=std::abs(actual[n*4+c]-expected);maximum=(std::max)(maximum,error);maximumBound=(std::max)(maximumBound,bound);
-                CHECK(std::isfinite(actual[n*4+c])&&error<bound);
-                if(c<3&&w<1&&r>0)wrongBlend=(std::max)(wrongBlend,std::abs(expected-(river[c]+(fft.value[c]-river[c])*w)));
-                if(c<3&&w<1&&r==0)wrongTime=(std::max)(wrongTime,std::abs((river[c]-wrongClock[c])*(1-w)));
-                if(c<3&&w==1&&r==0)oldCoastPhase=(std::max)(oldCoastPhase,std::abs(expected-river[c]));
-            }
-            // Full connected-water support has exactly one wave phase at R0,
-            // transitional R and R1. Only horizontal compression retains the R fade.
-            if(n%6<3)for(unsigned c=0;c<3;++c)CHECK(std::abs(actual[n*4+c]-actual[(n-n%6)*4+c])<.000002f);
-            if(r==0)CHECK(actual[n*4+3]==1);
-        }
-        for(unsigned n=unsigned(nodes.size());n<256*256;++n){CHECK(actual[n*4]==0&&actual[n*4+1]==0&&actual[n*4+2]==0&&actual[n*4+3]==1);}
-        if(first.empty())first=actual;else for(unsigned n=0;n<nodes.size()*4;++n)advanced=(std::max)(advanced,std::abs(double(first[n])-actual[n]));
-    }
-    CHECK(wrongBlend>.05&&wrongTime>.05&&fineArmed>.001&&advanced>.05&&oldCoastPhase>.05);
-    const auto invalid=render(std::numeric_limits<float>::quiet_NaN(),float(nodes.size()));
-    const auto fractional=render(7.75f,float(nodes.size())+.5f);
-    CHECK(invalid.size()==256*256*4&&fractional==invalid);
-    for(unsigned n=0;n<invalid.size()/4;++n)CHECK(invalid[n*4]==0&&invalid[n*4+1]==0&&invalid[n*4+2]==0&&invalid[n*4+3]==1);
-    printf("sdl_gpu_frame_selfcheck: coastal incident real FFT atlas %zu nodes x2 phases, B1 and B.4 across R0/mixed/R1, max error %.8g bound %.8g; old coastal phase mismatch %.6g, analytic mix %.6g time-scale %.6g fine %.6g advance %.6g; repeat exact, padding/invalid clear\n",
-        nodes.size(),maximum,maximumBound,oldCoastPhase,wrongBlend,wrongTime,fineArmed,advanced);
-}
-
-// Run after the new presentation header/uniform transport is integrated. This fixture
-// extracts the ACTUAL generated injection, then supplies controlled scene provenance.
-// Existing scene-depth/refraction tests independently validate real reconstruction.
-#if defined(__linux__)
-static void check_gpu_water_coastal_presentation(SdlGpuFrame *frame)
-{
-    struct Query{float q[7][4];};
-    Query base={{{1,.1f,.0625f,1},{0,0,.4f,.4f},{.2f,1,1,1},{1,1,1,0},{0,0,0,1},{1,1,1,0},{2,1,0,0}}};
-    std::vector<Query>queries(30,base);
-    queries[1].q[1][2]=queries[1].q[1][3]=0;queries[2].q[1][2]=queries[2].q[1][3]=1;
-    queries[3].q[0][3]=0;queries[4].q[1][0]=.2f;queries[5].q[0][2]=-.1f;queries[6].q[1][1]=1;
-    queries[7].q[0][0]=0;queries[8].q[0][1]=20;queries[9].q[0][0]=std::numeric_limits<float>::quiet_NaN();
-    queries[10].q[2][1]=6;queries[11].q[6][1]=-1;queries[12].q[3][0]=-2;
-    queries[13].q[2][2]=5;queries[14].q[2][3]=5;queries[15].q[3][1]=0;queries[16].q[3][2]=0;
-    queries[17].q[1][2]=0;queries[18].q[3][3]=.5f;queries[19].q[4][0]=.1f;
-    queries[20].q[5][0]=0;queries[21].q[4][3]=0;queries[22].q[4][2]=1;
-    queries[23].q[2][0]=1;queries[24].q[2][0]=-1;queries[25].q[5][3]=2;
-    queries[26].q[0][1]=3;queries[27].q[0][2]=3;queries[28].q[6][0]=30;queries[29].q[1][3]=.42f;
-    const unsigned rows=unsigned(queries.size()),columns=2;CHECK(queries.size()*sizeof(Query)<=4096);
-    const char *oldOption=getenv("ZH_WATER_SURF_GPU"),*oldDebug=getenv("ZH_WATER_DEBUG");
-    const bool hadOption=oldOption!=nullptr,hadDebug=oldDebug!=nullptr;
-    const std::string savedOption=oldOption?oldOption:"",savedDebug=oldDebug?oldDebug:"";
-    CHECK(setenv("ZH_WATER_SURF_GPU","1",1)==0);CHECK(unsetenv("ZH_WATER_DEBUG")==0);
-    PixelPipelineDescription pd={};std::string production;
-    const bool generated=EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pd,production,COMBINER_SHADER_TARGET_SDL3_GPU);
-    if(hadOption)CHECK(setenv("ZH_WATER_SURF_GPU",savedOption.c_str(),1)==0);else CHECK(unsetenv("ZH_WATER_SURF_GPU")==0);
-    if(hadDebug)CHECK(setenv("ZH_WATER_DEBUG",savedDebug.c_str(),1)==0);else CHECK(unsetenv("ZH_WATER_DEBUG")==0);
-    CHECK(generated);if(!generated)return;
-    const size_t begin=production.find("float gpuCoastFoam="),end=production.find("if(shoreFoamEnabled",begin);
-    CHECK(begin!=std::string::npos&&end!=std::string::npos&&end>begin);if(begin==std::string::npos||end==std::string::npos||end<=begin)return;
-    std::string ps="struct Query{float4 q[7];};cbuffer Queries:register(b0,space3){Query Q[30];};\n";
-    for(unsigned i:{4u,6u,15u}){const std::string n=std::to_string(i);
-        ps+="Texture2D<float4> Texture"+n+":register(t"+n+",space2);SamplerState Sampler"+n+":register(s"+n+",space2);\n";}
-    ps+=R"HLSL(
-float oceanNoise(float2 p){return .5;}
-float2 waterScenePixel(float2 p){return p;}
-float3 scenePosition(float2 p,float raw){return float3(2,floor(p.y),Q[(uint)p.y].q[2].y);}
-float terrainHeight(float2 p){Query q=Q[(uint)p.y];return p.x<.5?q.q[2].z:p.x<1.5?q.q[2].w:q.q[3].x;}
-float3 vesselHullDamping(float2 p,float level){return float3(Q[(uint)p.y].q[3].z,0,0);}
-bool waterShoreSceneDepth(float available,float raw){return isfinite(available)&&available>.5&&isfinite(raw)&&raw>=0&&raw<.999999;}
-struct Input{float4 Position;float4 Diffuse;float2 TexCoord0;};
-)HLSL";
-    // Keep the actual rank/coverage/porosity helpers, excluding unrelated vessel
-    // history entry points that require a different atlas and uniform layout.
-    const std::string foamSource=WaterFoamShading::Source();
-    const size_t foamBegin=foamSource.find("float waterFoamNoiseRank("),foamEnd=foamSource.find("float waterFoamMicroCoverage(");
-    CHECK(foamBegin!=std::string::npos&&foamEnd!=std::string::npos&&foamEnd>foamBegin);
-    if(foamBegin==std::string::npos||foamEnd==std::string::npos||foamEnd<=foamBegin)return;
-    ps+=foamSource.substr(foamBegin,foamEnd-foamBegin);ps+=WaterCoastalPresentation::Source();
-    ps+=R"HLSL(
-float4 main(float4 pixel:SV_Position):SV_Target0 {
-    uint row=(uint)pixel.y;Query q=Q[row];Input input;
-    input.Position=float4(.5,row+.5,.5,1);input.Diffuse=float4(q.q[3].y,1,1,1);input.TexCoord0=float2(q.q[3].w,0);
-    float time=q.q[6].x,baseLevel=5,fftWeight=q.q[1].z,foamFootprint=.25;
-    float2 wavePosition=float2(1,row),correctionSlope=q.q[4].xy;
-    float3 world=float3(0,row,5),view=float3(0,0,q.q[6].y);
-    float surfaceTerrainHeight=q.q[2].z;
-    float4 WaterParameters=float4(time,q.q[4].z,0,0),OpticalParameters=float4(0,0,q.q[5].z,q.q[4].w);
-    float4 TerrainParameters=float4(-4.5,30,1,q.q[5].y),SceneParameters=float4(1,1,1.0/30,q.q[5].x);
-    float4 CoastalArea=float4(q.q[5].w,-.5,2,30);
-    float4 CoastalParams=float4(q.q[0].w,baseLevel+q.q[1].x,time-q.q[0].z,time+q.q[1].y);
-    // Deliberately wrong refracted/fallback values arm use of original depth instead.
-    float depth=100;float3 bottom=float3(0,0,-100),shoreSceneBottom=bottom;
-)HLSL";
-    ps+=production.substr(begin,end-begin);
-    ps+=R"HLSL(
-    if(pixel.x<1)return float4(gpuCoastRaw,gpuCoastGate,gpuCoastFoam,1);
-    float2 moments=waterCoastalAtTime(q.q[0].xy,q.q[0].z);
-    return float4(moments,waterCoastalModelGate(q.q[1].z,q.q[1].w,q.q[3].w,q.q[4].xy),
-        waterCoastalViewValid(CoastalArea,CoastalParams,wavePosition,baseLevel,time)?1:0);
-})HLSL";
-    struct Resources{SDL_GPUDevice*d=nullptr;SDL_GPUTexture*t[3]={},*target=nullptr;SDL_GPUSampler*point=nullptr;SDL_GPUShader*vs=nullptr,*ps=nullptr;SDL_GPUGraphicsPipeline*pipeline=nullptr;
-        ~Resources(){if(target)SDL_ReleaseGPUTexture(d,target);for(auto*p:t)if(p)SDL_ReleaseGPUTexture(d,p);if(point)SDL_ReleaseGPUSampler(d,point);
-            if(pipeline)SDL_ReleaseGPUGraphicsPipeline(d,pipeline);if(vs)SDL_ReleaseGPUShader(d,vs);if(ps)SDL_ReleaseGPUShader(d,ps);}}r;r.d=frame->Device();
-    std::vector<unsigned char>spirv;std::string error;bool ok=SDL3_Compile_HLSL_To_SPIRV(WaterFftSpectrum::VertexHlsl(),true,spirv,error);CHECK(ok);if(!ok)return;
-    r.vs=SDL3_Create_Shader(r.d,spirv,true,error);CHECK(r.vs);if(!r.vs)return;
-    ok=SDL3_Compile_HLSL_To_SPIRV(ps,false,spirv,error);CHECK(ok);if(!ok){printf("coastal presentation PS: %s\n",error.c_str());return;}
-    unsigned samplers=0,buffers=0;SDL3_Shader_Slots(spirv,false,samplers,buffers);CHECK(samplers==16&&buffers==1);if(samplers!=16||buffers!=1)return;
-    r.ps=SDL3_Create_Shader(r.d,spirv,false,error);CHECK(r.ps);if(!r.ps)return;
-    SDL_GPUSamplerCreateInfo si={};si.min_filter=si.mag_filter=SDL_GPU_FILTER_NEAREST;si.mipmap_mode=SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
-    si.address_mode_u=si.address_mode_v=si.address_mode_w=SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
-    r.point=SDL_CreateGPUSampler(r.d,&si);CHECK(r.point);if(!r.point)return;
-    SDL_GPUColorTargetDescription colour={};colour.format=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
-    SDL_GPUGraphicsPipelineCreateInfo pi={};pi.vertex_shader=r.vs;pi.fragment_shader=r.ps;pi.primitive_type=SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
-    pi.target_info.color_target_descriptions=&colour;pi.target_info.num_color_targets=1;r.pipeline=SDL_CreateGPUGraphicsPipeline(r.d,&pi);CHECK(r.pipeline);if(!r.pipeline)return;
-    SDL_GPUTextureCreateInfo ti={};ti.type=SDL_GPU_TEXTURETYPE_2D;ti.format=colour.format;ti.usage=SDL_GPU_TEXTUREUSAGE_SAMPLER;ti.width=1;ti.height=rows;ti.layer_count_or_depth=ti.num_levels=1;
-    for(auto &texture:r.t){texture=SDL_CreateGPUTexture(r.d,&ti);CHECK(texture);if(!texture)return;}
-    ti.width=columns;ti.usage=SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;r.target=SDL_CreateGPUTexture(r.d,&ti);CHECK(r.target);if(!r.target)return;
-    const unsigned bytes=rows*4*sizeof(float);std::vector<float> data(rows*4*3,0);
-    // Canonical phase support is B. Deliberately unrelated optical R arms the
-    // regression: reading R would reject otherwise matching coastal FFT support.
-    for(unsigned row=0;row<rows;++row){data[row*4]=.73f;data[row*4+2]=queries[row].q[1][3];data[rows*4+row*4]=queries[row].q[2][0];
-        data[rows*8+row*4]=queries[row].q[0][0];data[rows*8+row*4+1]=queries[row].q[0][1];}
-    SDL_GPUTransferBufferCreateInfo transferInfo={};transferInfo.usage=SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;transferInfo.size=bytes*3;
-    SDL_GPUTransferBuffer *transfer=SDL_CreateGPUTransferBuffer(r.d,&transferInfo);CHECK(transfer);if(!transfer)return;
-    void*mapped=SDL_MapGPUTransferBuffer(r.d,transfer,false);CHECK(mapped);if(!mapped){SDL_ReleaseGPUTransferBuffer(r.d,transfer);return;}
-    memcpy(mapped,data.data(),bytes*3);SDL_UnmapGPUTransferBuffer(r.d,transfer);CHECK(frame->Flush());
-    SDL_GPUCommandBuffer *upload=SDL_AcquireGPUCommandBuffer(r.d);CHECK(upload);if(!upload){SDL_ReleaseGPUTransferBuffer(r.d,transfer);return;}
-    SDL_GPUCopyPass *copy=SDL_BeginGPUCopyPass(upload);CHECK(copy);if(!copy){SDL_CancelGPUCommandBuffer(upload);SDL_ReleaseGPUTransferBuffer(r.d,transfer);return;}
-    for(unsigned i=0;i<3;++i){SDL_GPUTextureTransferInfo source={};source.transfer_buffer=transfer;source.offset=i*bytes;source.pixels_per_row=1;source.rows_per_layer=rows;
-        SDL_GPUTextureRegion region={};region.texture=r.t[i];region.w=1;region.h=rows;region.d=1;SDL_UploadToGPUTexture(copy,&source,&region,false);}
-    SDL_EndGPUCopyPass(copy);CHECK(SDL_SubmitGPUCommandBuffer(upload));SDL_ReleaseGPUTransferBuffer(r.d,transfer);
-    auto render=[&](){SDL_GPUCommandBuffer *commands=SDL_AcquireGPUCommandBuffer(r.d);CHECK(commands);if(!commands)return std::vector<float>();
-        SDL_GPUColorTargetInfo target={};target.texture=r.target;target.load_op=SDL_GPU_LOADOP_DONT_CARE;target.store_op=SDL_GPU_STOREOP_STORE;
-        SDL_GPURenderPass *pass=SDL_BeginGPURenderPass(commands,&target,1,nullptr);CHECK(pass);if(!pass){SDL_CancelGPUCommandBuffer(commands);return std::vector<float>();}
-        SDL_BindGPUGraphicsPipeline(pass,r.pipeline);SDL_GPUTextureSamplerBinding bindings[16]={};for(auto &binding:bindings){binding.texture=r.t[0];binding.sampler=r.point;}
-        bindings[6].texture=r.t[1];bindings[15].texture=r.t[2];SDL_BindGPUFragmentSamplers(pass,0,bindings,16);
-        SDL_PushGPUFragmentUniformData(commands,0,queries.data(),unsigned(queries.size()*sizeof(Query)));SDL_DrawGPUPrimitives(pass,3,1,0,0);
-        SDL_EndGPURenderPass(pass);CHECK(SDL_SubmitGPUCommandBuffer(commands));return read_float_targets(frame,&r.target,1,columns,rows);};
-    const auto actual=render(),repeat=render();CHECK(actual==repeat&&actual.size()==rows*columns*4);if(actual.size()!=rows*columns*4)return;
-    auto clamp=[](double x,double lo,double hi){return (std::max)(lo,(std::min)(hi,x));};
-    auto smooth=[&](double a,double b,double x){const double t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t);};
-    auto band=[&](double coverage,double cell){const double ratio=.25/cell,unresolved=smooth(.5,1.5,ratio),width=clamp(ratio*.5,cell==1?.08:.01,.5);
-        double cutoff=coverage;if(coverage<width)cutoff=-width+std::sqrt(4*width*coverage);else if(coverage>1-width)cutoff=1+width-std::sqrt(4*width*(1-coverage));
-        const double resolved=clamp((cutoff-.5+width)/(2*width),0,1);return resolved*(1-unresolved)+coverage*unresolved;};
-    double maximum=0;unsigned admitted=0,rejected=0;
-    for(unsigned row=0;row<rows;++row){const auto&q=queries[row].q;double density=0,age=0;
-        if(std::isfinite(q[0][0])&&q[0][0]>0&&q[0][0]<=16&&q[0][1]>=0&&q[0][1]<=1024&&q[0][2]>=0&&q[0][2]<14){
-            age=q[0][1]/double(q[0][0])+q[0][2];if(age<14)density=q[0][0]*std::exp(-q[0][2]/5.0);else age=0;}
-        const double model=(1-smooth(.015,.06,std::abs(q[1][2]-q[1][3])))*(1-smooth(.02,.15,std::abs(q[3][3])))
-            *(1-smooth(.002,.02,std::hypot(q[4][0],q[4][1])));
-        const bool view=q[0][3]>=.5&&std::abs(q[1][0])<=.01&&std::abs(q[1][1])<=.0001&&q[0][2]+q[1][1]>=0
-            &&q[6][0]-q[0][2]>=0&&q[5][3]<=1&&q[5][3]+2>=1;
-        const bool enabled=q[4][2]<.5&&q[4][3]>.5&&q[5][0]>.5&&q[5][1]>.5&&q[5][2]>.5&&view;
-        double raw=0,gate=0;
-        if(enabled&&density>0){const double coverage=-std::expm1(-density),aged=smooth(.4,3,age),patch=std::sqrt(coverage);
-            const double porous=band(patch,1)*band(patch,.35);
-            raw=(coverage*(1-aged)+porous*aged)*(1-smooth(8,14,age));
-            if(model>0&&raw>0&&q[2][0]>=0&&q[2][0]<.999999&&q[2][1]<=4.92&&(q[2][1]-5)*q[6][1]<-.01
-                &&q[2][2]<(std::min)(4.92,4.85)&&q[2][3]<4.85){
-                gate=model*smooth(0,.8,5-q[2][1])*smooth(.15,.8,5-q[2][2])*(1-smooth(.5,1.5,std::abs(q[2][1]-q[3][0])))
-                    *smooth(.001,.1,(std::min)(clamp(q[3][1],0,1),clamp(q[3][2],0,1)));}
-        }
-        const double expected[8]={raw,gate,raw*gate,1,density,age,model,view?1.:0.};
-        for(unsigned c=0;c<8;++c){const double error=std::abs(actual[row*8+c]-expected[c]);maximum=(std::max)(maximum,error);
-            if(!(std::isfinite(actual[row*8+c])&&error<.00003))printf("coast presentation row%u ch%u got%.9g expected%.9g\n",row,c,actual[row*8+c],expected[c]);
-            CHECK(std::isfinite(actual[row*8+c])&&error<.00003);}
-        admitted+=raw*gate>0;rejected+=raw*gate==0;
-    }
-    CHECK(admitted>=5&&rejected>=20);
-    for(unsigned c=0;c<4;++c)CHECK(actual[c]==actual[28*8+c]); // shifted absolute time, same age: no material oscillator
-    CHECK(actual[1*8+2]>0&&actual[2*8+2]>0); // R0 and R1 are both supported
-    CHECK(actual[23*8+2]==0&&actual[12*8+2]==0&&actual[16*8+2]==0); // false fallback, object, known hull armed
-    printf("sdl_gpu_frame_selfcheck: coastal presentation actual injection %u cases, independent moment/model/original-depth/wet/porosity oracle max%.9g admitted%u rejected%u repeat exact; absolute-time shift exact\n",rows,maximum,admitted,rejected);
-}
-#endif // __linux__
-
 int main()
 {
 	if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -8165,19 +6588,12 @@ int main()
 	}
 	printf("sdl_gpu_frame_selfcheck: %s\n", SDL_GetGPUDeviceDriver(frame->Device()));
 	check_gpu_fft_ocean(frame);
-	check_gpu_water_coastal_incident(frame);
-	check_gpu_coastal_surf_from_ocean(frame);
 	check_gpu_water_vertex_uniform_order(frame);
 	check_gpu_modern_water_material(frame);
 	check_gpu_water_visual_uniform_order(frame);
 	check_gpu_water_visual_query(frame);
 #if defined(__linux__)
 	check_gpu_water_visual_zero_effect_skip(frame);
-#endif
-	check_gpu_coastal_surf_owner(frame);
-	check_gpu_coastal_surf_view(frame);
-#if defined(__linux__)
-	check_gpu_water_coastal_presentation(frame);
 #endif
 	check_gpu_foam_history_upload(frame);
 	check_gpu_foam_history_tiles(frame);
@@ -8188,9 +6604,7 @@ int main()
 	check_gpu_foam_environment(frame);
 	check_gpu_water_shore_source(frame);
 #endif
-	check_gpu_water_coastal_surf_core(frame);
 #if defined(__linux__)
-	check_gpu_water_coastal_crest(frame);
 	check_gpu_water_shore_front(frame);
 	check_gpu_water_shore_depth_gate(frame);
 	check_gpu_water_shore_history(frame);
@@ -8200,7 +6614,6 @@ int main()
 	check_gpu_foam_material(frame);
 	check_gpu_coastal_material(frame);
 #endif
-	check_gpu_vessel_wave_model(frame);
 	check_gpu_vessel_hull_damping(frame);
 	check_gpu_water_wave_cage(frame);
 #if defined(__linux__)
@@ -8209,8 +6622,6 @@ int main()
 	check_gpu_water_bow_shoulder(frame);
 	check_gpu_water_bow_refinement(frame);
 	check_gpu_fft_vessel_composition(frame);
-	check_gpu_fft_vessel_composition(frame,true);
-	check_gpu_fft_vessel_composition(frame,true,true);
 	check_gpu_wave_model(frame);
 	check_gpu_ocean_wave_model(frame);
 #if defined(__linux__)

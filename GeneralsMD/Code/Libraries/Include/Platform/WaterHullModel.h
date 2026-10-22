@@ -125,15 +125,12 @@ float WaterHullSignedDistance(float2 p,int baseIndex,int count) {
 
 // Depends on the production oceanNoise function and HullParameters/HullData declarations.
 // Tests call this same emitted shader, so contact and moving-wake behavior cannot drift.
-inline std::string GetEffectsHlslSource(bool contactContours=false,bool visualContact=false) {
-    // Isolated legacy fixtures can omit the optional contact block. Production always uses
-    // it, with an invalid/empty contact falling back to the exact mean-waterline contour.
-    std::string source=contactContours?R"HLSL(
+inline std::string GetEffectsHlslSource() {
+    // An invalid or empty contact packet falls back to the exact mean-waterline contour.
+    std::string source=R"HLSL(
 float4 WaterContactRegister(int index) {
     return ContactHullData[(index/10)*10].w>=3.0?ContactHullData[index]:HullData[index];
 }
-)HLSL":R"HLSL(
-float4 WaterContactRegister(int index) { return HullData[index]; }
 )HLSL";
     source=std::string(WaterHullContactFoam::Source())+source;
     source+=R"HLSL(
@@ -204,11 +201,11 @@ float3 oceanHullEffects(float2 world,float level,float time,float offshore,float
             float bowContact=exposed*(1.0-smoothstep(bowWidth,bowWidth+aa,distance))*bowRegion
                 *moving*(0.45+0.55*smoothstep(0.25,0.7,flecks));
 )HLSL";
-    if(visualContact) source+="            if(VisualHullMeta[h].w<0.5) {\n";
+    source+="            if(VisualHullMeta[h].w<0.5) {\n";
     source+=R"HLSL(            foam=max(foam,max(contact,bowContact*0.82));
             turbulence=max(turbulence,exposed*outer*(collision*0.18+moving*0.25)+bowContact*0.4);
 )HLSL";
-    if(visualContact) source+="            }\n";
+    source+="            }\n";
     source+=R"HLSL(        }
         if(speed>0.3) {
             float2 wakePoint=local-stern;

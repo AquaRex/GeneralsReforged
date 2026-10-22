@@ -47,7 +47,6 @@
 #include "Platform/RenderTypes.h"
 #include "Platform/D3D9Posix.h"
 #include "Platform/WaterShoreOverlay.h"
-#include "Platform/WaterCoastalRender.h"
 #include "Platform/WaterHullVisualLayout.h"
 #include <memory>
 
@@ -173,9 +172,6 @@ public:
 	PosixDevice9(PosixDirect3D9 *adapter, RenderWindow window, const D3DPRESENT_PARAMETERS &parameters);
 
 	// Render-only explicit metadata: never infers .wak ownership from texture names.
-	bool Coastal_Bind(uint64_t revision,const WaterCoastalDomain::Domain &domain,
-		const WaterShoreHistory::Mapping &mapping,double level,const std::vector<WaterCoastalSurf::Lookup> &lookup);
-	void Coastal_End() { CoastalActive=false; }
 	void Shore_Begin(bool enabled);
 	void Shore_End();
 	void Shore_Patch(const WaterShoreOverlay::Quad *patch);
@@ -346,10 +342,6 @@ public:
 	RenderResult SetPixelShaderConstantF(unsigned int start, const float *data, unsigned int count) override;
 
 protected:
-	bool CoastalActive=false;
-	uint64_t CoastalRevision=0,CoastalViewRevision=0;
-	WaterShoreHistory::Mapping CoastalMapping={};
-	double CoastalLevel=0;
 	struct ShoreRegion {
 		WaterShoreOverlay::Quad patch;
 		WaterShoreOverlay::View view;

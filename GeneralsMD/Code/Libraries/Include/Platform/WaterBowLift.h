@@ -2,16 +2,9 @@
 #pragma once
 #include <cmath>
 #include <algorithm>
-#include <cstdlib>
-#include <cstring>
 #include <string>
 #include "Platform/WaterFftGeometry.h"
 namespace WaterBowLift {
-inline bool Enabled() {
-    const char *value=std::getenv("ZH_WATER_BOW_LIFT");
-    // Enabled for ordinary launches; explicit non-matching values retain the diagnostic fallback.
-    return !value || std::strcmp(value,"floor")==0;
-}
 struct Field { double value=0,dx=0,dy=0; };
 // Contract: B>=0, 0<=D<=F<=1. F retains terrain/floor/obstacle clearance;
 // D also contains mean-hull clearance. Gradients are with respect to mesh parameters.

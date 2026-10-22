@@ -68,7 +68,6 @@
 #if defined(__linux__)
 #include "Platform/WaterShoreOverlay.h"
 #endif
-#include <cstdlib>
 #include <cstring>
 
 //#pragma optimize("", off)
@@ -970,9 +969,7 @@ void setFPMode( void );
 #if defined(__linux__)
 void WaterTracksRenderSystem::takeReadsForRender(void)
 {
-	const char *legacySurf=std::getenv("ZH_WATER_LEGACY_SURF");
-	if ((legacySurf && std::strcmp(legacySurf,"0")==0) || !TheGlobalData->m_showSoftWaterEdge ||
-		TheWaterTransparency->m_transparentWaterDepth==0) return;
+	if (!TheGlobalData->m_showSoftWaterEdge || TheWaterTransparency->m_transparentWaterDepth==0) return;
 	if (TheGlobalData->m_usingWaterTrackEditor) TestWaterUpdate();
 	update();
 	for (WaterTracksObj *mod=m_usedModules;mod;mod=mod->m_nextSystem) {
@@ -992,12 +989,6 @@ void WaterTracksRenderSystem::takeReadsForRender(void)
 //=============================================================================
 void WaterTracksRenderSystem::flush(RenderInfoClass & rinfo)
 {
-#if defined(__linux__)
-	// Developer comparison only: isolate the water-surface surf from the authored .wak
-	// overlay. Normal play keeps the overlay until its per-fragment replacement is valid.
-	const char *legacySurf=std::getenv("ZH_WATER_LEGACY_SURF");
-	if (legacySurf && std::strcmp(legacySurf,"0")==0) return;
-#endif
 /** @todo: Optimize system by drawing tracks as triangle strips and use dynamic vertex buffer access.
 May also try rendering all tracks with one call to W3D/D3D by grouping them by texture.
 Try improving the fit to vertical surfaces like cliffs.

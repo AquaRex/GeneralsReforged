@@ -46,40 +46,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#if defined(__linux__)
-#include <execinfo.h> // bounded opt-in CPU attribution; no GPU queries/readbacks
-#endif
-
-bool PosixDevice9::Coastal_Bind(uint64_t revision,const WaterCoastalDomain::Domain &domain,
-    const WaterShoreHistory::Mapping &mapping,double level,const std::vector<WaterCoastalSurf::Lookup> &lookup)
-{
-	Coastal_End();
-	const char *option=getenv("ZH_WATER_SURF_GPU");
-	if(!Gpu || !option || strcmp(option,"1")!=0 || !revision || domain.Nodes().empty())return false;
-	if(CoastalRevision!=revision || !Gpu->Coastal_Surf_Domain(0,revision)) {
-		if(!Gpu->Install_Coastal_Surf(revision,domain.Nodes(),domain.Grid().spacing))return false;
-		CoastalRevision=revision;CoastalViewRevision=0;
-	}
-	if(CoastalViewRevision!=revision || CoastalLevel!=level || !WaterCoastalView::SameMapping(mapping,CoastalMapping)) {
-		if(!Gpu->Set_Coastal_Surf_View(revision,mapping,level,lookup))return false;
-		CoastalViewRevision=revision;CoastalMapping=mapping;CoastalLevel=level;
-	}
-	CoastalActive=true;return true;
-}
-bool PosixWaterCoastalBind(IDirect3DDevice9 *d,uint64_t r,const WaterCoastalDomain::Domain &domain,
-    const WaterShoreHistory::Mapping &mapping,double level,const std::vector<WaterCoastalSurf::Lookup> &lookup)
-{return d && static_cast<PosixDevice9*>(d)->Coastal_Bind(r,domain,mapping,level,lookup);}
-void PosixWaterCoastalEnd(IDirect3DDevice9 *d){if(d)static_cast<PosixDevice9*>(d)->Coastal_End();}
-
 void PosixDevice9::Shore_Begin(bool enabled)
 {
 	Shore_End();
-	const char *option=getenv("ZH_WATER_SHORE_FOAM");
-	ShoreActive=enabled && (!option || strcmp(option,"0")!=0);
+	ShoreActive=enabled;
 }
 void PosixDevice9::Shore_End()
 {
-	Coastal_End();
 	ShoreActive=ShoreHasPatch=ShoreHasTrack=false;ShoreRegions.clear();
 }
 void PosixDevice9::Shore_Patch(const WaterShoreOverlay::Quad *patch)
@@ -981,8 +954,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	// pairing. Only this path may bind native FFT textures to the vertex stage.
 	const bool fft_requested = pixel_engine == ENGINE_SHADER_WATER_TRAPEZOID
 		&& vertex_engine == ENGINE_SHADER_NONE && !vertex.LightingEnabled
-		&& PixelShaderConstants[6][2] > 0.5f && PixelShaderConstants[6][3] > 0.5f
-		&& WaterFftSampling::Enabled();
+		&& PixelShaderConstants[6][2] > 0.5f && PixelShaderConstants[6][3] > 0.5f;
 	bool fft_water = fft_requested && Gpu->Prepare_Ocean(PixelShaderConstants[1][0]*WaterFftSampling::TimeScale);
 	const SdlProgram *fft_vertex = fft_water ? &Programs->Water_Vertex_Program(vertex) : NULL;
 	if (fft_vertex && fft_vertex->Shader == NULL) fft_water = false;
@@ -1097,14 +1069,6 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	SDL_GPUTexture *water_background = water_draw ? Gpu->Water_Background(target) : NULL;
 	SDL_GPUTexture *water_depth = water_draw ? Gpu->Water_Depth(target) : NULL;
 	bool water_history = water_draw && Water_Foam_History_Available();
-	bool coastal_view=water_draw && fft_water && CoastalActive && water_depth
-		&& PixelShaderConstants[1][1]<.5f && PixelShaderConstants[6][3]>.5f
-		&& Gpu->Prepare_Coastal_Surf_From_Ocean(CoastalRevision,PixelShaderConstants[1][0])
-		&& Gpu->Prepare_Coastal_Surf_View(CoastalRevision);
-	SDL_GPUTexture *coastal_texture=coastal_view?Gpu->Coastal_Surf_View(CoastalRevision,CoastalLevel):NULL;
-	SDL_GPUSampler *coastal_sampler=coastal_view?Gpu->Coastal_Surf_View_Sampler(CoastalRevision,CoastalLevel):NULL;
-	coastal_view=coastal_view && coastal_texture && coastal_sampler
-		&& coastal_texture!=target.Colour && coastal_texture!=target.Depth;
 	draw.VertexSamplerCount = vertex_program.SamplerSlots;
 	for (unsigned int slot = 0; slot < draw.VertexSamplerCount && slot < 3; ++slot) {
 		draw.VertexTextures[slot] = Gpu->Ocean_Map(slot * 2);
@@ -1120,12 +1084,6 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		for (unsigned int slot = 0; slot < pixel_program->SamplerSlots; ++slot) {
 			const int texture_stage = pixel_program->SlotTexture[slot];
 			const int sampler_stage = pixel_program->SlotSampler[slot];
-			if (water_draw && texture_stage==15) {
-				draw.Textures[slot]=coastal_view?coastal_texture:Mirrors->White();
-				draw.Samplers[slot]=coastal_view?coastal_sampler:Samplers->Sampler(SamplerStates[0]);
-				if(!draw.Textures[slot] || !draw.Samplers[slot])return D3D_OK;
-				continue;
-			}
 			if (water_draw && texture_stage >= 8 && texture_stage < 14) {
 				draw.Textures[slot] = fft_water ? Gpu->Ocean_Map(texture_stage - 8) : Mirrors->White();
 				draw.Samplers[slot] = fft_water ? Gpu->Ocean_Sampler() : Samplers->Sampler(SamplerStates[0]);
@@ -1159,50 +1117,6 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 				shore_overlay=false;draw.Textures[slot]=Mirrors->White();
 			}
 			if (draw.Textures[slot] != NULL && (draw.Textures[slot] == target.Colour || draw.Textures[slot] == target.Depth)) {
-				// Metadata only, at the rejected draw; the refusal remains in force.
-				// Four events/process maximum. Never use this evidence run for performance comparisons.
-				const char *aliasTrace=getenv("ZH_GPU_TARGET_ALIAS_TRACE");
-				static unsigned aliasTraceCount=0;
-				if(aliasTrace && strcmp(aliasTrace,"1")==0 && aliasTraceCount<4) {
-					++aliasTraceCount;
-					D3DSURFACE_DESC td={},rt={},ds={};
-					if(texture && texture->GetType()==D3DRTYPE_TEXTURE)
-						static_cast<IDirect3DTexture9*>(texture)->GetLevelDesc(0,&td);
-					if(RenderTargets[0]) RenderTargets[0]->GetDesc(&rt);
-					if(DepthStencil) DepthStencil->GetDesc(&ds);
-					IDirect3DTexture9 *targetContainer=NULL;
-					if(RenderTargets[0]) RenderTargets[0]->GetContainer(IID_IDirect3DTexture9,(void**)&targetContainer);
-					fprintf(stderr,"target-alias: event=%u present=%u recorded=%u batch=%llu round=%d role=%s slot=%u texture_stage=%d sampler_stage=%d fvf=0x%x primitive_type=%u primitives=%u indexed=%d user_vertices=%d stride=%u\n",
-						aliasTraceCount,PresentCount,DrawsRecorded,(unsigned long long)Gpu->Batch(),round,
-						water_draw?"water":(shore_overlay?"shore-overlay":"ordinary"),slot,texture_stage,sampler_stage,
-						(unsigned)FVF,(unsigned)call.Type,call.PrimitiveCount,(int)call.Indexed,(int)user,stride);
-					fprintf(stderr,"target-alias-program: vs=%.*s ps=%.*s vertex_engine=%d pixel_engine=%d fft=%d shore=%d\n",
-						256,vertex_program.Key.c_str(),256,pixel_program->Key.c_str(),vertex_engine,pixel_engine,(int)fft_water,(int)shore_overlay);
-					fprintf(stderr,"target-alias-gpu: sample=%p colour=%p depth=%p aliases_colour=%d aliases_depth=%d target_size=%ux%u background=%p water_depth=%p shore_depth=%p\n",
-						(void*)draw.Textures[slot],(void*)target.Colour,(void*)target.Depth,
-						(int)(draw.Textures[slot]==target.Colour),(int)(draw.Textures[slot]==target.Depth),target.Width,target.Height,
-						(void*)water_background,(void*)water_depth,(void*)shore_depth);
-					fprintf(stderr,"target-alias-d3d: texture=%p target=%p target_container=%p container_is_texture=%d backbuffer=%d depth_surface=%p texture_desc=%ux%u/%u/0x%x target_desc=%ux%u/%u/0x%x depth_desc=%ux%u/%u/0x%x\n",
-						(void*)texture,(void*)RenderTargets[0],(void*)targetContainer,(int)(targetContainer && targetContainer==texture),
-						(int)(RenderTargets[0]==BackBuffer),(void*)DepthStencil,
-						td.Width,td.Height,(unsigned)td.Format,(unsigned)td.Usage,rt.Width,rt.Height,(unsigned)rt.Format,(unsigned)rt.Usage,
-						ds.Width,ds.Height,(unsigned)ds.Format,(unsigned)ds.Usage);
-					if(targetContainer) targetContainer->Release();
-					const RenderUInt32 noStage[TEXTURE_STAGE_STATE_COUNT]={};
-					const RenderUInt32 *ts=texture_stage<TEXTURE_STAGE_COUNT ? TextureStageStates[texture_stage] : noStage;
-					fprintf(stderr,"target-alias-state: colour_op=%u args=%u,%u,%u alpha_op=%u args=%u,%u,%u z=%u/%u blend=%u/%u/%u colour_write=0x%x shadow=%d soft_particle=%d draw_effect=%d smoke_glow=%d\n",
-						(unsigned)ts[D3DTSS_COLOROP],(unsigned)ts[D3DTSS_COLORARG0],(unsigned)ts[D3DTSS_COLORARG1],(unsigned)ts[D3DTSS_COLORARG2],
-						(unsigned)ts[D3DTSS_ALPHAOP],(unsigned)ts[D3DTSS_ALPHAARG0],(unsigned)ts[D3DTSS_ALPHAARG1],(unsigned)ts[D3DTSS_ALPHAARG2],
-						(unsigned)states[D3DRS_ZENABLE],(unsigned)states[D3DRS_ZWRITEENABLE],(unsigned)states[D3DRS_ALPHABLENDENABLE],
-						(unsigned)states[D3DRS_SRCBLEND],(unsigned)states[D3DRS_DESTBLEND],(unsigned)states[D3DRS_COLORWRITEENABLE],
-						(int)combiner.ShadowReceiving,(int)combiner.SoftParticle,(int)combiner.DrawEffect,(int)combiner.SmokeGlow);
-#if defined(__linux__)
-					void *stack[16];const int count=backtrace(stack,16);
-					fprintf(stderr,"target-alias-stack: begin event=%u frames=%d\n",aliasTraceCount,count);fflush(stderr);
-					backtrace_symbols_fd(stack,count,2);
-					fprintf(stderr,"target-alias-stack: end event=%u\n",aliasTraceCount);
-#endif
-				}
 				// Undefined in D3D9, and an error on SDL3 GPU: the pass would read what it writes.
 				Refuse_Draw("sampling the render target it draws into");
 				return D3D_OK;
@@ -1432,26 +1346,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		water.SceneParameters[2] = 1.0f / (float)target.Height;
 		water.SceneParameters[3] = water_depth ? 1.0f : 0.0f;
 		water.FftParameters[0] = fft_water ? 1.0f : 0.0f;
-		water.FftParameters[1] = fft_water && WaterVesselWaves::Enabled() ? 1.0f : 0.0f;
 		if (!water_history) water.FoamHistoryParameters[0] = 0.0f;
-		if(coastal_view) {
-			water.CoastalArea[0]=float(CoastalMapping.originX);water.CoastalArea[1]=float(CoastalMapping.originY);
-			water.CoastalArea[2]=float(CoastalMapping.widthWorld);water.CoastalArea[3]=float(CoastalMapping.heightWorld);
-			water.CoastalParams[0]=1;water.CoastalParams[1]=float(CoastalLevel);
-			water.CoastalParams[2]=float(Gpu->Coastal_Surf_View_Time(CoastalRevision,CoastalLevel));
-			water.CoastalParams[3]=PixelShaderConstants[1][0];
-			if(getenv("ZH_WATER_SURF_TRACE")) {
-				static double last=-1;
-				if(floor(last)!=floor(water.CoastalParams[3])) {
-					last=water.CoastalParams[3];
-					fprintf(stderr,"water-surf-draw: time=%.3f sampled=%.3f revision=%llu nodes=%u history=%llu views=%llu sets=%llu level=%.3f area=(%.1f,%.1f,%.1f,%.1f)\n",
-						last,water.CoastalParams[2],(unsigned long long)CoastalRevision,Gpu->Coastal_Surf_Nodes(CoastalRevision),
-						(unsigned long long)Gpu->Coastal_Surf_Updates(),(unsigned long long)Gpu->Coastal_Surf_View_Updates(),
-						(unsigned long long)Gpu->Coastal_Surf_View_Sets(),CoastalLevel,CoastalMapping.originX,CoastalMapping.originY,
-						CoastalMapping.widthWorld,CoastalMapping.heightWorld);
-				}
-			}
-		}
 		if(pixel_program->UniformBuffers==4) {
 			SdlWaterVisualPixelConstants visual;
 			Build_Water_Visual_Constants(water,visual);

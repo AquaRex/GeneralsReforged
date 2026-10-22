@@ -3,15 +3,9 @@
 #include <string>
 #include <algorithm>
 #include <cmath>
-#include <cstdlib>
-#include <cstring>
 #include "Platform/WaterBowShoulder.h"
 
 namespace WaterVesselWaves {
-inline bool Enabled() {
-    const char *value=std::getenv("ZH_WATER_VESSEL_WAVES");
-    return !value || std::strcmp(value,"0")!=0;
-}
 // Render-only pressure response uses measured contact half-beam and velocity. Keeping these
 // constants in one list makes the CPU refinement estimate and both shader stages agree.
 #define WATER_VESSEL_BOW_CONSTANTS(X) \
@@ -23,7 +17,6 @@ inline bool Enabled() {
 WATER_VESSEL_BOW_CONSTANTS(WATER_VESSEL_BOW_CONSTANT)
 #undef WATER_VESSEL_BOW_CONSTANT
 struct BowPressureParameters { float along=0,across=0,amplitude=0; };
-struct BowPressureSample { float height=0,dAlong=0,dAcross=0; };
 inline BowPressureParameters BowPressure(float halfBeam,float speed) {
     if(!std::isfinite(halfBeam)||!std::isfinite(speed)||halfBeam<0||speed<0) return {};
     const float u=(std::max)(0.0f,(std::min)(speed,BowSpeedMax)-BowRestSpeed);
@@ -33,16 +26,6 @@ inline BowPressureParameters BowPressure(float halfBeam,float speed) {
     p.across=(std::max)(BowAcrossMin,(std::min)(BowAcrossMax,BowAcrossBase+BowAcrossBeam*halfBeam));
     p.amplitude=(std::max)(BowHeadMin,(std::min)(BowHeadMax,BowHeadBeam*std::sqrt(halfBeam)))*response;
     return p;
-}
-inline BowPressureSample EvaluateBowPressure(const BowPressureParameters &p,float along,float across) {
-    if(!std::isfinite(p.along)||!std::isfinite(p.across)||!std::isfinite(p.amplitude)||
-        !std::isfinite(along)||!std::isfinite(across)||p.along<=0||p.across<=0||p.amplitude<=0) return {};
-    const float q=across/p.across,r=std::sqrt(1.0f+q*q);
-    const float shifted=along/p.along+BowCurvature*(r-1.0f);
-    const float h=p.amplitude*std::exp(-shifted*shifted-q*q);
-    if(h==0) return {}; // Avoid an underflowed Gaussian multiplying an extreme coordinate.
-    return {h,-2.0f*h*shifted/p.along,
-        -2.0f*h*(q+shifted*BowCurvature*q/r)/p.across};
 }
 inline std::string BowPressureSource() {
     std::string source;
@@ -63,18 +46,16 @@ float3 vesselBowPressure(float halfBeam,float speed) {
 #undef WATER_VESSEL_BOW_CONSTANTS
 // Reflection reaches at most 90 units from a contour; generated wakes end within 110 units.
 // The collector's existing hull-radius + 122 culling margin therefore still contains the field.
-inline std::string Source(bool contactContours=false,bool bowShoulder=WaterBowShoulder::Enabled()) {
+inline std::string Source() {
     // A pitching shallow keel can move a mean-slice endpoint by several world units
     // in one frame. Generated packets follow the current reachable contact envelope;
     // exact mean-waterline clearance and reflection below remain independent.
-    std::string source=contactContours?R"HLSL(
+    std::string source=R"HLSL(
 float4 vesselPacketRegister(int index) {
     int base=(index/10)*10;
     float count=ContactHullData[base].w;
     return count>=3.0 && count<=12.0?ContactHullData[index]:HullData[index];
 }
-)HLSL":R"HLSL(
-float4 vesselPacketRegister(int index) { return HullData[index]; }
 )HLSL";
     return BowPressureSource()+source+R"HLSL(
 // Match WaterHullModel::Damping at the undisplaced surface parameter. The smooth nine-unit
@@ -222,7 +203,7 @@ float3 vesselBowPressureField(float3 along,float3 across,float3 parameters) {
         (vwSqrt(vwConstant(1.0)+vwMul(q,q))-vwConstant(1.0))*BowCurvature;
     return vwExp(-vwMul(shifted,shifted)-vwMul(q,q))*parameters.z;
 }
-)HLSL"+(bowShoulder?WaterBowShoulder::Source():std::string())+R"HLSL(// Generated crest coverage follows the physical packet and its usable displacement.
+)HLSL"+WaterBowShoulder::Source()+R"HLSL(// Generated crest coverage follows the physical packet and its usable displacement.
 // Illumination belongs to the diffuse foam material, not to the amount of emitted foam.
 // The caller retains the solid-hull mask and uses the same microcoverage as hull/history foam.
 float vesselGeneratedFoam(float crest,float weight,float damping) {
@@ -275,31 +256,7 @@ float3 vesselGeneratedWave(float2 p,float level,float time,int h) {
 // Bow-only world field. Keep the stern packet and its parameterization above unchanged.
 // The caller supplies the final horizontal position after every reflected XY contribution.
 float3 vesselGeneratedBow(float2 p,float level,int h) {
-)HLSL"+(bowShoulder?R"HLSL(    return vesselContourBow(p,level,h);
-)HLSL":std::string())+R"HLSL(    int base=h*10;
-    float4 position=vesselPacketRegister(base),axis=vesselPacketRegister(base+1),motion=vesselPacketRegister(base+2);
-    float speed=length(motion.xy);
-    if(position.w<3 || abs(level-position.z)>0.1 || speed<=0.3) return 0;
-    float2 delta=p-position.xy;
-    float radius=length(delta),reach=motion.w+110.0;
-    if(radius>=reach) return 0;
-    float2 forward=motion.xy/max(speed,0.001),side=float2(-forward.y,forward.x);
-    float2 localVelocity=float2(dot(forward,axis.xy),dot(forward,float2(-axis.y,axis.x)));
-    float4 endpoints=vesselPacketRegister(base+3);
-    float forwardBlend=smoothstep(-0.25,0.25,localVelocity.x);
-    float2 bowLocal=lerp(endpoints.xy,endpoints.zw,forwardBlend);
-    float2 bow=position.xy+float2(axis.x*bowLocal.x-axis.y*bowLocal.y,axis.y*bowLocal.x+axis.x*bowLocal.y);
-    float3 bowForward=float3(dot(p-bow,forward),forward),bowAcross=float3(dot(p-bow,side),side);
-    float3 bowCrest=vesselBowPressureField(bowForward,bowAcross,vesselBowPressure(axis.w,speed));
-    float3 radial=float3(radius,delta/max(radius,0.001));
-    float3 support=vwConstant(1.0)-vwSmooth(motion.w+80.0,reach,radial);
-    return vwMul(bowCrest,support);
-}
-float3 vesselRegisteredBowDifference(float2 position,float2 derivativeX,float2 derivativeY,
-    float level,int h,float3 oldBow) {
-    float3 bow=vesselGeneratedBow(position,level,h);
-    bow.yz=float2(dot(bow.yz,derivativeX),dot(bow.yz,derivativeY));
-    return bow-oldBow;
+    return vesselContourBow(p,level,h);
 }
 )HLSL";
 }

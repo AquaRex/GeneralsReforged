@@ -1,11 +1,8 @@
 /* Render-only exterior bow shoulder. No gameplay/transport state. */
 #pragma once
 #include "Platform/WaterHullModel.h"
-#include <cstdlib>
-#include <cstring>
 #include <string>
 namespace WaterBowShoulder {
-inline bool Enabled() { const char *v=std::getenv("ZH_WATER_BOW_SHOULDER");return !v||std::strcmp(v,"contour")==0; }
 #define WATER_BOW_SHOULDER_CONSTANTS(X) \
  X(ShoulderWidthBeam,.45f) X(ShoulderWidthMin,3.0f) X(ShoulderWidthMax,12.0f) \
  X(ShoulderOffset,.5f) X(ShoulderFadeStart,1.5f) X(ShoulderFadeEnd,3.0f)

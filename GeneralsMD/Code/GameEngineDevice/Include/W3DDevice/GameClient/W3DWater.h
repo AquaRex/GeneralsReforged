@@ -57,7 +57,6 @@
 #include "Platform/WaterVesselMotion.h"
 #include "Platform/WaterFoamHistory.h"
 #include "Platform/WaterShoreSource.h"
-#include "Platform/WaterCoastalRender.h"
 
 class Drawable;
 class MeshModelClass;
@@ -227,17 +226,9 @@ protected:
 	WaterBowRefinement::Admissions m_modernBowAdmissions;
 	uintptr_t m_modernBowPatchOwner=0;
 	unsigned m_modernBowPatchPart=0;
-	size_t m_modernBowVertices=0,m_modernBowTriangles=0,m_modernBowRegions=0,m_modernBowDenied=0,m_modernBowRejected=0;
-	size_t m_modernProjectedVertices=0,m_modernProjectedTriangles=0,m_modernProjectedFallbacks=0,m_modernRetainedVertices=0;
-	size_t m_modernProjectedBudget=60000,m_modernProjectedEvaluations=0;
+	size_t m_modernBowVertices=0,m_modernBowTriangles=0;
+	size_t m_modernProjectedBudget=60000;
 	Bool m_modernProjectedCacheEnabled=TRUE;
-	Bool m_modernProfileEnabled=FALSE;
-	struct ModernWaterProfile {
-		double render=0,setup=0,hulls=0,obstacles=0,mesh=0,fill=0,submit=0;
-		double fieldSample=0,dampingSample=0,waveSample=0,cacheSample=0;
-		size_t frames=0,vertices=0,triangles=0,patches=0,patchObstacles=0;
-		size_t attempts=0,hits=0,misses=0,samples=0,wavePoints=0;
-	} m_modernProfile;
 	struct ModernProjectedSample { Real height,damping,obstacle,hullFreeObstacle,offshore,fftDamping,exposure; };
 	std::unordered_map<WaterProjectedMesh::WorldKey,ModernProjectedSample,WaterProjectedMesh::WorldHash> m_modernProjectedSamples;
 	Vector3 m_modernCamera;
@@ -287,7 +278,6 @@ protected:
 		WaterHullPoseCache::Cache visualPoses;
 		std::vector<MeshModelClass*> visualModels;
 		WaterHullVisual::Packet visual={};
-		UnsignedInt visualTraceFrame=~0u;
 		WaterHullModel::Polygon polygon,contact;
 		Real forwardSign=1.0f;
 		WaterVesselMotion::State motion;
@@ -297,20 +287,11 @@ protected:
 	std::vector<WaterHullVisual::Packet> m_modernVisualHulls;
 	std::vector<UnsignedInt> m_modernHullObjectIDs;
 	UnsignedInt m_modernHullSerial=0;
-	UnsignedInt m_modernHullTraceLines=0;
-	UnsignedInt m_modernVisualHullTraceLines=0;
-	UnsignedInt m_modernVesselStateTraceFrame=~0u, m_modernVesselStateTraceLines=0;
 	WaterFoamHistory::History m_modernFoamHistory;
 	WaterShoreHistory::History m_modernShoreHistory;
 	WaterShoreSource::Batch m_modernShoreSource;
 	uint64_t m_modernShoreRevision=1, m_modernShoreAttempted=0;
 	Bool m_modernShoreReady=FALSE;
-	WaterCoastalDomain::Domain m_modernCoastalDomain;
-	uint64_t m_modernCoastalRevision=0;
-	Bool m_modernCoastalReady=FALSE,m_modernCoastalViewReady=FALSE;
-	WaterShoreHistory::Mapping m_modernCoastalMapping={};
-	Real m_modernCoastalViewLevel=0;
-	std::vector<WaterCoastalSurf::Lookup> m_modernCoastalLookup;
 	unsigned m_modernFoamDrawFrame=~0u;
 	std::vector<UnsignedInt> m_modernFoamDrawObjectIDs;
 	struct ModernFoamTexture {
@@ -396,7 +377,6 @@ protected:
 	void clearModernWaterHulls(Bool admissions=TRUE);
 	void clearModernWaterFoam(Bool history=TRUE);
 	void bindModernWaterFoam(Real level,Bool river);
-	void bindModernWaterCoastal(Real level,Bool river);
 	void invalidateModernWaterShore(void);
 	void updateModernWaterShore(void);
 	Real modernHullDamping(Real x,Real y,Real level) const;

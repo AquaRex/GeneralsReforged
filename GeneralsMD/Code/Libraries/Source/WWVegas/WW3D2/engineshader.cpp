@@ -21,7 +21,6 @@
 #include "ffvertex.h"
 #include "sdl3target.h"
 #include "Platform/WaterSurfaceModel.h"
-#include "Platform/WaterCoastalPresentation.h"
 #include "Platform/WaterOpticalModel.h"
 #include "Platform/ModernWaterMaterial.h"
 #include "Platform/WaterHullModel.h"
@@ -30,7 +29,6 @@
 #include "Platform/WaterFoamShading.h"
 #include "Platform/WaterFoamEnvironment.h"
 #include "Platform/WaterShoreFoam.h"
-#include "Platform/WaterCoastalCrest.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -497,20 +495,13 @@ static bool write_engine_pixel_program(EngineShaderProgram program,
 // are composed before the existing shore/shroud alpha blend. No additional assets are required.
 static void write_modern_water(std::string &hlsl, bool river)
 {
-	const char *coastalSurfOption=getenv("ZH_WATER_SURF_GPU");
-	const bool coastalSurf=!river && coastalSurfOption && strcmp(coastalSurfOption,"1")==0;
-	const bool bowLift=WaterBowLift::Enabled();
-	const bool visualContact=WaterHullVisual::Enabled();
-	const char *visualDebugOption=getenv("ZH_WATER_DEBUG");
-	const bool visualDiagnostic=visualContact && visualDebugOption &&
-		(strcmp(visualDebugOption,"contact-mesh-query")==0 || strcmp(visualDebugOption,"contact-mesh-sources")==0);
 	hlsl.clear();
-	for (unsigned stage = 0; stage < (coastalSurf?16u:15u); ++stage) {
+	for (unsigned stage = 0; stage < 15u; ++stage) {
 		char line[128];
 		snprintf(line, sizeof(line), "Texture2D Texture%u : register(t%u);\nSamplerState Sampler%u : register(s%u);\n", stage, stage, stage, stage);
 		hlsl += line;
 	}
-	hlsl += WaterFftSampling::UniformSource("CombinerConstants",0,visualContact);
+	hlsl += WaterFftSampling::UniformSource("CombinerConstants",0,true);
 	hlsl += R"HLSL(struct Input
 {
     float4 Position : SV_Position;
@@ -736,7 +727,7 @@ WaterRefractionSample waterRefractedScene(float2 originalPixel, float2 offset,
 	hlsl += ModernWaterMaterial::OpticalSource();
 	hlsl += ModernWaterMaterial::BubbleSource();
 	hlsl += WaterHullModel::GetHlslSource();
-	hlsl += WaterFftSampling::PixelSource(bowLift);
+	hlsl += WaterFftSampling::PixelSource();
 	hlsl += WaterWaveCageShader::Source(false);
 	char oceanBound[96];
 	snprintf(oceanBound, sizeof(oceanBound), "static const float oceanDisplacementBound = %.9g;\n",
@@ -750,12 +741,12 @@ float terrainWaveAttenuation(float depth, float offshore)
     return lerp(shore, saturate((depth-0.15)/oceanDisplacementBound), offshore);
 }
 )HLSL";
-	if(visualContact) hlsl += WaterHullVisual::Source();
-	hlsl += WaterHullModel::GetEffectsHlslSource(true,visualContact);
-	if(visualContact) hlsl += R"HLSL(
+	hlsl += WaterHullVisual::Source();
+	hlsl += WaterHullModel::GetEffectsHlslSource();
+	hlsl += R"HLSL(
 // Fresh visible contact uses the posed triangle slice at the raster surface, including
 // horizontal chop and geometric interpolation. It does not alter pressure or old wakes.
-// Shared contact material for normal shading and source-attribution diagnostics.
+// Contact material for the current posed triangle slice.
 // Query admission and hull accumulation remain with each caller.
 float3 oceanMeshContactFoam(WaterVisualResult contact,float2 local,float4 motion,float2 axis,
     float speed,float moving,float collision,float time,float incomingHeight,float footprint,float waveImpact)
@@ -811,56 +802,12 @@ float2 oceanMeshHullEffects(float3 world,float level,float time,float offshore,
     return saturate(float2(foam,turbulence))*offshore;
 }
 )HLSL";
-	if(visualDiagnostic) hlsl += R"HLSL(
-// Diagnostic only: geometry is queried before optical eligibility. Normal effects are unchanged.
-// A nonzero red tag proves a valid source-band slice. All channels use one nearest hull.
-float4 oceanMeshHullDiagnostic(float3 world,float level,float time,float offshore,
-    float incomingHeight,float footprint,float waveImpact,int sourceMode)
-{
-    float nearestDistance=1.0e6;
-    float4 result=float4(0,0,0,1);
-    if(abs(world.z-level)>fftVerticalBound) return result;
-    for(int h=0;h<clamp((int)HullParameters.x,0,8);++h) {
-        float4 meta=VisualHullMeta[h];
-        if(meta.w<0.5 || meta.y<1.0) continue;
-        int index=h*10;
-        float4 position=WaterContactRegister(index),axis=WaterContactRegister(index+1);
-        if(position.w<3.0 || abs(level-position.z)>0.1) continue;
-        float2 delta=world.xy-position.xy;
-        if(dot(delta,delta)>(meta.z+12.0)*(meta.z+12.0)) continue;
-        float2 local=float2(dot(delta,axis.xy),dot(delta,float2(-axis.y,axis.x)));
-        WaterVisualResult contact=WaterVisualQuery(h,float3(local,world.z-level));
-        if(contact.hasSegment<0.5 || contact.distance>12.0) continue;
-        // Strict distance tie keeps the lower hull slot; all channels describe this same query.
-        if(contact.distance>=nearestDistance) continue;
-        float4 motion=WaterContactRegister(index+2);
-        float speed=length(motion.xy),moving=smoothstep(0.3,18.0,speed);
-        float collision=waterHullContactResponse(incomingHeight,waveImpact);
-        float3 effects=oceanMeshContactFoam(contact,local,motion,axis.xy,
-            speed,moving,collision,time,incomingHeight,footprint,waveImpact);
-        nearestDistance=contact.distance;
-        float taggedDistance=0.25+0.75*(1.0-saturate(contact.distance/12.0));
-        float rawSide=saturate(effects.x),rawBow=saturate(effects.y);
-        result=sourceMode==0 ? float4(taggedDistance,offshore,max(rawSide,rawBow),1.0)
-            : float4(taggedDistance,rawSide,rawBow,1.0);
-    }
-    return result;
-}
-)HLSL";
 	hlsl += WaterFoamShading::HistorySamplingSource();
 	hlsl += WaterFoamShading::Source();
 	hlsl += WaterFoamShading::MaterialSource();
 	hlsl += WaterFoamEnvironment::HlslSource();
 	hlsl += WaterShoreFoam::Source();
-	const char *coastalCrestOption=getenv("ZH_WATER_COAST_CREST");
-	const bool coastalCrest=coastalCrestOption && strcmp(coastalCrestOption,"1")==0;
-	if(coastalCrest) hlsl+=WaterCoastalCrest::Source();
 	hlsl += WaterShoreFoam::HistorySource();
-	if(coastalSurf) hlsl+=WaterCoastalPresentation::Source();
-	// Comparison switch is resolved at shader generation, never per pixel/frame.
-	const char *shoreOption=getenv("ZH_WATER_SHORE_FOAM");
-	hlsl += (!shoreOption || strcmp(shoreOption,"0")!=0)
-		? "static const bool shoreFoamEnabled=true;\n" : "static const bool shoreFoamEnabled=false;\n";
 	hlsl += R"HLSL(
 float4 main(Input input) : SV_Target
 {
@@ -897,8 +844,7 @@ float4 main(Input input) : SV_Target
     float3 wave = lerp(legacyWave, oceanWave, offshore);
     FftSurface spectral=(FftSurface)0;
     )HLSL";
-    if(bowLift) hlsl+=R"HLSL(float3 bowLiftField=0;float3 fftDampingField=float3(0,0,0);float2 fftWeightSlope=0;)HLSL";
-    else hlsl+=R"HLSL(float3 fftDampingField=float3(0,0,0);float2 fftWeightSlope=0;)HLSL";
+    hlsl+=R"HLSL(float3 bowLiftField=0;float3 fftDampingField=float3(0,0,0);float2 fftWeightSlope=0;)HLSL";
     hlsl+=R"HLSL(
     float fftHorizontalWeight=0.0;
     float2 fftHorizontalWeightSlope=0;
@@ -914,9 +860,8 @@ float4 main(Input input) : SV_Target
         float3 horizontalScale=float3(fftHorizontalWeight*fftDampingField.x,
             fftHorizontalWeightSlope*fftDampingField.x+fftDampingField.yz*fftHorizontalWeight);
         )HLSL";
-    if(bowLift) hlsl+=R"HLSL(spectral=fftSurface(wavePosition,baseLevel,max(length(parameterDx),length(parameterDy)),horizontalScale);
+    hlsl+=R"HLSL(spectral=fftSurface(wavePosition,baseLevel,max(length(parameterDx),length(parameterDy)),horizontalScale);
         bowLiftField=fftBowLift(spectral.bow,float3(freeDamping,fftParameterGradient(freeDamping,parameterDx,parameterDy)),fftDampingField);)HLSL";
-    else hlsl+=R"HLSL(spectral=fftSurface(wavePosition,baseLevel,max(length(parameterDx),length(parameterDy)),horizontalScale);)HLSL";
     hlsl+=R"HLSL(
     }
     float footprint=max(length(dx),length(dy));
@@ -926,7 +871,7 @@ float4 main(Input input) : SV_Target
     float3 hullEffects=oceanHullEffects(wavePosition,baseLevel,time,offshore,hullWave,foamFootprint,waveImpact);
     hullEffects.x=waterFoamContactPatches(wavePosition,hullEffects.x,foamFootprint,time);
 )HLSL";
-	if(visualContact) hlsl += R"HLSL(
+	hlsl += R"HLSL(
     float2 meshHullEffects=oceanMeshHullEffects(world,baseLevel,time,offshore,hullWave,footprint,waveImpact);
     meshHullEffects.x=waterFoamContactPatches(wavePosition,meshHullEffects.x,foamFootprint,time);
     hullEffects.y=max(hullEffects.y,meshHullEffects.y);
@@ -955,21 +900,6 @@ float4 main(Input input) : SV_Target
     float2 correctionSlope=float2(cu*parameterDy.y-cv*parameterDx.y,cv*parameterDx.x-cu*parameterDy.x)*invDet;
     float2 slope = baseSlope + wave.yz * attenuation + wave.x * attenuationSlope + correctionSlope;
 )HLSL";
-	if(coastalCrest) hlsl += R"COAST(    // All screen derivatives are evaluated before the eligibility branch. The
-    // helper then differentiates every product and the same depth-limited crest as CPU.
-    float2 coastSupportGradient=fftParameterGradient(opticalContext.a,parameterDx,parameterDy);
-    float2 coastExposureGradient=fftParameterGradient(opticalContext.b,parameterDx,parameterDy);
-    float2 coastObstacleGradient=fftParameterGradient(input.Diffuse.r,parameterDx,parameterDy);
-    float2 coastDepthGradient=baseSlope-fftParameterGradient(surfaceTerrainHeight,parameterDx,parameterDy);
-    if(OpticalParameters.z>0.5 && TerrainParameters.w>0.5 && WaterParameters.y<0.5
-        && offshore==0.0 && opticalContext.a>0.0 && opticalContext.b>0.0) {
-        float3 coastalCorrection=waterCoastalCrest(waterShoreWave(wavePosition,time).xyz,
-            float3(baseLevel-surfaceTerrainHeight,coastDepthGradient),
-            float3(opticalContext.a,coastSupportGradient),float3(opticalContext.b,coastExposureGradient),
-            float3(input.Diffuse.r,coastObstacleGradient),float3(attenuation,attenuationSlope));
-        slope+=coastalCorrection.yz;meshCorrection+=coastalCorrection.x;
-    }
-)COAST";
 	hlsl += R"HLSL(    float3 normal = normalize(float3(-slope, 1.0));
     float continuousHeight=baseLevel+wave.x*attenuation+meshCorrection;
     WaveCage cage=waveCage(wavePosition,baseLevel);
@@ -994,13 +924,11 @@ float4 main(Input input) : SV_Target
         float2 horizontalSlope=fftHorizontalWeightSlope*fftDamping+dampingSlope*fftHorizontalWeight;
         float oldHeight=continuousHeight-baseLevel;
         )HLSL";
-    if(bowLift) hlsl+=R"HLSL(float newHeight=spectral.displacement.z*fftDamping+bowLiftField.x;)HLSL";
-    else hlsl+=R"HLSL(float newHeight=spectral.displacement.z*fftDamping;)HLSL";
+    hlsl+=R"HLSL(float newHeight=spectral.displacement.z*fftDamping+bowLiftField.x;)HLSL";
     hlsl+=R"HLSL(
         float2 newSlope=float2(spectral.derivativeX.z,spectral.derivativeY.z)*fftDamping
             )HLSL";
-    if(bowLift) hlsl+=R"HLSL(+spectral.displacement.z*dampingSlope+bowLiftField.yz;)HLSL";
-    else hlsl+=R"HLSL(+spectral.displacement.z*dampingSlope;)HLSL";
+    hlsl+=R"HLSL(+spectral.displacement.z*dampingSlope+bowLiftField.yz;)HLSL";
     hlsl+=R"HLSL(
         float2 heightSlope=baseSlope+lerp(slope-baseSlope,newSlope,fftWeight)
             +(newHeight-oldHeight)*weightSlope;
@@ -1022,13 +950,11 @@ float4 main(Input input) : SV_Target
         // Filter the same displacement derivatives for reflected/direct light only. Keep
         // level-zero geometry, refraction, contact and optical path reconstruction intact.
         )HLSL";
-    if(bowLift) hlsl+=R"HLSL(float shadedHeight=spectral.shadingDisplacement.z*fftDamping+bowLiftField.x;)HLSL";
-    else hlsl+=R"HLSL(float shadedHeight=spectral.shadingDisplacement.z*fftDamping;)HLSL";
+    hlsl+=R"HLSL(float shadedHeight=spectral.shadingDisplacement.z*fftDamping+bowLiftField.x;)HLSL";
     hlsl+=R"HLSL(
         float2 shadedSlope=float2(spectral.shadingDerivativeX.z,spectral.shadingDerivativeY.z)*fftDamping
             )HLSL";
-    if(bowLift) hlsl+=R"HLSL(+spectral.shadingDisplacement.z*dampingSlope+bowLiftField.yz;)HLSL";
-    else hlsl+=R"HLSL(+spectral.shadingDisplacement.z*dampingSlope;)HLSL";
+    hlsl+=R"HLSL(+spectral.shadingDisplacement.z*dampingSlope+bowLiftField.yz;)HLSL";
     hlsl+=R"HLSL(
         float2 shadedHeightSlope=baseSlope+lerp(slope-baseSlope,shadedSlope,fftWeight)
             +(shadedHeight-oldHeight)*weightSlope;
@@ -1228,42 +1154,8 @@ float4 main(Input input) : SV_Target
     cageWash=cageAmount*fftWeight*cageWet*cageContact*cageCrest*lerp(0.45,1.0,cagePores);
     foam=max(foam*(1.0-cageAmount*fftWeight*cageTerrainMatch),cageWash*0.72);
 )HLSL";
-	if(coastalSurf) hlsl+=R"COAST(
-    float gpuCoastFoam=0.0,gpuCoastRaw=0.0,gpuCoastGate=0.0;
-    float2 gpuCoastDensityAge=0.0;
-    if(WaterParameters.y<0.5 && OpticalParameters.z>0.5 && OpticalParameters.w>0.5
-        && TerrainParameters.w>0.5 && SceneParameters.w>0.5
-        && all(isfinite(SceneParameters.yz)) && all(SceneParameters.yz>0)
-        && waterCoastalViewValid(CoastalArea,CoastalParams,wavePosition,baseLevel,time)) {
-        float2 coastUV=(wavePosition-CoastalArea.xy)/CoastalArea.zw;
-        float2 coastMoments=Texture15.SampleLevel(Sampler15,coastUV,0).rg;
-        float2 coastDensityAge=waterCoastalAtTime(coastMoments,CoastalParams.w-CoastalParams.z);
-        gpuCoastDensityAge=coastDensityAge;
-        if(coastDensityAge.x>0.0) {
-            // Source and lookup live on the original parameter chart, not chopped XY.
-            float2 parameterContextUV=(wavePosition+TerrainParameters.xx+5.0)/max(TerrainParameters.y,1.0);
-            float canonicalSupport=Texture4.SampleLevel(Sampler4,parameterContextUV,0).b;
-            float coastModelGate=waterCoastalModelGate(fftWeight,canonicalSupport,input.TexCoord0.x,correctionSlope);
-            gpuCoastRaw=waterCoastalPorousCoverage(wavePosition,foamFootprint,coastDensityAge);
-            if(coastModelGate>0.0 && gpuCoastRaw>0.0) {
-                // Reconstruct the original actual scene sample. A refracted hit or the
-                // terrain fallback cannot justify surf on an object or dry fragment.
-                float2 coastPixel=waterScenePixel(floor(input.Position.xy)+0.5);
-                float coastRawDepth=Texture6.SampleLevel(Sampler6,coastPixel*SceneParameters.yz,0).r;
-                if(waterShoreSceneDepth(SceneParameters.w,coastRawDepth)) {
-                    float3 coastHit=scenePosition(coastPixel,coastRawDepth);
-                    float coastHullGuard=vesselHullDamping(world.xy,baseLevel).x;
-                    float coastWetGate=waterCoastalWetGate(coastRawDepth,coastHit,world,view,baseLevel,
-                        surfaceTerrainHeight,terrainHeight(wavePosition),terrainHeight(coastHit.xy),input.Diffuse.r,coastHullGuard);
-                    gpuCoastGate=coastModelGate*coastWetGate;
-                    gpuCoastFoam=gpuCoastRaw*gpuCoastGate;
-                }
-            }
-        }
-    }
-)COAST";
 	hlsl+=R"HLSL(
-    if(shoreFoamEnabled && WaterParameters.y<0.5 && OpticalParameters.z>0.5
+    if(WaterParameters.y<0.5 && OpticalParameters.z>0.5
         && TerrainParameters.w>0.5 && SceneParameters.w>0.5
         && opticalContext.r==0.0 && (opticalContext.a>0.0 || shoreHistory>0.0)) {
         // Test the original raster pixel, not the refracted candidate or bottomPosition's
@@ -1330,7 +1222,7 @@ float4 main(Input input) : SV_Target
     // Current solid hulls mask old trails if they cross another vessel's waterline.
     vesselFoam*=smoothstep(0.0,0.006,hullEffects.z);
 )HLSL";
-	if(visualContact) hlsl += R"HLSL(
+	hlsl += R"HLSL(
     // Actual triangle contact may meet the visible hull inside the mean footprint.
     // Keep the old mask for trails and pressure foam, and merge fresh contact after it.
     if(meshHullEffects.x>0.0) {
@@ -1341,7 +1233,7 @@ float4 main(Input input) : SV_Target
     }
 )HLSL";
 	hlsl += R"HLSL()HLSL";
-    if(bowLift) hlsl+=R"HLSL(    // This is foam on the additional displaced bow shoulder, not mean-plane hull wash.
+    hlsl+=R"HLSL(    // This is foam on the additional displaced bow shoulder, not mean-plane hull wash.
     // Its height already includes F-D; the unchanged opaque scene depth hides solid hulls.
     float liftedBowFoam=fftBowLiftFoam(bowLiftField.x,fftWeight);
     if(liftedBowFoam>0.0) {
@@ -1350,12 +1242,10 @@ float4 main(Input input) : SV_Target
         foamAge=historyFoam.y*24.0*(1.0-smoothstep(0.25,1.0,freshFoam/max(historyFoam.x,0.0001)));
     }
     vesselFoam=waterFoamMicroCoverage(wavePosition,vesselFoam,foamFootprint,foamAge,time);)HLSL";
-    else hlsl+=R"HLSL(    vesselFoam=waterFoamMicroCoverage(wavePosition,vesselFoam,foamFootprint,foamAge,time);)HLSL";
     hlsl+=R"HLSL(
     foam=max(foam,vesselFoam);
     foamWithoutShore=max(foamWithoutShore,vesselFoam);
 )HLSL";
-	if(coastalSurf) hlsl+="    float gpuCoastPrevious=foam;\n    foam=max(foam,gpuCoastFoam);\n";
 	hlsl+=R"HLSL(
     float shoreMaterialWeight=waterFoamCoastWeight(foam,foamWithoutShore,vesselFoam);
     // Analytic fine normals can face away from the eye between geometric vertices. Fresnel alone
@@ -1385,20 +1275,11 @@ float4 main(Input input) : SV_Target
             sunVisible*FoamFillLights[0].w,FoamFillLights[0].xyz,FoamFillLights[1].rgb,
             FoamFillLights[2].xyz,FoamFillLights[3].rgb);
  )HLSL";
-	if(coastalSurf) hlsl+="    float3 coastAuthoredIrradiance=vesselIrradiance;\n";
 	hlsl+=R"HLSL(
     if(vesselFoam>0.0 && offshore>0.0)
         vesselIrradiance=waterFoamReplaceAmbient(vesselIrradiance,HullParameters.yzw,
             waterFoamSkyIrradiance(normal,light,daylight),offshore);
  )HLSL";
-	if(coastalSurf) hlsl+=R"COAST(
-    // Coast has its own ambient replacement, independent of vessel presence. Keep
-    // the exact previous lighting when this optional source contributes nothing.
-    float3 coastIrradiance=vesselIrradiance;
-    if(gpuCoastFoam>0.0 && offshore>0.0)
-        coastIrradiance=waterFoamReplaceAmbient(coastAuthoredIrradiance,HullParameters.yzw,
-            waterFoamSkyIrradiance(normal,light,daylight),offshore);
-)COAST";
 	hlsl+=R"HLSL(
     float3 vesselDiffuse=waterLinear(vesselAlbedo)*vesselIrradiance;
     float3 vesselRadiance=vesselDiffuse;
@@ -1420,9 +1301,7 @@ float4 main(Input input) : SV_Target
         // Share the filtered incident reflection; exchange Fresnel only once.
         if(shoreMaterialWeight>0.0)
 )HLSL";
-	hlsl+=coastalSurf
-		? "            shoreRadiance=waterFoamRoughMaterial(waterLinear(foamAlbedo)*coastIrradiance,\n"
-		: "            shoreRadiance=waterFoamRoughMaterial(waterLinear(foamAlbedo)*vesselIrradiance,\n";
+	hlsl+="            shoreRadiance=waterFoamRoughMaterial(waterLinear(foamAlbedo)*vesselIrradiance,\n";
 	hlsl+=R"HLSL(                foamReflection,environmentFresnel,oceanViewCosine,foamRoughness);
     }
     // Mix the lit surface contributions; independently mixing albedo and irradiance
@@ -1442,220 +1321,6 @@ float4 main(Input input) : SV_Target
 		hlsl += "    float4 edge = Texture3.Sample(Sampler3, input.TexCoord3);\n";
 		hlsl += "    current = float4(saturate(surface) * edge.rgb, saturate(depth * 2.0) * lerp(input.Diffuse.a * base.a, step(0.001, input.Diffuse.a * base.a), SceneParameters.x));\n";
 	}
-	// Developer captures isolate the actual water inputs; normal game output is unaffected.
-	const char *debug = getenv("ZH_WATER_DEBUG");
-	if(coastalSurf && debug && strcmp(debug,"coastal-surf")==0)
-		hlsl+="current=float4(gpuCoastRaw,gpuCoastGate,gpuCoastFoam,1.0);\n";
-	if(coastalSurf && debug && strcmp(debug,"coastal-density")==0)
-		hlsl+="current=float4(waterFoamOpticalCoverage(gpuCoastDensityAge.x),gpuCoastDensityAge.y/14.0,gpuCoastRaw,1.0);\n";
-	if(coastalSurf && debug && strcmp(debug,"coastal-material")==0)
-		hlsl+="current=float4(gpuCoastPrevious,max(0.0,foam-gpuCoastPrevious),shoreMaterialWeight,1.0);\n";
-	if (debug && strcmp(debug, "depth") == 0) hlsl += "current.rgb = (1.0-exp(-depth*0.04)).xxx;\n";
-	if (debug && strcmp(debug, "bed") == 0) hlsl += "current.rgb = waterDisplay(scene);\n";
-	if (debug && strcmp(debug, "reflection") == 0) hlsl += "current.rgb = waterDisplay(reflection);\n";
-	if (debug && strcmp(debug, "normal") == 0) hlsl += "current.rgb = normal*0.5+0.5;\n";
-	if (debug && strcmp(debug, "highlight") == 0) hlsl += "current.rgb = waterDisplay(highlight);\n";
-	if (debug && strcmp(debug, "offshore") == 0) hlsl += "current.rgb = offshore.xxx;\n";
-	if (debug && strcmp(debug, "wave-cage") == 0) hlsl += "current = float4(cageAmount,cage.radii.x/fftVerticalBound,cage.radii.y/fftVerticalBound,1.0);\n";
-	if (debug && strcmp(debug, "cage-wash") == 0) hlsl += "current = float4(cageWash,cageContact*cageAmount,cageCrest*cageAmount,1.0);\n";
-	if (debug && strcmp(debug, "shore-history") == 0) hlsl += "current = float4(shoreHistory,shoreRate/ShoreMaximumRate,shoreSupport,1.0);\n";
-	if (debug && strcmp(debug, "shore-history-terms") == 0) hlsl += "current = float4(shoreHistory,shoreRetained,current.a,1.0);\n";
-	if (debug && strcmp(debug, "shore") == 0) hlsl += "current.rgb = float3(shoreRate/ShoreMaximumRate,shoreSupport,opticalContext.b);\n";
-	// Opaque diagnostic removes thin-water alpha compositing from source attribution.
-	if (debug && strcmp(debug, "shore-raw") == 0) hlsl += "current = float4(shoreRate/ShoreMaximumRate,shoreSupport,opticalContext.b,1.0);\n";
-	if (debug && strcmp(debug, "shore-source-terms") == 0) hlsl += R"HLSL(
-    // Shore source attribution (M5i): R actual admitted front rate / maximum rate;
-    // G same model with a fixed-world terrain derivative / maximum rate;
-    // B fresh-front coverage after scene wetness/terrain match, in raw [0,1] units.
-    // B excludes retained history and later hull/max/material operations. It is not
-    // divided by the old .35-second cap. This code is absent from normal shaders.
-    float2 sourceTermsFront;
-    float4 sourceTermsWave=waterShoreWaveFront(wavePosition,time,-terrainGradient,
-        parameterDx,parameterDy,sourceTermsFront);
-    float2 fixedShoreGradient=float2(terrainHeight(world.xy+float2(5,0))-terrainHeight(world.xy-float2(5,0)),
-        terrainHeight(world.xy+float2(0,5))-terrainHeight(world.xy-float2(0,5)))*0.1;
-    float fixedShoreDepth=max(0.0,baseLevel-surfaceTerrainHeight),fixedShoreSlope=length(fixedShoreGradient);
-    float2 fixedShoreFront;
-    float4 fixedShoreWave=waterShoreWaveFront(wavePosition,time,-fixedShoreGradient,
-        parameterDx,parameterDy,fixedShoreFront);
-    float fixedShoreRate=waterShoreRate(fixedShoreWave,fixedShoreDepth,
-        min(opticalContext.g*100.0,fixedShoreDepth/max(fixedShoreSlope,0.01)),
-        -fixedShoreGradient,fixedShoreSlope,opticalContext.b,shoreSupport)*fixedShoreFront.x;
-    float finalShoreCoverage=waterShoreFrontFresh(shoreRate,sourceTermsFront.y)*smoothstep(0.0,0.8,depth)
-        *(1.0-smoothstep(0.5,1.5,abs(shoreSceneBottom.z-terrainHeight(shoreSceneBottom.xy))));
-    current=float4(shoreRate/ShoreMaximumRate,fixedShoreRate/ShoreMaximumRate,finalShoreCoverage,1.0);
-    // End shore source attribution. Only the opt-in diagnostic recomputes residence.
-)HLSL";
-	if (debug && strcmp(debug, "foam") == 0) hlsl += "current.rgb = float3(historyFoam.x,hullEffects.x,historyFoam.y*historyFoam.x);\n";
-	if (debug && strcmp(debug, "vessel") == 0) hlsl += "current.rgb = float3(max(0.0,-spectral.vesselHeight),max(0.0,spectral.vesselHeight),spectral.vesselCrest)*fftWeight;\n";
-	if (debug && strcmp(debug, "pressure") == 0) hlsl += "current.rgb = fftPressureDebug(spectral,fftWeight,fftDamping,generatedFoam);\n";
-	if (debug && strcmp(debug, "resolved-normal") == 0) hlsl += "current.rgb = resolvedNormal*0.5+0.5;\n";
-	if (debug && strcmp(debug, "roughness") == 0) hlsl += "current.rgb = float3(roughness,environmentRoughness,sqrt(unresolvedSlopeVariance));\n";
-	if (debug && strcmp(debug, "pressure-retention") == 0) hlsl += "current.rgb = fftPressureRetentionDebug(spectral,fftWeight,fftDamping,generatedFoam);\n";
-	// Diagnostics evaluate old and current rules at the same fragment/phase/snapshot.
-	// No extra code is emitted for normal water or any unrelated debug mode.
-	if (debug && (strcmp(debug,"footprint")==0 || strcmp(debug,"footprint-path")==0 ||
-		strcmp(debug,"footprint-colour")==0 || strcmp(debug,"footprint-reasons")==0 || strcmp(debug,"footprint-overlay")==0)) {
-		hlsl += R"HLSL(
-float2 auditOrigin=waterScenePixel(input.Position.xy);
-float2 auditCandidate=waterScenePixel(input.Position.xy+refractionPixels);
-float3 auditOriginalBottom=bottomPosition(input.Position.xy,world,baseLevel);
-float3 auditOldHit=bottomPosition(auditCandidate,world,baseLevel);
-// Exact previous M4B/M4A nearest-only selection, including its terrain fallback policy.
-float auditOldAccepted=step(auditOldHit.z,min(world.z,opticalWorld.z)-0.08)
-    *step(0.0,min(dot(auditOldHit-world,-view),dot(auditOldHit-opticalWorld,-view)));
-float2 auditOldPixel=lerp(auditOrigin,auditCandidate,auditOldAccepted);
-float3 auditOldBottom=lerp(auditOriginalBottom,auditOldHit,auditOldAccepted);
-float auditOriginalDepth=Texture6.SampleLevel(Sampler6,
-    waterScenePixel(floor(input.Position.xy)+0.5)*SceneParameters.yz,0).r;
-float auditOriginalRealHit=(SceneParameters.w>0.5 && auditOriginalDepth>=0.0 && auditOriginalDepth<0.999999)?1.0:0.0;
-float auditNewPath=length(refractedScene.bottom-opticalWorld);
-float auditOldPath=length(auditOldBottom-opticalWorld);
-)HLSL";
-		if(strcmp(debug,"footprint-overlay")==0)
-			hlsl += "current.rgb=lerp(current.rgb,float3(1,0,1),0.7*auditOldAccepted*(1.0-refractedScene.accepted));\n";
-		if(strcmp(debug,"footprint")==0)
-			hlsl += "current.rgb=float3(refractedScene.accepted,auditOldAccepted,auditOriginalRealHit);\n";
-		if(strcmp(debug,"footprint-path")==0)
-			hlsl += "current.rgb=float3(saturate((auditNewPath-auditOldPath)/16.0),saturate((auditOldPath-auditNewPath)/16.0),1.0-auditOriginalRealHit);\n";
-		if(strcmp(debug,"footprint-colour")==0)
-			hlsl += "float3 auditOldColour=Texture5.SampleLevel(Sampler5,auditOldPixel*SceneParameters.yz,0).rgb;\n"
-				"current.rgb=saturate(abs(refractedScene.colour-auditOldColour)*4.0);\n";
-		if(strcmp(debug,"footprint-reasons")==0) {
-			hlsl += R"HLSL(
-// Classify every positive-weight tap. R=unavailable/clear/invalid depth,
-// G=not below one/both water surfaces, B=not behind one/both forward planes.
-// Multiple channels may be set; they are causes present, not a guessed primary cause.
-float3 auditReasons=float3(SceneParameters.w>0.5?0.0:1.0,0,0);
-if(SceneParameters.w>0.5) {
-    float2 auditLower=floor(auditCandidate-0.5)+0.5;
-    float2 auditFraction=frac(auditCandidate-0.5);
-    float4 auditWeights=float4((1-auditFraction.x)*(1-auditFraction.y),
-        auditFraction.x*(1-auditFraction.y),(1-auditFraction.x)*auditFraction.y,
-        auditFraction.x*auditFraction.y);
-    [unroll] for(int auditTap=0;auditTap<4;++auditTap) {
-        [branch] if(auditWeights[auditTap]>0.0) {
-            float2 auditTexel=waterScenePixel(auditLower+float2(auditTap&1,(auditTap>>1)&1));
-            float auditDepth=Texture6.SampleLevel(Sampler6,auditTexel*SceneParameters.yz,0).r;
-            if(!(auditDepth>=0.0 && auditDepth<0.999999)) auditReasons.r=1.0;
-            else {
-                float3 auditHit=scenePosition(auditTexel,auditDepth);
-                if(!(auditHit.z<=min(world.z,opticalWorld.z)-0.08)) auditReasons.g=1.0;
-                if(!(dot(auditHit-world,-view)>=0.0 && dot(auditHit-opticalWorld,-view)>=0.0)) auditReasons.b=1.0;
-            }
-        }
-    }
-}
-current.rgb=auditReasons;
-)HLSL";
-		}
-	}
-}
-
-// Opt-in original-scene-depth attribution. Normal shader text remains unchanged.
-static int water_hull_depth_diagnostic()
-{
-	const char *mode=getenv("ZH_WATER_DEBUG");
-	if(mode && strcmp(mode,"contact-depth")==0) return 1;
-	if(mode && strcmp(mode,"contact-depth-masks")==0) return 2;
-	if(mode && strcmp(mode,"contact-depth-height")==0) return 3;
-	return 0;
-}
-
-static void write_water_hull_depth_diagnostic(std::string &hlsl)
-{
-	hlsl+=R"HLSL(
-// These are measurements, not new foam emission or a claim of scene object identity.
-// Read the original scene pixel once, without bottomPosition's terrain fallback and
-// without the later refraction offset. All quantities use actual raster world.xyz.
-float hullDepthValid=0.0,hullDepthWetProximity=0.0,hullDepthSupport=0.0,hullDepthRegion=0.0;
-float3 hullDepthHit=float3(0,0,0);
-if(SceneParameters.w>0.5 && all(isfinite(SceneParameters.yz))
-    && all(SceneParameters.yz>0.0) && all(isfinite(world))) {
-    float2 hullDepthPixel=waterScenePixel(floor(input.Position.xy)+0.5);
-    float hullDepthRaw=Texture6.SampleLevel(Sampler6,hullDepthPixel*SceneParameters.yz,0).r;
-    if(isfinite(hullDepthRaw) && hullDepthRaw>=0.0 && hullDepthRaw<0.999999) {
-        hullDepthHit=scenePosition(hullDepthPixel,hullDepthRaw);
-        if(all(isfinite(hullDepthHit))) {
-            hullDepthValid=1.0;
-            if(hullDepthHit.z<=world.z && dot(hullDepthHit-world,-view)>=0.0)
-                hullDepthWetProximity=saturate(1.0-length(hullDepthHit-world)/8.0);
-        }
-    }
-}
-// Known-vessel context is deliberately conservative: the union of the current mean
-// and reachable-slab footprints. It is NOT an instantaneous cross-section or hull ID.
-// A 12-unit expanded rectangle only bounds diagnostic work/display; it emits no foam.
-for(int hullDepthHull=0;hullDepthHull<clamp((int)HullParameters.x,0,8);++hullDepthHull) {
-    int hullDepthIndex=hullDepthHull*10;
-    float4 hullDepthMean=HullData[hullDepthIndex],hullDepthMeanAxis=HullData[hullDepthIndex+1];
-    float4 hullDepthSlab=WaterContactRegister(hullDepthIndex),hullDepthSlabAxis=WaterContactRegister(hullDepthIndex+1);
-    if(hullDepthMean.w<3.0 || hullDepthMean.w>12.0 || abs(baseLevel-hullDepthMean.z)>0.1) continue;
-    float2 hullDepthMeanDelta=world.xy-hullDepthMean.xy;
-    float2 hullDepthMeanLocal=float2(dot(hullDepthMeanDelta,hullDepthMeanAxis.xy),
-        dot(hullDepthMeanDelta,float2(-hullDepthMeanAxis.y,hullDepthMeanAxis.x)));
-    float2 hullDepthSlabDelta=world.xy-hullDepthSlab.xy;
-    float2 hullDepthSlabLocal=float2(dot(hullDepthSlabDelta,hullDepthSlabAxis.xy),
-        dot(hullDepthSlabDelta,float2(-hullDepthSlabAxis.y,hullDepthSlabAxis.x)));
-    bool hullDepthSlabValid=hullDepthSlab.w>=3.0 && hullDepthSlab.w<=12.0 && abs(baseLevel-hullDepthSlab.z)<=0.1;
-    bool hullDepthInMean=all(abs(hullDepthMeanLocal)<hullDepthMeanAxis.zw+12.0);
-    bool hullDepthInSlab=hullDepthSlabValid && all(abs(hullDepthSlabLocal)<hullDepthSlabAxis.zw+12.0);
-    if(!hullDepthInMean && !hullDepthInSlab) continue;
-    hullDepthRegion=1.0;
-    if(hullDepthValid>0.5) {
-        float2 hullDepthMeanHitDelta=hullDepthHit.xy-hullDepthMean.xy;
-        float2 hullDepthMeanHit=float2(dot(hullDepthMeanHitDelta,hullDepthMeanAxis.xy),
-            dot(hullDepthMeanHitDelta,float2(-hullDepthMeanAxis.y,hullDepthMeanAxis.x)));
-        float hullDepthDistance=WaterHullSignedDistance(hullDepthMeanHit,hullDepthIndex,(int)hullDepthMean.w);
-        if(hullDepthSlabValid) {
-            float2 hullDepthSlabHitDelta=hullDepthHit.xy-hullDepthSlab.xy;
-            float2 hullDepthSlabHit=float2(dot(hullDepthSlabHitDelta,hullDepthSlabAxis.xy),
-                dot(hullDepthSlabHitDelta,float2(-hullDepthSlabAxis.y,hullDepthSlabAxis.x)));
-            hullDepthDistance=min(hullDepthDistance,WaterContactDistance(hullDepthSlabHit,hullDepthIndex,(int)hullDepthSlab.w));
-        }
-        hullDepthSupport=max(hullDepthSupport,1.0-smoothstep(0.0,4.0,max(hullDepthDistance,0.0)));
-    }
-}
-// Separate likely bed hits from a surface standing above/below terrain. This is an
-// attribution heuristic: submerged rocks/other objects can pass it, so it is not ID.
-float hullDepthOffTerrain=0.0;
-if(hullDepthValid>0.5 && TerrainParameters.w>0.5) {
-    float hullDepthTerrain=terrainHeight(hullDepthHit.xy);
-    if(isfinite(hullDepthTerrain))
-        hullDepthOffTerrain=smoothstep(0.5,1.5,abs(hullDepthHit.z-hullDepthTerrain));
-}
-float hullDepthKnownConfidence=hullDepthRegion*hullDepthSupport*hullDepthOffTerrain;
-float hullDepthCandidate=hullDepthWetProximity*hullDepthKnownConfidence;
-)HLSL";
-}
-
-static void finish_water_hull_depth_diagnostic(std::string &hlsl,int mode)
-{
-	// Normal fog/alpha test has already executed. Encode raw measurements afterwards,
-	// opaque for byte attribution, without changing ordinary clipping or any normal mode.
-	if(mode==1) hlsl+=R"HLSL(
-// R: original finite real scene hit in the selected known-hull diagnostic region.
-// G: behind/below-water hit proximity, max(0,1-worldRayGap/8), in that region.
-// B: same hit agrees with conservative hull footprint and is separated from terrain.
-current=float4(hullDepthRegion*hullDepthValid,hullDepthRegion*hullDepthWetProximity,
-    hullDepthKnownConfidence,1.0);
-)HLSL";
-	else if(mode==2) hlsl+=R"HLSL(
-// R: G*B from contact-depth (a possible visible contact, NOT emitted foam).
-// G: that candidate after the old generic-rim mean-hull suppression.
-// B: that candidate after the old vessel-foam mean-solid mask, independently of G.
-current=float4(hullDepthCandidate,hullDepthCandidate*lerp(1.0,hullEffects.z,offshore),
-    hullDepthCandidate*smoothstep(0.0,0.006,hullEffects.z),1.0);
-)HLSL";
-	else hlsl+=R"HLSL(
-// R/G: actual raster-water / original valid scene-hit height relative to mean level,
-// each encoded saturate(0.5+0.5*(z-baseLevel)/fftVerticalBound). Endpoints are censored.
-// B: the same wet, near-surface, footprint/nonterrain candidate from the other modes.
-// Invalid original hits have G=0; outside the known-hull display region RGB is zero.
-current=float4(hullDepthRegion*saturate(0.5+0.5*(world.z-baseLevel)/fftVerticalBound),
-    hullDepthRegion*hullDepthValid*saturate(0.5+0.5*(hullDepthHit.z-baseLevel)/fftVerticalBound),
-    hullDepthCandidate,1.0);
-)HLSL";
 }
 
 bool EngineShader_Pixel_Program(EngineShaderProgram program,
@@ -1671,30 +1336,7 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 #if defined(__linux__)
 		if (program == ENGINE_SHADER_WATER_TRAPEZOID || program == ENGINE_SHADER_WATER_RIVER) {
 			write_modern_water(hlsl, program == ENGINE_SHADER_WATER_RIVER);
-			const int hullDepthDiagnostic=water_hull_depth_diagnostic();
-			if(hullDepthDiagnostic) write_water_hull_depth_diagnostic(hlsl);
 			if (!CombinerShader_Append_Pixel_Pipeline(pipeline, hlsl)) return false;
-			if(hullDepthDiagnostic) finish_water_hull_depth_diagnostic(hlsl,hullDepthDiagnostic);
-			const bool visualContact=WaterHullVisual::Enabled();
-			const char *waterDebug=getenv("ZH_WATER_DEBUG");
-			if(WaterBowLift::Enabled() && waterDebug && strcmp(waterDebug,"bow-retention")==0)
-				hlsl += "// Encode raw bow measurements after ordinary clipping/fog/alpha test.\n"
-					"current=float4(fftBowRetentionDebug(spectral,fftWeight,saturate(input.Specular.y),fftDamping),1.0);\n";
-			if(visualContact && waterDebug && strcmp(waterDebug,"contact-mesh")==0)
-				hlsl += "// Raw actual-height source, combined fresh source, and final material coverage.\ncurrent=float4(meshHullEffects.x,freshFoam,vesselFoam,1.0);\n";
-			if(visualContact && waterDebug && strcmp(waterDebug,"contact-mesh-alpha")==0)
-				hlsl += "// Raw actual-height source, final material coverage, and original compositing alpha.\ncurrent=float4(meshHullEffects.x,vesselFoam,current.a,1.0);\n";
-			if(visualContact && waterDebug && strcmp(waterDebug,"contact-material")==0)
-				hlsl += "// Lit vessel material before coverage and legacy fog/shroud composition.\ncurrent=float4(waterDisplay(vesselRadiance),1.0);\n";
-			if(visualContact && waterDebug && strcmp(waterDebug,"contact-lighting")==0)
-				hlsl += "// Surface sun cosine, actual direct-light visibility, and original fog visibility.\ncurrent=float4(saturate(dot(normal,light)),sunVisible*FoamFillLights[0].w,saturate(input.Fog),1.0);\n";
-			if(visualContact && waterDebug &&
-				(strcmp(waterDebug,"contact-mesh-query")==0 || strcmp(waterDebug,"contact-mesh-sources")==0)) {
-				// Evaluate and encode after the ordinary pipeline; no diagnostic changes normal water.
-				hlsl += strcmp(waterDebug,"contact-mesh-query")==0
-					? "current=oceanMeshHullDiagnostic(world,baseLevel,time,offshore,hullWave,footprint,waveImpact,0);\n"
-					: "current=oceanMeshHullDiagnostic(world,baseLevel,time,offshore,hullWave,footprint,waveImpact,1);\n";
-			}
 			hlsl += "    return current;\n}\n";
 			return SDL3_Shader_Retarget(hlsl, false);
 		}

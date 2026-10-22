@@ -36,7 +36,6 @@
 #include "Common/file.h"
 #include "Platform/ModernWaterConfig.h"
 
-#include <cstdio>
 
 // GLOBALS ////////////////////////////////////////////////////////////////////////////////////////
 WaterSetting WaterSettings[ TIME_OF_DAY_COUNT ];
@@ -66,13 +65,11 @@ void loadModernWaterSettings()
 	const char *path = "Data\\INI\\ModernWater.ini";
 	File *file = TheFileSystem->openFile(path, File::READ | File::BINARY);
 	if (!file) {
-		fprintf(stderr, "ModernWater: %s is absent; using built-in material rules\n", path);
 		return;
 	}
 	const Int size = file->size();
 	if (size < 0 || size > 1024 * 1024) {
 		file->close();
-		fprintf(stderr, "ModernWater: invalid configuration size; using built-in material rules\n");
 		return;
 	}
 	std::string contents(size, '\0');
@@ -80,11 +77,8 @@ void loadModernWaterSettings()
 	file->close();
 	std::string error;
 	if (!complete || !ModernWaterConfig::Parse(contents, settings.rules, error)) {
-		fprintf(stderr, "ModernWater: %s: %s; using built-in material rules\n", path,
-			complete ? error.c_str() : "incomplete read");
 		return;
 	}
-	fprintf(stderr, "ModernWater: loaded %u material rules from %s\n", unsigned(settings.rules.size()), path);
 }
 
 void getModernWaterMaterial(Real color[4], Real parameters[4])

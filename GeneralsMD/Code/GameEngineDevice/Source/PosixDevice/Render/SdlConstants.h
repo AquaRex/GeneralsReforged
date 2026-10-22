@@ -97,15 +97,13 @@ struct SdlWaterPixelConstants
 	float FoamHistoryParameters[4]; // available, water level, cell world size, simulation time of atlas
 	float ContactHullData[80][4]; // optional foam-only contours; count < 3 falls back to the matching mean hull
 	float FoamFillLights[4][4]; // two direction/colour pairs; first direction.w enables the main light for foam
-	float CoastalArea[4]; // lower world origin XY and extent XY of the independent coastal view
-	float CoastalParams[4]; // valid, exact level, successful history sample time, current water time
 #define MODERN_WATER_CPP_UNIFORM(name) float name[4];
 	MODERN_WATER_MATERIAL_UNIFORMS(MODERN_WATER_CPP_UNIFORM)
 #undef MODERN_WATER_CPP_UNIFORM
 };
 static_assert(sizeof(SdlWaterPixelConstants) == WaterHullVisualLayout::VertexCommonRegisters * 16, "water uniform packing");
-static_assert(offsetof(SdlWaterPixelConstants,MaterialColor)==186*16
-	&& offsetof(SdlWaterPixelConstants,MaterialParameters)==187*16,"water material tail packing");
+static_assert(offsetof(SdlWaterPixelConstants,MaterialColor)==184*16
+	&& offsetof(SdlWaterPixelConstants,MaterialParameters)==185*16,"water material tail packing");
 
 // Fragment-only extension after the shared water vertex/pixel prefix.
 struct SdlWaterVisualPixelConstants

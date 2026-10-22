@@ -329,8 +329,7 @@ static void check_constants(PosixDevice9 *device)
 	CHECK(memcmp(water.HullData,hull_registers[1],sizeof(water.HullData))==0);
 	// The optional foam contour is a distinct tail, never a replacement for the mean hull used
 	// by displacement. Exercise every register, including the twelfth vertex of hull eight.
-	CHECK(sizeof(water)==188*16 && offsetof(SdlWaterPixelConstants,ContactHullData)==100*16);
-	CHECK(offsetof(SdlWaterPixelConstants,CoastalArea)==184*16 && offsetof(SdlWaterPixelConstants,CoastalParams)==185*16);
+	CHECK(sizeof(water)==186*16 && offsetof(SdlWaterPixelConstants,ContactHullData)==100*16);
 	float contact_registers[80][4]={};
 	for(int r=0;r<80;++r)for(int c=0;c<4;++c)contact_registers[r][c]=-float(r*4+c)-0.75f;
 	CHECK(device->SetPixelShaderConstantF(96,&contact_registers[0][0],80)==D3D_OK);
@@ -366,11 +365,11 @@ static void check_constants(PosixDevice9 *device)
 	CHECK(device->SetPixelShaderConstantF(175,contact_registers[79],1)==D3D_OK);
 	CHECK(device->SetPixelShaderConstantF(WaterHullVisualLayout::PixelRegisterCount,contact_registers[79],1)==D3DERR_INVALIDCALL);
 	// Exact mesh transport extends the emulated bank deliberately, without moving the old
-	// 188-register native vertex prefix or copying the reserved engine-register gap into metadata.
+	// 186-register native vertex prefix or copying the reserved engine-register gap into metadata.
 	using namespace WaterHullVisualLayout;
 	CHECK(PosixDevice9::PIXEL_SHADER_CONSTANT_COUNT==896);
-	CHECK(sizeof(SdlWaterVisualPixelConstants)==196*16 && offsetof(SdlWaterVisualPixelConstants,VisualHullMeta)==188*16);
-	CHECK(VertexCommonRegisters==188 && FragmentCommonRegisters==196);
+	CHECK(sizeof(SdlWaterVisualPixelConstants)==194*16 && offsetof(SdlWaterVisualPixelConstants,VisualHullMeta)==186*16);
+	CHECK(VertexCommonRegisters==186 && FragmentCommonRegisters==194);
 	CHECK(BlockOffset(0)==0 && BlockOffset(1)==256 && BlockOffset(2)==512);
 	CHECK(BlockRegisters(0)==256 && BlockRegisters(1)==256 && BlockRegisters(2)==192);
 	float visualMeta[8][4]={};float visualPacket[704][4]={};float reserved[8][4]={};
@@ -383,18 +382,9 @@ static void check_constants(PosixDevice9 *device)
 	CHECK(device->SetPixelShaderConstantF(895,visualPacket[703],2)==D3DERR_INVALIDCALL);
 	CHECK(device->SetPixelShaderConstantF(896,visualPacket[703],1)==D3DERR_INVALIDCALL);
 	SdlWaterVisualPixelConstants visual;
-	// The scene-owned native coastal tail is independent of emulated c184..191 above.
-	// Reusing a populated CPU block must clear it until a successful draw explicitly binds a view.
-	const float coastArea[4]={-32,48,256,128},coastParams[4]={1,7,24.25f,24.375f},zeroCoast[4]={};
-	memcpy(water.CoastalArea,coastArea,sizeof(coastArea));memcpy(water.CoastalParams,coastParams,sizeof(coastParams));
-	device->Build_Water_Constants(pixel,water);
-	CHECK(memcmp(water.CoastalArea,zeroCoast,sizeof(zeroCoast))==0 && memcmp(water.CoastalParams,zeroCoast,sizeof(zeroCoast))==0);
-	// A successful scene binding fills this native tail before the visual wrapper copies it.
-	memcpy(water.CoastalArea,coastArea,sizeof(coastArea));memcpy(water.CoastalParams,coastParams,sizeof(coastParams));
 	device->Build_Water_Visual_Constants(water,visual);
 	CHECK(memcmp(&visual.Water,&water,sizeof(water))==0);
 	CHECK(memcmp(visual.VisualHullMeta,visualMeta,sizeof(visualMeta))==0);
-	CHECK(memcmp(visual.Water.CoastalArea,coastArea,sizeof(coastArea))==0 && memcmp(visual.Water.CoastalParams,coastParams,sizeof(coastParams))==0);
 	// After an ocean, missing/zero metadata must replace every previously populated slot.
 	memset(visualMeta,0,sizeof(visualMeta));CHECK(device->SetPixelShaderConstantF(176,visualMeta[0],8)==D3D_OK);
 	device->Build_Water_Visual_Constants(water,visual);CHECK(memcmp(visual.VisualHullMeta,visualMeta,sizeof(visualMeta))==0);

@@ -86,37 +86,27 @@ template<class Weight> bool Subdivide(const Topology &input,const WaterProjected
 
 struct Bow {
     unsigned id=0;double level=0;
-    bool shoulder=false;WaterBowShoulder::Contour contour{};
-    // origin is the real contact endpoint; centre is a floor/visibility probe at the end
-    // of the clearance ramp, never a second displacement anchor in front of the vessel.
+    WaterBowShoulder::Contour contour{};
+    // origin follows the contact contour support; centre probes the exterior ridge
+    // for floor clearance and visibility.
     Point origin{},centre{},forward{},hullCentre{};
-    double sigmaAlong=0,sigmaAcross=0,amplitude=0,moving=0,reach=0;
+    double sigmaAlong=0,sigmaAcross=0,reach=0;
 };
-inline bool MakeBow(unsigned id,const WaterHullModel::Hull &mean,const WaterHullModel::Hull &contact,double level,Bow &out,bool shoulder=WaterBowShoulder::Enabled()) {
+inline bool MakeBow(unsigned id,const WaterHullModel::Hull &mean,const WaterHullModel::Hull &contact,double level,Bow &out) {
     if(!std::isfinite(level)) return false;
     const auto &h=contact.data[0][3]>=3&&contact.data[0][3]<=12?contact:mean;
-    for(unsigned row=0;row<4;++row) for(float value:h.data[row]) if(!std::isfinite(value)) return false;
-    if(h.data[0][3]<3||h.data[0][3]>12||std::abs(level-h.data[0][2])>.1) return false;
     const double speed=std::hypot(h.data[2][0],h.data[2][1]);if(!(speed>double(.3f))) return false;
-    Bow b;b.id=id;b.level=level;b.hullCentre={h.data[0][0],h.data[0][1]};
-    b.forward={h.data[2][0]/speed,h.data[2][1]/speed};
-    const double blend=Smooth(-.25,.25,b.forward.x*h.data[1][0]+b.forward.y*h.data[1][1]);
-    const double x=h.data[3][0]+(h.data[3][2]-h.data[3][0])*blend,y=h.data[3][1]+(h.data[3][3]-h.data[3][1])*blend;
-    b.origin={b.hullCentre.x+x*h.data[1][0]-y*h.data[1][1],b.hullCentre.y+x*h.data[1][1]+y*h.data[1][0]};
-    b.centre={b.origin.x+WaterHullModel::FadeDistance*b.forward.x,b.origin.y+WaterHullModel::FadeDistance*b.forward.y};
     const auto pressure=WaterVesselWaves::BowPressure(h.data[1][3],float(speed));
-    b.sigmaAlong=pressure.along;b.sigmaAcross=pressure.across;b.amplitude=pressure.amplitude;
-    b.moving=Smooth(.3,14,speed);b.reach=h.data[2][3]+110;
-    if(shoulder) {
-        if(!WaterBowShoulder::Prepare(h,level,pressure.along,pressure.amplitude,b.contour))return false;
-        b.shoulder=true;
-        const auto origin=WaterBowShoulder::ToWorld(b.contour,b.contour.supportCentre);
-        b.origin={origin.x,origin.y};
-        // Narrowest ridge scale in every orientation, including turning/broadside motion.
-        b.sigmaAlong=b.sigmaAcross=b.contour.width;
-        b.centre={b.origin.x+WaterBowShoulder::ShoulderOffset*b.contour.width*b.forward.x,
-            b.origin.y+WaterBowShoulder::ShoulderOffset*b.contour.width*b.forward.y};
-    }
+    Bow b;b.id=id;b.level=level;
+    if(!WaterBowShoulder::Prepare(h,level,pressure.along,pressure.amplitude,b.contour))return false;
+    b.hullCentre={b.contour.centre.x,b.contour.centre.y};
+    b.forward={h.data[2][0]/speed,h.data[2][1]/speed};
+    const auto origin=WaterBowShoulder::ToWorld(b.contour,b.contour.supportCentre);
+    b.origin={origin.x,origin.y};
+    // Narrowest ridge scale in every orientation, including turning/broadside motion.
+    b.sigmaAlong=b.sigmaAcross=b.contour.width;b.reach=b.contour.reach;
+    b.centre={b.origin.x+WaterBowShoulder::ShoulderOffset*b.contour.width*b.forward.x,
+        b.origin.y+WaterBowShoulder::ShoulderOffset*b.contour.width*b.forward.y};
     if(!Finite(b.centre)||b.sigmaAlong<=0||b.sigmaAcross<=0||b.reach<=0) return false;
     out=b;return true;
 }
@@ -128,8 +118,7 @@ inline bool PrepareBow(const Bow &bow,const View &view,Prepared &out,double safe
         !Finite(bow.origin)||!Finite(bow.centre)||!Finite(bow.forward)||!Finite(bow.hullCentre)||
         !std::isfinite(bow.reach)||bow.reach<=0||
         !std::isfinite(bow.sigmaAlong)||bow.sigmaAlong<=0||!std::isfinite(bow.sigmaAcross)||bow.sigmaAcross<=0||
-        !std::isfinite(bow.amplitude)||bow.amplitude<0||
-        !std::isfinite(bow.moving)||bow.moving<0||bow.moving>1) return false;
+        !std::isfinite(bow.contour.amplitude)||bow.contour.amplitude<0) return false;
     Prepared p;p.bow=bow;if(!view.projection.Transform(bow.centre,p.screen)) return false;
     const double *m=view.projection.matrix,w=m[6]*bow.centre.x+m[7]*bow.centre.y+m[8];if(w<=1e-9) return false;
     const double j[4]={(m[0]-p.screen.x*m[6])/w*view.width*.5,(m[1]-p.screen.x*m[7])/w*view.width*.5,
@@ -143,14 +132,12 @@ inline bool PrepareBow(const Bow &bow,const View &view,Prepared &out,double safe
     p.desiredDepth=(std::max)(0.0,(std::min)(2.0,std::log2(3*step/(std::max)(1.665109222*minor,1e-9))));
     const double vzx=(view.verticalClip[0]-p.screen.x*view.verticalClip[2])/w*view.width*.5;
     const double vzy=(view.verticalClip[1]-p.screen.y*view.verticalClip[2])/w*view.height*.5;
-    const auto probe=WaterVesselWaves::EvaluateBowPressure(
-        {float(bow.sigmaAlong),float(bow.sigmaAcross),float(bow.amplitude)},WaterHullModel::FadeDistance,0);
     const double bound=WaterFftGeometry::MaxVerticalDisplacement;
-    const double rawProbe=bow.shoulder?WaterBowShoulder::Evaluate(bow.contour,{bow.centre.x,bow.centre.y}).value:probe.height;
+    const double rawProbe=WaterBowShoulder::Evaluate(bow.contour,{bow.centre.x,bow.centre.y}).value;
     const double height=bound*std::tanh(rawProbe/bound)*Saturate(safeAmplitude);
     p.heightGate=Smooth(.25,1,std::hypot(vzx,vzy)*height);
-    // Keep the floor/visibility probe at +9, but center the fixed detail window on
-    // the world pressure anchor. Its inverse horizontal map can lie on either side.
+    // Center the fixed detail window on the contour support. Its inverse
+    // horizontal map can lie on either side of that anchor.
     Point anchorScreen;if(!view.projection.Transform(bow.origin,anchorScreen)) return false;
     p.cell={(anchorScreen.x/limit+1)*view.resolution.columns*.5,(anchorScreen.y/limit+1)*view.resolution.rows*.5};
     if(!Finite(p.cell)||!std::isfinite(p.desiredDepth)||!std::isfinite(p.heightGate)) return false;
@@ -158,26 +145,14 @@ inline bool PrepareBow(const Bow &bow,const View &view,Prepared &out,double safe
 }
 inline double Demand(const Prepared &p,unsigned level,Logical at,Point world,double admission=1) {
     if(level<1||level>2||!Finite(world)) return 0;
-    const double dx=world.x-p.bow.origin.x,dy=world.y-p.bow.origin.y;
-    const double across=(-dx*p.bow.forward.y+dy*p.bow.forward.x)/p.bow.sigmaAcross;
-    const double along=(dx*p.bow.forward.x+dy*p.bow.forward.y)/p.bow.sigmaAlong+
-        WaterVesselWaves::BowCurvature*(std::sqrt(1+across*across)-1);
-    // Bound the inverse image of the registered bow field without CPU FFT sampling.
-    // The curved normalized profile has a global Jacobian Frobenius bound L; moving
-    // by at most R can reduce its profile distance by at most R*L. Radial support
-    // expands by R as well. The existing cell crop and topology budgets stay fixed.
+    // Signed distance and support-plane retreat are 1-Lipschitz. Expand the
+    // inverse image by the bounded FFT displacement without sampling it on the CPU.
     const double radius=WaterFftGeometry::MaxHorizontalDisplacement;
-    const double lipschitz=std::sqrt(1/(p.bow.sigmaAlong*p.bow.sigmaAlong)+
-        (1+WaterVesselWaves::BowCurvature*WaterVesselWaves::BowCurvature)/(p.bow.sigmaAcross*p.bow.sigmaAcross));
-    const double profile=(std::max)(0.0,std::hypot(along,across)-radius*lipschitz);
     const double radial=(std::max)(0.0,std::hypot(world.x-p.bow.hullCentre.x,world.y-p.bow.hullCentre.y)-radius);
-    double physical=(1-Smooth(1.5,3,profile))*(1-Smooth(p.bow.reach-30,p.bow.reach,radial));
-    if(p.bow.shoulder) {
-        const auto lower=WaterBowShoulder::InverseProfileLowerBounds(p.bow.contour,{world.x,world.y},radius);
-        physical=(1-Smooth(WaterBowShoulder::ShoulderFadeStart,WaterBowShoulder::ShoulderFadeEnd,lower.x))*
-            (1-Smooth(WaterBowShoulder::ShoulderFadeStart,WaterBowShoulder::ShoulderFadeEnd,lower.y))*
-            (1-Smooth(p.bow.reach-30,p.bow.reach,radial));
-    }
+    const auto lower=WaterBowShoulder::InverseProfileLowerBounds(p.bow.contour,{world.x,world.y},radius);
+    const double physical=(1-Smooth(WaterBowShoulder::ShoulderFadeStart,WaterBowShoulder::ShoulderFadeEnd,lower.x))*
+        (1-Smooth(WaterBowShoulder::ShoulderFadeStart,WaterBowShoulder::ShoulderFadeEnd,lower.y))*
+        (1-Smooth(p.bow.reach-30,p.bow.reach,radial));
     const double cellDistance=(std::max)(std::abs(at.x*.25-p.cell.x),std::abs(at.y*.25-p.cell.y));
     const double window=1-Smooth(3,CoreRadius,cellDistance);
     return Smooth(0,1,p.desiredDepth-double(level-1))*p.heightGate*physical*window*Saturate(admission);
@@ -338,7 +313,7 @@ inline bool Refine(WaterProjectedMesh::Mesh &mesh,const View &view,const Point c
             !std::isfinite(p.heightGate)||p.heightGate<0||p.heightGate>1||
             !Finite(p.bow.origin)||!Finite(p.bow.centre)||!Finite(p.bow.forward)||
             !std::isfinite(p.bow.sigmaAlong)||p.bow.sigmaAlong<=0||!std::isfinite(p.bow.sigmaAcross)||p.bow.sigmaAcross<=0||
-            !std::isfinite(p.bow.amplitude)||p.bow.amplitude<0||!Finite(p.bow.hullCentre)||!std::isfinite(p.bow.reach)||p.bow.reach<=0) {
+            !std::isfinite(p.bow.contour.amplitude)||p.bow.contour.amplitude<0||!Finite(p.bow.hullCentre)||!std::isfinite(p.bow.reach)||p.bow.reach<=0) {
             stats.rejected=true;return false;
         }
     }

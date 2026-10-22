@@ -52,7 +52,6 @@
 #include "Common/NameKeyGenerator.h"
 #include "GameLogic/WaterGridMotion.h"
 #include "Platform/WaterFoamParticlePolicy.h"
-#include "Platform/WaterCoastalCrest.h"
 #include <limits>
 
 #include <string>
@@ -173,6 +172,7 @@ TEST(water_grid_unstepped_is_not_the_golden)
 #include "Platform/WaterSurfaceModel.h"
 #include "Platform/WaterProjectedMesh.h"
 #include "Platform/WaterBowRefinement.h"
+#include "WaterBowShoulderTest.h"
 #include "Platform/WaterFftGeometry.h"
 #include "Platform/WaterVesselMotion.h"
 #include "Platform/WaterFoamHistory.h"
@@ -2999,127 +2999,78 @@ TEST(water_bow_refinement_invalid_input_is_atomic_and_zero_levels_are_exact)
 }
 
 namespace {
-// Independent scalar oracle: no shared production coefficients, gradient helper or
-// projection expression. Numeric derivatives below must agree with the emitted model.
+// Independent parameter oracle with no shared production coefficients.
 std::array<double,3> pressureTestParameters(double beam,double speed)
 {
-	const double u=(std::max)(0.0,(std::min)(speed,250.0)-.3);
+	const double u=(std::max)(0.0,(std::min)(speed,250.0)-double(.3f));
 	return {{(std::max)(9.0,(std::min)(32.0,6+1.2*beam)),
 		(std::max)(4.0,(std::min)(60.0,1.5+.95*beam)),
 		(std::max)(3.0,(std::min)(8.0,1.8*std::sqrt(beam)))*u*u/(u*u+26*26)}};
 }
-double pressureTestScalar(const std::array<double,3> &p,double along,double across)
-{
-	const double q=across/p[1],s=along/p[0]+.6*(std::sqrt(1+q*q)-1);
-	return p[2]*std::exp(-s*s-q*q);
-}
 }
 
-TEST(water_bow_pressure_size_speed_and_half_height_are_independently_measured)
+TEST(water_bow_pressure_size_and_speed_parameters_are_independently_measured)
 {
-	using namespace WaterVesselWaves;
-	for(float beam:{0.0f,.1f,2.5f,6.0f,8.37f,22.0f,54.0f,100.0f}) {
-		double previous=-1;
-		for(float speed:{0.0f,.3f,.3001f,1.0f,5.0f,14.0f,26.3f,40.0f,70.0f,250.0f,500.0f}) {
-			const auto expected=pressureTestParameters(beam,speed);const auto p=BowPressure(beam,speed);
-			CHECK_NEAR(p.along,expected[0],.00001);CHECK_NEAR(p.across,expected[1],.00001);CHECK_NEAR(p.amplitude,expected[2],.000003);
-			CHECK(p.along>=9 && p.along<=32 && p.across>=4 && p.across<=60 && p.amplitude>=0 && p.amplitude<=8);
-			CHECK(p.amplitude>=previous);previous=p.amplitude;
-			const auto peak=EvaluateBowPressure(p,0,0);CHECK_NEAR(peak.height,expected[2],.000003);
-			CHECK(peak.dAlong==0 && peak.dAcross==0);
-			if(speed<=.3f) CHECK(peak.height==0);
-			if(speed<1) continue;
-			// Solve for the actual half-height point by scalar bisection. A stale
-			// 8-unit width or sqrt(2) Gaussian convention cannot satisfy this.
-			double lo=0,hi=2*expected[0];
-			for(unsigned iteration=0;iteration<48;++iteration) {
-				const double x=(lo+hi)*.5;if(pressureTestScalar(expected,x,0)>expected[2]*.5)lo=x;else hi=x;
-			}
-			CHECK_NEAR(EvaluateBowPressure(p,float((lo+hi)*.5),0).height,expected[2]*.5,.000003);
-			lo=0;hi=2*expected[1];
-			for(unsigned iteration=0;iteration<48;++iteration) {
-				const double y=(lo+hi)*.5,u=-.6*expected[0]*(std::sqrt(1+y*y/(expected[1]*expected[1]))-1);
-				if(pressureTestScalar(expected,u,y)>expected[2]*.5)lo=y;else hi=y;
-			}
-			const double y=(lo+hi)*.5,u=-.6*expected[0]*(std::sqrt(1+y*y/(expected[1]*expected[1]))-1);
-			CHECK(u<0);CHECK_NEAR(EvaluateBowPressure(p,float(u),float(y)).height,expected[2]*.5,.000003);
-		}
-		CHECK(BowPressure(beam,70).amplitude>BowPressure(beam,14).amplitude*3);
-		CHECK(BowPressure(beam,500).amplitude==BowPressure(beam,250).amplitude);
-	}
-	const auto small=BowPressure(8.37f,70),large=BowPressure(54,70);
-	CHECK(large.along>small.along && large.across>small.across && large.amplitude>small.amplitude);
-	// Armed old model: it saturates at speed14 and peaks eight units beyond
-	// the contact bow. Neither behavior is allowed to pass as pressure response.
-	CHECK(std::abs(1.9*std::exp(-1.0)-small.amplitude)>2);
-	CHECK(std::abs(BowPressure(8.37f,14).amplitude-BowPressure(8.37f,70).amplitude)>2);
-}
-
-TEST(water_bow_pressure_independent_derivatives_curvature_and_bounds)
-{
-	using namespace WaterVesselWaves;
-	for(float beam:{.1f,6.0f,8.37f,22.0f,54.0f,100.0f}) for(float speed:{.31f,5.0f,14.0f,40.0f,70.0f,250.0f}) {
-		const auto expected=pressureTestParameters(beam,speed);const auto p=BowPressure(beam,speed);
-		for(double a:{-4.0,-1.7,-.7071067811865475,0.0,.31,.7071067811865475,1.7,4.0})
-			for(double b:{-3.0,-1.3,-.5,0.0,.5,1.3,3.0}) {
-				const float x=float(a*expected[0]),y=float(b*expected[1]);const auto value=EvaluateBowPressure(p,x,y);
-				constexpr double step=.0005;
-				const double dx=(pressureTestScalar(expected,x+step,y)-pressureTestScalar(expected,x-step,y))/(2*step);
-				const double dy=(pressureTestScalar(expected,x,y+step)-pressureTestScalar(expected,x,y-step))/(2*step);
-				CHECK_NEAR(value.height,pressureTestScalar(expected,x,y),.000005);
-				CHECK_NEAR(value.dAlong,dx,.00002);CHECK_NEAR(value.dAcross,dy,.00002);
-				CHECK(value.height>=0 && value.height<=p.amplitude+.000001);
-				// Supremum of |2q exp(-q²)| is sqrt(2/e). The curved
-				// shoulder adds at most .6 times that across-slope envelope.
-				CHECK(std::abs(value.dAlong)<=std::sqrt(2/std::exp(1.0))*expected[2]/expected[0]+.000001);
-				CHECK(std::abs(value.dAcross)<=1.6*std::sqrt(2/std::exp(1.0))*expected[2]/expected[1]+.000001);
-				const auto mirror=EvaluateBowPressure(p,x,-y);
-				CHECK(value.height==mirror.height && value.dAlong==mirror.dAlong && value.dAcross==-mirror.dAcross);
-			}
-		// Rest is approached quadratically, with a zero slope at the threshold.
-		const auto a=BowPressure(beam,.301f),b=BowPressure(beam,.302f);
-		CHECK(a.amplitude<.000001 && b.amplitude>3.9f*a.amplitude && b.amplitude<4.1f*a.amplitude);
-	}
+    using namespace WaterVesselWaves;
+    for(float beam:{0.0f,.1f,2.5f,6.0f,8.37f,22.0f,54.0f,100.0f}) {
+        double previous=-1;
+        for(float speed:{0.0f,.3f,.3001f,1.0f,5.0f,14.0f,26.3f,40.0f,70.0f,250.0f,500.0f}) {
+            const auto expected=pressureTestParameters(beam,speed);const auto p=BowPressure(beam,speed);
+            CHECK_NEAR(p.along,expected[0],.00001);CHECK_NEAR(p.across,expected[1],.00001);CHECK_NEAR(p.amplitude,expected[2],.000003);
+            CHECK(p.along>=9 && p.along<=32 && p.across>=4 && p.across<=60 && p.amplitude>=0 && p.amplitude<=8);
+            CHECK(p.amplitude>=previous);previous=p.amplitude;
+            if(speed<=.3f) CHECK(p.amplitude==0);
+        }
+        CHECK(BowPressure(beam,70).amplitude>BowPressure(beam,14).amplitude*3);
+        CHECK(BowPressure(beam,500).amplitude==BowPressure(beam,250).amplitude);
+        // Motion starts quadratically, with zero slope at the rest threshold.
+        const auto a=BowPressure(beam,.301f),b=BowPressure(beam,.302f);
+        CHECK(a.amplitude<.000001 && b.amplitude>3.9f*a.amplitude && b.amplitude<4.1f*a.amplitude);
+    }
+    const auto small=BowPressure(8.37f,70),large=BowPressure(54,70);
+    CHECK(large.along>small.along && large.across>small.across && large.amplitude>small.amplitude);
+    CHECK(std::abs(BowPressure(8.37f,14).amplitude-BowPressure(8.37f,70).amplitude)>2);
 }
 
 TEST(water_bow_refinement_uses_all_contact_packets_and_velocity_selected_bow)
 {
-    // Explicitly exercise the legacy Gaussian fallback; contour mode has separate tests.
-	using namespace WaterBowRefinement;
-	for(unsigned id=1;id<=WaterHullModel::MaxHulls;++id) for(double direction:{0.0,1.3,3.141592653589793,4.7}) {
-		const float modelAngle=float(id*.31),speed=float(5+id*3);
-		const float vx=speed*float(std::cos(direction)),vy=speed*float(std::sin(direction));
-		auto mean=foamTestHull(float(id*37),float(-int(id)*11),vx,vy,modelAngle,7),contact=mean;
-		// Unequal and off-axis endpoints prevent collision-bound or symmetric-hull
-		// approximations from passing as the shader's actual contact packet.
-		contact.data[3][0]=-17;contact.data[3][1]=-2;contact.data[3][2]=23;contact.data[3][3]=3;
-		contact.data[1][3]=float(id+2);
-		Bow bow;CHECK(MakeBow(id,mean,contact,7,bow,false));
-		const double length=std::hypot(double(vx),double(vy)),fx=vx/length,fy=vy/length;
-		const double ax=contact.data[1][0],ay=contact.data[1][1];
-		double blend=(fx*ax+fy*ay+.25)/.5;blend=(std::max)(0.0,(std::min)(1.0,blend));blend=blend*blend*(3-2*blend);
-		const double localX=-17+(23+17)*blend,localY=-2+(3+2)*blend;
-		const double x=contact.data[0][0]+ax*localX-ay*localY;
-		const double y=contact.data[0][1]+ay*localX+ax*localY;
-		CHECK(bow.id==id && bow.level==7);CHECK_NEAR(bow.origin.x,x,2e-5);CHECK_NEAR(bow.origin.y,y,2e-5);
-		CHECK_NEAR(bow.centre.x,x+9*fx,2e-5);CHECK_NEAR(bow.centre.y,y+9*fy,2e-5);
-		CHECK_NEAR(bow.forward.x,fx,1e-6);CHECK_NEAR(bow.forward.y,fy,1e-6);
-		const auto pressure=pressureTestParameters(contact.data[1][3],length);
-		CHECK_NEAR(bow.sigmaAlong,pressure[0],.00001);CHECK_NEAR(bow.sigmaAcross,pressure[1],.00001);
-		CHECK_NEAR(bow.amplitude,pressure[2],.000003);
-		double moving=(length-.3)/(14-.3);moving=(std::max)(0.0,(std::min)(1.0,moving));moving=moving*moving*(3-2*moving);
-		CHECK_NEAR(bow.moving,moving,1e-6);
-		CHECK(bow.hullCentre.x==contact.data[0][0] && bow.hullCentre.y==contact.data[0][1]);
-		contact.data[0][3]=0;Bow fallback;CHECK(MakeBow(id,mean,contact,7,fallback,false));
-		const double baseLocal=-12+24*blend;
-		CHECK_NEAR(fallback.centre.x,mean.data[0][0]+ax*baseLocal+9*fx,2e-5);
-		CHECK_NEAR(fallback.centre.y,mean.data[0][1]+ay*baseLocal+9*fy,2e-5);
-	}
+    using namespace WaterBowRefinement;
+    for(unsigned id=1;id<=WaterHullModel::MaxHulls;++id) for(double direction:{0.0,1.3,3.141592653589793,4.7}) {
+        const float modelAngle=float(id*.31),speed=float(5+id*3);
+        const float vx=speed*float(std::cos(direction)),vy=speed*float(std::sin(direction));
+        auto mean=foamTestHull(float(id*37),float(-int(id)*11),vx,vy,modelAngle,7),contact=mean;
+        // An asymmetric contact contour distinguishes its support from the mean hull.
+        const float polygon[8]={-17,-2,23,-3,19,5,-15,4};
+        for(unsigned i=0;i<8;++i)contact.data[4+i/4][i%4]=polygon[i];
+        contact.data[1][3]=float(id+2);
+        Bow bow;CHECK(MakeBow(id,mean,contact,7,bow));
+        const double length=std::hypot(double(vx),double(vy)),fx=vx/length,fy=vy/length;
+        CHECK(bow.id==id && bow.level==7);
+        CHECK_NEAR(bow.forward.x,fx,1e-6);CHECK_NEAR(bow.forward.y,fy,1e-6);
+        const double width=(std::max)(3.0,(std::min)(12.0,contact.data[1][3]*double(.45f)));
+        CHECK_NEAR(bow.sigmaAlong,width,.000001);CHECK_NEAR(bow.sigmaAcross,width,.000001);
+        CHECK_NEAR(bow.contour.amplitude,pressureTestParameters(contact.data[1][3],length)[2],.000003);
+        CHECK_NEAR(bow.centre.x,bow.origin.x+.5*width*fx,.000001);
+        CHECK_NEAR(bow.centre.y,bow.origin.y+.5*width*fy,.000001);
+        CHECK(bow.hullCentre.x==contact.data[0][0] && bow.hullCentre.y==contact.data[0][1]);
+        const double ax=contact.data[1][0],ay=contact.data[1][1];
+        const double localForwardX=fx*ax+fy*ay,localForwardY=-fx*ay+fy*ax;
+        double support=-1e30;
+        for(unsigned i=0;i<4;++i) {
+            CHECK(bow.contour.points[i].x==polygon[i*2] && bow.contour.points[i].y==polygon[i*2+1]);
+            support=(std::max)(support,polygon[i*2]*localForwardX+polygon[i*2+1]*localForwardY);
+        }
+        const double dx=bow.origin.x-bow.hullCentre.x,dy=bow.origin.y-bow.hullCentre.y;
+        CHECK_NEAR((dx*ax+dy*ay)*localForwardX+(-dx*ay+dy*ax)*localForwardY,support,.00001);
+        contact.data[0][3]=0;Bow fallback,expected;
+        CHECK(MakeBow(id,mean,contact,7,fallback));CHECK(MakeBow(id,mean,mean,7,expected));
+        CHECK(fallback.origin.x==expected.origin.x && fallback.origin.y==expected.origin.y);
+        CHECK(fallback.centre.x==expected.centre.x && fallback.centre.y==expected.centre.y);
+    }
 }
 
 TEST(water_bow_registration_refinement_encloses_bounded_horizontal_inverse_image)
 {
-    // Explicitly exercise the legacy Gaussian fallback; contour mode has separate tests.
     using namespace WaterBowRefinement;
     // CommonSource emits MaxHorizontalDisplacement/sqrt(2) per component; test
     // its full axis-aligned square, including diagonal corners, at rotated hulls.
@@ -3127,20 +3078,17 @@ TEST(water_bow_registration_refinement_encloses_bounded_horizontal_inverse_image
     for(float beam:{.1f,6.0f,9.0f,30.0f,80.0f})for(unsigned orientation=0;orientation<8;++orientation) {
         const double angle=orientation*6.283185307179586/8;
         auto hull=foamTestHull(0,0,float(40*std::cos(angle)),float(40*std::sin(angle)),float(angle));hull.data[1][3]=beam;
-        Bow bow;CHECK(MakeBow(1,hull,hull,7,bow,false));
+        Bow bow;CHECK(MakeBow(1,hull,hull,7,bow));
         Prepared prepared;prepared.bow=bow;prepared.cell={20,20};prepared.desiredDepth=2;prepared.heightGate=1;
         const Logical at={80,80};
+        const double amplitude=pressureTestParameters(beam,std::hypot(hull.data[2][0],hull.data[2][1]))[2];
         for(int x=-6;x<=6;++x)for(int y=-6;y<=6;++y)
             for(double shiftX:{-1.0,-.5,0.0,.5,1.0})for(double shiftY:{-1.0,-.5,0.0,.5,1.0}) {
             const double localX=x*bow.sigmaAlong*.6,localY=y*bow.sigmaAcross*.6;
             const Point parameter={bow.origin.x+localX*bow.forward.x-localY*bow.forward.y,
                 bow.origin.y+localX*bow.forward.y+localY*bow.forward.x};
             const Point mapped={parameter.x+componentRadius*shiftX,parameter.y+componentRadius*shiftY};
-            const double dx=mapped.x-bow.origin.x,dy=mapped.y-bow.origin.y;
-            const double q=(-dx*bow.forward.y+dy*bow.forward.x)/bow.sigmaAcross;
-            const double u=(dx*bow.forward.x+dy*bow.forward.y)/bow.sigmaAlong+.6*(std::sqrt(1+q*q)-1);
-            const double expected=(1-Smooth(1.5,3,std::hypot(u,q)))*
-                (1-Smooth(bow.reach-30,bow.reach,std::hypot(mapped.x-bow.hullCentre.x,mapped.y-bow.hullCentre.y)));
+            const double expected=WaterBowShoulderTest::oracle(hull,mapped.x,mapped.y)/amplitude;
             CHECK(Demand(prepared,1,at,parameter)+1e-12>=expected);
             CHECK(Demand(prepared,2,at,parameter)+1e-12>=expected);
             // World expansion must never defeat the hard cell/region cost limits.
@@ -3159,7 +3107,7 @@ TEST(water_bow_refinement_stationary_wrong_level_and_nonfinite_packets_are_rejec
 	for(float speed:{0.0f,.01f,.29f,.3f}) {
 		const auto stopped=foamTestHull(0,0,speed,0);CHECK(!MakeBow(1,stopped,stopped,7,bow));
 	}
-	const auto slow=foamTestHull(0,0,.31f,0);CHECK(MakeBow(1,slow,slow,7,bow));CHECK(bow.moving>0 && bow.moving<.00001);
+	const auto slow=foamTestHull(0,0,.31f,0);CHECK(MakeBow(1,slow,slow,7,bow));CHECK(bow.contour.amplitude>0 && bow.contour.amplitude<.00001);
 	for(unsigned field:{0u,1u,2u,3u}) {
 		auto invalid=hull;invalid.data[field][0]=NAN;CHECK(!MakeBow(1,invalid,invalid,7,bow));
 	}
@@ -3169,19 +3117,18 @@ TEST(water_bow_refinement_stationary_wrong_level_and_nonfinite_packets_are_rejec
 	for(float count:{0.0f,2.0f,13.0f,float(NAN)}) {
 		auto invalidContact=hull;invalidContact.data[0][3]=count;invalidContact.data[0][0]=NAN;
 		CHECK(MakeBow(1,hull,invalidContact,7,bow));
-		CHECK(bow.origin.x==valid.origin.x && bow.origin.y==valid.origin.y && bow.amplitude==valid.amplitude);
+		CHECK(bow.origin.x==valid.origin.x && bow.origin.y==valid.origin.y && bow.contour.amplitude==valid.contour.amplitude);
 	}
 	hull.data[0][3]=0;CHECK(!MakeBow(1,hull,hull,7,bow));
 }
 
 TEST(water_bow_refinement_projected_width_matches_independent_ellipse_sampling)
 {
-    // Explicitly exercise the legacy Gaussian fallback; contour mode has separate tests.
 	using namespace WaterBowRefinement;
 	for(unsigned fixture=0;fixture<24;++fixture) {
 		const double angle=fixture*.319;
 		const auto hull=foamTestHull(float(fixture*3),float(-int(fixture)*2),float(30*std::cos(angle)),float(30*std::sin(angle)),float(angle));
-		Bow bow;CHECK(MakeBow(fixture+1,hull,hull,7,bow,false));View view;
+		Bow bow;CHECK(MakeBow(fixture+1,hull,hull,7,bow));View view;
 		view.projection=bowTestProjection();view.projection.matrix[0]=.004;view.projection.matrix[1]=fixture*.00003;
 		view.projection.matrix[3]=-.001;view.projection.matrix[4]=.007;
 		view.projection.matrix[6]=fixture*.00001;view.projection.matrix[7]=-.00012;
@@ -3201,8 +3148,8 @@ TEST(water_bow_refinement_projected_width_matches_independent_ellipse_sampling)
 			minor=(std::min)(minor,std::hypot((hi.x-lo.x)*view.width/(4*epsilon),(hi.y-lo.y)*view.height/(4*epsilon)));
 		}
 		const double step=(std::max)(1.12*view.width/100,1.12*view.height/80);
-		// Independently find the half-height radius of the actual exp(-q*q)
-		// packet. Treating its width as a standard deviation adds a wrong sqrt(2).
+		// The contour ridge uses exp(-q*q) inside its compact fade. Independently
+		// find its half-height radius rather than assuming a Gaussian standard deviation.
 		double halfLo=0,halfHi=2;
 		for(unsigned i=0;i<48;++i) { const double q=(halfLo+halfHi)*.5;if(std::exp(-q*q)>.5) halfLo=q;else halfHi=q; }
 		const double expected=(std::max)(0.0,(std::min)(2.0,std::log2(3*step/((halfLo+halfHi)*minor))));
@@ -3218,8 +3165,7 @@ TEST(water_bow_refinement_projected_width_matches_independent_ellipse_sampling)
 		};
 		const auto lower=raised(-epsilon),upper=raised(epsilon);
 		const double verticalPixels=std::hypot((upper.x-lower.x)*view.width/(4*epsilon),(upper.y-lower.y)*view.height/(4*epsilon));
-		const auto pressure=pressureTestParameters(hull.data[1][3],30);
-		const double pressureHeight=pressureTestScalar(pressure,9,0);
+		const double pressureHeight=WaterBowShoulderTest::oracle(hull,bow.centre.x,bow.centre.y);
 		const double bound=WaterFftGeometry::MaxVerticalDisplacement;
 		double height=(verticalPixels*bound*std::tanh(pressureHeight/bound)*.75-.25)/.75;
 		height=(std::max)(0.0,(std::min)(1.0,height));height=height*height*(3-2*height);
@@ -3235,12 +3181,9 @@ TEST(water_bow_refinement_projected_width_matches_independent_ellipse_sampling)
 
 TEST(water_bow_refinement_demand_is_bounded_local_continuous_and_pause_repeatable)
 {
-    // Explicitly exercise the legacy Gaussian fallback; contour mode has separate tests.
 	using namespace WaterBowRefinement;Bow bow;const auto hull=foamTestHull(0,0,30,0);
-	CHECK(MakeBow(1,hull,hull,7,bow,false));Prepared p;p.bow=bow;p.cell={20,20};p.heightGate=1;
+	CHECK(MakeBow(1,hull,hull,7,bow));Prepared p;p.bow=bow;p.cell={20,20};p.heightGate=1;
 	const double radius=WaterFftGeometry::MaxHorizontalDisplacement;
-	const double allowance=radius*std::sqrt(1/(bow.sigmaAlong*bow.sigmaAlong)+
-		(1+.6*.6)/(bow.sigmaAcross*bow.sigmaAcross));
 	const Logical at={80,80};double previous[2]={0,0};
 	for(unsigned i=0;i<=400;++i) {
 		p.desiredDepth=double(i)/200;
@@ -3254,18 +3197,14 @@ TEST(water_bow_refinement_demand_is_bounded_local_continuous_and_pause_repeatabl
 		CHECK(Demand(p,level,at,bow.centre,0)==0);
 		CHECK_NEAR(Demand(p,level,at,bow.centre,.37),.37,1e-12);
 		CHECK(Demand(p,level,{at.x+17,at.y},bow.centre)==0);
-		CHECK(Demand(p,level,at,{bow.origin.x+(3+allowance)*bow.sigmaAlong+.001,bow.origin.y})==0);
-		CHECK(Demand(p,level,at,{bow.origin.x,bow.origin.y+(3+allowance)*bow.sigmaAcross+.001})==0);
+		CHECK(Demand(p,level,at,{bow.centre.x+3*bow.contour.width+radius+.001,bow.origin.y})==0);
+		CHECK(Demand(p,level,at,{bow.origin.x,bow.hullCentre.y+hull.data[1][3]+3.5*bow.contour.width+radius+.001})==0);
 		CHECK(Demand(p,level,at,{NAN,0})==0);
 	}
 	CHECK(Demand(p,0,at,bow.centre)==0 && Demand(p,3,at,bow.centre)==0);
-	const double across=1.4*bow.sigmaAcross;
-	const double along=-.6*bow.sigmaAlong*(std::sqrt(1+1.4*1.4)-1);
-	const BowTestPoint shoulder={bow.origin.x+along,bow.origin.y+across};
-	CHECK_NEAR(Demand(p,1,at,shoulder),1,1e-12);
-	const BowTestPoint outside={bow.origin.x+(3.1+allowance)*bow.sigmaAlong,bow.origin.y};
-	CHECK(Demand(p,1,at,outside)==0);
-	// The original radial culling contract also limits the wider pressure wing.
+    const BowTestPoint flank={bow.hullCentre.x+10,bow.hullCentre.y+hull.data[1][3]+.5*bow.contour.width};
+    CHECK_NEAR(Demand(p,1,at,flank),1,1e-12);
+	// The original radial culling contract also limits the contour ridge.
 	CHECK(Demand(p,1,at,{bow.hullCentre.x+bow.reach+radius,bow.hullCentre.y})==0);
 }
 
@@ -3278,9 +3217,9 @@ WaterBowRefinement::View bowTestView()
 }
 WaterBowRefinement::Active bowTestActive(const WaterBowRefinement::View &view,double x,double y,unsigned id=1)
 {
-	using namespace WaterBowRefinement;const auto hull=foamTestHull(float(x-20),float(y),30,0);
-	// These legacy topology fixtures place the Gaussian centre at endpoint + 9.
-	Active active;Bow bow;CHECK(MakeBow(id,hull,hull,7,bow,false));CHECK(PrepareBow(bow,view,active.prepared));
+	using namespace WaterBowRefinement;const auto hull=foamTestHull(float(x-13.5),float(y),30,0);
+	// Place the compact exterior contour ridge at the requested world-space centre.
+	Active active;Bow bow;CHECK(MakeBow(id,hull,hull,7,bow));CHECK(PrepareBow(bow,view,active.prepared));
 	active.amount=1;return active;
 }
 bool bowTestSameMesh(const WaterProjectedMesh::Mesh &a,const WaterProjectedMesh::Mesh &b)
@@ -3547,7 +3486,7 @@ TEST(water_bow_refinement_invalid_view_does_not_create_demand)
 		auto view=good;auto bow=active.prepared.bow;Prepared result;result.desiredDepth=.713;
 		if(field==0) view.width=NAN;if(field==1) view.height=INFINITY;
 		if(field==2) bow.centre.x=NAN;if(field==3) bow.forward.y=INFINITY;
-		if(field==4) bow.sigmaAcross=NAN;if(field==5) bow.moving=NAN;
+		if(field==4) bow.sigmaAcross=NAN;if(field==5) bow.contour.amplitude=NAN;
 		const double amplitude=field==6?double(NAN):1;
 		CHECK(!PrepareBow(bow,view,result,amplitude));CHECK(result.desiredDepth==.713);
 	}
@@ -3607,10 +3546,10 @@ TEST(water_bow_refinement_protected_only_or_nonfresh_geometry_cannot_admit)
 	const Point corners[4]={{-100,-100},{100,-100},{100,100},{-100,100}};
 	Mesh mesh;CHECK(Build(corners,view.projection,view.resolution,mesh));const auto saved=mesh;
 	const auto actual=bowTestActive(view,0,0),collarOnly=bowTestActive(view,-110,0);
-	// The bow's 32-world-unit support enters this polygon by only 22 units,
-	// entirely inside the independently specified 24-unit protected world band.
-	CHECK(collarOnly.prepared.bow.centre.x+32>corners[0].x);
-	CHECK(collarOnly.prepared.bow.centre.x+32-corners[0].x<24);
+    // The expanded contour support enters only the protected world band.
+    const double extent=3*collarOnly.prepared.bow.contour.width+WaterFftGeometry::MaxHorizontalDisplacement;
+    CHECK(collarOnly.prepared.bow.centre.x+extent>corners[0].x);
+    CHECK(collarOnly.prepared.bow.centre.x+extent-corners[0].x<24);
 	CHECK(!HasRefinableDemand(mesh,view,corners,collarOnly.prepared));CHECK(bowTestSameMesh(mesh,saved));
 	CHECK(HasRefinableDemand(mesh,view,corners,actual.prepared));
 	for(auto &vertex:mesh.vertices) vertex.lattice=-1;const auto nonfresh=mesh;
@@ -4388,8 +4327,7 @@ struct Coverage {unsigned calls=0;double operator()(const State&s,double x,doubl
 template<class Support> void Compare(const Topology&t,const std::vector<State>&s,const Mapping&m,double l,const Support&support,double time=1.375){
  std::vector<uint32_t> seed(size_t(m.widthPixels)*m.heightPixels);for(size_t i=0;i<seed.size();++i)seed[i]=0xaa000000u|((uint32_t(i)*2654435761u)&0xffffffu);
  auto a=seed,b=seed;Coverage ca,cb;bool ra=Reference(t,s,m,l,time,ca,a,support),rb=RasterizeAlpha(t,s,m,l,time,cb,b,support);
- CHECK(ra==rb);CHECK(ca.calls==cb.calls);if(a!=b){size_t at=0;while(at<a.size()&&a[at]==b[at])++at;
- std::fprintf(stderr,"RGBA mismatch case %u at %zu expected %08x actual %08x mapping %.17g %.17g %.17g %.17g %u %u level %.17g\n",cases,at,a[at],b[at],m.originX,m.originY,m.widthWorld,m.heightWorld,m.widthPixels,m.heightPixels,l);CHECK(a==b);}
+ CHECK(ra==rb);CHECK(ca.calls==cb.calls);CHECK(a==b);
  for(size_t i=0;i<seed.size();++i)CHECK((b[i]&0xffffffu)==(seed[i]&0xffffffu));++cases;pixels+=seed.size();
 }
 static void Layout(const Topology&t){const auto&tiles=t.RasterTiles();CHECK(tiles.size()<=4*t.Cells().size());
@@ -4729,36 +4667,7 @@ TEST(water_foam_large_stern_normalization_preserves_fixed_time_pause_stop_and_ag
     }
 }
 
-#include "WaterBowShoulderTest.h"
 
-TEST(water_default_bow_refinement_matches_explicit_contour)
-{
-    struct RestoreOption {
-        bool had;std::string value;
-        RestoreOption():had(getenv("ZH_WATER_BOW_SHOULDER")!=nullptr),
-            value(getenv("ZH_WATER_BOW_SHOULDER")?getenv("ZH_WATER_BOW_SHOULDER"):""){}
-        ~RestoreOption(){if(had)setenv("ZH_WATER_BOW_SHOULDER",value.c_str(),1);else unsetenv("ZH_WATER_BOW_SHOULDER");}
-    } restore;
-    CHECK(unsetenv("ZH_WATER_BOW_SHOULDER")==0);
-    using namespace WaterBowRefinement;
-    for(unsigned i=0;i<3;++i) {
-        const auto hull=WaterBowShoulderTest::CapturedHull(i);
-        Bow ordinary,explicitContour;
-        CHECK(MakeBow(i+1,hull,hull,4,ordinary));
-        CHECK(MakeBow(i+1,hull,hull,4,explicitContour,true));
-        CHECK(ordinary.shoulder && explicitContour.shoulder);
-        CHECK(ordinary.origin.x==explicitContour.origin.x && ordinary.origin.y==explicitContour.origin.y);
-        CHECK(ordinary.centre.x==explicitContour.centre.x && ordinary.centre.y==explicitContour.centre.y);
-        Prepared a,b;const auto view=bowTestView();
-        CHECK(PrepareBow(ordinary,view,a));CHECK(PrepareBow(explicitContour,view,b));
-        CHECK(a.desiredDepth==b.desiredDepth && a.heightGate==b.heightGate);
-        const Logical at={int(std::round(a.cell.x*4)),int(std::round(a.cell.y*4))};
-        for(int x=-60;x<=60;x+=5)for(int y=-20;y<=20;y+=5)for(unsigned level:{1u,2u}) {
-            const Point world={ordinary.centre.x+x,ordinary.centre.y+y};
-            CHECK(Demand(a,level,at,world)==Demand(b,level,at,world));
-        }
-    }
-}
 #include "WaterHullContactFoamTest.h"
 TEST(water_bow_shoulder_contour_gradient_motion_bounds_and_inverse_refinement)
 {
@@ -4787,8 +4696,8 @@ TEST(water_bow_shoulder_contour_gradient_motion_bounds_and_inverse_refinement)
     CHECK_NEAR(S::Evaluate(c,centre).value,c.amplitude,.000001);
     CHECK(S::Evaluate(c,S::ToWorld(c,{-42,0})).value==0);
     CHECK(S::Evaluate(c,S::ToWorld(c,{40+3.5*c.width,0})).value==0);
-    WaterBowRefinement::Bow bow;CHECK(WaterBowRefinement::MakeBow(1,h,h,4,bow,true));
-    CHECK(bow.shoulder&&bow.sigmaAlong==c.width&&bow.sigmaAcross==c.width);
+    WaterBowRefinement::Bow bow;CHECK(WaterBowRefinement::MakeBow(1,h,h,4,bow));
+    CHECK(bow.sigmaAlong==c.width&&bow.sigmaAcross==c.width);
     CHECK(WaterBowRefinement::MaxAddedVertices==8190&&WaterBowRefinement::MaxAddedTriangles==16380);
     auto a=S::Evaluate(c,centre),b=S::Evaluate(c,centre);CHECK(a.value==b.value&&a.dx==b.dx&&a.dy==b.dy);
     h.data[2][0]=0;S::Contour stopped;CHECK(!S::Prepare(h,4,16,4,stopped));
@@ -4813,87 +4722,6 @@ TEST(water_bow_shoulder_actual_native_contours_and_detail_anchor_stability)
     CHECK(std::hypot(a.supportCentre.x-b.supportCentre.x,a.supportCentre.y-b.supportCentre.y)<.002);
     // The physical support value and field do not jump when an extremal edge tie changes.
     const auto p=S::ToWorld(a,{-42,2});CHECK_NEAR(S::Evaluate(a,p).value,S::Evaluate(b,p).value,.0001);
-}
-
-namespace CoastalCrestAudit {
-double Scalar(const double f[6]) {
-    auto unit=[](double x){return (std::max)(0.,(std::min)(1.,x));};
-    auto smooth=[&](double a,double b,double x){const double t=unit((x-a)/(b-a));return t*t*(3-2*t);};
-    for(unsigned i=0;i<6;++i)if(!std::isfinite(f[i]))return 0;
-    const double h=f[0],d=f[1],s=unit(f[2]),e=unit(f[3]);
-    const double obstacle=(std::max)(0.,unit(f[4])-double(.5f/255.f));
-    const double gain=(std::max)(0.,obstacle-unit(f[5]));
-    if(h<=0||d<=double(WaterShoreFoam::MinDepth))return 0;
-    const double c=d-double(WaterShoreFoam::MinDepth);
-    return s*e*smooth(WaterShoreFoam::MinDepth,WaterShoreFoam::WetDepth,d)*gain
-        *c*std::tanh(h/c)*smooth(0,WaterShoreFoam::CrestHeight,h);
-}
-}
-TEST(water_coastal_crest_shared_height_derivative_and_zero_controls)
-{
-    using namespace WaterCoastalCrest;double maximum=0;unsigned armed=0;
-    for(unsigned i=0;i<96;++i) {
-        Field fields[6]={{.05f+.029f*i,.17f,-.23f},{.17f+.037f*i,.07f,-.04f},
-            {.13f+float(i%6)*.11f,.031f,-.023f},{.21f+float(i%5)*.13f,-.017f,.021f},
-            {.67f+float(i%4)*.07f,.011f,-.019f},{.03f+float(i%7)*.035f,.013f,.009f}};
-        const Field a=Correction(fields[0],fields[1],fields[2],fields[3],fields[4],fields[5]);
-        double v[6];for(unsigned n=0;n<6;++n)v[n]=fields[n].height;
-        CHECK_NEAR(a.height,CoastalCrestAudit::Scalar(v),.000003);
-        for(unsigned axis=0;axis<2;++axis) {
-            double lo[6],hi[6];for(unsigned n=0;n<6;++n){const double gradient=axis?fields[n].dy:fields[n].dx;lo[n]=v[n]-1e-4*gradient;hi[n]=v[n]+1e-4*gradient;}
-            const double derivative=(CoastalCrestAudit::Scalar(hi)-CoastalCrestAudit::Scalar(lo))/.0002;
-            const double error=std::abs(double(axis?a.dy:a.dx)-derivative);maximum=(std::max)(maximum,error);CHECK(error<.00008);
-        }
-        armed+=a.height>.01f;
-    }
-    CHECK(armed>30);
-    CHECK(Eligible(false,true,0));CHECK(!Eligible(true,true,0));CHECK(!Eligible(false,false,0));CHECK(!Eligible(false,true,.000001f));
-    CHECK(Height(-1,2,1,1,1,.1f)==0);CHECK(Height(1,0,1,1,1,.1f)==0);
-    CHECK(Height(1,2,0,1,1,.1f)==0);CHECK(Height(1,2,1,0,1,.1f)==0);CHECK(Height(1,2,1,1,.1f,.1f)==0);
-    CHECK(Height(std::numeric_limits<float>::quiet_NaN(),2,1,1,1,.1f)==0);
-    std::printf("coastal crest independent scalar/complete product derivative96cases max %.9g\n",maximum);
-}
-TEST(water_coastal_crest_cannot_lower_mesh_or_exceed_existing_legacy_envelope)
-{
-    using namespace WaterCoastalCrest;unsigned nonzero=0;float largest=0;
-    for(unsigned i=0;i<20000;++i) {
-        const float x=float((i*73)%1000)-500,y=float((i*47)%800)-400,time=float(i%601)/30;
-        const auto wave=WaterSurfaceModel::Evaluate(x,y,time);const float broad=WaterShoreFoam::Evaluate(x,y,time).height;
-        const float depth=float(i%201)*.06f,obstacle=float((i*17)%256)/255.f;
-        const float damping=(std::min)(WaterSurfaceModel::ShoreDamping(depth),obstacle);
-        const float add=Height(broad,depth,float((i*13)%31)/30,float((i*29)%11)/10,EncodeObstacle(obstacle),damping);
-        const float old=wave.height*damping,next=old+add;
-        CHECK(std::isfinite(add)&&add>=0);CHECK(next>=old);
-        CHECK(add<=(std::max)(0.f,obstacle-damping)*(std::max)(0.f,broad)+.000002f);
-        CHECK(std::abs(next)<=WaterSurfaceModel::LegacyMaxDisplacement+.00001f);
-        CHECK(next>=-depth-.00001f); // Original conservative vertex floor still holds.
-        largest=(std::max)(largest,add);nonzero+=add>.01f;
-    }
-    CHECK(nonzero>1000&&largest>.3f);
-    // Actual existing convex morph/collar algebra: added vertices cannot lower interpolated
-    // triangles, shared edge morphs or centre transitions. No topology/XY changes are proposed.
-    const double old[3]={-1.1,.8,-.4},added[3]={.7,.02,1.3};
-    for(unsigned i=0;i<=20;++i)for(unsigned j=0;j<=20-i;++j) {
-        WaterProjectedMesh::CentreTransition t={};t.weight[0]=i/20.;t.weight[1]=j/20.;t.weight[2]=1-t.weight[0]-t.weight[1];t.analytic=.35;
-        const double next[3]={old[0]+added[0],old[1]+added[1],old[2]+added[2]};
-        CHECK(WaterProjectedMesh::InterpolateCentre(t,.9,next)>=WaterProjectedMesh::InterpolateCentre(t,-.2,old));
-        for(unsigned k=0;k<=10;++k)CHECK(WaterSurfaceModel::MorphCoordinate(float(old[0]+added[0]),float(next[1]),float(next[2]),k/10.f)
-            >=WaterSurfaceModel::MorphCoordinate(float(old[0]),float(old[1]),float(old[2]),k/10.f));
-    }
-    std::printf("coastal crest20000 bound/floor cases; active%u max added %.7g within original bound %.7g\n",nonzero,largest,WaterSurfaceModel::LegacyMaxDisplacement);
-}
-TEST(water_coastal_crest_uses_existing_phase_freezes_and_reports_positive_mean)
-{
-    using namespace WaterCoastalCrest;double sum=0;unsigned zero=0,active=0;float peak=0;
-    for(unsigned i=0;i<1920;++i) {
-        const float t=i/30.f;const float h=WaterShoreFoam::Evaluate(1150,352,t).height;
-        const float add=Height(h,2,1,1,EncodeObstacle(1),WaterSurfaceModel::ShoreDamping(2));
-        CHECK(add==Height(WaterShoreFoam::Evaluate(1150,352,WaterSurfaceModel::AdvanceTime(t,.1f,true,false,false)).height,
-            2,1,1,EncodeObstacle(1),WaterSurfaceModel::ShoreDamping(2)));
-        sum+=add;peak=(std::max)(peak,add);zero+=add==0;active+=add>.1f;
-    }
-    CHECK(zero>400&&active>200);CHECK(sum/1920>.02&&sum/1920<1.0);CHECK(peak>0.5f);
-    std::printf("coastal crest64s phase sweep: nonzero DC %.7g world, peak %.7g, zero frames%u/1920; NOT a zero-mean fluid solver\n",sum/1920,peak,zero);
 }
 
 TEST(water_bow_shoulder_large_hull_scale_cap_support_and_small_boat_identity)
@@ -4932,7 +4760,7 @@ TEST(water_bow_shoulder_large_hull_scale_cap_support_and_small_boat_identity)
     const auto large=T::scaledHull(280,54);const auto c=T::contour(large);
     const auto outside=S::ToWorld(c,{292,0});
     CHECK(S::Evaluate(c,outside).value-T::oracle(large,outside.x,outside.y,6)>3);
-    WaterBowRefinement::Bow bow;CHECK(WaterBowRefinement::MakeBow(7,large,large,4,bow,true));
+    WaterBowRefinement::Bow bow;CHECK(WaterBowRefinement::MakeBow(7,large,large,4,bow));
     CHECK(bow.sigmaAlong==12 && bow.sigmaAcross==12 && bow.contour.length==32);
     CHECK(WaterBowRefinement::MaxRegions==3 && WaterBowRefinement::WindowRadius==6);
     CHECK(WaterBowRefinement::MaxAddedVertices==8190 && WaterBowRefinement::MaxAddedTriangles==16380);
@@ -4947,238 +4775,6 @@ TEST(water_bow_shoulder_large_hull_scale_cap_support_and_small_boat_identity)
     }
 }
 
-
-#include "Platform/WaterCoastalSurf.h"
-
-namespace CoastalSurfTest {
-using namespace WaterCoastalSurf;
-inline Context Coast(){return {4,64,-1,0,1,.4f,.4f,.5f,1,1};}
-inline Field Travelling(double x,double time){const double k=6.283185307179586/64,q=k*x-time;
-    return {float(2*std::sin(q)),float(2*k*std::cos(q)),0,float(1-.20*std::sin(q))};}
-inline double Simp(double duration,double lifetime,double rate0,double rate1,unsigned power){
-    constexpr unsigned n=10000;double sum=0;
-    for(unsigned i=0;i<=n;++i){const double age=duration*i/n;
-        const double value=std::pow(age,int(power))*std::exp(-age/lifetime)*(rate1+(rate0-rate1)*age/duration);
-        sum+=(i==0||i==n?1:i%2?4:2)*value;}
-    return sum*duration/(3*n);
-}
-inline State Schedule(const std::vector<double>&steps,double end){
-    Clock clock;State state;double time=0;auto p=clock.Inspect(7,0);CHECK(clock.Commit(7,p));
-    state.height=Travelling(5,0).height;state.rate=0;
-    for(unsigned i=0;time<end;++i){time=(std::min)(end,time+steps[i%steps.size()]);p=clock.Inspect(7,time);
-        if(p.action==Action::Sample||p.action==Action::GapDecay)
-            state=Advance(Coast(),Travelling(5,time),state,p.elapsed,p.action==Action::Sample);
-        CHECK(clock.Commit(7,p));}
-    return state;
-}
-}
-
-TEST(water_coastal_surf_front_propagates_from_actual_phase_and_leaves_remnants)
-{
-    using namespace CoastalSurfTest;
-    auto peak=[](double time){float maximum=0;double result=0;
-        for(unsigned i=0;i<=256;++i){double x=-32+i*.25;Field f=Travelling(x,time);State old;
-            old.height=Travelling(x,time-.1).height;old.rate=0;
-            const float rate=Rate(Coast(),f,old,.1);if(rate>maximum){maximum=rate;result=x;}}
-        CHECK(maximum>.25f);return result;};
-    const double a=peak(0),b=peak(.5);
-    CHECK(std::abs((b-a)-32/6.283185307179586)<.5); // independently known phase speed, +X
-    auto c=Coast();c.outwardX=1;State old;old.height=Travelling(20,-.1).height;old.rate=0;
-    CHECK(Rate(c,Travelling(20,0),old,.1)==0); // opposite coast sees an outgoing front
-    State state;state.height=Travelling(0,0).height;state.rate=0;
-    float maximum=0;
-    for(unsigned i=1;i<=48;++i){state=Advance(Coast(),Travelling(0,i*.1),state,.1);maximum=(std::max)(maximum,state.rate);}
-    CHECK(maximum>.25f && state.density>.15f);
-    const State fresh=state;CHECK(Coverage(fresh,.25f)>0);
-    for(unsigned i=0;i<30;++i)state=Advance(Coast(),Travelling(0,4.8+(i+1)*.1),state,.1,false);
-    CHECK(state.density>0 && state.density<fresh.density);
-    CHECK(state.ageMoment/state.density>fresh.ageMoment/fresh.density+2.9f);
-    CHECK(Coverage(state,.25f)<Coverage(state,1)); // age produces porosity, not only fading
-    for(unsigned i=0;i<150;++i)state=Advance(Coast(),Travelling(0,8+i*.1),state,.1,false);
-    CHECK(Coverage(state,.25f)==0);
-}
-
-TEST(water_coastal_surf_linear_rate_integration_has_independent_density_and_age_oracles)
-{
-    using namespace CoastalSurfTest;
-    for(double dt:{.0001,.025,.1,.25})for(float first:{0.f,.4f,1.2f})for(float last:{0.f,.7f,1.2f}){
-        State old{.7f,1.3f,1,first};State result=Integrate(old,2,last,dt,true);
-        const double q=std::exp(-dt/5);
-        const double density=q*.7+Simp(dt,5,first,last,0);
-        const double age=q*(1.3+dt*.7)+Simp(dt,5,first,last,1);
-        CHECK(std::abs(result.density-density)<.000001);
-        CHECK(std::abs(result.ageMoment-age)<.000001);
-        CHECK(result.height==2 && result.rate==last);
-    }
-    State old{.5f,.8f,1,.9f};const State paused=Integrate(old,12,1.2,0,true);
-    CHECK(paused.density==old.density && paused.ageMoment==old.ageMoment && paused.height==old.height && paused.rate==old.rate);
-    const State gap=Integrate(old,2,1.2,4,false);
-    CHECK(std::abs(gap.density-.5*std::exp(-.8))<.000001 && gap.rate==0);
-    CHECK(std::abs(gap.ageMoment-(.8+2)*std::exp(-.8))<.000001);
-    CHECK(Integrate(old,2,1.2,100000,false).density==0);
-}
-
-TEST(water_coastal_surf_schedule_error_is_bounded_and_not_render_count_driven)
-{
-    using namespace CoastalSurfTest;
-    const State at30=Schedule({1./30},30),at120=Schedule({1./120},30);
-    const State jitter=Schedule({.012,.047,.021,.035},30);
-    CHECK(at30.density>.03f && at30.ageMoment>.03f);
-    CHECK(std::abs(at30.density-at120.density)<.0005f);
-    CHECK(std::abs(at30.ageMoment-at120.ageMoment)<.002f);
-    // The source uses real current FFT samples, not extra transforms at every ideal tick.
-    // Jitter may therefore change sample phase; this is an explicit error bound, not identity.
-    CHECK(std::abs(at30.density-jitter.density)<.05f*(std::max)(at30.density,.1f));
-    CHECK(std::abs(at30.ageMoment-jitter.ageMoment)<.06f*(std::max)(at30.ageMoment,.1f));
-    Clock clock;auto p=clock.Inspect(11,2);CHECK(p.action==Action::Reset && clock.Commit(11,p));
-    p=clock.Inspect(11,2);CHECK(p.action==Action::None && clock.Commit(11,p));
-    p=clock.Inspect(11,2.05);CHECK(p.action==Action::None && clock.Commit(11,p));
-    p=clock.Inspect(11,2.1);CHECK(p.action==Action::Sample && clock.Commit(11,p));
-    const double sampled=clock.SampledTime();CHECK(clock.Inspect(11,2.1).action==Action::None);
-    CHECK(clock.SampledTime()==sampled); // inspecting an unsubmitted GPU plan cannot advance state
-    p=clock.Inspect(11,5);CHECK(p.action==Action::GapDecay && clock.Commit(11,p));
-    CHECK(clock.Inspect(11,4.9).action==Action::Reset); // rollback clears source derivative history
-    CHECK(clock.Inspect(12,5).action==Action::Reset); // map/terrain/polygon revision, even same dimensions
-    CHECK(clock.Inspect(0,5).action==Action::Invalid);
-    CHECK(clock.Inspect(11,std::numeric_limits<double>::infinity()).action==Action::Invalid);
-    p=clock.Inspect(11,5.1);p.elapsed=.01;CHECK(!clock.Commit(11,p));
-}
-
-TEST(water_coastal_surf_distinct_domain_keeps_broad_wet_support_and_excludes_dry_pools)
-{
-    using namespace CoastalSurfTest;
-    Context c=Coast();Field f{2,-.25f,0,.7f};State old{.7f,.1f,1.9f,0};
-    CHECK(c.distance>20 && c.offshore>0 && Domain(c)>0 && Rate(c,f,old,.1)>.1f);
-    Context q=c;q.wet=0;CHECK(Advance(q,f,old,.1).density==0);
-    q=c;q.depth=.15f;CHECK(Rate(q,f,old,.1)==0 && Advance(q,f,old,.1).density==0);
-    q=c;q.exposure=0;CHECK(Advance(q,f,old,.1).density==0);
-    q=c;q.admitted=0;CHECK(Advance(q,f,old,.1).density==0);
-    q=c;q.distance=128;CHECK(Rate(q,f,old,.1)==0);
-    // Wet spread margin can retain old foam after leaving source support; it cannot emit.
-    const State margin=Advance(q,f,old,.1);CHECK(margin.density>0 && margin.density<old.density);
-    q=c;q.depth=12;CHECK(Rate(q,f,old,.1)==0);
-    q=c;q.depth=std::numeric_limits<float>::quiet_NaN();CHECK(Rate(q,f,old,.1)==0);
-    Field still=f;old.height=f.height;CHECK(Rate(c,still,old,.1)==0);
-    Field falling=f;falling.height=old.height-.1f;CHECK(Rate(c,falling,old,.1)==0);
-    Field trough=f;trough.height=-1;CHECK(Rate(c,trough,old,.1)==0);
-    q=c;q.analyticDamping=q.spectralDamping=1;old.height=1.9f;CHECK(Rate(q,f,old,.1)==0);
-    q=c;q.offshore=0;
-    Context offshore=q;offshore.offshore=1;
-    CHECK(Rate(q,f,old,.1)==Rate(offshore,f,old,.1)); // Optical R cannot select the phase field's damping.
-    q.analyticDamping=0;q.spectralDamping=1;
-    CHECK(Rate(q,f,old,.1)==0); // B1/R0 uses the same spectral damping as open water.
-    Field analytic{1,.3f,-.2f,1},spectral{3,-.2f,.1f,.6f};
-    Field mixed=Blend(analytic,spectral,.25f);CHECK(mixed.height==1.5f);
-    CHECK(std::abs(mixed.dx-.175f)<.000001f && std::abs(mixed.compression-.9f)<.000001f);
-}
-
-TEST(water_coastal_surf_wet_graph_diffusion_and_lookup_do_not_cross_levels_or_renormalize_gaps)
-{
-    using namespace CoastalSurfTest;
-    std::vector<Node> nodes(3);for(auto &n:nodes)n.context=Coast();
-    nodes[0].world[2]=nodes[1].world[2]=7;nodes[1].world[0]=5;
-    nodes[2].world[2]=11;nodes[0].neighbour[1]=2;nodes[1].neighbour[0]=1;
-    CHECK(ValidGraph(nodes,5));nodes[1].neighbour[1]=3;CHECK(!ValidGraph(nodes,5));nodes[1].neighbour[1]=0;
-    nodes[1].world[2]=11;CHECK(!ValidGraph(nodes,5));nodes[1].world[2]=7;
-    nodes[1].context.wet=0;CHECK(!ValidGraph(nodes,5));nodes[1].context=Coast();
-    nodes[1].context.admitted=0;CHECK(!ValidGraph(nodes,5));nodes[1].context=Coast();
-    nodes[1].context.exposure=0;CHECK(!ValidGraph(nodes,5));nodes[1].context=Coast();
-    nodes[1].context.depth=.15f;CHECK(!ValidGraph(nodes,5));nodes[1].context=Coast();
-    nodes[1].context.distance=144;nodes[1].context.depth=14;
-    CHECK(Domain(nodes[1].context)==0 && ValidGraph(nodes,5)); // valid wet spreading margin
-    State a{1,2,1,0},b{0,0,2,0};std::array<State,4> na{},nb{};na[1]=b;nb[0]=a;
-    const State da=Diffuse(a,na,2,5,.1),db=Diffuse(b,nb,1,5,.1);
-    CHECK(da.density<1 && db.density>0 && std::abs(da.density+db.density-1)<.000001);
-    CHECK(std::abs(da.ageMoment+db.ageMoment-2)<.000001 && da.height==a.height && db.height==b.height);
-    Lookup lookup{{1,2,0,0},{.25f,.25f,0,0}};CHECK(ValidLookup(lookup,3));
-    CHECK(lookup.weight[0]+lookup.weight[1]==.5f); // missing dry half remains missing
-    lookup.weight[2]=.1f;CHECK(!ValidLookup(lookup,3));lookup.weight[2]=0;
-    lookup.node[0]=4;CHECK(!ValidLookup(lookup,3));
-    CHECK(!ValidGraph(std::vector<Node>(MaxNodes+1),5));
-}
-
-TEST(water_coastal_surf_rejects_overflow_inputs_and_preserves_tiny_step_finiteness)
-{
-    using namespace CoastalSurfTest;
-    State old{.7f,.1f,1.9f,0};Field f{2,-.25f,0,.7f};Context c=Coast();
-    c.outwardX=std::numeric_limits<float>::max();CHECK(Rate(c,f,old,.1)==0);
-    c=Coast();f.dx=std::numeric_limits<float>::max();CHECK(Rate(c,f,old,.1)==0);
-    f={2,-.25f,0,.7f};c.spectralDamping=std::numeric_limits<float>::max();CHECK(Rate(c,f,old,.1)==0);
-    for(double dt:{1e-40,1e-30,1e-12,1e-8}){
-        const State state=Integrate(old,2,.8f,dt,true);CHECK(Finite(state));
-        CHECK(std::abs(state.density-old.density)<.000001 && std::abs(state.ageMoment-old.ageMoment)<.000001);
-    }
-    std::vector<Node> duplicate(2);for(auto &n:duplicate){n.context=Coast();n.world[2]=7;}
-    CHECK(!ValidGraph(duplicate,5));
-    Lookup lookup;CHECK(!ValidLookup(lookup,MaxNodes+1));
-    // R varies between constant endpoints: its static transition is not wave steepness.
-    const Field a{1,0,0,1},b{2,0,0,1};const Field mixed=Blend(a,b,.5f);
-    c=Coast();old.height=1.4f;CHECK(mixed.dx==0 && mixed.dy==0 && Rate(c,mixed,old,.1)==0);
-}
-
-#include "WaterWaveCageTest.h"
-TEST(water_wave_cage_phase_terrain_bounds_classification_and_constrained_smoothing)
-{
-    WaterWaveCageTest::Check();
-}
-
-#include "WaterTerrainCullingTest.h"
-TEST(water_terrain_culling_preserves_wet_interiors_displacement_and_mesh_metadata)
-{
-    WaterTerrainCullingTest::Check();
-}
-
-#include "WaterCoastalDomainTest.h"
-TEST(water_coastal_domain_connected_wet_geometry_limits_and_atomic_refresh)
-{
-    WaterCoastalDomainTest::Check();
-}
-
-#include "WaterCoastalViewTest.h"
-TEST(water_coastal_view_centres_support_levels_limits_and_atomic_refresh)
-{
-    WaterCoastalViewTest::Check();
-}
-
-#include "Platform/WaterCoastalPresentation.h"
-
-TEST(water_coastal_presentation_advances_age_and_density_without_new_births)
-{
-    using namespace WaterCoastalPresentation;
-    const Moments same=AtTime(2,3,0),later=AtTime(2,3,2.5f);
-    CHECK(same.density==2&&same.age==1.5f);
-    CHECK(std::abs(later.density-2*std::exp(-.5))<.000001&&later.age==4);
-    const Moments split=AtTime(later.density,later.density*later.age,1.5f),one=AtTime(2,3,4);
-    CHECK(std::abs(split.density-one.density)<.000001&&std::abs(split.age-one.age)<.000001);
-    CHECK(AtTime(0,0,0).density==0&&AtTime(2,3,-1).density==0);
-    CHECK(AtTime(2,3,14).density==0&&AtTime(1,14,0).density==0);
-    CHECK(AtTime(std::numeric_limits<float>::quiet_NaN(),0,0).density==0);
-    CHECK(AtTime(1,std::numeric_limits<float>::infinity(),0).density==0);
-}
-
-TEST(water_coastal_presentation_accepts_r0_but_rejects_unsupported_geometry)
-{
-    using namespace WaterCoastalPresentation;
-    CHECK(ModelGate(0,0,0,0,0)==1&&ModelGate(1,1,0,0,0)==1);
-    CHECK(ModelGate(.4f,.4f,0,0,0)==1);
-    CHECK(ModelGate(0,.4f,0,0,0)==0); // camera/authored-edge FFT fade
-    CHECK(ModelGate(.4f,.4f,.5f,0,0)==0); // boundary/centre height correction
-    CHECK(ModelGate(.4f,.4f,0,.1f,0)==0); // zero height with a nonzero correction slope
-    CHECK(ModelGate(.4f,.42f,0,0,0)>0&&ModelGate(.4f,.42f,0,0,0)<1);
-    CHECK(ModelGate(std::numeric_limits<float>::quiet_NaN(),0,0,0,0)==0);
-}
-
-#include "WaterCoastalFootprintTest.h"
-TEST(water_coastal_view_full_filter_footprint_blocks_subtexel_gaps)
-{
-    WaterCoastalFootprintTest::Check();
-}
-
-#include "WaterCoastalCapacityTest.h"
-TEST(water_coastal_domain_stride_two_capacity_preserves_fine_connectivity_and_terrain)
-{
-    WaterCoastalCapacityTest::Check();
-}
 
 #if defined(__linux__)
 #include "W3DDevice/GameClient/W3DWater.h"
@@ -5208,15 +4804,14 @@ public:
     void seedPresentation() {
         m_modernHulls.resize(1);m_modernContactHulls.resize(1);m_modernVisualHulls.resize(1);
         m_modernHullObjectIDs.push_back(42);m_modernFoamDrawObjectIDs.push_back(42);
-        m_modernFoamDrawFrame=123;m_modernShoreReady=m_modernCoastalReady=m_modernCoastalViewReady=TRUE;
-        m_modernCoastalRevision=42;m_modernProfile.frames=17;m_reflectionReused=FALSE;
+        m_modernFoamDrawFrame=123;m_modernShoreReady=TRUE;
+        m_reflectionReused=FALSE;
     }
     void checkChanged(bool modern) {
         CHECK_EQ(bool(m_useModernWater),modern);
         CHECK(m_modernHulls.empty() && m_modernContactHulls.empty() && m_modernVisualHulls.empty());
         CHECK(m_modernHullObjectIDs.empty() && m_modernFoamDrawObjectIDs.empty());
-        CHECK(!m_modernShoreReady && !m_modernCoastalReady && !m_modernCoastalViewReady);
-        CHECK(m_modernCoastalRevision==0 && m_modernProfile.frames==0);
+        CHECK(!m_modernShoreReady);
         CHECK(m_reflectionReused); // force the new clear colour even with a stationary camera
         CHECK_EQ(m_modernWaveTime,37.5f);CHECK_EQ(m_level,7);CHECK(m_drawnMotionEnabled);
         const auto river=EngineShader_From_File(WaterShaderNameProbe::Engine_Name_Of(m_riverWaterPixelShader).c_str());
@@ -5226,7 +4821,7 @@ public:
     }
     void checkUnchanged() {
         CHECK(!m_modernHulls.empty() && !m_modernFoamDrawObjectIDs.empty());
-        CHECK(m_modernShoreReady && m_modernCoastalRevision==42 && m_modernProfile.frames==17);
+        CHECK(m_modernShoreReady);
         CHECK(!m_reflectionReused); // no per-frame history reset or forced mirror refresh
     }
 };

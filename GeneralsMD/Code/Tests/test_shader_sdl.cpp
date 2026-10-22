@@ -314,9 +314,7 @@ TEST(fft_water_vertex_and_pixel_compile_with_separate_texture_bindings)
 		CHECK(compiled);if(!compiled) continue;
 		unsigned samplers=0,buffers=0;
 		SDL3_Shader_Slots(spirv,isVertex,samplers,buffers);
-		const char *surfOption=getenv("ZH_WATER_SURF_GPU");
-		const bool surfEnabled=surfOption && strcmp(surfOption,"1")==0;
-		CHECK_EQ(samplers,isVertex?4u:(surfEnabled?16u:15u));CHECK_EQ(buffers,isVertex?2u:(WaterHullVisual::Enabled()?4u:1u));
+		CHECK_EQ(samplers,isVertex?4u:15u);CHECK_EQ(buffers,isVertex?2u:4u);
 		const char *validator=getenv("ZH_SPIRV_VAL");
 		if(validator && *validator) CHECK(validate(validator,spirv,log));
 		CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,isVertex,msl,log));
@@ -325,23 +323,6 @@ TEST(fft_water_vertex_and_pixel_compile_with_separate_texture_bindings)
 }
 
 namespace {
-
-// Restore launch-time shader options after testing each production variant.
-struct SavedShaderOption
-{
-    const char *name;
-    bool present;
-    std::string value;
-
-    explicit SavedShaderOption(const char *key) : name(key), present(getenv(key) != NULL),
-        value(present ? getenv(key) : "") {}
-
-    ~SavedShaderOption()
-    {
-        if (present) setenv(name, value.c_str(), 1);
-        else unsetenv(name);
-    }
-};
 
 struct WaterUniformMember
 {
@@ -376,8 +357,6 @@ const WaterUniformMember WaterUniformMembers[] = {
     WATER_UNIFORM_MEMBER(FoamHistoryParameters),
     WATER_UNIFORM_MEMBER(ContactHullData),
     WATER_UNIFORM_MEMBER(FoamFillLights),
-    WATER_UNIFORM_MEMBER(CoastalArea),
-    WATER_UNIFORM_MEMBER(CoastalParams),
     WATER_UNIFORM_MEMBER(MaterialColor),
     WATER_UNIFORM_MEMBER(MaterialParameters)
 };
@@ -456,18 +435,13 @@ void checkCompiledWaterUniformLayout(const std::string &source, bool vertex,
 
 TEST(modern_water_compiled_uniform_layout_matches_every_cpu_upload_field)
 {
-    SavedShaderOption contact("ZH_WATER_HULL_CONTACT"), debug("ZH_WATER_DEBUG");
-    CHECK(unsetenv(debug.name) == 0);
-    for (unsigned visual = 0; visual < 2; ++visual) {
-        CHECK(setenv(contact.name, visual ? "mesh" : "0", 1) == 0);
-        for (const EngineShaderProgram program : {ENGINE_SHADER_WATER_TRAPEZOID, ENGINE_SHADER_WATER_RIVER}) {
-            PixelPipelineDescription pipeline = {};
-            std::string source;
-            const bool generated = EngineShader_Pixel_Program(program, pipeline, source,
-                COMBINER_SHADER_TARGET_SDL3_GPU);
-            CHECK(generated);
-            if (generated) checkCompiledWaterUniformLayout(source, false, "CombinerConstants", visual != 0);
-        }
+    for (const EngineShaderProgram program : {ENGINE_SHADER_WATER_TRAPEZOID, ENGINE_SHADER_WATER_RIVER}) {
+        PixelPipelineDescription pipeline = {};
+        std::string source;
+        const bool generated = EngineShader_Pixel_Program(program, pipeline, source,
+            COMBINER_SHADER_TARGET_SDL3_GPU);
+        CHECK(generated);
+        if (generated) checkCompiledWaterUniformLayout(source, false, "CombinerConstants", true);
     }
 
     VertexPipelineDescription description = shader_cases_detail::plain_vertex();
@@ -1354,169 +1328,3 @@ TEST(authored_surf_wrapper_compiles_with_original_fixed_function_fog_and_alpha)
     std::string bad="not a generated combiner";const std::string saved=bad;
     CHECK(!WaterShoreOverlay::WrapPixel(bad));CHECK(bad==saved);
 }
-
-
-#if defined(__linux__)
-// Full Modern shader integration, including its optional production diagnostics.
-TEST(shore_source_terms_reports_actual_front_and_is_absent_from_normal_source)
-{
-    struct RestoreDebug {
-        bool had;std::string value;
-        RestoreDebug(){const char*p=getenv("ZH_WATER_DEBUG");had=p!=nullptr;value=p?p:"";}
-        ~RestoreDebug(){if(had)setenv("ZH_WATER_DEBUG",value.c_str(),1);else unsetenv("ZH_WATER_DEBUG");}
-    }restore;
-    for(auto program:{ENGINE_SHADER_WATER_TRAPEZOID,ENGINE_SHADER_WATER_RIVER}) {
-        PixelPipelineDescription description={};std::string normal,diagnostic;
-        CHECK(unsetenv("ZH_WATER_DEBUG")==0);
-        CHECK(EngineShader_Pixel_Program(program,description,normal,COMBINER_SHADER_TARGET_SDL3_GPU));
-        CHECK(setenv("ZH_WATER_DEBUG","shore-source-terms",1)==0);
-        CHECK(EngineShader_Pixel_Program(program,description,diagnostic,COMBINER_SHADER_TARGET_SDL3_GPU));
-        const std::string start="\n    // Shore source attribution (M5i):";
-        const std::string finish="    // End shore source attribution. Only the opt-in diagnostic recomputes residence.\n";
-        const size_t begin=diagnostic.find(start),end=diagnostic.find(finish,begin);
-        CHECK(begin!=std::string::npos&&end!=std::string::npos);
-        if(begin==std::string::npos||end==std::string::npos)continue;
-        const std::string block=diagnostic.substr(begin,end+finish.size()-begin);
-        CHECK(block.find("waterShoreFrontFresh(shoreRate,sourceTermsFront.y)")!=std::string::npos);
-        CHECK(block.find("shoreSupport)*fixedShoreFront.x")!=std::string::npos);
-        CHECK(block.find("waterShoreFresh(")==std::string::npos); // no accidental old-cap normalization
-        CHECK(block.find("fixedShoreRate/ShoreMaximumRate,finalShoreCoverage,1.0)")!=std::string::npos);
-        std::string stripped=diagnostic;stripped.erase(begin,end+finish.size()-begin);
-        CHECK(stripped==normal);CHECK(normal.find("sourceTermsFront")==std::string::npos);
-        std::vector<unsigned char>spirv;std::string log;
-        const bool compiled=SDL3_Compile_HLSL_To_SPIRV(diagnostic,false,spirv,log);
-        if(!compiled)printf("  actual shore-source-terms program %d: %s\n",int(program),log.c_str());
-        CHECK(compiled);
-    }
-}
-
-TEST(coastal_surf_optional_texture_contract_compiles_with_exact_hull_contact)
-{
-    // Exercise both branches explicitly rather than relying on the test process's
-    // ambient environment. Keep the existing larger shader matrix unchanged.
-    struct SavedOption {
-        const char *key;bool had;std::string value;
-        explicit SavedOption(const char *k):key(k),had(getenv(k)!=nullptr),value(getenv(k)?getenv(k):""){}
-        ~SavedOption(){if(had)setenv(key,value.c_str(),1);else unsetenv(key);}
-    } surf("ZH_WATER_SURF_GPU"),contact("ZH_WATER_HULL_CONTACT"),lift("ZH_WATER_BOW_LIFT"),
-      shoulder("ZH_WATER_BOW_SHOULDER"),crest("ZH_WATER_COAST_CREST"),debug("ZH_WATER_DEBUG");
-    CHECK(unsetenv("ZH_WATER_DEBUG")==0);
-    CHECK(setenv("ZH_WATER_BOW_LIFT","floor",1)==0);
-    CHECK(setenv("ZH_WATER_BOW_SHOULDER","contour",1)==0);
-    CHECK(setenv("ZH_WATER_COAST_CREST","1",1)==0);
-    PixelPipelineDescription pipeline={};
-    for(unsigned hull=0;hull<2;++hull) {
-        CHECK(setenv("ZH_WATER_HULL_CONTACT",hull?"mesh":"0",1)==0);
-        std::string riverWithoutSurf,flatWithoutSurf;
-        for(unsigned enabled=0;enabled<2;++enabled) {
-            CHECK(setenv("ZH_WATER_SURF_GPU",enabled?"1":"0",1)==0);
-            for(unsigned river=0;river<2;++river) {
-                std::string pixel,log,msl,why;std::vector<unsigned char>spirv;
-                const bool generated=EngineShader_Pixel_Program(river?ENGINE_SHADER_WATER_RIVER:ENGINE_SHADER_WATER_TRAPEZOID,
-                    pipeline,pixel,COMBINER_SHADER_TARGET_SDL3_GPU);
-                CHECK(generated);if(!generated)continue;
-                if(!enabled){if(river)riverWithoutSurf=pixel;else flatWithoutSurf=pixel;}
-                if(enabled&&river)CHECK(pixel==riverWithoutSurf); // river source exactly independent of surf switch
-                CHECK((pixel.find("float gpuCoastFoam=")!=std::string::npos)==bool(enabled&&!river));
-                const bool compiled=SDL3_Compile_HLSL_To_SPIRV(pixel,false,spirv,log);
-                if(!compiled)printf("coastal surf shader hull%u surf%u river%u: %s\n",hull,enabled,river,log.c_str());
-                CHECK(compiled);if(!compiled)continue;
-                unsigned samplers=0,buffers=0;SDL3_Shader_Slots(spirv,false,samplers,buffers);
-                CHECK_EQ(samplers,enabled&&!river?16u:15u);CHECK_EQ(buffers,hull?4u:1u);
-                const char *validator=getenv("ZH_SPIRV_VAL");
-                if(validator&&*validator)CHECK(validate(validator,spirv,log));
-                const bool translated=SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,log);
-                CHECK(translated);if(translated)CHECK(slots_kept(msl,samplers,why));
-            }
-        }
-        // Only the exact token opts in; unset and misleading values retain the
-        // same generated flat program as the explicit off mode, not merely its slots.
-        for(const char *value:{static_cast<const char *>(nullptr),"true","01"}) {
-            if(value)CHECK(setenv("ZH_WATER_SURF_GPU",value,1)==0);else CHECK(unsetenv("ZH_WATER_SURF_GPU")==0);
-            std::string pixel;CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,pixel,COMBINER_SHADER_TARGET_SDL3_GPU));
-            CHECK(pixel==flatWithoutSurf);
-        }
-    }
-}
-
-TEST(water_mesh_contact_diagnostics_compile_with_the_shared_contact_material)
-{
-    struct SavedOption {
-        const char *key;bool had;std::string value;
-        explicit SavedOption(const char *k):key(k),had(getenv(k)!=nullptr),value(getenv(k)?getenv(k):""){}
-        ~SavedOption(){if(had)setenv(key,value.c_str(),1);else unsetenv(key);}
-    } contact("ZH_WATER_HULL_CONTACT"),debug("ZH_WATER_DEBUG");
-    CHECK(unsetenv(contact.key)==0);
-    PixelPipelineDescription pipeline={};
-    for(const char *mode:{"contact-mesh-query","contact-mesh-sources"}) {
-        CHECK(setenv(debug.key,mode,1)==0);
-        std::string pixel,log,msl,why;std::vector<unsigned char> spirv;
-        CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,pixel,COMBINER_SHADER_TARGET_SDL3_GPU));
-        const bool compiled=SDL3_Compile_HLSL_To_SPIRV(pixel,false,spirv,log);
-        if(!compiled)printf("mesh contact diagnostic %s: %s\n",mode,log.c_str());
-        CHECK(compiled);if(!compiled)continue;
-        unsigned samplers=0,buffers=0;SDL3_Shader_Slots(spirv,false,samplers,buffers);
-        CHECK_EQ(buffers,4u);
-        const char *validator=getenv("ZH_SPIRV_VAL");
-        if(validator && *validator)CHECK(validate(validator,spirv,log));
-        CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,log));
-        CHECK(slots_kept(msl,samplers,why));
-    }
-}
-
-TEST(water_plain_launch_matches_explicit_validated_settings)
-{
-    struct SavedOption {
-        const char *key;bool had;std::string value;
-        explicit SavedOption(const char *k):key(k),had(getenv(k)!=nullptr),value(getenv(k)?getenv(k):""){}
-        ~SavedOption(){if(had)setenv(key,value.c_str(),1);else unsetenv(key);}
-    } contact("ZH_WATER_HULL_CONTACT"),lift("ZH_WATER_BOW_LIFT"),
-      shoulder("ZH_WATER_BOW_SHOULDER"),debug("ZH_WATER_DEBUG");
-    const char *keys[]={contact.key,lift.key,shoulder.key};
-    const char *modes[]={"mesh","floor","contour"};
-    auto configure=[&](unsigned disabled,bool explicitModes) {
-        for(unsigned i=0;i<3;++i) {
-            if(disabled&(1u<<i))CHECK(setenv(keys[i],"0",1)==0);
-            else if(explicitModes)CHECK(setenv(keys[i],modes[i],1)==0);
-            else CHECK(unsetenv(keys[i])==0);
-        }
-        CHECK(WaterHullVisual::Enabled()==!(disabled&1u));
-        CHECK(WaterBowLift::Enabled()==!(disabled&2u));
-        CHECK(WaterBowShoulder::Enabled()==!(disabled&4u));
-    };
-    VertexPipelineDescription description=shader_cases_detail::plain_vertex();
-    description.FVF=0x252;description.LightingEnabled=false;description.StageCount=4;
-    for(unsigned i=0;i<4;++i) {
-        description.Stages[i].TextureCoordinateIndex=i<2?i:0;
-        description.Stages[i].TextureTransformFlags=FF_TTFF_DISABLE;
-    }
-    std::string fixedVertex;
-    CHECK(VertexShader_Generate(description,VERTEX_SHADER_TARGET_D3D11,fixedVertex));
-    PixelPipelineDescription pipeline={};
-    // Check each independent opt-out as well as the ordinary all-enabled launch.
-    // Complete generated programs must match, including diagnostics and resource layouts.
-    for(unsigned disabled=0;disabled<8;++disabled) {
-        configure(disabled,false);std::string defaultVertex=fixedVertex;
-        CHECK(WaterFftSampling::WrapVertex(defaultVertex));
-        configure(disabled,true);std::string explicitVertex=fixedVertex;
-        CHECK(WaterFftSampling::WrapVertex(explicitVertex));
-        CHECK(defaultVertex==explicitVertex);
-        for(const char *mode:{static_cast<const char *>(nullptr),"contact-mesh","bow-retention",
-            "contact-mesh-query","contact-mesh-sources"}) {
-            if(mode)CHECK(setenv(debug.key,mode,1)==0);else CHECK(unsetenv(debug.key)==0);
-            for(auto program:{ENGINE_SHADER_WATER_TRAPEZOID,ENGINE_SHADER_WATER_RIVER}) {
-                configure(disabled,false);std::string defaultPixel;
-                CHECK(EngineShader_Pixel_Program(program,pipeline,defaultPixel,COMBINER_SHADER_TARGET_SDL3_GPU));
-                configure(disabled,true);std::string explicitPixel;
-                CHECK(EngineShader_Pixel_Program(program,pipeline,explicitPixel,COMBINER_SHADER_TARGET_SDL3_GPU));
-                CHECK(defaultPixel==explicitPixel);
-            }
-        }
-    }
-    // Preserve the previous interpretation of explicit non-matching values.
-    for(const char *value:{"","0","off","true","invalid"}) {
-        for(const char *key:keys)CHECK(setenv(key,value,1)==0);
-        CHECK(!WaterHullVisual::Enabled());CHECK(!WaterBowLift::Enabled());CHECK(!WaterBowShoulder::Enabled());
-    }
-}
-#endif // __linux__

@@ -398,9 +398,6 @@ private:
         loadMaterial();
         loadColour();
         if (!options.exportConfig.empty()) exportRule();
-        // The preview requires the game's native FFT path even if a user's game launch disables it.
-        SDL_setenv_unsafe("ZH_WATER_FFT","1",1);
-        SDL_unsetenv_unsafe("ZH_WATER_DEBUG");
         if (!options.offscreen) {
             window = SDL_CreateWindow("Water Preview",options.width,options.height,0);
             if (!window) throw std::runtime_error(std::string("create window: ")+SDL_GetError());
@@ -639,7 +636,7 @@ private:
                 case SDLK_L: colourPanel.visible=true; loadSavedColour(); break;
                 case SDLK_E:
                     try { exportRule(); }
-                    catch (const std::exception &error) { colourPanel.status="EXPORT FAILED"; std::fprintf(stderr,"%s\n",error.what()); }
+                    catch (const std::exception &error) { colourPanel.status=std::string("EXPORT FAILED: ")+error.what(); }
                     break;
                 case SDLK_LEFTBRACKET: colourPanel.values.strength=std::max(0.0f,colourPanel.values.strength-.05f); colourPanel.status="UNSAVED CHANGES"; break;
                 case SDLK_RIGHTBRACKET: colourPanel.values.strength=std::min(1.0f,colourPanel.values.strength+.05f); colourPanel.status="UNSAVED CHANGES"; break;
