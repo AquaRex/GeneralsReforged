@@ -309,6 +309,7 @@ public:
 	Bool isSpotter() const;																	///< SpotterSight on the template, or the SPOTTER perk
 	void onRankSightChanged( Real oldScalar );							///< look again if the rank sight moved
 	void giveRankRally();																		///< I fell: my death rally reaches the allies around me
+	void forgoRankRally() { m_forgoRankRally = TRUE; }			///< about to be killed inside a container that let go of me first
 
 	inline const AsciiString& getName() const { return m_name; }
 	inline void setName( const AsciiString& newName ) { m_name = newName; }
@@ -812,6 +813,7 @@ private:
 	Int						m_sightJammerCount;								///< enemy jammers in whose field this stands; above zero its sight shrinks to a few feet
 	Real					m_rankAura[ RANK_AURA_COUNT ];		///< the strongest leader's of each kind, refilled once a second
 	UnsignedInt		m_rankRallyUntil;									///< the frame the death rally on me ends
+	Bool					m_forgoRankRally;									///< set and read within one kill, so not saved
 
 	DisabledMaskType	m_disabledMask;
 	UnsignedInt				m_disabledTillFrame[ DISABLED_COUNT ];

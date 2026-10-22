@@ -488,6 +488,7 @@ void OpenContain::killAllContained( void )
 
       onRemoving( rider );
 	    rider->onRemovedFrom( getObject() );
+      rider->forgoRankRally();	// it dies inside, though no longer counted in
       rider->kill();
 
     }

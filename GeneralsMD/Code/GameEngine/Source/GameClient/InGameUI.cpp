@@ -1520,7 +1520,7 @@ void InGameUI::updateAuraRings()
 	{
 		const Object *obj = draw ? draw->getObject() : NULL;
 		const RankLadder *ladder = obj ? TheGlobalData->getRankLadder( obj->getTemplate() ) : NULL;
-		if( ladder == NULL || local == NULL || obj->isEffectivelyDead()
+		if( ladder == NULL || local == NULL || obj->isEffectivelyDead() || obj->getContainedBy()
 				|| ( obj->getControllingPlayer() != local && local->getRelationship( obj->getTeam() ) != ALLIES )
 				|| obj->getShroudedStatus( local->getPlayerIndex() ) != OBJECTSHROUD_CLEAR )
 			return;

@@ -3932,7 +3932,9 @@ static void updateRankAuras( Object *objList )
 	for( Object *leader = objList; leader; leader = leader->getNextObject() )
 	{
 		const RankLadder *ladder = TheGlobalData->getRankLadder( leader->getTemplate() );
-		if( ladder == NULL || leader->isEffectivelyDead() || leader->testStatus( OBJECT_STATUS_UNDER_CONSTRUCTION ) )
+		// a leader inside a building, a bunker or a transport leads nobody and spots nothing
+		if( ladder == NULL || leader->isEffectivelyDead() || leader->testStatus( OBJECT_STATUS_UNDER_CONSTRUCTION )
+				|| leader->getContainedBy() )
 			continue;
 		const Int grade = leader->getRankGrade();
 		Real strength[ RANK_AURA_PASSED ];
@@ -3950,7 +3952,7 @@ static void updateRankAuras( Object *objList )
 		const Coord3D *at = leader->getPosition();
 		for( Object *other = objList; other; other = other->getNextObject() )
 		{
-			if( other == leader || other->isEffectivelyDead() )
+			if( other == leader || other->isEffectivelyDead() || other->getContainedBy() )
 				continue;
 			const Real dx = other->getPosition()->x - at->x, dy = other->getPosition()->y - at->y;
 			const Real distSqr = dx * dx + dy * dy;

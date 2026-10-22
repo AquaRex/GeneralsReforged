@@ -310,6 +310,7 @@ Object::Object( const ThingTemplate *tt, const ObjectStatusMaskType &objectStatu
 	for( Int aura = 0; aura < RANK_AURA_COUNT; ++aura )
 		m_rankAura[ aura ] = 0.0f;
 	m_rankRallyUntil = 0;
+	m_forgoRankRally = FALSE;
 
 	m_singleUseCommandUsed = false;
 
@@ -5538,7 +5539,8 @@ Real Object::getRankPerk( RankPerk perk ) const
 //-------------------------------------------------------------------------------------------------
 Real Object::getRankAura( RankAura aura ) const
 {
-	if( aura == RANK_AURA_RALLY && TheGameLogic->getFrame() >= m_rankRallyUntil )
+	// nothing reaches a man inside a building, a bunker or a transport, a rally already on him included
+	if( m_containedBy || ( aura == RANK_AURA_RALLY && TheGameLogic->getFrame() >= m_rankRallyUntil ) )
 		return 0.0f;
 	return m_rankAura[ aura ];
 }
@@ -5601,7 +5603,7 @@ void Object::onRankSightChanged( Real oldScalar )
 void Object::giveRankRally()
 {
 	const RankLadder *ladder = TheGlobalData->getRankLadder( getTemplate() );
-	if( ladder == NULL )
+	if( ladder == NULL || m_containedBy || m_forgoRankRally )	// one who falls inside a building or a transport rallies nobody
 		return;
 	const Int grade = getRankGrade();
 	const Real strength = ladder->aura( grade, RANK_AURA_RALLY );
@@ -5611,7 +5613,7 @@ void Object::giveRankRally()
 	const UnsignedInt until = TheGameLogic->getFrame() + TheGlobalData->m_rankRallyTime;
 	for( Object *other = TheGameLogic->getFirstObject(); other; other = other->getNextObject() )
 	{
-		if( other == this || other->isEffectivelyDead() || other->isKindOf( KINDOF_STRUCTURE )
+		if( other == this || other->isEffectivelyDead() || other->isKindOf( KINDOF_STRUCTURE ) || other->getContainedBy()
 				|| getRelationship( other ) != ALLIES
 				|| ThePartitionManager->getDistanceSquared( this, other, FROM_CENTER_2D ) > radius * radius )
 			continue;
