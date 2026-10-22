@@ -402,6 +402,13 @@ void GameLogic::clearGameData( Bool showScoreScreen )
 	if( !isInShellGame() )
 		TheWritableGlobalData->m_noDraw = 0;
 
+	// A single-player start is two passes: the first puts the load screen up and plays its movie, the
+	// next update loads the map.  Cleared in between, that start is off, and its load screen goes now:
+	// the reset below closes every video stream, the load screen's own among them, and a later start
+	// that found it still up drew through it and then deleted it, closing that stream a second time.
+	deleteLoadScreen();
+	m_startNewGame = FALSE;
+
 	TheGameEngine->reset();
 	setGameMode(GAME_NONE);
 //	m_background->bringForward();

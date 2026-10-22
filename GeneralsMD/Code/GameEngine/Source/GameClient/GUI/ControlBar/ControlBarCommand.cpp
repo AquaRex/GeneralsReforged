@@ -1241,7 +1241,10 @@ CommandAvailability ControlBar::getCommandAvailability( const CommandButton *com
 	if(	command->getCommandType() == GUI_COMMAND_SPECIAL_POWER_FROM_SHORTCUT 
 			|| command->getCommandType() == GUI_COMMAND_SPECIAL_POWER_CONSTRUCT_FROM_SHORTCUT )
 	{
-		if (ThePlayerList && ThePlayerList->getLocalPlayer())
+		// A shortcut whose SpecialPower named a power that does not exist (a mod's button, or a patch
+		// button over a mod that lacks the power, INI::parseSpecialPowerTemplate) stands for nothing:
+		// it is hidden like a shortcut with no building behind it.
+		if (ThePlayerList && ThePlayerList->getLocalPlayer() && command->getSpecialPowerTemplate())
 			obj = ThePlayerList->getLocalPlayer()->findMostReadyShortcutSpecialPowerOfType( command->getSpecialPowerTemplate()->getSpecialPowerType() );
 		else
 			obj = NULL;

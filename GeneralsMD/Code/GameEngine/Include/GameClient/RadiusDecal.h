@@ -35,10 +35,39 @@
 #include "Common/GameType.h"
 #include "GameClient/Color.h"
 
+#include <memory>
+
 enum ShadowType : int;
 class Player;
 class Shadow;
 class RadiusDecalTemplate;
+
+// ------------------------------------------------------------------------------------------------
+/** The decal itself, held where a call queued for after the tick can still reach it once its
+	* RadiusDecal is gone.  Logic modules create and clear these inside the tick, which runs beside the
+	* render, and adding or releasing a decal edits the decal list the render walks, so both go through
+	* LogicThread::callAfterTick and only ever happen on the main thread.  Until the add has run, what
+	* the owner sets (a module animates its decal in the tick that created it) waits here and the add
+	* puts it on. */
+struct RadiusDecalCell
+{
+	Shadow*	decal;
+	Bool		hasPosition;
+	Coord3D	position;
+	Bool		hasOpacity;
+	Int			opacity;
+	Bool		hasAngle;
+	Real		angle;
+
+	RadiusDecalCell() : decal(NULL), hasPosition(FALSE), hasOpacity(FALSE), opacity(0), hasAngle(FALSE), angle(0.0f)
+	{
+		position.x = position.y = position.z = 0.0f;
+	}
+
+	void setPosition(const Coord3D& pos);
+	void setOpacity(Int o);
+	void setAngle(Real a);
+};
 
 // ------------------------------------------------------------------------------------------------
 class RadiusDecal
@@ -46,7 +75,7 @@ class RadiusDecal
 	friend class RadiusDecalTemplate;
 private:
 	const RadiusDecalTemplate*	m_template;
-	Shadow*											m_decal;
+	std::shared_ptr<RadiusDecalCell>	m_decal;
 	Bool												m_empty;
 public:
 	RadiusDecal();

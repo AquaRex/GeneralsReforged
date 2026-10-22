@@ -36,6 +36,7 @@
 #include <unistd.h>		// getpid, for the model-checksum cache's scratch file
 #endif
 #include "Lib/Clock.h"
+#include <exception>
 
 #include "Lib/WideCharFns.h"
 
@@ -3411,7 +3412,27 @@ void GameEngine::execute( void )
 					catch (...)
 					{
 					}
-					RELEASE_CRASH(("Uncaught Exception in GameEngine::update"));
+					/* A C++ throw carries no exception record, so the report's "Last error" stayed empty
+						 and named nothing (crash reports 1194 and 1198, both Shockwave Chaos matches).  Say
+						 what was thrown; a fault the SEH translator dumped keeps the old reason. */
+					char why[ 160 ];
+					try
+					{
+						throw;
+					}
+					catch (ErrorCode ec)
+					{
+						snprintf( why, sizeof(why), "Uncaught ErrorCode 0x%08x in GameEngine::update", (UnsignedInt)ec );
+					}
+					catch (const std::exception &e)
+					{
+						snprintf( why, sizeof(why), "Uncaught std::exception in GameEngine::update: %s", e.what() );
+					}
+					catch (...)
+					{
+						snprintf( why, sizeof(why), "Uncaught Exception in GameEngine::update" );
+					}
+					RELEASE_CRASH((why));
 				}	// catch
 				tFrameEnd = Clock_Ticks();
 				// from the last picture an earlier part of the pass presented, if it presented any

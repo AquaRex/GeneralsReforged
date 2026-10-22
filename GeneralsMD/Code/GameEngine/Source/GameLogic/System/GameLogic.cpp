@@ -1915,9 +1915,19 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
 	// update the loadscreen 
 	updateLoadProgress(LOAD_PROGRESS_POST_PATHFINDER_NEW_MAP);
 
-	// reveal the map for the permanent observer
-	ThePartitionManager->revealMapForPlayerPermanently( ThePlayerList->findPlayerWithNameKey(TheNameKeyGenerator->nameToKey("ReplayObserver"))->getPlayerIndex() );
-	DEBUG_LOG(("Reveal shroud for %s whose index is %d\n", WideCharAsUtf8( ThePlayerList->findPlayerWithNameKey(TheNameKeyGenerator->nameToKey("ReplayObserver"))->getPlayerDisplayName().str() ).str(),ThePlayerList->findPlayerWithNameKey(TheNameKeyGenerator->nameToKey("ReplayObserver"))->getPlayerIndex()));
+	// reveal the map for the permanent observer.  The observer side goes in after the map's own, and a
+	// map whose sides already fill all MAX_PLAYER_COUNT seats leaves it no room (SidesList::addSide
+	// drops it), so such a match simply has no observer to reveal for.
+	Player *replayObserver = ThePlayerList->findPlayerWithNameKey(TheNameKeyGenerator->nameToKey("ReplayObserver"));
+	if (replayObserver)
+	{
+		ThePartitionManager->revealMapForPlayerPermanently( replayObserver->getPlayerIndex() );
+		DEBUG_LOG(("Reveal shroud for %s whose index is %d\n", WideCharAsUtf8( replayObserver->getPlayerDisplayName().str() ).str(), replayObserver->getPlayerIndex()));
+	}
+	else
+	{
+		DEBUG_LOG(("No ReplayObserver: the map's %d sides leave no seat for one\n", TheSidesList->getNumSides()));
+	}
 	
 	if (game)
 	{
@@ -2464,7 +2474,11 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
 		if(m_gameMode == GAME_REPLAY )
 		{
 			
-			ThePlayerList->setLocalPlayer(ThePlayerList->findPlayerWithNameKey(TheNameKeyGenerator->nameToKey("ReplayObserver")));
+			// a map that filled every seat has no observer (see the reveal above); the replay then
+			// watches from the seat it was recorded in
+			Player *observer = ThePlayerList->findPlayerWithNameKey(TheNameKeyGenerator->nameToKey("ReplayObserver"));
+			if (observer)
+				ThePlayerList->setLocalPlayer(observer);
 			TheRadar->forceOn(TRUE);
 			ThePartitionManager->refreshShroudForLocalPlayer();
 			TheControlBar->setControlBarSchemeByPlayer( ThePlayerList->getLocalPlayer());

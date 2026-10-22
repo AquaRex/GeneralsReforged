@@ -3614,7 +3614,12 @@ void Drawable::drawEmoticon( const IRegion2D *healthBarRegion )
 // ------------------------------------------------------------------------------------------------
 void Drawable::drawAmmo( const IRegion2D *healthBarRegion )
 {
-	const Object *obj = getObject();			
+	// the pips are left-justified on the health bar, as drawContained's are.  EA only drew them for a
+	// selected or moused-over unit, which has a bar; an aircraft that shows them always may have none.
+	if (!healthBarRegion)
+		return;
+
+	const Object *obj = getObject();
 
 	//
 	// Our own aircraft show their load all the time, not just while selected or under the cursor:
