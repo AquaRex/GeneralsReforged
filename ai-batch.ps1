@@ -400,7 +400,12 @@ $fights = foreach ($p in $fightIds) {
 if ($fights) {
 	Write-Host "fights (money; Strag% = team deaths with 2+ teammates alive and at most one within 300):"
 	$fights | Format-Table -AutoSize | Out-String -Width 400 | Write-Host
-	Write-Host ("economy per match: {0:n1} supply truck re-attaches, {1:n1} AI WAVE sends, {2:n1} AI COUNTER picks" -f
+	# "Re-attaching supply truck" is written only for a gatherer whose dock is gone or was never set:
+	# GLA workers back from building, a free Chinook, trucks of a lost center. A China against China
+	# match that loses no center writes none while it earns 80,000 a player, so the income is the
+	# number that says the trucks worked; the re-attaches say how many were orphaned.
+	Write-Host ("economy per match: {0:n0} earned a player, {1:n1} orphaned trucks re-docked, {2:n1} AI WAVE sends, {3:n1} AI COUNTER picks" -f
+		(($played | ForEach-Object { $_.Slots.Values } | Measure-Object Earned -Average).Average),
 		(($played | ForEach-Object { $_.Econ.Reattach } | Measure-Object -Average).Average),
 		(($played | ForEach-Object { $_.Econ.Waves } | Measure-Object -Average).Average),
 		(($played | ForEach-Object { $_.Econ.Counter } | Measure-Object -Average).Average))
