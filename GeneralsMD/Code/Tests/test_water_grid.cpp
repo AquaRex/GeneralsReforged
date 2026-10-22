@@ -5182,7 +5182,9 @@ TEST(water_coastal_domain_stride_two_capacity_preserves_fine_connectivity_and_te
 
 #if defined(__linux__)
 #include "W3DDevice/GameClient/W3DWater.h"
+#include "Common/LogicThread.h"
 #include "GameClient/Water.h"
+#include "GameLogic/PolygonTrigger.h"
 #include "../GameEngineDevice/Source/PosixDevice/Render/PosixDevice9.h"
 #include "../Libraries/Source/WWVegas/WW3D2/engineshader.h"
 
@@ -5191,6 +5193,10 @@ struct WaterShaderNameProbe : PosixDevice9 { using PosixDevice9::Engine_Name_Of;
 class LiveWaterStyleProbe : public WaterRenderObjClass
 {
 public:
+    const std::vector<WaterOpticalContext::Polygon> &opticalPolygonsForDraw() {
+        refreshModernWaterOpticalPolygons();
+        return m_modernOpticalPolygons;
+    }
     void prepareShaders(IDirect3DDevice9 *device) {
         const RenderUInt32 tokens[]={0xffff0101u,0x0000ffffu};
         CHECK(device->CreatePixelShader(tokens,&m_riverWaterPixelShader)==D3D_OK);
@@ -5224,6 +5230,56 @@ public:
         CHECK(!m_reflectionReused); // no per-frame history reset or forced mirror refresh
     }
 };
+}
+
+TEST(water_polygon_draw_snapshot_survives_live_height_geometry_and_lifetime_changes)
+{
+    boot();
+    const Int savedStyle=TheGlobalData->m_waterStyle;
+    TheWritableGlobalData->m_waterStyle=0;
+    WaterTransparencySetting *saved=(WaterTransparencySetting*)TheWaterTransparency.getNonOverloadedPointer();
+    WaterTransparencySetting *settings=newInstance(WaterTransparencySetting);
+    TheWaterTransparency=settings;
+    PolygonTrigger *area=newInstance(PolygonTrigger)(4);
+    const ICoord3D original[]={{0,0,4},{80,0,4},{80,60,4},{0,60,4}};
+    for(const ICoord3D &point:original) area->addPoint(point);
+    area->setWaterArea(TRUE);
+    PolygonTrigger::addPolygonTrigger(area);
+    {
+        LiveWaterStyleProbe water;
+        // The shared polygon snapshot and its optical consumer need no GPU or running logic.
+        water.takeReadsForRender();
+        auto checkDraw=[&](bool present,Int offset,Int level) {
+            const Int previous=LogicThread::g_windowOpen.exchange(1);
+            const auto &polygons=water.opticalPolygonsForDraw();
+            CHECK_EQ(polygons.size(),present?1u:0u);
+            if(present && polygons.size()==1) {
+                CHECK_EQ(polygons[0].points.size(),4u);
+                if(polygons[0].points.size()==4) for(unsigned i=0;i<4;++i) {
+                    CHECK_EQ(polygons[0].points[i].x,original[i].x+offset);
+                    CHECK_EQ(polygons[0].points[i].y,original[i].y+offset);
+                    CHECK_EQ(polygons[0].points[i].z,level);
+                }
+            }
+            LogicThread::g_windowOpen.store(previous);
+        };
+        checkDraw(true,0,4);
+        for(Int i=0;i<4;++i) {
+            ICoord3D changed={original[i].x+20,original[i].y+20,12};
+            area->setPoint(changed,i);
+        }
+        checkDraw(true,0,4);
+        water.takeReadsForRender();
+        checkDraw(true,20,12);
+        PolygonTrigger::removePolygonTrigger(area);
+        area->deleteInstance();
+        checkDraw(true,20,12);
+        water.takeReadsForRender();
+        checkDraw(false,0,0);
+    }
+    TheWaterTransparency=saved;
+    settings->deleteInstance();
+    TheWritableGlobalData->m_waterStyle=savedStyle;
 }
 
 TEST(water_style_changes_at_render_boundary_without_advancing_paused_time_or_reloading_the_map)
