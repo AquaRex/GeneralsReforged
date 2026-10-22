@@ -196,7 +196,7 @@ TEST(water_optical_context_keeps_enclosed_pools_clear_inside_an_ocean_polygon)
 	std::vector<uint8_t> heights(width*height,20);
 	for (int y=0;y<height;++y) for (int x=0;x<18;++x) heights[y*width+x]=0;
 	for (int y=10;y<31;++y) for (int x=28;x<47;++x) heights[y*width+x]=0;
-	std::vector<Polygon> polygons={opticalRectangle(-100,-100,600,500)};
+	std::vector<WaterOpticalContext::Polygon> polygons={opticalRectangle(-100,-100,600,500)};
 	Field field;
 	CHECK(Build(heights.data(),width,height,border,10,1,4,polygons,field));
 	CHECK_EQ(field.ocean[20*width+4],255);
@@ -213,7 +213,7 @@ TEST(water_optical_context_polygon_union_cannot_invent_a_water_connection)
 	const int side=60;
 	std::vector<uint8_t> heights(side*side,0);
 	Field field;
-	std::vector<Polygon> polygons={opticalRectangle(-100,-100,180,700),opticalRectangle(300,100,550,500)};
+	std::vector<WaterOpticalContext::Polygon> polygons={opticalRectangle(-100,-100,180,700),opticalRectangle(300,100,550,500)};
 	CHECK(Build(heights.data(),side,side,0,10,1,4,polygons,field));
 	CHECK_EQ(field.ocean[30*side+3],255);
 	CHECK_EQ(field.ocean[30*side+42],0); // Low terrain between polygons is not authored water.
@@ -232,7 +232,7 @@ TEST(water_optical_context_uses_the_playable_boundary_and_has_no_texture_edge_sh
 	const int side=40,border=5;
 	std::vector<uint8_t> heights(side*side,0);
 	Field field;
-	std::vector<Polygon> polygons={opticalRectangle(-100,-100,500,500)};
+	std::vector<WaterOpticalContext::Polygon> polygons={opticalRectangle(-100,-100,500,500)};
 	CHECK(Build(heights.data(),side,side,border,10,1,4,polygons,field));
 	CHECK_EQ(field.ocean[0],255);
 	CHECK_EQ(field.ocean[side*side-1],255);
@@ -253,7 +253,7 @@ TEST(water_optical_context_concave_polygon_preserves_its_dry_notch)
 	using namespace WaterOpticalContext;
 	const int side=60;
 	std::vector<uint8_t> heights(side*side,0);
-	std::vector<Polygon> polygons={{{{-10,-10,4},{600,-10,4},{600,600,4},{400,600,4},
+	std::vector<WaterOpticalContext::Polygon> polygons={{{{-10,-10,4},{600,-10,4},{600,600,4},{400,600,4},
 		{400,200,4},{200,200,4},{200,600,4},{-10,600,4}}}};
 	Field field;
 	CHECK(Build(heights.data(),side,side,0,10,1,4,polygons,field));
@@ -269,7 +269,7 @@ TEST(water_optical_context_refreshes_terrain_level_dimensions_and_polygon_geomet
 	const int side=40;
 	std::vector<uint8_t> heights(side*side,20);
 	for (int y=10;y<31;++y) for (int x=10;x<31;++x) heights[y*side+x]=0;
-	std::vector<Polygon> polygons={opticalRectangle(-100,-100,500,500)};
+	std::vector<WaterOpticalContext::Polygon> polygons={opticalRectangle(-100,-100,500,500)};
 	Field field;
 	CHECK(Build(heights.data(),side,side,0,10,1,4,polygons,field));
 	CHECK_EQ(field.ocean[20*side+20],0);
@@ -278,7 +278,7 @@ TEST(water_optical_context_refreshes_terrain_level_dimensions_and_polygon_geomet
 	CHECK_EQ(field.ocean[20*side+20],255);
 	CHECK(Build(heights.data(),side,side,0,10,1,8,polygons,field));
 	CHECK_EQ(field.ocean[20*side+20],0);
-	const std::vector<Polygon> before=polygons;
+	const std::vector<WaterOpticalContext::Polygon> before=polygons;
 	CHECK(SamePolygons(before,polygons));
 	polygons[0].points[0].z=8;
 	CHECK(!SamePolygons(before,polygons));
@@ -298,7 +298,7 @@ TEST(water_optical_context_bounds_and_shore_fade)
 	CHECK_EQ(Offshore(100),1);
 	CHECK_EQ(Offshore(1000),1);
 	std::vector<uint8_t> heights(16,0);
-	std::vector<Polygon> polygons={opticalRectangle(-10,-10,100,100)};
+	std::vector<WaterOpticalContext::Polygon> polygons={opticalRectangle(-10,-10,100,100)};
 	Field field;
 	CHECK(Build(heights.data(),4,4,0,10,1,4,polygons,field));
 	CHECK(!Build(heights.data(),MaxDimension+1,2,0,10,1,4,polygons,field));
@@ -1018,7 +1018,7 @@ TEST(water_hull_contact_clips_actual_mesh_and_excludes_unreachable_superstructur
 	// The greatest projected extent is strictly inside the slab. Endpoint-plane
 	// slices alone miss it; a collision rectangle would include unsupported corners.
 	CHECK(WaterHullContact::ProjectTriangle({7,0,1},{-2,-3,-1},{-2,3,4},3,points));
-	const Polygon polygon=BuildPolygon(points);CHECK(polygon.count>=3);
+	const WaterHullModel::Polygon polygon=BuildPolygon(points);CHECK(polygon.count>=3);
 	float maxX=-1e30f,minY=1e30f,maxY=-1e30f;
 	for(unsigned i=0;i<polygon.count;++i) {
 		maxX=(std::max)(maxX,polygon.points[i].x);minY=(std::min)(minY,polygon.points[i].y);maxY=(std::max)(maxY,polygon.points[i].y);
@@ -1068,7 +1068,7 @@ TEST(water_hull_contact_current_slab_stabilizes_a_tilted_keel_without_changing_m
 			CHECK(WaterHullContact::ProjectTriangle(a,b,c,3,contact));
 			CHECK(WaterHullContact::ProjectTriangle(c,b,a,3,reversed));
 		}
-		const Polygon exact=BuildPolygon(mean),envelope=BuildPolygon(contact),reverse=BuildPolygon(reversed);
+		const WaterHullModel::Polygon exact=BuildPolygon(mean),envelope=BuildPolygon(contact),reverse=BuildPolygon(reversed);
 		CHECK(exact.count>=3 && envelope.count>=3 && envelope.count<=MaxVertices);
 		CHECK(reverse.count==envelope.count);
 		for(unsigned i=0;i<envelope.count;++i) {
@@ -1079,7 +1079,7 @@ TEST(water_hull_contact_current_slab_stabilizes_a_tilted_keel_without_changing_m
 		for(unsigned i=0;i<exact.count;++i) CHECK(SignedDistance(exact.points[i],envelope)<=.0002f+envelope.error);
 		CHECK(SignedDistance({0,7},envelope)<0 && SignedDistance({0,-7},envelope)<0);
 		// Building a new current-transform envelope never mutates the original mean contour.
-		const Polygon meanAfter=BuildPolygon(mean);CHECK(meanAfter.count==exact.count);
+		const WaterHullModel::Polygon meanAfter=BuildPolygon(mean);CHECK(meanAfter.count==exact.count);
 		for(unsigned i=0;i<exact.count;++i) CHECK(exact.points[i].x==meanAfter.points[i].x && exact.points[i].y==meanAfter.points[i].y);
 		if(pitch==0 && roll==0) CHECK(SignedDistance({0,7},exact)>4); // Meaningful tiny-keel control.
 	}
@@ -3779,7 +3779,7 @@ TEST(water_shore_optical_metadata_preserves_rg_and_cannot_create_polygon_or_deep
     using namespace WaterOpticalContext;
     const int side=48;std::vector<uint8_t> heights(side*side,0);
     for(int y=0;y<side;++y)for(int x=0;x<16;++x)heights[y*side+x]=20;
-    const std::vector<Polygon> polygons={opticalRectangle(-10,-10,600,600)};Field field;
+    const std::vector<WaterOpticalContext::Polygon> polygons={opticalRectangle(-10,-10,600,600)};Field field;
     CHECK(Build(heights.data(),side,side,0,10,1,4,polygons,field));
     CHECK(field.exposure.size()==heights.size() && field.coast.size()==heights.size());
     for(int y=0;y<side;++y)for(int x=0;x<side;++x) {
