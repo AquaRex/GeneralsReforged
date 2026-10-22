@@ -614,6 +614,7 @@ void HotKeyManager::reloadKeys( void )
 	commandMap.format( "Data\\%s\\CommandMap.ini", GetRegistryLanguage().str() );
 	INI ini;
 	ini.load( commandMap, INI_LOAD_OVERWRITE, NULL );
+	TheMetaMap->keepArrowsForCamera();
 #if defined(_DEBUG) || defined(_INTERNAL)
 	ini.load( "Data\\INI\\CommandMapDebug.ini", INI_LOAD_MULTIFILE, NULL );
 #endif
@@ -792,7 +793,11 @@ std::vector< HotkeyCommandRow > Hotkeys_commandRows( const std::string& commandM
 		if( block.type != "CommandMap" || startsWith( block.name, "DEMO_" ) || startsWith( block.name, "DEBUG_" )
 				|| startsWith( block.name, "CHEAT_" ) || startsWith( block.name, "END_" ) || !Hotkeys_isKeyName( key ) )
 			continue;
-		HotkeyCommandRow row = commandRow( block.name, block.field( "Category", "MISC" ), key.c_str(), block.field( "Modifiers", "NONE" ).c_str() );
+		// a bare arrow goes to Ctrl, as the game loads it (MetaMap::keepArrowsForCamera)
+		std::string modifiers = block.field( "Modifiers", "NONE" );
+		if( modifiers == "NONE" && ( key == "KEY_UP" || key == "KEY_DOWN" || key == "KEY_LEFT" || key == "KEY_RIGHT" ) )
+			modifiers = "CTRL";
+		HotkeyCommandRow row = commandRow( block.name, block.field( "Category", "MISC" ), key.c_str(), modifiers.c_str() );
 		row.usableIn = block.field( "UseableIn", "GAME" );
 		row.label = block.field( "DisplayName", "" );
 		if( startsWith( block.name, "BEGIN_" ) )

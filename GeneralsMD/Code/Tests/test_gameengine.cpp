@@ -4792,6 +4792,38 @@ TEST(metamap_format_chord_names_the_hold)
 	CHECK( MetaMap_chordLabel( GameMessage::MSG_META_BEGIN_FORCEATTACK ) == UnicodeString( u"Ctrl" ) );
 }
 
+struct MetaRecProbe : public MetaMap
+{
+	using MetaMap::getMetaMapRec;
+};
+
+// Data\German\CommandMap.ini binds next/previous unit and worker to bare arrows; English to Ctrl (#102)
+TEST(metamap_bare_arrows_stay_with_the_camera)
+{
+	static const char GERMAN[] =
+		"CommandMap SELECT_NEXT_UNIT\r\n  Key = KEY_RIGHT\r\n  Transition = DOWN\r\n  Modifiers = NONE\r\n  UseableIn = GAME\r\n  Category = SELECTION\r\nEnd\r\n"
+		"CommandMap SELECT_PREV_WORKER\r\n  Key = KEY_DOWN\r\n  Transition = DOWN\r\n  Modifiers = NONE\r\n  UseableIn = GAME\r\n  Category = SELECTION\r\nEnd\r\n"
+		"CommandMap SELECT_TEAM1\r\n  Key = KEY_1\r\n  Transition = DOWN\r\n  Modifiers = NONE\r\n  UseableIn = GAME\r\n  Category = SELECTION\r\nEnd\r\n";
+	const std::vector< HotkeyCommandRow > rows = Hotkeys_commandRows( GERMAN );
+	CHECK( rows.size() > 3 );
+	CHECK( rows[ 0 ].binding == HotkeyBinding( "KEY_RIGHT", "CTRL" ) );
+	CHECK( rows[ 1 ].binding == HotkeyBinding( "KEY_DOWN", "CTRL" ) );
+	CHECK( rows[ 2 ].binding == HotkeyBinding( "KEY_1", "NONE" ) );
+
+	MetaRecProbe map;
+	MetaMapRec *next = map.getMetaMapRec( GameMessage::MSG_META_SELECT_NEXT_UNIT );
+	next->m_key = MK_RIGHT;
+	MetaMapRec *ctrl = map.getMetaMapRec( GameMessage::MSG_META_SELECT_PREV_UNIT );
+	ctrl->m_key = MK_LEFT;
+	ctrl->m_modState = CTRL;
+	MetaMapRec *team = map.getMetaMapRec( GameMessage::MSG_META_SELECT_TEAM1 );
+	team->m_key = MK_1;
+	map.keepArrowsForCamera();
+	CHECK_EQ( (Int)next->m_modState, (Int)CTRL );
+	CHECK_EQ( (Int)ctrl->m_modState, (Int)CTRL );
+	CHECK_EQ( (Int)team->m_modState, (Int)NONE );
+}
+
 TEST(controlbar_stance_key_takes_what_the_buttons_leave)
 {
 	enum { SLOTS = 14 };

@@ -872,8 +872,22 @@ MetaMapRec *MetaMap::getMetaMapRec(GameMessage::Type t)
 	m->m_displayName.clear();
 	m->m_next = m_metaMaps;
 	m_metaMaps = m;
-	
+
 	return m;
+}
+
+//-------------------------------------------------------------------------------------------------
+void MetaMap::keepArrowsForCamera()
+{
+	for( MetaMapRec *map = m_metaMaps; map; map = map->m_next )
+	{
+		const Bool arrow = map->m_key == MK_UP || map->m_key == MK_DOWN || map->m_key == MK_LEFT || map->m_key == MK_RIGHT;
+		if( arrow && map->m_modState == NONE )
+		{
+			DEBUG_LOG(( "HOTKEYS: %s on a bare arrow, moved to Ctrl so the arrow scrolls\n", findGameMessageNameByType( map->m_meta ) ));
+			map->m_modState = CTRL;
+		}
+	}
 }
 
 //-------------------------------------------------------------------------------------------------
