@@ -1,0 +1,9 @@
+# Haze motion over Scenarios/geproto_hazemove.txt on Golden Oasis. Fixed frames, no camera motion,
+# so whatever moves on screen is the haze or the units. Run with a -video range.
+
+0     hud     off
+3     cut     3040 900 1.3 -45 0    # wide, the patches drifting with nothing in frame
+14    cut     3040 900 1.0 -45 0    # play distance: the Comanche comes in and hovers, leaves at 28
+32    cut     3000 950 1.0 -45 0    # the Crusaders cross the bank
+50    cut     3040 900 1.3 -45 0    # wide again for the Raptor's pass
+58    end
