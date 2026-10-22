@@ -4789,6 +4789,7 @@ struct WaterShaderNameProbe : PosixDevice9 { using PosixDevice9::Engine_Name_Of;
 class LiveWaterStyleProbe : public WaterRenderObjClass
 {
 public:
+    bool usesModernWater() const { return m_useModernWater; }
     const std::vector<WaterOpticalContext::Polygon> &opticalPolygonsForDraw() {
         refreshModernWaterOpticalPolygons();
         return m_modernOpticalPolygons;
@@ -4890,7 +4891,11 @@ TEST(water_style_changes_at_render_boundary_without_advancing_paused_time_or_rel
     CHECK(d3d && d3d->CreateDevice(0,D3DDEVTYPE_HAL,NULL,0,&parameters,&device)==D3D_OK);
     if (device) {
         {
-            LiveWaterStyleProbe water;water.prepareShaders(device);
+            TheWritableGlobalData=NULL;
+            LiveWaterStyleProbe water;
+            CHECK(!water.usesModernWater());
+            TheWritableGlobalData=scratch;scratch->m_waterStyle=1;
+            water.prepareShaders(device);water.updateRenderTargetTextures(NULL);
             for (unsigned i=0;i<32;++i) {
                 const bool modern=(i&1)!=0;
                 water.seedPresentation();scratch->m_waterStyle=modern?1:0;
@@ -4899,6 +4904,9 @@ TEST(water_style_changes_at_render_boundary_without_advancing_paused_time_or_rel
                 water.updateRenderTargetTextures(NULL);water.checkChanged(modern);
                 water.seedPresentation();water.updateRenderTargetTextures(NULL);water.checkUnchanged();
             }
+            TheWritableGlobalData=NULL;water.seedPresentation();
+            water.updateRenderTargetTextures(NULL);water.checkChanged(false);
+            TheWritableGlobalData=scratch;
         }
         device->Release();
     } else {

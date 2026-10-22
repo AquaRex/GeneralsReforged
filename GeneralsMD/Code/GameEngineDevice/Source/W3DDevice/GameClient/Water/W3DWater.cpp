@@ -1015,7 +1015,7 @@ void WaterRenderObjClass::registerWaterStyleShaders(void)
 void WaterRenderObjClass::synchronizeWaterStyle(void)
 {
 #if defined(__linux__)
-	const Bool modern = !TheGlobalData || TheGlobalData->m_waterStyle != 0;
+	const Bool modern = TheGlobalData && TheGlobalData->m_waterStyle != 0;
 	if (modern == m_useModernWater) return;
 
 	// Apply before any reflected or main-scene water draw. Existing recorded draws keep
@@ -1379,7 +1379,7 @@ WaterRenderObjClass::~WaterRenderObjClass(void)
 WaterRenderObjClass::WaterRenderObjClass(void)
 {
 #if defined(__linux__)
-	m_useModernWater = !TheGlobalData || TheGlobalData->m_waterStyle != 0;
+	m_useModernWater = TheGlobalData && TheGlobalData->m_waterStyle != 0;
 #endif
 	memset( &m_settings, 0, sizeof( m_settings ) );
 	m_dx=0;

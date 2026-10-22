@@ -15127,7 +15127,7 @@ TEST(order_lines_are_a_live_check_box_that_starts_on)
 	TheWritableGlobalData = saved;
 }
 
-TEST(water_style_defaults_to_modern_and_preserves_an_explicit_classic_choice)
+TEST(water_style_defaults_to_classic_and_preserves_an_explicit_modern_choice)
 {
     GlobalData *saved=TheWritableGlobalData;
     GlobalData *scratch=NEW GlobalData;
@@ -15136,17 +15136,17 @@ TEST(water_style_defaults_to_modern_and_preserves_an_explicit_classic_choice)
     CHECK(water!=NULL);
     if (water) {
         UserPreferences pref;
-        CHECK_EQ(scratch->m_waterStyle,1);
-        loadOptionsFromPreferences(pref);
-        CHECK_EQ(water->get(),1);
-        pref["WaterStyle"]="0";
+        CHECK_EQ(scratch->m_waterStyle,0);
         loadOptionsFromPreferences(pref);
         CHECK_EQ(water->get(),0);
-        saveOptionsToPreferences(pref);
-        CHECK_STR(pref["WaterStyle"].str(),"0");
         pref["WaterStyle"]="1";
         loadOptionsFromPreferences(pref);
         CHECK_EQ(water->get(),1);
+        saveOptionsToPreferences(pref);
+        CHECK_STR(pref["WaterStyle"].str(),"1");
+        pref["WaterStyle"]="0";
+        loadOptionsFromPreferences(pref);
+        CHECK_EQ(water->get(),0);
         CHECK_EQ(water->apply,APPLY_LIVE);
     }
     delete scratch;

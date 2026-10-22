@@ -2,7 +2,8 @@
 
 ## Modern water contribution
 
-On Linux, Water style selects Modern or Classic live. Modern is the default.
+On Linux, Classic stays the default. Opt in to Modern under Options > Water style;
+changes apply live.
 Windows keeps its original water shader identities; macOS uses the legacy SDL
 water programs and hides the Linux selector. Material rules are loaded from
 `Data/INI/ModernWater.ini` through the game filesystem. Source edits are staged

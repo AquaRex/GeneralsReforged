@@ -5,6 +5,9 @@ production SDL renderer, GPU FFT, Modern water shader and `ModernWater.ini` pars
 the game. It requires no game assets, save or running match. The synthetic flat submerged
 bed and fixed lighting make comparisons repeatable; this is not a campaign-map viewer.
 
+The game defaults to Classic; opt in to Modern under Options > Water style.
+The standalone preview always uses Modern.
+
 ## Configuration and matching
 
 On an ordinary launch the tool looks beside its executable for

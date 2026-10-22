@@ -10,11 +10,12 @@ found and fixed â€” EA's own, not port damage.**
 
 ## Modern water on Linux
 
-- Water rolls in waves with sunlight following the crests into the shallows.
+- Modern is an opt-in under Options > Water style; Classic stays the default.
+  Water rolls in waves with sunlight following the crests into the shallows.
   Shores redirect waves along their banks and gather foam; vessels leave wakes.
 - Modern water preserves map-authored depth and opacity, matches material rules
   to the effective water color and texture, and adds pollution and bubbles only
-  to matching water. Choose Classic to keep the previous surface.
+  to matching water.
 - A standalone editor uses the game's water renderer and material rules. Invalid
   saved colors leave the current colors intact; default exports protect the
   loaded rule file. Explicit export destinations remain available.
