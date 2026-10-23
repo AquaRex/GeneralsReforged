@@ -73,6 +73,8 @@
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/ScriptEngine.h"
 #include "WWDownload/Registry.h"
+#include "Platform/HazardCloud.h"
+#include "Platform/ModernWaterBuild.h"
 //added by saad
 //used to access a messagebox that does "ok" and "cancel"
 #include "GameClient/MessageBox.h"
@@ -1129,6 +1131,28 @@ static void fillCatalogWidgets( void )
 		if( widget == NULL )
 			continue;
 
+		if (strcmp(def.iniKey, "WaterStyle") == 0)
+		{
+			// The Linux renderer and Direct3D 11 draw the Modern water; -d3d9, -headless and macOS do not.
+			const Bool supported = ModernWater::Supported();
+			widget->winHide(!supported);
+			GameWindow *label = TheWindowManager->winGetWindowFromId(
+				NULL, NAMEKEY("OptionsMenu.wnd:LabelWaterStyle"));
+			if (label) label->winHide(!supported);
+			if (!supported) continue;
+		}
+		if (strcmp(def.iniKey, "CloudStyle") == 0)
+		{
+			// The display is initialized before the shell. Query when the menu
+			// opens so a reused layout also reflects the current device.
+			const Bool supported = HazardCloud::Supported();
+			widget->winHide(!supported);
+			GameWindow *label = TheWindowManager->winGetWindowFromId(
+				NULL, NAMEKEY("OptionsMenu.wnd:LabelCloudStyle"));
+			if (label) label->winHide(!supported);
+			if (!supported) continue;
+		}
+
 		const Int value = clampOptionValue( def, def.get() );
 
 		switch( def.kind )
@@ -1172,6 +1196,12 @@ static void readCatalogWidgets( OptionPreferences &out )
 		const OptionDef& def = TheOptionCatalog[ i ];
 		GameWindow *widget = findOptionWidget( def );
 		if( widget == NULL )
+			continue;
+
+		// A hidden, unfilled combo must not overwrite the player's opt-in.
+		if (strcmp(def.iniKey, "CloudStyle") == 0 && !HazardCloud::Supported())
+			continue;
+		if (strcmp(def.iniKey, "WaterStyle") == 0 && !ModernWater::Supported())
 			continue;
 
 		Int value;

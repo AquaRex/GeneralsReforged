@@ -14941,6 +14941,38 @@ TOOLTIP:SmokeFireLighting
 "Rauch neben einem Feuer nimmt dessen orangefarbenes Licht an. Gilt, sobald du Annehmen drückst."
 END
 
+GUI:WaterStyle
+"Wasserdarstellung"
+END
+
+GUI:WaterStyle0
+"Klassisch"
+END
+
+GUI:WaterStyle1
+"Modern"
+END
+
+TOOLTIP:WaterStyle
+"Klassisch nutzt das Wasser des Originals mit Glitzern, Spiegelungen und Kielwasser. Modern fügt Wellen, Details am Ufer und Schaum am Rumpf hinzu. Gilt, sobald du Annehmen drückst."
+END
+
+GUI:CloudStyle
+"Wolkendarstellung"
+END
+
+GUI:CloudStyle0
+"Klassisch"
+END
+
+GUI:CloudStyle1
+"Volumetrisch"
+END
+
+TOOLTIP:CloudStyle
+"Klassisch nutzt die Gift- und Strahlungseffekte des Originals. Volumetrisch fügt ziehenden Rauch, dunkleren Atomdunst und Hitzeflimmern hinzu. Gilt, sobald du Annehmen drückst, auch für Wolken, die schon auf dem Feld sind."
+END
+
 GUI:DebrisTrails
 "Rauchende Trümmer"
 END

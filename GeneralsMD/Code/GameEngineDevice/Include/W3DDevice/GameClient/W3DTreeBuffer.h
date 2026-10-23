@@ -64,6 +64,7 @@
 #include "Common/GameType.h"
 #include "Common/AsciiString.h"
 #include "Common/GlobalData.h"
+#include <vector>
 
 //-----------------------------------------------------------------------------
 //           Forward References
@@ -75,6 +76,7 @@ class W3DTreeDrawModuleData;
 struct BreezeInfo;
 class GeometryInfo;
 class W3DProjectedShadow;
+struct SunShadowCasterCull;
 
 //-----------------------------------------------------------------------------
 //           Type Defines
@@ -222,8 +224,11 @@ public:
 	/// Empties the tree buffer.
 	void setBounds(const Region2D &bounds) {m_bounds = bounds;}
 	/// Draws the trees.  Uses camera for culling.
-	void drawTrees(CameraClass * camera, RefRenderObjListIterator *pDynamicLightsIterator);
+	void drawTrees(CameraClass * camera, RefRenderObjListIterator *pDynamicLightsIterator,
+		const CameraClass *sunCamera = NULL);
 	void stepTrees(void);	///< the toppling and pushed trees, once a logic frame, at the render's sync point
+	Int drawModelShadowCasters(RenderInfoClass &sunInfo, const SunShadowCasterCull &cull); ///< the object trees drawn into the sun's map
+	Int getSunCasterTrees(void) const {return m_sunCasterTrees;} ///< batched trees the last sun pass drew
 	/// Called when the view changes, and sort key needs to be recalculated.
 	/// Normally sortKey gets calculated when a tree becomes visible.
 	void doFullUpdate(void) {m_updateAllKeys = true;};
@@ -259,6 +264,10 @@ private:
 				MAX_SHADOW_BATCH_VERTEX = 8000};	///< per texture, per frame
 	DX8VertexBufferClass	*m_vertexTree[MAX_BUFFERS];	///<Tree vertex buffer.
 	DX8IndexBufferClass			*m_indexTree[MAX_BUFFERS];	///<indices defining a triangles for the tree drawing.
+	struct ShadowRange { Int first, count; };
+	std::vector<ShadowRange> m_shadowRanges[MAX_BUFFERS];
+	Bool m_lastShadowsForProps = FALSE;
+	Int m_sunCasterTrees = 0;
 	IDirect3DPixelShader9 *	m_dwTreePixelShader;	///<D3D pixel shader
 	IDirect3DVertexShader9 * m_dwTreeVertexShader;	///<D3D vertex shader
 	IDirect3DVertexDeclaration9 * m_treeVertexDeclaration;	///<what D3D8 carried beside the shader
@@ -312,10 +321,10 @@ protected:
 	void updateSway(const BreezeInfo& info);
 	void loadTreesInVertexAndIndexBuffers(RefRenderObjListIterator *pDynamicLightsIterator); ///< Fills the index and vertex buffers for drawing.
 	void updateVertexBuffer(void); ///< Fills the index and vertex buffers for drawing.
-	void drawTreeBuffers(Bool shadowPass); ///< Draws every filled buffer, as trees or as their shadows.
+	void drawTreeBuffers(Bool shadowPass, Bool sunPass = FALSE); ///< Draws every filled buffer, as trees or as their shadows.
 	void drawModelShadows(CameraClass *camera, Real stretchX, Real stretchY); ///< the object trees' shadows
 	Int  addShadowTexture(TextureClass *tex);	///< index of this texture in the shadow list, adding it if new
-	void cull(const CameraClass * camera);						 ///< Culls the trees.
+	void cull(const CameraClass * camera, const CameraClass *sunCamera = NULL); ///< Culls the trees.
 	UnsignedInt  doLighting(const Vector3 *normal,  
 		const GlobalData::TerrainLighting	*objectLighting, 
 		const Vector3 *emissive, UnsignedInt vertexDiffuse, Real scale) const;

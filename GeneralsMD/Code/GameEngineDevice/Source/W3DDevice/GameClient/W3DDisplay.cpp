@@ -486,6 +486,7 @@ static unsigned long long s_smoothPasses = 0;
 
 W3DDisplay::~W3DDisplay()
 {
+	W3DParticleSystemManager::releaseCloudResources();
 	// R1: how each captured model was treated per tick, for the snap rules' tuning.
 	{
 		const unsigned long long *counts = SmoothMotion_Counts();
@@ -547,7 +548,10 @@ W3DDisplay::~W3DDisplay()
 			texturesMirrored, texturesReused, texturesRefused,
 			pipelines, drawsMade, drawsRefused));
 		if( Direct3D11_Is_Active() )
+		{
 			DEBUG_LOG(("-dx11 constants: %s\n", Direct3D11_Constant_Path()));
+			DEBUG_LOG(("-dx11 water: %s\n", Direct3D11_Water_Report().c_str()));
+		}
 		unsigned programsShipped = 0;
 		unsigned programsHeld = 0;
 		Direct3D11_Program_Statistics( programsShipped, programsHeld );
@@ -692,6 +696,7 @@ void Reset_D3D_Device(bool active)
 {
 	if (TheDisplay && WW3D::Is_Initted() && !TheDisplay->getWindowed())
 	{
+		W3DParticleSystemManager::releaseCloudResources();
 		// On Windows nothing owns the display exclusively under either renderer, so leaving loses no
 		// device: the window covering the monitor goes, and comes back with the game.
 #if defined(_WIN32)
@@ -877,6 +882,7 @@ Bool W3DDisplay::setDisplayMode( UnsignedInt xres, UnsignedInt yres, UnsignedInt
 	// would stay on a window covering the display.
 	//
 	const Bool wasWindowed = getWindowed();
+	W3DParticleSystemManager::releaseCloudResources();
 	const Int wasMode = wasWindowed
 											? ( ApplicationIsBorderless ? WINDOW_MODE_BORDERLESS : WINDOW_MODE_WINDOWED )
 											: WINDOW_MODE_FULLSCREEN;
@@ -2334,6 +2340,9 @@ static void takeReadsForRender( Bool renders )
 	TheInGameUI->recordDraw();
 	TheTerrainRenderObject->takeWaypointsForRender();
 	TheTerrainRenderObject->stepTrees();	// before the particles: a falling tree's FX makes systems
+#if ZH_MODERN_WATER
+	if (TheWaterRenderObj) TheWaterRenderObj->takeReadsForRender();
+#endif
 	static_cast<W3DParticleSystemManager *>( TheParticleSystemManager )->takeReadsForRender();
 }
 

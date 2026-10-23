@@ -15282,6 +15282,67 @@ TEST(order_lines_are_a_live_check_box_that_starts_on)
 	TheWritableGlobalData = saved;
 }
 
+TEST(water_style_defaults_to_classic_and_preserves_an_explicit_modern_choice)
+{
+    GlobalData *saved=TheWritableGlobalData;
+    GlobalData *scratch=NEW GlobalData;
+    TheWritableGlobalData=scratch;
+    const OptionDef *water=findOptionDef("WaterStyle");
+    CHECK(water!=NULL);
+    if (water) {
+        UserPreferences pref;
+        CHECK_EQ(scratch->m_waterStyle,0);
+        loadOptionsFromPreferences(pref);
+        CHECK_EQ(water->get(),0);
+        pref["WaterStyle"]="1";
+        loadOptionsFromPreferences(pref);
+        CHECK_EQ(water->get(),1);
+        saveOptionsToPreferences(pref);
+        CHECK_STR(pref["WaterStyle"].str(),"1");
+        pref["WaterStyle"]="0";
+        loadOptionsFromPreferences(pref);
+        CHECK_EQ(water->get(),0);
+        CHECK_EQ(water->apply,APPLY_LIVE);
+    }
+    delete scratch;
+    TheWritableGlobalData=saved;
+}
+
+TEST(cloud_style_defaults_to_classic_and_preserves_an_explicit_volumetric_choice)
+{
+    GlobalData *saved = TheWritableGlobalData;
+    GlobalData *scratch = NEW GlobalData;
+    TheWritableGlobalData = scratch;
+    const OptionDef *cloud = findOptionDef("CloudStyle");
+    CHECK(cloud != NULL);
+    if (cloud) {
+        UserPreferences pref;
+        CHECK_EQ(scratch->m_cloudStyle, 0);
+        CHECK_EQ(cloud->kind, OPTION_ENUM);
+        CHECK_EQ(cloud->apply, APPLY_LIVE);
+        CHECK_EQ(cloud->lo, 0);
+        CHECK_EQ(cloud->hi, 1);
+        CHECK_STR(cloud->widgetName, "OptionsMenu.wnd:ComboBoxCloudStyle");
+        // The cloud appearance is independent of the existing smoke-shadow option.
+        scratch->m_volumetricSmokeShadows = FALSE;
+        loadOptionsFromPreferences(pref);
+        CHECK_EQ(cloud->get(), 0);
+        pref["CloudStyle"] = "0";
+        loadOptionsFromPreferences(pref);
+        CHECK_EQ(cloud->get(), 0);
+        saveOptionsToPreferences(pref);
+        CHECK_STR(pref["CloudStyle"].str(), "0");
+        pref["CloudStyle"] = "1";
+        loadOptionsFromPreferences(pref);
+        CHECK_EQ(cloud->get(), 1);
+        saveOptionsToPreferences(pref);
+        CHECK_STR(pref["CloudStyle"].str(), "1");
+        CHECK(!scratch->m_volumetricSmokeShadows);
+    }
+    delete scratch;
+    TheWritableGlobalData = saved;
+}
+
 TEST(option_catalog_round_trips_every_key_through_options_ini)
 {
 	/* Every row has to survive the trip out to Options.ini and back, at both ends of its range.

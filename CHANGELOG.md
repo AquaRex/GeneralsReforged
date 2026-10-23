@@ -8,6 +8,21 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
+## Trees cast the shadow of their own crowns
+
+- A tree's shadow used to be its outline laid flat at the foot of the trunk, which sank into the ground on a slope and never darkened a tank parked under it. Now every tree, the palms included, puts its real leaves into the sun's shadow, gaps between the fronds and all, and that shadow falls over the hillside and over the units standing in the wood. Direct3D 11 on Windows and Linux both draw it; the Direct3D 9 renderer keeps the old flat shadows.
+- Linux gets the sun's shadows Windows already had, soft under a helicopter and hard under a tank, and the smoke shadow that darkens a battlefield under a thick plume. Your own cloaked units still cast only a faint part of theirs.
+
+## Modern water
+
+- Options has a Water Style box. Modern rolls the sea in waves whose crests catch the sun all the way into the shallows, and at the shore they turn along the bank and pile up foam. Boats push foam off their hulls. Classic stays the default, and either way a map keeps the water colour and depth its maker gave it.
+- Windows has it now on the default renderer, and the box switches it in the middle of a match. The Direct3D 9 renderer and macOS keep the Classic water and hide the box. Linux still draws one thing Windows does not, a second band of foam laid over the surf where waves break on a beach. The first Modern frame on a fresh install stops for about ten seconds while its two water shaders compile; every match after that loads them from the cache.
+
+## Volumetric hazard clouds
+
+- Options has a Cloud Style box. Volumetric draws toxin, anthrax and nuclear fields as moving smoke at the size and for the time the hazard really lasts: low smoke hugs the ground and curls around infantry walking through it, and a nuclear field fades in across its whole width with dark billows and embers rising through the heat shimmer. The damage is exactly what it was. Classic stays the default until the cost in a big battle is measured.
+- Windows draws them too, on the default renderer, and so do Linux and macOS. The Direct3D 9 renderer and the Classic graphics setting keep the original puddles whatever the box says, and turning heat effects off takes the shimmer off a nuclear field as well. A cloud that only drifts redraws its smoke twenty times a second rather than every frame, and the second match of a session no longer stalls on the first toxin shell while the clouds' shaders are built again.
+
 ## A rank ladder for every army
 
 - Three chevrons are now a whole army's ladder. An American unit climbs 28 promotions from E-1 Private to General of the Army, a Chinese one 19 from Private to General, a GLA one 20 from Recruit to Supreme Liberator. Every unit starts unranked with a bare health bar and no bonus; from the first promotion on, each grade wears its own insignia beside the health bar and floats it up over the unit's head the moment it is earned. Hover the portrait for the rank's name and how far the next one is: "Next rank 340/420 XP".
@@ -712,7 +727,7 @@ found and fixed â€” EA's own, not port damage.**
   theirs, which they have to: a shadow crawling across fogged ground is the position of a unit you
   are not meant to see. Ground you have never set foot on is still dark and still empty.
 - Woodland stops vanishing when you look at too much of it at once. Every tree on screen was written into one buffer that held about 730 of them, and the ones that did not fit were simply not drawn, so scrolling into a dense corner made whole stands of trees blink out and come back when you left. There are four of those buffers now.
-- Three optional looks for the Direct3D 11 picture, each a box in Options, off until you tick it. Water Foam, on the Effects page after Soft Shorelines, puts foam flecks and a pale band along the shore, softens where water meets land and lets the sun's shadow fall on the water. Warm Light and Haze, on the Graphics page after Heat Haze, swings the sun low and warm and lays a light haze over the map; a jet leaves a soft V parting the haze behind it and a helicopter clears a turbulent patch under its rotors. Team Color Glow, next to it, lets the bright house-colour parts of a unit, the flag and the stripe, glow in their own hue without bleaching to white. Picture only: replays and network games play the same with any of them on, and the haze cost 0.4 ms a frame in our measurement.
+- Three optional looks for the Direct3D 11 picture, each a box in Options, off until you tick it. Water Foam, on the Effects page after Soft Shorelines, puts foam flecks and a pale band along the shore, softens where water meets land and lets the sun's shadow fall on the water; it dresses the Classic water and stands down while the Modern water style is picked. Warm Light and Haze, at the foot of the Image group on the Graphics page, swings the sun low and warm and lays a light haze over the map; a jet leaves a soft V parting the haze behind it and a helicopter clears a turbulent patch under its rotors. Team Color Glow, next to it, lets the bright house-colour parts of a unit, the flag and the stripe, glow in their own hue without bleaching to white. Picture only: replays and network games play the same with any of them on, and the haze cost 0.4 ms a frame in our measurement.
 
 ## Every replay, not just the last one
 

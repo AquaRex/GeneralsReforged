@@ -56,6 +56,8 @@ enum
 //-----------------------------------------------------------------------------
 //         Includes                                                      
 //-----------------------------------------------------------------------------
+#include "Platform/SunShadow.h"
+#include "W3DDevice/GameClient/SunShadowCasterCull.h"
 #include "W3DDevice/GameClient/W3DTreeBuffer.h"
 
 #include <stdio.h>
@@ -378,7 +380,7 @@ ShaderClass ShaderClass::_PresetAlpha2DShader(SC_ALPHA_2D);
 /** Culls the trees, marking the visible flag.  If a tree becomes visible, it sets
 it's sortKey */
 //=============================================================================
-void W3DTreeBuffer::cull(const CameraClass * camera)
+void W3DTreeBuffer::cull(const CameraClass * camera, const CameraClass *sunCamera)
 {
 	Int curTree;
 
@@ -396,12 +398,50 @@ void W3DTreeBuffer::cull(const CameraClass * camera)
 		 shadow can reach the view is in the batch too.  It lies flat at the tree's base. */
 	Real stretchX, stretchY;
 	const Bool castsSilhouette = treeSilhouetteShadows(m_dwTreeVertexShader) && treeShadowStretch(stretchX, stretchY);
+	/* The sun's box holds trees the screen does not, and they go into the same buffers the screen
+		 draws from.  The fill takes trees in index order and stops at MAX_BUFFERS, so a box over dense
+		 woodland (the freecam's is the whole map) would push trees in plain view out.  The screen's own
+		 trees are counted first and the box only adds what the room left over holds.
+		 ponytail: one whole buffer is kept spare for what each buffer's last break wastes; an exact
+		 packing would have to fill the screen's trees first, which the fill loop does not do. */
+	Int roomVertices = 0;
+	Int roomIndices = 0;
+	if (sunCamera) {
+		m_sunCasterTrees = 0;
+		roomVertices = (MAX_BUFFERS - 1) * MAX_TREE_VERTEX;
+		roomIndices = (MAX_BUFFERS - 1) * MAX_TREE_INDEX;
+		for (curTree=0; curTree<m_numTrees; curTree++) {
+			const Int type = m_trees[curTree].treeType;
+			if (type < 0 || m_treeTypes[type].m_mesh == 0)
+				continue;
+			if (camera->Cull_Sphere(m_trees[curTree].bounds) && !(castsSilhouette && shadowCanReachView(camera->Get_Frustum(),
+					m_trees[curTree].bounds, m_trees[curTree].location.Z, stretchX, stretchY)))
+				continue;
+			roomVertices -= m_treeTypes[type].m_mesh->Peek_Model()->Get_Vertex_Count();
+			roomIndices -= 3 * m_treeTypes[type].m_mesh->Peek_Model()->Get_Polygon_Count();
+		}
+	}
 	for (curTree=0; curTree<m_numTrees; curTree++) {
 		Bool doKey = false;	// We calculate the key when a tree becomes visible.
+		const Int type = m_trees[curTree].treeType;
 		Bool visible = !camera->Cull_Sphere(m_trees[curTree].bounds);
 		if (!visible && castsSilhouette)
 			visible = shadowCanReachView(camera->Get_Frustum(), m_trees[curTree].bounds, m_trees[curTree].location.Z,
 				stretchX, stretchY);
+		// Keep one shared buffer for both views. A tree outside the screen can still
+		// cast onto it; reculling to just the screen would also rebuild it twice a frame.
+		if (!visible && sunCamera && type >= 0 && m_treeTypes[type].m_mesh != 0
+			&& !sunCamera->Cull_Sphere(m_trees[curTree].bounds)) {
+			const Int vertices = m_treeTypes[type].m_mesh->Peek_Model()->Get_Vertex_Count();
+			const Int indices = 3 * m_treeTypes[type].m_mesh->Peek_Model()->Get_Polygon_Count();
+			if (vertices <= roomVertices && indices <= roomIndices) {
+				visible = TRUE;
+				roomVertices -= vertices;
+				roomIndices -= indices;
+			}
+		}
+		if (sunCamera && visible && type >= 0 && (m_treeTypes[type].m_doShadow || TheGlobalData->m_shadowsForProps))
+			++m_sunCasterTrees;	// what loadTreesInVertexAndIndexBuffers gives a shadow range
 		if (visible != m_trees[curTree].visible) {
 			m_trees[curTree].visible=visible;
 			m_anythingChanged = true;
@@ -811,6 +851,7 @@ void W3DTreeBuffer::loadTreesInVertexAndIndexBuffers(RefRenderObjListIterator *p
 	m_anythingChanged = false;
 	Int curTree=0;
 	Int bNdx;
+	for (bNdx=0; bNdx<MAX_BUFFERS; ++bNdx) m_shadowRanges[bNdx].clear();
 	const GlobalData::TerrainLighting *objectLighting = TheGlobalData->m_terrainObjectsLighting[TheGlobalData->m_timeOfDay];
 	for (bNdx=0; bNdx<MAX_BUFFERS; bNdx++) {
 		m_curNumTreeVertices[bNdx] = 0;
@@ -1069,6 +1110,7 @@ void W3DTreeBuffer::loadTreesInVertexAndIndexBuffers(RefRenderObjListIterator *p
 				m_curNumTreeVertices[bNdx]++;
 			}
 
+			const Int firstShadowIndex = m_curNumTreeIndices[bNdx];
 			try {
 			for (i=0; i<numIndex; i++) {
 				if (m_curNumTreeIndices[bNdx]+4 > MAX_TREE_INDEX) 
@@ -1081,6 +1123,13 @@ void W3DTreeBuffer::loadTreesInVertexAndIndexBuffers(RefRenderObjListIterator *p
 			IndexBufferExceptionFunc();
 			} catch(...) {
 				IndexBufferExceptionFunc();
+			}
+			const Int shadowCount = m_curNumTreeIndices[bNdx] - firstShadowIndex;
+			if (shadowCount && (m_treeTypes[type].m_doShadow || TheGlobalData->m_shadowsForProps)) {
+				std::vector<ShadowRange> &ranges = m_shadowRanges[bNdx];
+				if (!ranges.empty() && ranges.back().first + ranges.back().count == firstShadowIndex)
+					ranges.back().count += shadowCount;
+				else ranges.push_back({firstShadowIndex, shadowCount});
 			}
 		}		
 	}
@@ -1843,6 +1892,25 @@ them on screen at once - a palm is forty vertices.
 Colour comes from the vertex, not the texture, so the ground gets shade and not a picture of a
 palm; alpha comes from the texture, so the gaps between the fronds are gaps in the shadow. */
 //=============================================================================
+Int W3DTreeBuffer::drawModelShadowCasters(RenderInfoClass &sunInfo, const SunShadowCasterCull &cull)
+{
+	Int drawn = 0;
+	for (Int i=0; i<m_numModelShadows; ++i) {
+		TModelShadow &model = m_modelShadows[i];
+		Bool cast = FALSE;
+		for (Int k=0; k<model.numMesh; ++k) {
+			MeshClass *mesh = model.mesh[k];
+			if (mesh->Is_Not_Hidden_At_All() && !sunInfo.Camera.Cull_Sphere(mesh->Get_Bounding_Sphere())
+				&& cull.Visible(mesh->Get_Bounding_Sphere())) {
+				mesh->Render(sunInfo);
+				cast = TRUE;
+			}
+		}
+		if (cast) ++drawn;
+	}
+	return drawn;
+}
+
 void W3DTreeBuffer::drawModelShadows(CameraClass *camera, Real stretchX, Real stretchY)
 {
 	if (m_numModelShadows == 0 || m_numShadowTextures == 0) {
@@ -2026,7 +2094,7 @@ void W3DTreeBuffer::drawModelShadows(CameraClass *camera, Real stretchX, Real st
 shader's constants set to flatten them, as their shadows.  The vertex and index buffers are the
 same ones both times - a tree's shadow is that tree's triangles. */
 //=============================================================================
-void W3DTreeBuffer::drawTreeBuffers(Bool shadowPass)
+void W3DTreeBuffer::drawTreeBuffers(Bool shadowPass, Bool sunPass)
 {
 	LPDIRECT3DDEVICE9 dev = DX8Wrapper::_Get_D3D_Device();
 	if (!dev) {
@@ -2080,7 +2148,12 @@ void W3DTreeBuffer::drawTreeBuffers(Bool shadowPass)
 			DX8Wrapper::Set_DX8_Texture_Stage_State(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
 			DX8Wrapper::Set_DX8_Texture_Stage_State(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
 		}
-		DX8Wrapper::Draw_Triangles(	0, m_curNumTreeIndices[bNdx]/3, 0,	m_curNumTreeVertices[bNdx]);
+		if (sunPass) {
+			for (const ShadowRange &range : m_shadowRanges[bNdx])
+				DX8Wrapper::Draw_Triangles(range.first, range.count/3, 0, m_curNumTreeVertices[bNdx]);
+		} else {
+			DX8Wrapper::Draw_Triangles(0, m_curNumTreeIndices[bNdx]/3, 0, m_curNumTreeVertices[bNdx]);
+		}
 	}
 	if (shadowPass) {
 		DX8Wrapper::Invalidate_Cached_Render_States();
@@ -2143,10 +2216,15 @@ void W3DTreeBuffer::stepTrees( void )
 	}
 }
 
-void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pDynamicLightsIterator)
+void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pDynamicLightsIterator,
+	const CameraClass *sunCamera)
 {
+	// While the sun's map holds the frame the trees are in it as their own shape, so the silhouettes,
+	// the blob decals and the palms' flattened copies would shadow the ground a second time.
+	const Bool mapped = SunShadow::OwnsSceneShadows(DX8Wrapper::_Get_D3D_Device());
+	SunShadow::ReceiverExclusion sunReceivers(DX8Wrapper::_Get_D3D_Device(), !mapped);
 	USE_PERF_TIMER(Tree_Render)
-	if (!m_isTerrainPass) {
+	if (!m_isTerrainPass && !sunCamera) {
 		return;
 	}
 
@@ -2193,7 +2271,7 @@ void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pD
 		}
 	}
 	
-	m_isTerrainPass = false;
+	if (!sunCamera) m_isTerrainPass = false;
 
 	if (m_needToUpdateTexture) {
 		m_needToUpdateTexture = false;
@@ -2206,16 +2284,16 @@ void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pD
 	// culling them against its own frustum left the screen drawing the mirror's trees until the
 	// next cull, and with the mirror skipping frames the trees flickered between the two sets.  The
 	// mirror draws what the screen culled, which is what stands near the water it lands on.
-	if (m_updateAllKeys && !ShaderClass::Is_Backface_Culling_Inverted()) {
-		cull(camera);
+	if (sunCamera || (m_updateAllKeys && !ShaderClass::Is_Backface_Culling_Inverted())) {
+		cull(camera, sunCamera);
 	}
 
 	Int curTree;
 
 	// Shadows are wanted under either option: the loop used to be gated on m_useShadowDecals alone,
 	// so with volume shadows picked trees were the one thing in the scene standing on nothing.
-	Bool drawShadows = TheGlobalData->m_useShadowDecals || TheGlobalData->m_useShadowVolumes;
-	Bool silhouetteShadows = treeSilhouetteShadows(m_dwTreeVertexShader);
+	Bool drawShadows = !sunCamera && !mapped && (TheGlobalData->m_useShadowDecals || TheGlobalData->m_useShadowVolumes);
+	Bool silhouetteShadows = drawShadows && treeSilhouetteShadows(m_dwTreeVertexShader);
 
 	// Draw tree shadows.
 	// Trees are batched vertices with no render object of their own, so the one shared blob decal
@@ -2247,6 +2325,11 @@ void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pD
 
 	// the pushed aside and toppling trees moved in stepTrees, at the sync point
 
+	// ShadowsForProps decides which trees get a range in the sun pass, so a change rebuilds them.
+	if (m_lastShadowsForProps != TheGlobalData->m_shadowsForProps) {
+		m_lastShadowsForProps = TheGlobalData->m_shadowsForProps;
+		m_anythingChanged = true;
+	}
 	if (m_anythingChanged) {
 		loadTreesInVertexAndIndexBuffers(pDynamicLightsIterator);
 		m_anythingChanged = false;
@@ -2411,7 +2494,7 @@ void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pD
 	DX8Wrapper::Set_DX8_Texture_Stage_State(1,  D3DTSS_TEXCOORDINDEX, 1);
 	// Draw all the trees.
 	DX8Wrapper::Apply_Render_State_Changes();
-	W3DShaderManager::setShroudTex(1);
+	if (!sunCamera) W3DShaderManager::setShroudTex(1);
 	DX8Wrapper::Apply_Render_State_Changes();
  
 	if (m_dwTreeVertexShader) {
@@ -2496,7 +2579,13 @@ void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pD
 	}
 
 
-	drawTreeBuffers(false);
+	if (sunCamera) {
+		// Leaves are thin cards. Capture both faces with the same alpha cutoff as
+		// the visible tree, and never stamp the shroud into their shadow shape.
+		DX8Wrapper::Set_DX8_Render_State(D3DRS_ALPHABLENDENABLE, FALSE);
+		DX8Wrapper::Set_DX8_Render_State(D3DRS_CULLMODE, D3DCULL_NONE);
+	}
+	drawTreeBuffers(false, sunCamera != NULL);
 
 	DX8Wrapper::Set_Vertex_Format(DX8_FVF_XYZNDUV1);
 	DX8Wrapper::Set_Pixel_Shader(NULL);

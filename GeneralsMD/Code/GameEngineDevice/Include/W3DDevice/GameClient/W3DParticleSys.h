@@ -37,6 +37,7 @@
 #include "WW3D2/streak.h"
 #include "WW3D2/rinfo.h"
 #include "WWLib/bittype.h"
+#include "Platform/ModernWaterBuild.h"
 
 #include <vector>
 
@@ -52,6 +53,11 @@ public:
 	~W3DParticleSystemManager();
 
 	virtual void reset();
+	/// Forget only cached contamination footprints; all particle systems remain alive.
+	/// With fadeIn=false, fields collected on the next render appear immediately,
+	/// including while logic is paused. Later fields retain their normal fade-in.
+	void invalidateGroundFields(bool fadeIn = true);
+	static void releaseCloudResources(); // Before display/device teardown or reset.
 	virtual void doParticles(RenderInfoClass &rinfo);
 	virtual void queueParticleRender();
 	///< returns the number of particles shown on screen per frame
@@ -107,6 +113,9 @@ private:
 	{
 		ParticleSystem *	system;
 		Real							fade;				///< ParticleSystem::getStealthFade, above zero
+#if ZH_MODERN_WATER
+		ObjectID owner;					///< vessel foam's attached object at the sync point
+#endif
 	};
 
 	void refreshFrameView( void );

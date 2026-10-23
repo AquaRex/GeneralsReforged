@@ -97,13 +97,15 @@ static unsigned read_program_file(const char * path,
 	return count;
 }
 
-// FNV-1a over the profile and the source, which between them decide the bytecode.  The generated
-// text is the key rather than the pipeline's state key, so a build that changes what a state
-// generates compiles again instead of drawing with the previous build's program.
-static unsigned long long program_hash(const char * profile, const std::string & source)
+// FNV-1a over the profile, the source and the compiler flags, which between them decide the
+// bytecode.  The generated text is the key rather than the pipeline's state key, so a build that
+// changes what a state generates compiles again instead of drawing with the previous build's
+// program.  Default flags add nothing, so every key from before the flags existed still matches.
+static unsigned long long program_hash(const char * profile, const std::string & source, unsigned flags)
 {
 	const unsigned long long FNV_OFFSET = 14695981039346656037ULL;
 	const unsigned long long FNV_PRIME = 1099511628211ULL;
+	const unsigned BITS_PER_BYTE = 8;
 
 	unsigned long long hash = FNV_OFFSET;
 	for (const char * cursor = profile; *cursor != '\0'; ++cursor) {
@@ -111,6 +113,9 @@ static unsigned long long program_hash(const char * profile, const std::string &
 	}
 	for (size_t index = 0; index < source.size(); ++index) {
 		hash = (hash ^ static_cast<unsigned char>(source[index])) * FNV_PRIME;
+	}
+	for (unsigned remaining = flags; remaining != 0; remaining >>= BITS_PER_BYTE) {
+		hash = (hash ^ static_cast<unsigned char>(remaining)) * FNV_PRIME;
 	}
 	return hash;
 }
@@ -341,6 +346,9 @@ DX11BackendClass::DX11BackendClass()
 	}
 	ViewportWidth = 1;
 	ViewportHeight = 1;
+	ViewportX = 0;
+	ViewportY = 0;
+	Water = Create_Water();
 
 	// The device's own defaults, so a stage nobody has written to is a stage that is off.
 	for (unsigned stage = 0; stage < DX11_BACKEND_TEXTURE_STAGES; ++stage) {
@@ -357,6 +365,7 @@ DX11BackendClass::DX11BackendClass()
 DX11BackendClass::~DX11BackendClass()
 {
 	Shutdown();
+	Destroy_Water(Water);
 }
 
 bool DX11BackendClass::Initialise(DX11DeviceClass * device)
@@ -524,6 +533,7 @@ void DX11BackendClass::Shutdown()
 		ShaderCacheChanged = false;
 	}
 	Release_Cached();
+	Release_Water();
 
 	Release_Constant_Ring(EngineConstantRing);
 	Release_Constant_Ring(PixelConstantRing);
@@ -1172,6 +1182,17 @@ bool DX11BackendClass::Draws_Into_Scene() const
 	return CurrentTarget == NULL && !ShadowMapBound;
 }
 
+ID3D11RenderTargetView * DX11BackendClass::Scene_Target() const
+{
+	if (ShadowMapBound) {
+		return NULL;
+	}
+	if (CurrentTarget == NULL) {
+		return Device->Get_Scene_View();
+	}
+	return CurrentDepth == Device->Get_Depth_Stencil_View() ? CurrentTarget : NULL;
+}
+
 /** The black and white view, the motion blur and the cross fade draw the whole scene into a target
 		of their own, and Draw_Effect refuses every look there; asked first, the scene keeps the heat
 		vision and the disabled tint for those frames instead of drawing the object plain. */
@@ -1673,6 +1694,9 @@ void DX11BackendClass::Set_Texture(unsigned stage, ID3D11ShaderResourceView * te
 		}
 		Textures[stage] = texture;
 	}
+	else {
+		Set_Water_Texture(stage, texture);
+	}
 }
 
 void DX11BackendClass::Set_Headlights(const float * lights, unsigned count, const float gain[3])
@@ -1965,9 +1989,9 @@ void DX11BackendClass::Save_Shader_Cache() const
 }
 
 bool DX11BackendClass::Compile_Program(const std::string & source, const char * name,
-	const char * profile, std::vector<unsigned char> & bytecode)
+	const char * profile, std::vector<unsigned char> & bytecode, unsigned flags)
 {
-	const unsigned long long hash = program_hash(profile, source);
+	const unsigned long long hash = program_hash(profile, source, flags);
 	std::map<unsigned long long, std::vector<unsigned char> >::const_iterator known
 		= CompiledPrograms.find(hash);
 	if (known != CompiledPrograms.end()) {
@@ -1982,7 +2006,7 @@ bool DX11BackendClass::Compile_Program(const std::string & source, const char * 
 
 	ID3DBlob * code = NULL;
 	ID3DBlob * errors = NULL;
-	if (FAILED(compiler(source.c_str(), source.size(), name, NULL, NULL, ENTRY_POINT, profile, 0, 0,
+	if (FAILED(compiler(source.c_str(), source.size(), name, NULL, NULL, ENTRY_POINT, profile, flags, 0,
 			&code, &errors))) {
 		Record_Compiler_Error(name, errors);
 		return false;
@@ -2031,6 +2055,7 @@ void DX11BackendClass::Begin_Scene()
 {
 	SceneDepthStale = true;
 	SceneColourStale = true;
+	Water_Scene_Changed(NULL);
 
 	// A scene can begin with a render target already set: the water's reflection and the shadow
 	// projector both set theirs and then call WW3D::Begin_Render, and forcing the back buffer here
@@ -2183,6 +2208,8 @@ void DX11BackendClass::Set_Viewport(unsigned x, unsigned y, unsigned width, unsi
 	viewport.MaxDepth = 1.0f;
 	Device->Get_Context()->RSSetViewports(1, &viewport);
 
+	ViewportX = x;
+	ViewportY = y;
 	ViewportWidth = (width == 0) ? 1 : width;
 	ViewportHeight = (height == 0) ? 1 : height;
 	ConstantsChanged = true;
@@ -2199,6 +2226,12 @@ void DX11BackendClass::Clear(bool colour, bool depth, const float colour_value[4
 
 	if (colour && target != NULL) {
 		Device->Get_Context()->ClearRenderTargetView(target, colour_value);
+		ID3D11Resource * cleared = CurrentTargetResource;
+		if (CurrentTarget == NULL) {
+			target->GetResource(&cleared);
+			cleared->Release();	// the device holds the scene target for as long as it lives
+		}
+		Water_Scene_Changed(cleared);
 	}
 	if (depth && depth_view != NULL) {
 		Device->Get_Context()->ClearDepthStencilView(depth_view,
@@ -2469,8 +2502,13 @@ bool DX11BackendClass::Resolve(Pipeline & pipeline)
 
 	std::vector<unsigned char> vertex_code;
 	std::vector<unsigned char> pixel_code;
+	// The Modern water writes a dynamically indexed array, which shader model 4 refuses; every other
+	// program keeps the profile and flags its cached and shipped bytecode was compiled with.
+	const bool modern_water = EngineShader_Is_Modern_Water(PixelProgram);
+	const char * const pixel_profile = modern_water ? "ps_5_0" : PIXEL_PROFILE;
+	const unsigned pixel_flags = modern_water ? DX11_MODERN_WATER_COMPILE_FLAGS : 0;
 	if (!Compile_Program(vertex_hlsl, "ffvertex", VERTEX_PROFILE, vertex_code)
-		|| !Compile_Program(pixel_hlsl, "ffshader", PIXEL_PROFILE, pixel_code)) {
+		|| !Compile_Program(pixel_hlsl, "ffshader", pixel_profile, pixel_code, pixel_flags)) {
 		Refuse(key, REFUSED_NO_PROGRAM);
 		return false;
 	}
@@ -3240,13 +3278,25 @@ bool DX11BackendClass::Draw_Indexed(unsigned index_count, unsigned start_index,
 		++DrawsRefused;
 		return false;
 	}
+	// The sun's map has no water in it, and a water program there only writes its depth.
+	const bool water = EngineShader_Is_Modern_Water(PixelProgram) && !ShadowMapBound;
+	if (water && !Prepare_Water()) {
+		++DrawsRefused;
+		return false;
+	}
 
 	ID3D11DeviceContext * context = Device->Get_Context();
 	Upload_Constants();
 	Bind_State_Objects();
 
 	Bind_Pipeline(pipeline, StreamBuffer, StreamStride, StreamOffset, IndexBuffer, IndexFormat, topology);
+	if (water) {
+		Bind_Water();
+	}
 	context->DrawIndexed(index_count, start_index, base_vertex);
+	if (water) {
+		Unbind_Water();
+	}
 
 	++DrawsMade;
 	// The soft particles' copy of the depth is behind whatever this wrote into the scene's depth
@@ -3285,6 +3335,11 @@ bool DX11BackendClass::Draw_Triangles(unsigned vertex_count, unsigned start_vert
 		++DrawsRefused;
 		return false;
 	}
+	const bool water = EngineShader_Is_Modern_Water(PixelProgram) && !ShadowMapBound;
+	if (water && !Prepare_Water()) {
+		++DrawsRefused;
+		return false;
+	}
 
 	ID3D11DeviceContext * context = Device->Get_Context();
 	Upload_Constants();
@@ -3292,7 +3347,13 @@ bool DX11BackendClass::Draw_Triangles(unsigned vertex_count, unsigned start_vert
 
 	Bind_Pipeline(pipeline, StreamBuffer, StreamStride, StreamOffset, NULL, DXGI_FORMAT_UNKNOWN,
 		D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	if (water) {
+		Bind_Water();
+	}
 	context->Draw(vertex_count, start_vertex);
+	if (water) {
+		Unbind_Water();
+	}
 
 	++DrawsMade;
 	// The soft particles' copy of the depth is behind whatever this wrote into the scene's depth

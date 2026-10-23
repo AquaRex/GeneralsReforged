@@ -69,6 +69,13 @@ const unsigned DX11_BACKEND_TEXTURE_STAGES = 4;
 // itself and has to reach one past it.
 const unsigned DX11_BACKEND_STAGE_STATES = 33;
 
+// D3DCOMPILE_SKIP_OPTIMIZATION, which the Modern water's pixel programs compile with.  The
+// optimiser spends 34 s on each of them (about 11 thousand instructions, mostly inlined copies of
+// the noise and hash helpers) and 4.5 s without it.  The driver optimises the bytecode again
+// either way: the frame time stayed inside run-to-run noise and the picture did not change
+// (2026-10-23, docs/porting/windows-impact.md).
+const unsigned DX11_MODERN_WATER_COMPILE_FLAGS = 1u << 2;
+
 class DX11BackendClass
 {
 public:
@@ -140,6 +147,13 @@ public:
 	// The engine's own float4 shader constant bank, as it sets it.  The transcribed programs index
 	// it by the same register number the SetVertexShaderConstantF call used.
 	void Set_Vertex_Program_Constant(unsigned first_register, const float * values, unsigned count);
+
+	// The Modern water's float4 registers as W3DWater sets them (Platform/WaterConstants.h), up to
+	// DX11_WATER_REGISTERS.  Only a Modern water draw reads them, through dx11water.cpp's blocks.
+	void Set_Water_Constants(unsigned first_register, const float * values, unsigned count);
+	// What the Modern water drew with, for the shutdown report: its draws, the GPU ocean's updates,
+	// or why the analytic surface stood in for it.
+	std::string Water_Report() const;
 	void Set_Stream_Source(ID3D11Buffer * buffer, unsigned stride, unsigned offset);
 	void Set_Indices(ID3D11Buffer * buffer, DXGI_FORMAT format);
 
@@ -272,6 +286,10 @@ public:
 	// Whether the draws are going into the scene's own target.
 	bool Draws_Into_Scene() const;
 
+	// Where the scene is going now: its own target, or a screen filter's texture drawn over the
+	// scene's depth; NULL for a mirror or the sun's map.
+	ID3D11RenderTargetView * Scene_Target() const;
+
 	// The scene's target, its depth and the draws' viewport bound again after a pass that bound
 	// its own on the context mid-scene (the post chain's occlusion).
 	void Resume_Scene();
@@ -381,6 +399,12 @@ public:
 	const char * Target_Trace(unsigned index) const
 		{ return (index < TargetTrace.size()) ? TargetTrace[index].c_str() : ""; }
 	const char * First_Compiler_Error() const { return CompilerError.c_str(); }
+
+	// A program for a pass of someone else's (the hazard clouds), compiled once and kept in the
+	// shader cache with the generated ones, so a second run compiles nothing.  The flags are
+	// D3DCompile's first flag word; zero is its default optimisation.
+	bool Compile_Program(const std::string & source, const char * name, const char * profile,
+		std::vector<unsigned char> & bytecode, unsigned flags = 0);
 
 private:
 	DX11BackendClass(const DX11BackendClass &);
@@ -536,6 +560,23 @@ private:
 	// What the viewport is, so a pre-transformed vertex can be put back into clip space.
 	unsigned ViewportWidth;
 	unsigned ViewportHeight;
+	unsigned ViewportX;
+	unsigned ViewportY;
+
+	// The Modern water (dx11water.cpp): its registers, the stages past the fourth, the copies of the
+	// scene it refracts through, the GPU ocean and the displaced vertex programs.  Prepare runs
+	// before a water draw binds anything, because the ocean's passes take the context; Bind after
+	// the draw's own bindings, Unbind after the draw.
+	struct WaterResources;
+	WaterResources * Water;
+	static WaterResources * Create_Water();
+	static void Destroy_Water(WaterResources * water);
+	void Set_Water_Texture(unsigned stage, ID3D11ShaderResourceView * texture);
+	bool Prepare_Water();
+	void Bind_Water();
+	void Unbind_Water();
+	void Water_Scene_Changed(ID3D11Resource * target);	// null: a new frame, every copy is old
+	void Release_Water();
 
 	// The sun's depth buffer and the two views of it: one to draw into, one to sample.  The
 	// viewport the frame was using is kept while it is bound, because the map is square and the
@@ -966,8 +1007,6 @@ private:
 	bool Any_Missing_Texture() const;
 	void Dump_Program(const std::string & key, const std::string & vertex_hlsl,
 		const std::string & pixel_hlsl);
-	bool Compile_Program(const std::string & source, const char * name, const char * profile,
-		std::vector<unsigned char> & bytecode);
 	void Save_Shader_Cache() const;
 
 	std::string CompilerError;

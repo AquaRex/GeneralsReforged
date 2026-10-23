@@ -107,6 +107,8 @@ OPTION_INT_ACCESSORS( m_windowMode )
 OPTION_INT_ACCESSORS( m_fullscreenScaling )
 OPTION_INT_ACCESSORS( m_msaaLevel )
 OPTION_BOOL_ACCESSORS( m_vsync )
+OPTION_INT_ACCESSORS( m_waterStyle )
+OPTION_INT_ACCESSORS( m_cloudStyle )
 OPTION_BOOL_ACCESSORS( m_classicGraphics )
 OPTION_INT_ACCESSORS( m_lightingStyle )
 OPTION_INT_ACCESSORS( m_healthBarMode )
@@ -415,6 +417,17 @@ const OptionDef TheOptionCatalog[] =
 	{ "VSync",										OPT_WND( "CheckVSync" ), "GUI:VSync",
 		OPTION_BOOL, APPLY_DEVICE_RESET, 0, 1,
 		get_m_vsync, set_m_vsync },
+
+	// Water selects a complete surface path, including geometry and reflections. The water
+	// object applies it at the next frame boundary, including while the options menu is paused.
+	{ "WaterStyle", OPT_WND( "ComboBoxWaterStyle" ), "GUI:WaterStyle",
+		OPTION_ENUM, APPLY_LIVE, 0, WATER_STYLE_COUNT - 1,
+		get_m_waterStyle, set_m_waterStyle },
+
+	// Client appearance only; hazard area, lifetime and damage remain unchanged.
+	{ "CloudStyle", OPT_WND( "ComboBoxCloudStyle" ), "GUI:CloudStyle",
+		OPTION_ENUM, APPLY_LIVE, 0, CLOUD_STYLE_COUNT - 1,
+		get_m_cloudStyle, set_m_cloudStyle },
 
 	// Classic or Reforged.  Classic is the picture the game shipped with: its own textures, EA's
 	// ground tile, no normal maps, the stencil shadows and no post effects.  The upscaled archives
