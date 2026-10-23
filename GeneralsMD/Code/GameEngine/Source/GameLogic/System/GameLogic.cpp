@@ -454,6 +454,11 @@ void GameLogic::init( void )
 static WaterSetting s_waterSettingsBeforeMapINI[ TIME_OF_DAY_COUNT ];
 static Bool s_waterSettingsSaved = FALSE;
 
+/* Whether this match's startNewGame found the map's map.ini and read it.  The mismatch dump writes
+	 it down: a map transfer that left the receiver without the file plays a different rule set on one
+	 machine (DESYNC-AUDIT.md), and both dumps agreeing on this line rules that out. */
+static Bool s_mapINILoaded = FALSE;
+
 //-------------------------------------------------------------------------------------------------
 /** Reset the game logic systems */
 //-------------------------------------------------------------------------------------------------
@@ -2616,6 +2621,7 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
 // ------------------------------------------------------------------------------------------------
 void GameLogic::loadMapINI( AsciiString mapName )
 {
+	s_mapINILoaded = FALSE;
 
 	if (!TheMapCache) {
 		// Need the map cache to get the map and user map directories.
@@ -2678,7 +2684,8 @@ void GameLogic::loadMapINI( AsciiString mapName )
 	}
 
 	snprintf(fullFledgeFilename, _MAX_PATH, "%s\\map.ini", filename); fullFledgeFilename[_MAX_PATH-1] = 0;
-	if (TheFileSystem->doesFileExist(fullFledgeFilename)) {
+	s_mapINILoaded = TheFileSystem->doesFileExist(fullFledgeFilename);
+	if (s_mapINILoaded) {
 		DEBUG_LOG(("Loading map.ini\n"));
 		INI ini;
 		ini.setSkipUnknownFields( TRUE );
@@ -2912,6 +2919,38 @@ void GameLogic::processCommandList( CommandList *list )
 }  // end processCommandList
 
 // ------------------------------------------------------------------------------------------------
+/** The lobby options string with every human slot's address taken out: the dump is uploaded with
+	* crash reports.  A human slot is "H<name>,<ip>,<port>,<eight more fields>:", and the name may hold
+	* a comma, so the two fields go by their place from the end. */
+// ------------------------------------------------------------------------------------------------
+static AsciiString lobbyOptionsWithoutAddresses( const AsciiString &options )
+{
+	std::string in( options.str() );
+	std::string out;
+	size_t tokenStart = 0;
+	while( tokenStart < in.size() )
+	{
+		size_t tokenEnd = in.find_first_of( ":;=", tokenStart );
+		if( tokenEnd == std::string::npos )
+			tokenEnd = in.size();
+		std::string token = in.substr( tokenStart, tokenEnd - tokenStart );
+
+		std::vector<size_t> commas;
+		for( size_t c = token.find( ',' ); c != std::string::npos; c = token.find( ',', c + 1 ) )
+			commas.push_back( c );
+		// fields n-8 and n-7 are the address and the port, so drop from the 8th comma from the end to the 6th
+		if( !token.empty() && token[0] == 'H' && commas.size() >= 8 )
+			token.erase( commas[ commas.size() - 8 ], commas[ commas.size() - 6 ] - commas[ commas.size() - 8 ] );
+
+		out += token;
+		if( tokenEnd < in.size() )
+			out += in[ tokenEnd ];
+		tokenStart = tokenEnd + 1;
+	}
+	return AsciiString( out.c_str() );
+}
+
+// ------------------------------------------------------------------------------------------------
 /** A mismatch says the worlds diverged; it does not say where.  This writes down everything we
 	* kept about the frame that diverged, so that two players' dumps can be diffed: the first object
 	* whose running CRC differs is the object whose state differs, and the fields printed next to it
@@ -2927,6 +2966,8 @@ void GameLogic::writeMismatchDump( Int numPlayers )
 	{
 		slot = m_crcSnapshots.findSlotByCRC( crcIt->second );
 	}
+	// a run-ahead longer than the ring (a high ping at the start of a match) leaves no compared CRC in it
+	const Bool slotFromCRC = slot >= 0;
 	if( slot < 0 )
 		slot = m_crcSnapshots.getNewestSlot();
 
@@ -2945,7 +2986,11 @@ void GameLogic::writeMismatchDump( Int numPlayers )
 	fprintf( fp, "Local player is slot %d of %d connected players; %d CRCs were compared\n",
 		TheNetwork ? TheNetwork->getLocalPlayerID() : 0, numPlayers, m_cachedCRCs.size() );
 	// every player's dump carries the same two, which is how the reports from one match are paired up
-	fprintf( fp, "Map %s, seed %d\n\n", TheGameInfo->getMap().str(), TheGameInfo->getSeed() );
+	fprintf( fp, "Map %s, seed %d\n", TheGameInfo->getMap().str(), TheGameInfo->getSeed() );
+	// what both ends agreed in the lobby and whether this machine read the map's rules file: two dumps
+	// that differ here never started the same game
+	fprintf( fp, "Lobby options %s\n", lobbyOptionsWithoutAddresses( GameInfoToAsciiString( TheGameInfo ) ).str() );
+	fprintf( fp, "map.ini %s\n\n", s_mapINILoaded ? "loaded" : "not present" );
 
 	/* Two machines that never agreed about arithmetic produce a mismatch that looks exactly like a
 		 logic bug.  This number depends on the machine's math and nothing else, so the first thing to
@@ -2983,6 +3028,35 @@ void GameLogic::writeMismatchDump( Int numPlayers )
 
 	fprintf( fp, "\nDiverging frame is %d (world CRC 0x%8.8X, logic random seed CRC 0x%8.8X, %d objects)\n",
 		snap->m_frame, snap->m_totalCRC, snap->m_randomSeed, snap->m_objects.size() );
+	if( !slotFromCRC )
+		fprintf( fp, "No retained frame carries a compared CRC, so this is the newest one; compare it with the same frame in the other dump.\n" );
+
+	// the parts getCRC folds in, in its order (CRCSection): the first line that differs between two
+	// dumps is the part that diverged, and when it is not the objects the table below will agree
+	static const char *const sectionNames[ CRC_SECTION_COUNT ] =
+	{
+		"objects",
+		"partition (logic random seed, shroud)",
+		"players (battle plans, skill points, science points, money)",
+		"AI (pathfinder, AI data, AI groups)",
+		"scripts",
+	};
+	fprintf( fp, "World CRC at the end of each part:\n" );
+	for( Int s = 0; s < CRC_SECTION_COUNT; ++s )
+		fprintf( fp, "  0x%8.8X after %s\n", snap->m_sectionCRC[s], sectionNames[s] );
+
+	fprintf( fp, "\nPlayers on that frame:\n%7s %12s %12s %15s  %s\n", "player", "money", "skillPoints", "sciencePoints", "name" );
+	for( size_t i = 0; i < snap->m_players.size(); ++i )
+	{
+		const CRCPlayerEntry &p = snap->m_players[i];
+		Player *player = ThePlayerList->getNthPlayer( (Int)i );
+		AsciiString name;
+		if( player )
+			name.translate( player->getPlayerDisplayName() );
+		fprintf( fp, "%7d %12u %12d %15d  %s\n", (Int)i, p.m_money, p.m_skillPoints, p.m_sciencePurchasePoints, name.str() );
+	}
+	fprintf( fp, "\n" );
+
 	fprintf( fp, "Diff this section against another player's file; the first differing running CRC is the object that diverged.\n\n" );
 	fprintf( fp, "%6s %8s %10s %12s %12s %12s %10s  %s\n",
 		"index", "objectID", "runningCRC", "x", "y", "z", "health", "template" );
@@ -5449,6 +5523,9 @@ UnsignedInt GameLogic::getCRC( Int mode, AsciiString deepCRCFileName )
 																pos->x, pos->y, pos->z, body->getHealth() );
 		}
 	}
+	// the rest only observe the running CRC: each section's end goes in the ring as well (CRCSection)
+	if (recordSnapshot)
+		m_crcSnapshots.setSectionCRC( CRC_SECTION_OBJECTS, xferCRC->getCRC() );
 	UnsignedInt seed = GetGameLogicRandomSeedCRC();
 	if (isInGameLogicUpdate())
 	{
@@ -5466,6 +5543,8 @@ UnsignedInt GameLogic::getCRC( Int mode, AsciiString deepCRCFileName )
 	marker = "MARKER:ThePartitionManager";
 	xferCRC->xferAsciiString(&marker);
 	xferCRC->xferSnapshot( ThePartitionManager );
+	if (recordSnapshot)
+		m_crcSnapshots.setSectionCRC( CRC_SECTION_PARTITION, xferCRC->getCRC() );
 	if (isInGameLogicUpdate())
 	{
 		CRCGEN_LOG(("CRC after partition manager for frame %d is 0x%8.8X\n", m_frame, xferCRC->getCRC()));
@@ -5488,6 +5567,16 @@ UnsignedInt GameLogic::getCRC( Int mode, AsciiString deepCRCFileName )
 	marker = "MARKER:ThePlayerList";
 	xferCRC->xferAsciiString(&marker);
 	xferCRC->xferSnapshot( ThePlayerList );
+	if (recordSnapshot)
+	{
+		m_crcSnapshots.setSectionCRC( CRC_SECTION_PLAYERS, xferCRC->getCRC() );
+		for (Int i = 0; i < ThePlayerList->getPlayerCount(); ++i)
+		{
+			const Player *player = ThePlayerList->getNthPlayer( i );
+			m_crcSnapshots.addPlayer( player->getMoney()->countMoney(), player->getSkillPoints(),
+																player->getSciencePurchasePoints() );
+		}
+	}
 	if (isInGameLogicUpdate())
 	{
 		CRCGEN_LOG(("CRC after PlayerList for frame %d is 0x%8.8X\n", m_frame, xferCRC->getCRC()));
@@ -5496,6 +5585,8 @@ UnsignedInt GameLogic::getCRC( Int mode, AsciiString deepCRCFileName )
 	marker = "MARKER:TheAI";
 	xferCRC->xferAsciiString(&marker);
 	xferCRC->xferSnapshot( TheAI );
+	if (recordSnapshot)
+		m_crcSnapshots.setSectionCRC( CRC_SECTION_AI, xferCRC->getCRC() );
 	if (isInGameLogicUpdate())
 	{
 		CRCGEN_LOG(("CRC after AI for frame %d is 0x%8.8X\n", m_frame, xferCRC->getCRC()));
@@ -5504,6 +5595,8 @@ UnsignedInt GameLogic::getCRC( Int mode, AsciiString deepCRCFileName )
 	marker = "MARKER:TheScriptEngine";
 	xferCRC->xferAsciiString(&marker);
 	xferCRC->xferSnapshot( TheScriptEngine );
+	if (recordSnapshot)
+		m_crcSnapshots.setSectionCRC( CRC_SECTION_SCRIPTS, xferCRC->getCRC() );
 	if (isInGameLogicUpdate())
 	{
 		CRCGEN_LOG(("CRC after ScriptEngine for frame %d is 0x%8.8X\n", m_frame, xferCRC->getCRC()));

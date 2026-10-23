@@ -5271,6 +5271,50 @@ TEST(crcsnapshotring_names_the_diverging_frame_from_a_crc_value)
 	CHECK_EQ( ring.findSlotByCRC( 0x44444444 ), -1 );
 }
 
+TEST(crcsnapshotring_keeps_each_section_and_player_of_the_frame_it_belongs_to)
+{
+	CRCSnapshotRing ring;
+
+	// the parts after the objects are what split when every object agrees
+	ring.beginSnapshot( 30 );
+	ring.setSectionCRC( CRC_SECTION_OBJECTS, 0x10 );
+	ring.setSectionCRC( CRC_SECTION_PLAYERS, 0x30 );
+	ring.addPlayer( 0, 0, 0 );
+	ring.addPlayer( 25000, 7, 1 );
+	ring.setSectionCRC( CRC_SECTION_SCRIPTS, 0x50 );
+	ring.endSnapshot( 0x50, 0 );
+
+	// each frame holds only what was recorded for it
+	ring.beginSnapshot( 31 );
+	ring.setSectionCRC( CRC_SECTION_AI, 0x40 );
+	ring.endSnapshot( 0x60, 0 );
+
+	const CRCSnapshot *first = ring.getSlot( ring.findSlotByCRC( 0x50 ) );
+	const CRCSnapshot *second = ring.getSlot( ring.findSlotByCRC( 0x60 ) );
+	CHECK( first != NULL && second != NULL );
+	if( first == NULL || second == NULL )
+		return;
+
+	CHECK_EQ( (Int)first->m_sectionCRC[ CRC_SECTION_OBJECTS ], 0x10 );
+	CHECK_EQ( (Int)first->m_sectionCRC[ CRC_SECTION_PARTITION ], 0 );
+	CHECK_EQ( (Int)first->m_sectionCRC[ CRC_SECTION_PLAYERS ], 0x30 );
+	CHECK_EQ( (Int)first->m_sectionCRC[ CRC_SECTION_SCRIPTS ], 0x50 );
+	CHECK_EQ( (Int)first->m_players.size(), 2 );
+	CHECK_EQ( (Int)first->m_players[1].m_money, 25000 );
+	CHECK_EQ( first->m_players[1].m_skillPoints, 7 );
+	CHECK_EQ( first->m_players[1].m_sciencePurchasePoints, 1 );
+
+	CHECK_EQ( (Int)second->m_sectionCRC[ CRC_SECTION_OBJECTS ], 0 );
+	CHECK_EQ( (Int)second->m_sectionCRC[ CRC_SECTION_AI ], 0x40 );
+	CHECK_EQ( (Int)second->m_players.size(), 0 );
+
+	// with no snapshot open both are no-ops, as addObject is
+	ring.clear();
+	ring.setSectionCRC( CRC_SECTION_AI, 1 );
+	ring.addPlayer( 1, 1, 1 );
+	CHECK_EQ( ring.getNumSnapshots(), 0 );
+}
+
 TEST(crcsnapshotring_still_holds_the_frame_a_late_mismatch_report_asks_for)
 {
 	CRCSnapshotRing ring;
