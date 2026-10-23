@@ -2628,6 +2628,16 @@ Bool JetAIUpdate::getTreatAsAircraftForLocoDistToGoal() const
 }
 
 //----------------------------------------------------------------------------------------
+/** A scrambled jet skips the taxi, the wait for the runway and the pause on it: the order it was
+	* given stays pending, as on any jet on the ground, and is flown once it is airborne. */
+void JetAIUpdate::friend_takeOffNow()
+{
+	getStateMachine()->clear();
+	getStateMachine()->setState( TAKING_OFF );
+	friend_enableAfterburners( true );
+}
+
+//----------------------------------------------------------------------------------------
 /**
  * Follow the path defined by the given array of points
  */

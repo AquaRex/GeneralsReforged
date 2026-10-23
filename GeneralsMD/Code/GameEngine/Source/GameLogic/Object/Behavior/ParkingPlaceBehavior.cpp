@@ -707,8 +707,9 @@ void ParkingPlaceBehavior::onCapture( Player *oldOwner, Player *newOwner )
 }
 
 //-------------------------------------------------------------------------------------------------
-// one scrambled jet at most every this many frames, so a full field does not roll out on one frame
-const UnsignedInt SCRAMBLE_INTERVAL_FRAMES = LOGICFRAMES_PER_SECOND / 2;
+// one scrambled jet every this many frames, the runways in turn, so each runway sends one every
+// half second and a jet is 15 down its runway, about a drone's length, when the next one starts
+const UnsignedInt SCRAMBLE_INTERVAL_FRAMES = LOGICFRAMES_PER_SECOND / 4;
 
 //-------------------------------------------------------------------------------------------------
 void ParkingPlaceBehavior::scramble( const ThingTemplate *jet, ObjectID target, const Coord3D *pos )
@@ -721,8 +722,11 @@ void ParkingPlaceBehavior::scramble( const ThingTemplate *jet, ObjectID target, 
 }
 
 //-------------------------------------------------------------------------------------------------
-/** The next scrambled jet, when its turn has come and a space is free: it comes out of the hangar
-	* like a built one and is handed its target, which it takes off for. */
+/** The next scrambled jet, when its turn has come: it appears on its runway's threshold and starts
+	* its takeoff roll at once (JetAIUpdate::friend_takeOffNow), with no hangar, taxi or queue for the
+	* runway, so a swarm is in the air within seconds rather than four at a time out of the hangars.
+	* The runways take turns by the count left, and a jet holds one of the spaces, the runway's, until
+	* it is airborne; the field has a space for every jet of a swarm. */
 //-------------------------------------------------------------------------------------------------
 void ParkingPlaceBehavior::launchScramble()
 {
@@ -730,25 +734,41 @@ void ParkingPlaceBehavior::launchScramble()
 	if( m_scrambles.empty() || now < m_nextScrambleFrame )
 		return;
 
-	const ScrambleInfo& next = m_scrambles.front();
-	ExitDoorType door = reserveDoorForExit( next.m_jet, NULL );
-	if( door == DOOR_NONE_AVAILABLE )
+	const Int runway = (Int)m_scrambles.size() % (Int)m_runways.size();
+	ParkingPlaceInfo* space = NULL;
+	for( std::vector<ParkingPlaceInfo>::iterator it = m_spaces.begin(); it != m_spaces.end(); ++it )
+	{
+		if( it->m_runway == runway && it->m_objectInSpace == INVALID_ID && !it->m_reservedForExit )
+		{
+			space = &(*it);
+			break;
+		}
+	}
+	if( space == NULL )
 		return;
 
+	const ScrambleInfo& next = m_scrambles.front();
 	Object *jet = TheThingFactory->newObject( next.m_jet, getObject()->getControllingPlayer()->getDefaultTeam() );
 	jet->setProducer( getObject() );
-	exitObjectViaDoor( jet, door );
-	jet->getAIUpdateInterface()->getJetAIUpdate()->friend_setKamikazeArea( &next.m_pos );
+	space->m_objectInSpace = jet->getID();
+	const RunwayInfo& strip = m_runways[ runway ];
+	jet->setPosition( &strip.m_start );
+	jet->setOrientation( ATan2( strip.m_end.y - strip.m_start.y, strip.m_end.x - strip.m_start.x ) );
+	TheAI->pathfinder()->addObjectToPathfindMap( jet );
 
+	JetAIUpdate *jetAI = jet->getAIUpdateInterface()->getJetAIUpdate();
+	jetAI->friend_setKamikazeArea( &next.m_pos );
 	// a script's order: a human player's unit given CMD_FROM_AI will not fly out of its sight to chase
-	// (AIAttackApproachTargetState), and this target is a map away
+	// (AIAttackApproachTargetState), and this target is a map away. On the ground the jet keeps it as
+	// its pending command and flies it once airborne.
 	Object *target = TheGameLogic->findObjectByID( next.m_target );
 	if( target && !target->isEffectivelyDead() )
-		jet->getAIUpdateInterface()->aiAttackObject( target, NO_MAX_SHOTS_LIMIT, CMD_FROM_SCRIPT );
+		jetAI->aiAttackObject( target, NO_MAX_SHOTS_LIMIT, CMD_FROM_SCRIPT );
 	else
-		jet->getAIUpdateInterface()->aiAttackPosition( &next.m_pos, NO_MAX_SHOTS_LIMIT, CMD_FROM_SCRIPT );
-	DEBUG_LOG(( "SCRAMBLE frame %d '%s' %d from door %d at %d (%.0f,%.0f), %d to go\n", now,
-		next.m_jet->getName().str(), jet->getID(), (Int)door, next.m_target, next.m_pos.x, next.m_pos.y,
+		jetAI->aiAttackPosition( &next.m_pos, NO_MAX_SHOTS_LIMIT, CMD_FROM_SCRIPT );
+	jetAI->friend_takeOffNow();
+	DEBUG_LOG(( "SCRAMBLE frame %d '%s' %d down runway %d at %d (%.0f,%.0f), %d to go\n", now,
+		next.m_jet->getName().str(), jet->getID(), runway, next.m_target, next.m_pos.x, next.m_pos.y,
 		(Int)m_scrambles.size() - 1 ));
 
 	m_scrambles.pop_front();

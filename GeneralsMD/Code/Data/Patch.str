@@ -3203,7 +3203,7 @@ CONTROLBAR:ConstructTurkiyeKarguBase
 END
 
 CONTROLBAR:ToolTipTurkiyeKarguBase
-"Sends a swarm of twelve kamikaze drones anywhere on the map. Each one hunts down one of the most valuable targets in the circle and dives into it; spread-out armies suffer most. \n \n Requires: Factory, Radar Tower \n Energy Required: 10 \n Recharge: 5:00"
+"Sends a swarm of sixteen kamikaze drones anywhere on the map. Each one hunts down one of the most valuable targets in the circle and dives into it; spread-out armies suffer most. \n \n Requires: Factory, Radar Tower \n Energy Required: 10 \n Recharge: 5:00"
 END
 
 CONTROLBAR:TurkiyeKarguSwarm

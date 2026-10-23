@@ -17500,7 +17500,7 @@ CONTROLBAR:ConstructTurkiyeKarguBase
 END
 
 CONTROLBAR:ToolTipTurkiyeKarguBase
-"Haritanın herhangi bir yerine on iki kamikaze İHA'dan oluşan bir sürü gönderir. Her biri dairedeki en değerli hedeflerden birini bulur ve üstüne dalar; dağınık ordular en çok zarar görür. \n \n Gereken: Fabrika, Radar Kulesi \n Gereken Enerji: 10 \n Geri Sayım: 5:00"
+"Haritanın herhangi bir yerine on altı kamikaze İHA'dan oluşan bir sürü gönderir. Her biri dairedeki en değerli hedeflerden birini bulur ve üstüne dalar; dağınık ordular en çok zarar görür. \n \n Gereken: Fabrika, Radar Kulesi \n Gereken Enerji: 10 \n Geri Sayım: 5:00"
 END
 
 CONTROLBAR:TurkiyeKarguSwarm
