@@ -791,13 +791,20 @@ static unsigned s_fieldCollectionPass = 0;
 
 static bool fieldCloudsSupported()
 {
-	if (!s_fieldCloudCapabilityKnown) {
+	const bool newDevice = !s_fieldCloudCapabilityKnown;
+	if (newDevice) {
 		s_fieldCloudCapability = HazardCloud::Supported();
 		s_fieldCloudCapabilityKnown = true;
 	}
 	// The Classic graphics setting is the game's own picture, and its clouds.
 	const bool volumetric = s_fieldCloudCapability && TheGlobalData
 		&& TheGlobalData->m_cloudStyle == 1 && !TheGlobalData->m_classicGraphics;
+	// The programs every layer shares are built here, on the shell map or a match's first frame,
+	// or the frame the style is switched: built by the first hazard instead, a program the shader
+	// cache lacked froze that frame for three and a half seconds of FXC.
+	if (volumetric && (newDevice || !s_fieldCloudsSupported))
+		if (std::unique_ptr<HazardCloud::Layer> layer = HazardCloud::CreateLayer())
+			layer->initialize();
 	// A new device, or the style switched: destroy keys before changing their
 	// comparator's mode.
 	if (volumetric != s_fieldCloudsSupported) {
@@ -874,6 +881,21 @@ static ObjectID findFieldObject( const Coord3D &centre, Int palette = -1 )
 		}
 	}
 	return found;
+}
+
+/** The owner of the hazard cloud already standing at this place, living or not.  A field's object
+	* fires its weapon on the frame it dies, and that last system finds no living owner: left alone it
+	* started a fresh cloud at full strength over the ended one, ten seconds of smoke after the hazard
+	* was gone.  It belongs to the field it was fired into. */
+static ObjectID standingFieldOwner( Int x, Int y, Int z, Int palette )
+{
+	for (std::map<FieldKey, FieldState>::const_iterator st = s_fieldStates.begin(); st != s_fieldStates.end(); ++st)
+	{
+		const FieldKey &key = st->first;
+		if (key.owner != INVALID_ID && key.palette == palette && key.x == x && key.y == y && key.z == z)
+			return key.owner;
+	}
+	return INVALID_ID;
 }
 
 /** The middle of a random range. */
@@ -1200,7 +1222,12 @@ static void updateGroundFields( const std::vector<ParticleSystem *> &systems )
 			if (palette >= 0 && binding != s_fieldSystemOwners.end()) owner = binding->second.object;
 			if (owner == INVALID_ID) {
 				auto ownerEntry = fieldOwners.find(ownerKey);
-				if (ownerEntry == fieldOwners.end()) ownerEntry = fieldOwners.emplace(ownerKey, findFieldObject(pos, palette)).first;
+				if (ownerEntry == fieldOwners.end()) {
+					ObjectID found = findFieldObject(pos, palette);
+					if (found == INVALID_ID && palette >= 0)
+						found = standingFieldOwner(std::get<0>(ownerKey), std::get<1>(ownerKey), std::get<2>(ownerKey), palette);
+					ownerEntry = fieldOwners.emplace(ownerKey, found).first;
+				}
 				owner = ownerEntry->second;
 			}
 			if (palette >= 0) {

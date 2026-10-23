@@ -6,6 +6,7 @@
 #include "dx11backend.h"
 #include "dx11device.h"
 #include "dx11runtime.h"
+#include "dx11resource.h"
 
 #include <d3d11.h>
 #include <algorithm>
@@ -141,6 +142,7 @@ bool compile(DX11BackendClass *backend, ID3D11Device *device, const std::string 
 bool makeShared(DX11BackendClass *backend, ID3D11Device *device)
 {
 	if (shared.device == device) return !shared.refused;
+	const double started = DX11Resource_Milliseconds_Now();
 	releaseShared();
 	shared.device = device;
 	static const char *const names[PassCount] = {
@@ -200,6 +202,9 @@ bool makeShared(DX11BackendClass *backend, ID3D11Device *device)
 		shared.device = device;
 		shared.refused = true;
 	}
+	// A program the shader cache lacks costs seconds of FXC here; the field tracking asks for
+	// this at the first frame with Volumetric clouds, never on the frame a hazard opens.
+	DEBUG_LOG(("HAZARDCLOUD: Direct3D 11 cloud programs made in %.1f ms\n", DX11Resource_Milliseconds_Now() - started));
 	return made;
 }
 

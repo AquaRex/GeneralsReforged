@@ -46,7 +46,16 @@ Classic, or no backend, tracks the ground fields as retail did. The extended tra
 by height and owner, owner binding for nuclear pulses, the sparse-emitter grace rule, skipping
 systems still in their initial delay) runs only with a backend and the Volumetric style. The device
 is asked once and the answer cached; the mode is decided at the sync point only, and when it changes
-the field tables are cleared before their key ordering changes.
+the field tables are cleared before their key ordering changes. The first sync point with Volumetric
+on (or a new device) also initializes a throwaway layer, which builds the programs every layer
+shares: built by the first hazard, a program missing from the shader cache froze that frame for 3.6
+to 5.5 s on Direct3D 11.
+
+A field's object fires its weapon on the frame it dies, so one last system turns up with no living
+owner. It joins the bound field already standing at the same place and palette, the dead owner's,
+and fades with it. Without that it started a new unbound cloud at full strength, about ten seconds
+of smoke after the hazard ended (a Toxin Tractor's contamination: owner gone at frame 3850, the
+second cloud drawn until 4436).
 
 ## What Volumetric draws
 
