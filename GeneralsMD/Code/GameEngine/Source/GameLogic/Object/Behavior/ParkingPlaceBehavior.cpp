@@ -703,6 +703,8 @@ void ParkingPlaceBehavior::onDie( const DamageInfo *damageInfo )
 // the old owner's scramble was aimed at the old owner's enemies
 void ParkingPlaceBehavior::onCapture( Player *oldOwner, Player *newOwner )
 {
+	if( !m_scrambles.empty() )
+		holdHangarDoorsOpen( false );
 	m_scrambles.clear();
 }
 
@@ -710,10 +712,32 @@ void ParkingPlaceBehavior::onCapture( Player *oldOwner, Player *newOwner )
 // one scrambled jet every this many frames, the runways in turn, so each runway sends one every
 // half second and a jet is 15 down its runway, about a drone's length, when the next one starts
 const UnsignedInt SCRAMBLE_INTERVAL_FRAMES = LOGICFRAMES_PER_SECOND / 4;
+// the model's hangars: the first rows of spaces, one hangar to a runway in each row
+const Int HANGAR_ROWS = 2;
+// the hangar doors take two seconds to open; the first jet rolls when they are half way
+const UnsignedInt HANGAR_DOOR_LEAD_FRAMES = LOGICFRAMES_PER_SECOND;
+
+//-------------------------------------------------------------------------------------------------
+/// hold every hangar door open, or let go of those no jet holds a space behind
+void ParkingPlaceBehavior::holdHangarDoorsOpen( Bool hold )
+{
+	ProductionUpdateInterface* pu = getObject()->getProductionUpdateInterface();
+	const Int hangars = HANGAR_ROWS * (Int)m_runways.size();
+	for( Int i = 0; i < hangars; ++i )
+	{
+		if( hold || m_spaces[ i ].m_objectInSpace == INVALID_ID )
+			pu->setHoldDoorOpen( m_spaces[ i ].m_door, hold );
+	}
+}
 
 //-------------------------------------------------------------------------------------------------
 void ParkingPlaceBehavior::scramble( const ThingTemplate *jet, ObjectID target, const Coord3D *pos )
 {
+	if( m_scrambles.empty() )
+	{
+		holdHangarDoorsOpen( true );
+		m_nextScrambleFrame = TheGameLogic->getFrame() + HANGAR_DOOR_LEAD_FRAMES;
+	}
 	ScrambleInfo info;
 	info.m_jet = jet;
 	info.m_target = target;
@@ -722,11 +746,13 @@ void ParkingPlaceBehavior::scramble( const ThingTemplate *jet, ObjectID target, 
 }
 
 //-------------------------------------------------------------------------------------------------
-/** The next scrambled jet, when its turn has come: it appears on its runway's threshold and starts
-	* its takeoff roll at once (JetAIUpdate::friend_takeOffNow), with no hangar, taxi or queue for the
+/** The next scrambled jet, when its turn has come: it comes out of one of its runway's two hangars,
+	* whose doors the swarm holds open, and starts its takeoff roll at once (JetAIUpdate::
+	* friend_takeOffNow), straight out of the door onto the runway, with no taxi or queue for the
 	* runway, so a swarm is in the air within seconds rather than four at a time out of the hangars.
-	* The runways take turns by the count left, and a jet holds one of the spaces, the runway's, until
-	* it is airborne; the field has a space for every jet of a swarm. */
+	* The runways take turns by the count left, and a runway's hangars by the count after that; a jet
+	* holds one of the spaces, the runway's, until it is airborne; the field has a space for every jet
+	* of a swarm. */
 //-------------------------------------------------------------------------------------------------
 void ParkingPlaceBehavior::launchScramble()
 {
@@ -751,9 +777,10 @@ void ParkingPlaceBehavior::launchScramble()
 	Object *jet = TheThingFactory->newObject( next.m_jet, getObject()->getControllingPlayer()->getDefaultTeam() );
 	jet->setProducer( getObject() );
 	space->m_objectInSpace = jet->getID();
-	const RunwayInfo& strip = m_runways[ runway ];
-	jet->setPosition( &strip.m_start );
-	jet->setOrientation( ATan2( strip.m_end.y - strip.m_start.y, strip.m_end.x - strip.m_start.x ) );
+	const Int hangarRow = ( (Int)m_scrambles.size() / (Int)m_runways.size() ) % HANGAR_ROWS;
+	const ParkingPlaceInfo& hangar = m_spaces[ hangarRow * (Int)m_runways.size() + runway ];
+	jet->setPosition( &hangar.m_hangarStart );
+	jet->setOrientation( hangar.m_hangarStartOrient );
 	TheAI->pathfinder()->addObjectToPathfindMap( jet );
 
 	JetAIUpdate *jetAI = jet->getAIUpdateInterface()->getJetAIUpdate();
@@ -767,12 +794,14 @@ void ParkingPlaceBehavior::launchScramble()
 	else
 		jetAI->aiAttackPosition( &next.m_pos, NO_MAX_SHOTS_LIMIT, CMD_FROM_SCRIPT );
 	jetAI->friend_takeOffNow();
-	DEBUG_LOG(( "SCRAMBLE frame %d '%s' %d down runway %d at %d (%.0f,%.0f), %d to go\n", now,
-		next.m_jet->getName().str(), jet->getID(), runway, next.m_target, next.m_pos.x, next.m_pos.y,
+	DEBUG_LOG(( "SCRAMBLE frame %d '%s' %d from hangar %d down runway %d at %d (%.0f,%.0f), %d to go\n", now,
+		next.m_jet->getName().str(), jet->getID(), hangarRow, runway, next.m_target, next.m_pos.x, next.m_pos.y,
 		(Int)m_scrambles.size() - 1 ));
 
 	m_scrambles.pop_front();
 	m_nextScrambleFrame = now + SCRAMBLE_INTERVAL_FRAMES;
+	if( m_scrambles.empty() )
+		holdHangarDoorsOpen( false );
 }
 
 //-------------------------------------------------------------------------------------------------

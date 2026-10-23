@@ -1,11 +1,12 @@
 # Turkiye's Kargu base fired across Twilight Flame into an American base: a War Factory, two power
 # plants and the command centre, eight Crusaders and six Humvees spread around them. The swarm is
-# called at frame 60. The sixteen drones start on the base's two runways in turn, one every quarter
-# second, roll down them, climb away and fly the 1400 to the American base; a SCRAMBLE line says
-# when each one started its roll (the last under four seconds after the call) and a KAMIKAZE line
-# where it began its dive (the last about 14 seconds after). The tallies of TurkiyeKarguDrone count
-# the jets rolling or in the air, those of TurkiyeKarguDroneDive the drones in their dive. Compare
-# the American tallies at frame 50 and at frame 500, just after the last hit and before the American
+# called at frame 60. The hangar doors open, and a second later the sixteen drones roll out of the
+# hangars onto the base's two runways in turn, one every quarter second, climb away to 150 and fly
+# the 1400 to the American base; a SCRAMBLE line says when each one started its roll (the last under
+# five seconds after the call) and a KAMIKAZE line where it began its dive, 150 over its target.
+# The tallies of TurkiyeKarguDrone count the jets rolling or in the air, those of
+# TurkiyeKarguDroneDive the drones in their dive. Compare
+# the American tallies at frame 50 and at frame 700, just after the last hit and before the American
 # dozers repair the buildings, and read the SWARM lines for the targets the drones were sent at.
 # SCRAMBLE and KAMIKAZE count logic frames, 60 a second; the frames of this file are 30 a second.
 #
@@ -36,9 +37,10 @@
 400   tally      0  TurkiyeKarguDroneDive
 500   tally      0  TurkiyeKarguDrone
 500   tally      0  TurkiyeKarguDroneDive
-500   tally      1  AmericaWarFactory
-500   tally      1  AmericaPowerPlant
-500   tally      1  AmericaCommandCenter
-500   tally      1  AmericaTankCrusader
-500   tally      1  AmericaVehicleHumvee
-500   tally      1  *
+700   tally      0  TurkiyeKarguDrone
+700   tally      1  AmericaWarFactory
+700   tally      1  AmericaPowerPlant
+700   tally      1  AmericaCommandCenter
+700   tally      1  AmericaTankCrusader
+700   tally      1  AmericaVehicleHumvee
+700   tally      1  *
