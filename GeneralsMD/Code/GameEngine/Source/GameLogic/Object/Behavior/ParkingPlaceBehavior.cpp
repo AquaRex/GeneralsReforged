@@ -714,6 +714,10 @@ void ParkingPlaceBehavior::onCapture( Player *oldOwner, Player *newOwner )
 const UnsignedInt SCRAMBLE_INTERVAL_FRAMES = LOGICFRAMES_PER_SECOND / 4;
 // the model's hangars: the first rows of spaces, one hangar to a runway in each row
 const Int HANGAR_ROWS = 2;
+// a hangar turned more than 60 degrees off its runway is a side shed with no door (the second
+// hangar of the Chinese field's runway 2): a jet would appear in its open bay and pivot onto the
+// runway, so that runway's jets all come out of its other hangar
+const Real HANGAR_FACING_MIN_COS = 0.5f;
 // the hangar doors take two seconds to open; the first jet rolls when they are half way
 const UnsignedInt HANGAR_DOOR_LEAD_FRAMES = LOGICFRAMES_PER_SECOND;
 
@@ -750,7 +754,8 @@ void ParkingPlaceBehavior::scramble( const ThingTemplate *jet, ObjectID target, 
 	* whose doors the swarm holds open, and starts its takeoff roll at once (JetAIUpdate::
 	* friend_takeOffNow), straight out of the door onto the runway, with no taxi or queue for the
 	* runway, so a swarm is in the air within seconds rather than four at a time out of the hangars.
-	* The runways take turns by the count left, and a runway's hangars by the count after that; a jet
+	* The runways take turns by the count left, and a runway's hangars by the count after that, a side
+	* shed that does not face down its runway left out; a jet
 	* holds one of the spaces, the runway's, until it is airborne; the field has a space for every jet
 	* of a swarm. */
 //-------------------------------------------------------------------------------------------------
@@ -777,7 +782,13 @@ void ParkingPlaceBehavior::launchScramble()
 	Object *jet = TheThingFactory->newObject( next.m_jet, getObject()->getControllingPlayer()->getDefaultTeam() );
 	jet->setProducer( getObject() );
 	space->m_objectInSpace = jet->getID();
-	const Int hangarRow = ( (Int)m_scrambles.size() / (Int)m_runways.size() ) % HANGAR_ROWS;
+	Int hangarRow = ( (Int)m_scrambles.size() / (Int)m_runways.size() ) % HANGAR_ROWS;
+	const RunwayInfo& strip = m_runways[ runway ];
+	Coord3D along;
+	along.set( strip.m_end.x - strip.m_start.x, strip.m_end.y - strip.m_start.y, 0.0f );
+	const Real hangarOrient = m_spaces[ hangarRow * (Int)m_runways.size() + runway ].m_hangarStartOrient;
+	if( Cos( hangarOrient ) * along.x + Sin( hangarOrient ) * along.y < HANGAR_FACING_MIN_COS * along.length() )
+		hangarRow = ( hangarRow + 1 ) % HANGAR_ROWS;
 	const ParkingPlaceInfo& hangar = m_spaces[ hangarRow * (Int)m_runways.size() + runway ];
 	jet->setPosition( &hangar.m_hangarStart );
 	jet->setOrientation( hangar.m_hangarStartOrient );
