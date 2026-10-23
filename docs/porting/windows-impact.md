@@ -539,9 +539,17 @@ behind the wrapper under Direct3D 11.
 
 The two Modern pixel programs need shader model 5 (FXC refuses the dynamically indexed write that
 `waterRefractionHit`'s neighbour mask used to make, and that line is now a multiply both compilers
-take). Each takes about 34 s to compile with d3dcompiler_47 at the backend's default flags, so the
-first Modern frame without a cache stalls for over a minute and `test_dx11backend` grew to 89 s.
-They are not in `dx11shaders.shipped`; recording them is open.
+take). At d3dcompiler_47's default optimisation each took 34 s (trapezoid 33.6, river 34.2), and
+`/O0` is no faster: the cost is the optimiser working through about 11 thousand instructions, most
+of them inlined copies of `oceanHash` (217) and `oceanNoise` (53). No loop attribute, table or
+precision flag moves it. They now compile with `D3DCOMPILE_SKIP_OPTIMIZATION`
+(`DX11_MODERN_WATER_COMPILE_FLAGS`), 6.0 and 5.5 s, and the flags join the cache key only when set,
+so no other program's key changed. `test_dx11backend` went from 89 s to 20 s. The driver optimises
+the bytecode again: over six interleaved warm runs of the shore view below the frame was 0.8 ms
+slower on average, inside the ±3 ms the same exe moved between runs, and the frame-600 picture
+against the optimised build's has 23 pixels past a difference of 24, against 162 between two runs
+of the optimised one. The water vertex program (0.6 s) and the FFT passes (32 ms at most) keep the
+default. The Modern programs are not in `dx11shaders.shipped`; recording them is open.
 
 Measured on 2026-10-23, Release, 1280x720 windowed, `-noFPSLimit -msaa 0`, the same Bombardment
 Beach skirmish: with the shore in view the frame is 4.44 ms mean (p99 10.25) on Classic and 17.63

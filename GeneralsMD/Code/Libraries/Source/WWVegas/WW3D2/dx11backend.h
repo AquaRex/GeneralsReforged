@@ -69,6 +69,13 @@ const unsigned DX11_BACKEND_TEXTURE_STAGES = 4;
 // itself and has to reach one past it.
 const unsigned DX11_BACKEND_STAGE_STATES = 33;
 
+// D3DCOMPILE_SKIP_OPTIMIZATION, which the Modern water's pixel programs compile with.  The
+// optimiser spends 34 s on each of them (about 11 thousand instructions, mostly inlined copies of
+// the noise and hash helpers) and 4.5 s without it.  The driver optimises the bytecode again
+// either way: the frame time stayed inside run-to-run noise and the picture did not change
+// (2026-10-23, docs/porting/windows-impact.md).
+const unsigned DX11_MODERN_WATER_COMPILE_FLAGS = 1u << 2;
+
 class DX11BackendClass
 {
 public:
@@ -377,9 +384,10 @@ public:
 	const char * First_Compiler_Error() const { return CompilerError.c_str(); }
 
 	// A program for a pass of someone else's (the hazard clouds), compiled once and kept in the
-	// shader cache with the generated ones, so a second run compiles nothing.
+	// shader cache with the generated ones, so a second run compiles nothing.  The flags are
+	// D3DCompile's first flag word; zero is its default optimisation.
 	bool Compile_Program(const std::string & source, const char * name, const char * profile,
-		std::vector<unsigned char> & bytecode);
+		std::vector<unsigned char> & bytecode, unsigned flags = 0);
 
 private:
 	DX11BackendClass(const DX11BackendClass &);

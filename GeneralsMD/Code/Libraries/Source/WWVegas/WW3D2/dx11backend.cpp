@@ -97,13 +97,15 @@ static unsigned read_program_file(const char * path,
 	return count;
 }
 
-// FNV-1a over the profile and the source, which between them decide the bytecode.  The generated
-// text is the key rather than the pipeline's state key, so a build that changes what a state
-// generates compiles again instead of drawing with the previous build's program.
-static unsigned long long program_hash(const char * profile, const std::string & source)
+// FNV-1a over the profile, the source and the compiler flags, which between them decide the
+// bytecode.  The generated text is the key rather than the pipeline's state key, so a build that
+// changes what a state generates compiles again instead of drawing with the previous build's
+// program.  Default flags add nothing, so every key from before the flags existed still matches.
+static unsigned long long program_hash(const char * profile, const std::string & source, unsigned flags)
 {
 	const unsigned long long FNV_OFFSET = 14695981039346656037ULL;
 	const unsigned long long FNV_PRIME = 1099511628211ULL;
+	const unsigned BITS_PER_BYTE = 8;
 
 	unsigned long long hash = FNV_OFFSET;
 	for (const char * cursor = profile; *cursor != '\0'; ++cursor) {
@@ -111,6 +113,9 @@ static unsigned long long program_hash(const char * profile, const std::string &
 	}
 	for (size_t index = 0; index < source.size(); ++index) {
 		hash = (hash ^ static_cast<unsigned char>(source[index])) * FNV_PRIME;
+	}
+	for (unsigned remaining = flags; remaining != 0; remaining >>= BITS_PER_BYTE) {
+		hash = (hash ^ static_cast<unsigned char>(remaining)) * FNV_PRIME;
 	}
 	return hash;
 }
@@ -1933,9 +1938,9 @@ void DX11BackendClass::Save_Shader_Cache() const
 }
 
 bool DX11BackendClass::Compile_Program(const std::string & source, const char * name,
-	const char * profile, std::vector<unsigned char> & bytecode)
+	const char * profile, std::vector<unsigned char> & bytecode, unsigned flags)
 {
-	const unsigned long long hash = program_hash(profile, source);
+	const unsigned long long hash = program_hash(profile, source, flags);
 	std::map<unsigned long long, std::vector<unsigned char> >::const_iterator known
 		= CompiledPrograms.find(hash);
 	if (known != CompiledPrograms.end()) {
@@ -1950,7 +1955,7 @@ bool DX11BackendClass::Compile_Program(const std::string & source, const char * 
 
 	ID3DBlob * code = NULL;
 	ID3DBlob * errors = NULL;
-	if (FAILED(compiler(source.c_str(), source.size(), name, NULL, NULL, ENTRY_POINT, profile, 0, 0,
+	if (FAILED(compiler(source.c_str(), source.size(), name, NULL, NULL, ENTRY_POINT, profile, flags, 0,
 			&code, &errors))) {
 		Record_Compiler_Error(name, errors);
 		return false;
@@ -2440,10 +2445,12 @@ bool DX11BackendClass::Resolve(Pipeline & pipeline)
 	std::vector<unsigned char> vertex_code;
 	std::vector<unsigned char> pixel_code;
 	// The Modern water writes a dynamically indexed array, which shader model 4 refuses; every other
-	// program keeps the profile its cached and shipped bytecode was compiled at.
-	const char * const pixel_profile = EngineShader_Is_Modern_Water(PixelProgram) ? "ps_5_0" : PIXEL_PROFILE;
+	// program keeps the profile and flags its cached and shipped bytecode was compiled with.
+	const bool modern_water = EngineShader_Is_Modern_Water(PixelProgram);
+	const char * const pixel_profile = modern_water ? "ps_5_0" : PIXEL_PROFILE;
+	const unsigned pixel_flags = modern_water ? DX11_MODERN_WATER_COMPILE_FLAGS : 0;
 	if (!Compile_Program(vertex_hlsl, "ffvertex", VERTEX_PROFILE, vertex_code)
-		|| !Compile_Program(pixel_hlsl, "ffshader", pixel_profile, pixel_code)) {
+		|| !Compile_Program(pixel_hlsl, "ffshader", pixel_profile, pixel_code, pixel_flags)) {
 		Refuse(key, REFUSED_NO_PROGRAM);
 		return false;
 	}

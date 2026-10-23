@@ -1226,28 +1226,29 @@ TEST(dx11backend_the_modern_water_programs_compile_at_shader_model_5)
 	PixelPipelineDescription pipeline;
 	memset(&pipeline, 0, sizeof(pipeline));
 	pipeline.FogEnabled = true;
-	struct Program { std::string source; const char * profile; const char * name; };
+	struct Program { std::string source; const char * profile; const char * name; unsigned flags; };
 	std::vector<Program> programs;
 	for (const EngineShaderProgram water : { ENGINE_SHADER_WATER_TRAPEZOID, ENGINE_SHADER_WATER_RIVER }) {
-		Program program = { std::string(), "ps_5_0", EngineShader_Name(water) };
+		Program program = { std::string(), "ps_5_0", EngineShader_Name(water), DX11_MODERN_WATER_COMPILE_FLAGS };
 		CHECK(EngineShader_Pixel_Program(water, pipeline, program.source));
 		programs.push_back(program);
 	}
-	Program ocean = { std::string(), "vs_5_0", "water vertex" };
+	Program ocean = { std::string(), "vs_5_0", "water vertex", 0 };
 	CHECK(DX11Water_Ocean_Vertex_Program(water_vertex_description(), ocean.source));
 	programs.push_back(ocean);
 	for (unsigned pass = 0; pass < DX11_WATER_OCEAN_PASSES; ++pass) {
-		const Program fft = { DX11Water_Ocean_Pass_Program(pass), "ps_5_0", "ocean pass" };
+		const Program fft = { DX11Water_Ocean_Pass_Program(pass), "ps_5_0", "ocean pass", 0 };
 		programs.push_back(fft);
 	}
-	const Program fullscreen = { DX11Water_Ocean_Pass_Vertex_Program(), "vs_5_0", "ocean vertex" };
+	const Program fullscreen = { DX11Water_Ocean_Pass_Vertex_Program(), "vs_5_0", "ocean vertex", 0 };
 	programs.push_back(fullscreen);
 
 	for (const Program & program : programs) {
 		std::vector<unsigned char> code;
 		const bool vertex = program.profile[0] == 'v';
 		const unsigned started = GetTickCount();
-		const bool compiled = backend.Compile_Program(program.source, program.name, program.profile, code);
+		const bool compiled = backend.Compile_Program(program.source, program.name, program.profile, code,
+			program.flags);
 		printf("  %s: %s in %u ms\n", program.name, compiled ? "compiled" : "refused",
 			GetTickCount() - started);
 		if (!compiled) {

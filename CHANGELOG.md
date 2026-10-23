@@ -16,7 +16,7 @@ found and fixed â€” EA's own, not port damage.**
 ## Modern water
 
 - Options has a Water Style box. Modern rolls the sea in waves whose crests catch the sun all the way into the shallows, and at the shore they turn along the bank and pile up foam. Boats push foam off their hulls. Classic stays the default, and either way a map keeps the water colour and depth its maker gave it.
-- Windows has it now on the default renderer, and the box switches it in the middle of a match. The Direct3D 9 renderer and macOS keep the Classic water and hide the box. Linux still draws one thing Windows does not, a second band of foam laid over the surf where waves break on a beach. The first Modern frame on a fresh install stops for about a minute while its two water shaders compile; every match after that loads them from the cache.
+- Windows has it now on the default renderer, and the box switches it in the middle of a match. The Direct3D 9 renderer and macOS keep the Classic water and hide the box. Linux still draws one thing Windows does not, a second band of foam laid over the surf where waves break on a beach. The first Modern frame on a fresh install stops for about ten seconds while its two water shaders compile; every match after that loads them from the cache.
 
 ## Volumetric hazard clouds
 
