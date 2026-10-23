@@ -76,6 +76,7 @@ from collections import deque
 
 import numpy as np
 from PIL import Image, ImageDraw
+from scipy import ndimage
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -844,7 +845,11 @@ def stamp_towns(h, skel, f, plan, src, seed):
 
 def place_tech(h, skel, f, plan, inv, seed):
     """The exemplar's tech buildings: one that stood on a mesa on ours, the rest as far from the
-    middle as they were, on the nearest flat ground."""
+    middle as they were, on the nearest flat ground, out of the river and the skeleton's lakes and
+    off the bridges' ends, whose ramps the levelling would flatten."""
+    barred = np.frombuffer(bytes(skel.m.water_grid()), np.uint8).reshape(h.shape).astype(bool)
+    for _, a, z in plan.bridges:
+        barred |= box(line_cells(a, z, h.shape), BRIDGE_CLEAR) > 0
     for number, tech in enumerate(inv["tech"]):
         if tech["on_mesa"] is not None and plan.mesa:
             plan.tech.append((tech["template"], plan.mesa))
@@ -855,8 +860,10 @@ def place_tech(h, skel, f, plan, inv, seed):
             angle = 2.0 * math.pi * (q + turn) / 64.0
             y = int(f.cy + radius * math.sin(angle))
             x = int(f.cx + radius * math.cos(angle))
+            if min(y, x) < TECH_FLAT:          # a corner's tech building: the circle leaves the grid
+                continue
             near = (slice(y - TECH_FLAT, y + TECH_FLAT + 1), slice(x - TECH_FLAT, x + TECH_FLAT + 1))
-            if (f.play[near].all() and not (plan.keepout[near].any() or plan.wet[near].any())
+            if (f.play[near].all() and not (plan.keepout[near].any() or plan.wet[near].any() or barred[near].any())
                     and f.guard[near].max() < 0.01 and np.ptp(h[near]) <= 12):
                 plan.tech.append((tech["template"], (y, x)))
                 plan.keepout[near] = True
@@ -1157,7 +1164,9 @@ def synthesise(skeleton_path, src, out_dir, seed):
     keep = np.maximum(keep, np.clip(box(gentle, 2) * 2.0 - 0.5, 0, 1))
     keep = np.maximum(keep, box(plan.wet, 2) > 0)
     paths = box(waypoint_paths(raw, (th, tw), m.border), PATH_CELLS) > 0
-    trees_allowed = play & (pads < 0.9) & (keep < 0.5) & ~paths & ~plan.keepout & ~plan.wet
+    # the skeleton's own lakes, which plan.wet does not hold: a tree there stood in the water
+    lakes = box(np.frombuffer(bytes(m.water_grid()), np.uint8).reshape(th, tw), 2) > 0
+    trees_allowed = play & (pads < 0.9) & (keep < 0.5) & ~paths & ~plan.keepout & ~plan.wet & ~lakes
     # as many trees as the exemplar's density gives the open ground, all of them where trees may stand
     trees_wanted = src.tree_density * (play & (pads < 0.9) & ~plan.wet).sum()
 
@@ -1248,12 +1257,33 @@ def synthesise(skeleton_path, src, out_dir, seed):
         level(h, y, x, TECH_FLAT)
         added.append((template, x + 0.5, y + 0.5, 0.0))
 
+    # the skeleton's AI paths, and a pile left where the skeleton put it: one the river, a new
+    # cliff or a pocket off the ground the starts share now holds goes to the nearest cell they do
+    # share, or a wave walks at a bank or a wall it cannot reach and stands there wedged. Clear of
+    # the water by a few cells, as the water area's polygon is drawn round the bed loosely, and
+    # after the levelling, which can ring a pad with cliff.
+    level_wet = plan.wet & (h < max([surface for _, surface in plan.water] + [0.0]))
+    ground = reach(walkable(span_cliff(h)) & ~level_wet | decks, skel.starts[0])
+    ground &= ~(box(level_wet, 3) > 0) & ~decks
+    _, (near_y, near_x) = ndimage.distance_transform_edt(~ground, return_indices=True)
+    snapped = 0
+    for index, (cid, version, body) in enumerate(kept):
+        x, y, _, template = object_head(body)
+        cy, cx = int(y / MAP_XY_FACTOR) + m.border, int(x / MAP_XY_FACTOR) + m.border
+        if template not in ("*Waypoints/Waypoint", "SupplyPileSmall") or ground[cy, cx]:
+            continue
+        ty, tx = near_y[cy, cx], near_x[cy, cx]
+        body = struct.pack("<2f", (tx - m.border + 0.5) * MAP_XY_FACTOR,
+                           (ty - m.border + 0.5) * MAP_XY_FACTOR) + body[8:]
+        kept[index] = (cid, version, body)
+        snapped += 1
+
     # the exemplar's scenery, wherever its cell landed off the pads, the kept ways down, the
     # features' edges and the water; a tree only where the quilting counted trees
     hit = np.zeros(src.h.shape, bool)
     for cell in src.scenery:
         hit[cell] = True
-    landed = hit[sy_map, sx_map] & play & (pads < 0.9) & (keep < 0.95) & ~plan.keepout & ~plan.wet & ~stamped
+    landed = hit[sy_map, sx_map] & play & (pads < 0.9) & (keep < 0.95) & ~plan.keepout & ~plan.wet & ~lakes & ~stamped
     taken = [(int(p[0]), int(p[1])) for p in sites] + [p for _, p in plan.tech]
     for y, x in zip(*np.nonzero(landed)):
         if any(abs(y - py) < 6 and abs(x - px) < 6 for py, px in taken):
@@ -1364,11 +1394,11 @@ def synthesise(skeleton_path, src, out_dir, seed):
                  for points in (skel.starts, [p for _, p in plan.tech])]
     trees = sum(1 for entry in added if entry[0].startswith("Tree"))
     print("%s: %d patches, quilt %.1f s, total %.1f s, %d scenery (%d trees, want %d), piles %d/%d, "
-          "tech %d, bridges %d, towns %d (%d objects), water %d, cut off: starts %d sites %d tech %d, "
-          "without the bridges: starts %d tech %d" % (
+          "tech %d, bridges %d, towns %d (%d objects), water %d, waypoints moved %d, cut off: starts %d "
+          "sites %d tech %d, without the bridges: starts %d tech %d" % (
               name, patches, quilted - began, finished - began, len(added) - len(plan.tech), trees,
               round(trees_wanted), min(len(piles), len(sites)), len(piles),
-              len(plan.tech), len(plan.bridges), len(plan.stamps), copied, len(plan.water),
+              len(plan.tech), len(plan.bridges), len(plan.stamps), copied, len(plan.water), snapped,
               cut_off(skel.starts), cut_off(docks), cut_off([p for _, p in plan.tech]), *unbridged))
     for note in plan.notes:
         print("  not built: " + note)
