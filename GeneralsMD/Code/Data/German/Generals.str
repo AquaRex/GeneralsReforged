@@ -14981,6 +14981,30 @@ TOOLTIP:DebrisTrails
 "Explosionen schleudern Splitter mit Rauchfahnen, und Wracks werfen brennende Schrapnelle ab. Aus behält die Explosionen des Originals. Gilt, sobald du Annehmen drückst."
 END
 
+GUI:MapLight
+"Warmes Licht und Dunst"
+END
+
+TOOLTIP:MapLight
+"Eine tief stehende Nachmittagssonne taucht die Karte in wärmeres Licht und wirft längere Schatten, und über tiefem Gelände liegt ein leichter Dunst, den Flugzeuge beim Durchfliegen teilen. Nur mit Direct3D 11. Gilt ab der nächsten Karte."
+END
+
+GUI:TeamGlow
+"Leuchtende Teamfarbe"
+END
+
+TOOLTIP:TeamGlow
+"Die hellen Flächen in der Farbe jeder Seite auf Einheiten und Gebäuden leuchten in dieser Farbe. Nur mit Direct3D 11. Gilt ab der nächsten Karte."
+END
+
+GUI:WaterFoam
+"Wasserschaum"
+END
+
+TOOLTIP:WaterFoam
+"Flüsse und Seen tragen Schaumflocken und einen Schaumstreifen am Ufer, und die Schatten der Sonne fallen aufs Wasser. Die Wellen des Meeres bleiben unverändert. Nur mit Direct3D 11 und klassischem Wasser, und aus bei Klassischer Grafik. Gilt, sobald du Annehmen drückst."
+END
+
 GUI:FormationDrag
 "Formation aufziehen"
 END
