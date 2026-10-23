@@ -1515,8 +1515,9 @@ if(ZH_PLATFORM_POSIX)
   # has its own WebBrowser off Windows (B5).
   list(FILTER W3DDEVICE_SOURCES EXCLUDE REGEX "/W3DDevice/GameClient/W3DWebBrowser\\.cpp$")
   # The neutral cloud core is in W3DDevice on every platform. SDL supplies the
-  # POSIX factory below; the no-backend factory is compiled only without it.
-  list(FILTER W3DDEVICE_SOURCES EXCLUDE REGEX "/HazardCloudUnsupported\\.cpp$")
+  # POSIX factory below; the no-backend factory is compiled only without it, and
+  # the Direct3D 11 backend only on Windows.
+  list(FILTER W3DDEVICE_SOURCES EXCLUDE REGEX "/(HazardCloudUnsupported|DX11HazardCloud)\\.cpp$")
 
   # ---- the movies (V1): Windows' Bink player and its Bink API on FFmpeg, the same two files -------------
   # FFmpeg is built from the tarball Tools/vendor.sh keeps, into the build tree, with the Bink demuxer
@@ -1585,7 +1586,6 @@ if(ZH_PLATFORM_POSIX)
   # the SDL GPU cloud backend and its runtime capability query.
   target_sources(w3ddevice PRIVATE
     ${ZH_POSIX_RENDER_DIR}/SdlHazardCloud.cpp
-    ${ZH_POSIX_RENDER_DIR}/SdlHazardCloudShader.cpp
     ${ZH_POSIX_RENDER_DIR}/SdlHazardCloudEmbers.cpp)
   set_target_properties(w3ddevice PROPERTIES CXX_STANDARD 17)
   target_include_directories(w3ddevice PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Include
@@ -1690,6 +1690,9 @@ list(FILTER GAMEENGINEDEVICE_SOURCES EXCLUDE REGEX "/Source/PosixDevice/")
 # SdlDevice is the same for SDL3 (C2, C3), built below as sdldevice, never on Windows either; the glob
 # above took it in, and W2's first MSVC build found no SDL3 to compile it against.
 list(FILTER GAMEENGINEDEVICE_SOURCES EXCLUDE REGEX "/Source/SdlDevice/")
+# The hazard clouds' backend here is Direct3D 11's (DX11HazardCloud.cpp); the no-backend entry points
+# are for the tests that link no device.
+list(FILTER GAMEENGINEDEVICE_SOURCES EXCLUDE REGEX "/HazardCloudUnsupported\\.cpp$")
 # Sound and video are the game's own.  Miles and Bink were binary-only, and the DLLs the retail
 # game ships are 32-bit, so there is nothing for a 64-bit exe to bind to: what it links instead is
 # those two APIs written over XAudio2 and FFmpeg.  FFmpeg decodes binkvideo and binkaudio natively,
@@ -2180,6 +2183,8 @@ target_include_directories(test_hazard_cloud_policy PRIVATE ${CMAKE_CURRENT_SOUR
 # device, on every platform (including builds that use the SDL backend in game).
 target_sources(test_hazard_cloud_policy PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/W3DDevice/GameClient/HazardCloud.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudCore.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudShader.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudFlow.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudUnsupported.cpp)
 
@@ -2262,6 +2267,11 @@ add_lib_test(test_dx11pipeline dx11device dx11state dx11layout ffshader ffvertex
 add_lib_test(test_dx11resource dx11resource dx11device)
 add_lib_test(test_engineshader engineshader)
 add_lib_test(test_dx11backend dx11backend)
+# The hazard clouds' text, which the backend compiles for DX11HazardCloud.cpp.
+target_sources(test_dx11backend PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudShader.cpp)
+target_include_directories(test_dx11backend PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/Include)
+set_target_properties(test_dx11backend PROPERTIES CXX_STANDARD 17)
 add_lib_test(test_dx11post dx11post dx11device user32)
 add_lib_test(test_dx11twin dx11twin dx11device)
 add_lib_test(test_dx11texture dx11texture dx11device user32)

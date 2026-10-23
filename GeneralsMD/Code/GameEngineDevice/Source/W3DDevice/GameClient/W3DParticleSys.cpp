@@ -41,6 +41,7 @@
 #include "W3DDevice/GameClient/W3DDynamicLight.h"
 #include "W3DDevice/GameClient/W3DWater.h"
 #include "WW3D2/camera.h"
+#include "WW3D2/ww3d.h"
 #include "W3DDevice/GameClient/W3DSmoothMotion.h"
 #include "WW3D2/dx8wrapper.h"
 #include "WW3D2/dx11runtime.h"
@@ -715,9 +716,13 @@ static const Real	FIELD_GAIN						= 0.7f;		///< of the template's brightest colo
 static const Int	FIELD_FADE_IN					= LOGICFRAMES_PER_SECOND / 2;			///< logic frames
 static const Int	FIELD_FADE_OUT				= 3 * LOGICFRAMES_PER_SECOND;			///< logic frames before the field object dies
 static const Int	FIELD_FADE_GONE				= FIELD_FADE_OUT;	///< logic frames, a field fogged over or whose object went early
-// Stable until device resources are released. FieldKey ordering must never query
-// a live device: changing its answer while keys exist would invalidate the map.
+// Whether the fields are tracked the way the volumetric clouds need them: a
+// backend that draws them, and the Volumetric style chosen.  Classic keeps the
+// retail keys, owner choice, grace and initial delay on every platform.  Changed
+// only at the sync point (fieldCloudsSupported), never in the render, because
+// FieldKey ordering reads it and changing it while keys exist invalidates the map.
 static bool s_fieldCloudsSupported = false;
+static bool s_fieldCloudCapability = false;		///< the device's answer, asked once per device
 static bool s_fieldCloudCapabilityKnown = false;
 static bool fieldCloudsSupported();
 
@@ -787,15 +792,18 @@ static unsigned s_fieldCollectionPass = 0;
 static bool fieldCloudsSupported()
 {
 	if (!s_fieldCloudCapabilityKnown) {
-		const bool supported = HazardCloud::Supported();
-		// In particular, a previously unavailable device may now have a backend.
-		// Destroy keys before changing their comparator's mode.
-		if (supported != s_fieldCloudsSupported) {
-			s_fieldStates.clear();
-			s_fieldSystemOwners.clear();
-		}
-		s_fieldCloudsSupported = supported;
+		s_fieldCloudCapability = HazardCloud::Supported();
 		s_fieldCloudCapabilityKnown = true;
+	}
+	// The Classic graphics setting is the game's own picture, and its clouds.
+	const bool volumetric = s_fieldCloudCapability && TheGlobalData
+		&& TheGlobalData->m_cloudStyle == 1 && !TheGlobalData->m_classicGraphics;
+	// A new device, or the style switched: destroy keys before changing their
+	// comparator's mode.
+	if (volumetric != s_fieldCloudsSupported) {
+		s_fieldStates.clear();
+		s_fieldSystemOwners.clear();
+		s_fieldCloudsSupported = volumetric;
 	}
 	return s_fieldCloudsSupported;
 }
@@ -951,7 +959,7 @@ bool isCloudMainPass()
 
 bool modernCloudsEnabled()
 {
-	return fieldCloudsSupported() && TheGlobalData && TheGlobalData->m_cloudStyle == 1 && isCloudMainPass();
+	return s_fieldCloudsSupported && isCloudMainPass();
 }
 
 void releaseCloudLayers()
@@ -964,7 +972,7 @@ void releaseCloudLayers()
 
 void beginCloudPass(unsigned now)
 {
-	if (!fieldCloudsSupported() || !TheGlobalData || TheGlobalData->m_cloudStyle != 1) {
+	if (!s_fieldCloudsSupported) {
 		releaseCloudLayers();
 		return;
 	}
@@ -1025,7 +1033,34 @@ bool updateCloudTerrain(CloudLayer &slot, const HazardCloud::FieldState &field, 
 	return true;
 }
 
-bool drawModernCloud(const FieldKey &key, FieldState &state, float fade, float seconds, int now)
+/** The camera the scene is drawn from, in the device's layout, from the camera itself: the
+	* device's transforms can be whatever the last draw left until the next state flush. */
+HazardCloud::Camera cloudCamera(CameraClass &camera)
+{
+	HazardCloud::Camera result;
+	Matrix4x4 projection;
+	camera.Get_D3D_Projection_Matrix(&projection);
+	Matrix3D view;
+	camera.Get_View_Matrix(&view);
+	const Matrix4x4 d3dProjection = projection.Transpose();
+	const Matrix4x4 d3dView = Matrix4x4(view).Transpose();
+	memcpy(result.view, &d3dView, sizeof(result.view));
+	memcpy(result.projection, &d3dProjection, sizeof(result.projection));
+	// as CameraClass::Apply sets the device's viewport
+	int width, height, bits;
+	bool windowed;
+	WW3D::Get_Render_Target_Resolution(width, height, bits, windowed);
+	const ViewportClass &viewport = camera.Get_Viewport();
+	result.x = (unsigned)(viewport.Min.X * (float)width);
+	result.y = (unsigned)(viewport.Min.Y * (float)height);
+	result.width = (unsigned)((viewport.Max.X - viewport.Min.X) * (float)width);
+	result.height = (unsigned)((viewport.Max.Y - viewport.Min.Y) * (float)height);
+	camera.Get_Depth_Range(&result.minZ, &result.maxZ);
+	return result;
+}
+
+bool drawModernCloud(const FieldKey &key, FieldState &state, float fade, float seconds, int now,
+	const HazardCloud::Camera &camera)
 {
 	if (!modernCloudsEnabled() || key.palette < 0) return false;
 	if (s_cloudDraws >= MaxCloudLayers) return false;
@@ -1123,9 +1158,10 @@ bool drawModernCloud(const FieldKey &key, FieldState &state, float fade, float s
 			if (count < bodies.size()) bodies[count++] = body;
 	}
 	slot->renderer->setBodies(bodies.data(), count);
+	slot->renderer->setHeatEnabled(TheGlobalData->m_useHeatEffects != FALSE);
 	slot->renderer->update(seconds);
 	slot->used = s_cloudPass;
-	if (!slot->renderer->render()) return false;
+	if (!slot->renderer->render(camera)) return false;
 	++s_cloudDraws;
 	return true;
 }
@@ -1280,14 +1316,13 @@ static void updateGroundFields( const std::vector<ParticleSystem *> &systems )
 			if (obj) if (auto *life = static_cast<LifetimeUpdate *>(obj->findUpdateModule(key_cloudLife)))
 				state.cloudDieFrame = Int(life->getDieFrame());
 		}
-		if (TheGlobalData && TheGlobalData->m_cloudStyle == 1)
-			updateCloudBodies((unsigned)now);
+		updateCloudBodies((unsigned)now);
 	}
 }
 
 /** Lays the fields updateGroundFields found on the terrain into the field buffers; drawGroundFields
 	* draws them.  Returns the puddles laid. */
-static Int collectGroundFields( const AABoxClass &view )
+static Int collectGroundFields( const AABoxClass &view, CameraClass &sceneCamera )
 {
 	const Int now = (Int)TheGameLogic->getFrame();
 	// between the last two logic ticks, as the models are, so a pulse does not step at the logic rate
@@ -1295,6 +1330,7 @@ static Int collectGroundFields( const AABoxClass &view )
 	s_fieldPuddles.clear();
 	s_fieldDraws.clear();
 	beginCloudPass(now);
+	const HazardCloud::Camera camera = cloudCamera( sceneCamera );
 
 	Int laid = 0;
 	for (std::map<FieldKey, FieldState>::iterator st = s_fieldStates.begin(); st != s_fieldStates.end(); ++st)
@@ -1319,7 +1355,7 @@ static Int collectGroundFields( const AABoxClass &view )
 			&& WWMath::Fabs( state.centre.y - view.Center.Y ) <= view.Extent.Y + reach
 			&& (groundVolume || WWMath::Fabs( state.centre.z - view.Center.Z ) <= view.Extent.Z + reach);
 		if (visible) {
-			if (drawModernCloud(key, state, fade, seconds, now)) {
+			if (drawModernCloud(key, state, fade, seconds, now, camera)) {
 				// Preserve the client's existing area-effect particle ceiling even
 				// though the replacement does not build the old puddle geometry.
 				const Real spread = state.radius / size;
@@ -1660,7 +1696,9 @@ void W3DParticleSystemManager::reset()
 
 void W3DParticleSystemManager::invalidateGroundFields(bool fadeIn)
 {
-	releaseCloudResources();
+	// The layers' fields and wakes belong to the game that ended; the programs the
+	// layers share stay, so the next map's first hazard compiles nothing.
+	releaseCloudLayers();
 	// Ground draw buffers are rebuilt by the next collect/draw; their texture
 	// references are already released at the end of each draw. Only this map
 	// persists the footprint after an emitter is removed or changes appearance.
@@ -1672,6 +1710,7 @@ void W3DParticleSystemManager::invalidateGroundFields(bool fadeIn)
 void W3DParticleSystemManager::releaseCloudResources()
 {
 	releaseCloudLayers();
+	HazardCloud::ReleaseDevice();
 	// Query the replacement device at the next sync point. The helper clears
 	// keys before changing their ordering if support changed; unchanged support
 	// retains field ages/owner bindings across a resize or device reset.
@@ -1990,7 +2029,7 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 	s_fieldIndex.clear();
 	s_fieldChunks.clear();
 	{
-		const Int puddles = collectGroundFields( bbox );
+		const Int puddles = collectGroundFields( bbox, rinfo.Camera );
 		// counted as field particles on purpose: past MaxFieldParticleCount the field systems keep
 		// one particle each, and that one is all the steady pool needs from them
 		m_fieldParticleCount += puddles;

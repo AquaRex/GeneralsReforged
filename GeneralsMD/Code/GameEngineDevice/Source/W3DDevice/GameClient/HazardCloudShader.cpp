@@ -1,19 +1,22 @@
-// Shared bounded world-space density integrated along each camera ray.
+// Shared bounded world-space density integrated along each camera ray, and the
+// nuclear embers drawn over it. One text for every backend.
 // Distributed under the repository's GPL-3.0 terms; see LICENSE.md.
-#include "SdlHazardCloudShader.h"
+#include "Platform/HazardCloudCore.h"
 
-std::string SdlHazardCloudVertexShader()
+namespace HazardCloud {
+namespace {
+
+// ", spaceN" out of every register(): SDL GPU's resource sets, which FXC refuses.
+std::string withSpaces(std::string source, bool registerSpaces)
 {
-    return R"HLSL(
-float4 main(uint vertex : SV_VertexID) : SV_Position
-{
-    float2 uv = float2((vertex << 1) & 2, vertex & 2);
-    return float4(uv * float2(2, -2) + float2(-1, 1), 0, 1);
-}
-)HLSL";
+    if (registerSpaces) return source;
+    for (std::size_t at = source.find(", space"); at != std::string::npos; at = source.find(", space", at))
+        source.erase(at, 8);
+    return source;
 }
 
-static std::string cloudShader(int pass)
+// The text is cut into several literals: MSVC refuses one longer than 16 KB (C2026).
+std::string cloudShader(int pass)
 {
     return std::string(pass == 1 ? "#define CLOUD_COMPOSITE 1\n" : "#define CLOUD_COMPOSITE 0\n")
         + "#define CLOUD_HEAT_PASS " + std::to_string(pass == 4 ? 1 : 0) + "\n"
@@ -197,6 +200,7 @@ float volumeBillows(float2 p, float h, float erosion)
     return largest * 0.55 + total * 0.45;
 }
 
+)HLSL" R"HLSL(
 // The hazard radius controls readable coverage. The separate soft fringe matches
 // the original renderer's textured puddles, which extend beyond their centres.
 float volumeDensity(float3 world, float4 field, float4 shape, float4 source, float fringe, float identity)
@@ -342,6 +346,7 @@ void volumeSample(float3 world, float4 field, float4 shape, float4 source, float
     light += coefficients.rgb;
 }
 
+)HLSL" R"HLSL(
 #if CLOUD_CACHE_PASS
 float4 volumeBuildCache(float2 pixel)
 {
@@ -502,6 +507,7 @@ float2 volumeFullPixel(float2 lowPixel)
     return min(floor(lowPixel) * 2.0 + 1.5, round(1.0 / Scene.xy) - 0.5);
 }
 
+)HLSL" R"HLSL(
 #if CLOUD_COMPOSITE || CLOUD_HEAT_PASS
 float volumeDepthSlope(float2 pixel, float depth, float2 axis, float maximumStep)
 {
@@ -631,6 +637,7 @@ float4 volumeHeatColour(float2 pixel, float depth, float3 opaqueWorld, float2 sl
 }
 #endif
 
+)HLSL" R"HLSL(
 float4 main(float4 position : SV_Position) : SV_Target
 {
 #if CLOUD_HEAT_PASS
@@ -695,17 +702,156 @@ float4 main(float4 position : SV_Position) : SV_Target
 )HLSL";
 }
 
-std::string SdlHazardCloudPixelShader(bool composite)
+// Sparse nuclear embers. No assets, gameplay particles or damage are involved.
+const char *emberVertexSource = R"HLSL(
+Texture2D<float> TerrainHeight : register(t0, space0);
+SamplerState TerrainSampler : register(s0, space0);
+cbuffer EmberConstants : register(b0, space1)
 {
-    return cloudShader(composite ? 1 : 0);
+    row_major float4x4 ViewProjection;
+    float4 Viewport;
+    float4 Field;
+    float4 Shape;
+    float4 Scene;
+    float4 Terrain;
+};
+struct EmberVertex {
+    float4 position : SV_Position;
+    float2 local : TEXCOORD0;
+    float2 glow : TEXCOORD1;
+};
+float emberHash(float seed)
+{
+    float3 p = frac(float3(seed, seed + 1.0, seed + 2.0) * 0.1031);
+    p += dot(p, p.yzx + 33.33);
+    return frac((p.x + p.y) * p.z);
+}
+float emberGround(float2 world)
+{
+    if (Terrain.x < 0.5) return Field.z;
+    uint width, height;
+    TerrainHeight.GetDimensions(width, height);
+    float side = float(height);
+    float2 uv = saturate((world - Field.xy) / max(Terrain.z * 2.0, 0.001) + 0.5);
+    float2 texel = uv * (side - 1.0);
+    float2 lower = floor(texel), upper = min(lower + 1.0, side - 1.0);
+    float2 weight = frac(texel);
+    float2 a = (lower + float2(Terrain.y * side, 0) + 0.5) / float2(width, height);
+    float2 b = (upper + float2(Terrain.y * side, 0) + 0.5) / float2(width, height);
+    float low = lerp(TerrainHeight.SampleLevel(TerrainSampler, a, 0),
+        TerrainHeight.SampleLevel(TerrainSampler, float2(b.x, a.y), 0), weight.x);
+    float high = lerp(TerrainHeight.SampleLevel(TerrainSampler, float2(a.x, b.y), 0),
+        TerrainHeight.SampleLevel(TerrainSampler, b, 0), weight.x);
+    return lerp(low, high, weight.y);
+}
+EmberVertex main(uint vertex : SV_VertexID)
+{
+    uint particle = vertex / 6;
+    uint corner = vertex % 6;
+    float2 local;
+    if (corner == 0 || corner == 3) local = float2(-1, -1);
+    else if (corner == 1) local = float2(1, -1);
+    else if (corner == 2 || corner == 4) local = float2(1, 1);
+    else local = float2(-1, 1);
+
+    float seed = float(particle) * 13.61 + Field.x * 0.21 + Field.y * 0.37;
+    float random = emberHash(seed + 7.0);
+    float lifetime = 3.4 + emberHash(seed + 2.0) * 2.8;
+    float age = frac(Scene.x / lifetime + emberHash(seed + 19.0));
+    // One anchor per equal-area radial stratum, separated by the golden angle.
+    // Slight jitter breaks the spiral's regularity without random clustering.
+    // Field.w includes the cloud's visual fringe. Its whole footprint ignites
+    // together; formation controls opacity rather than moving sparks outward.
+    float rotation = emberHash(Field.x * 0.21 + Field.y * 0.37 + 3.0) * 6.2831853;
+    float angle = float(particle) * 2.39996323 + rotation
+        + (emberHash(seed + 11.0) - 0.5) * 0.12;
+    float stratum = (float(particle) + 0.35 + emberHash(seed + 1.0) * 0.30) / max(Scene.y, 1.0);
+    float radius = sqrt(stratum) * Field.w;
+    float2 origin = Field.xy + float2(cos(angle), sin(angle)) * radius;
+    float2 drift = float2(sin(age * 5.0 + seed), cos(age * 4.0 + seed * 0.7));
+    drift *= (2.0 + random * 5.0) * age;
+    drift += float2(3.0, -1.0) * age * age;
+    float height = Shape.x * (0.36 + age * (1.8 + random * 0.6));
+    float3 world = float3(origin + drift, emberGround(origin + drift) + height);
+    float4 clip = mul(float4(world, 1), ViewProjection);
+    float4 upClip = mul(float4(world + float3(0, 0, 1), 1), ViewProjection);
+    float2 up = (upClip.xy / max(upClip.w, 0.0001) - clip.xy / max(clip.w, 0.0001))
+        * Viewport.zw * float2(0.5, -0.5);
+    up = dot(up, up) > 0.00001 ? normalize(up) : float2(0, -1);
+    float2 across = float2(-up.y, up.x);
+    // The bright core is roughly 1-2 pixels across at the default view, with
+    // a softer orange halo and a short tail pointing down its rising path.
+    float zoom = clamp(sqrt(max(Viewport.z * Viewport.w, 1.0) / 1024000.0), 0.8, 1.7);
+    float2 extent = float2(2.3 + random * 1.1, 3.0 + random * 2.5) * zoom;
+    float2 pixelOffset = across * local.x * extent.x + up * local.y * extent.y;
+    clip.xy += pixelOffset * float2(2, -2) / max(Viewport.zw, float2(1, 1)) * clip.w;
+    float fade = smoothstep(0.0, 0.14, age) * (1.0 - smoothstep(0.58, 1.0, age));
+    fade *= saturate(Shape.y * 1.6) * smoothstep(0.02, 0.28, Shape.z);
+    fade *= lerp(0.58, 1.0, random) * lerp(0.55, 1.0, smoothstep(0.5, 1.1, height / Shape.x));
+    // Keep the outer annulus legible. Only the last few percent of outward
+    // drift die away, so the soft cloud fringe does not become a hard spark ring.
+    float edgeRadius = length(world.xy - Field.xy) / max(Field.w, 0.001);
+    fade *= (1.0 - 0.40 * smoothstep(0.88, 1.0, edgeRadius))
+        * (1.0 - smoothstep(1.0, 1.055, edgeRadius));
+    EmberVertex output;
+    output.position = clip;
+    output.local = local;
+    output.glow = float2(fade, random);
+    return output;
+}
+)HLSL";
+
+const char *emberPixelSource = R"HLSL(
+Texture2D<float> SceneDepth : register(t0, space2);
+SamplerState DepthSampler : register(s0, space2);
+cbuffer EmberPixelConstants : register(b0, space3) { float4 Scene; };
+struct EmberVertex {
+    float4 position : SV_Position;
+    float2 local : TEXCOORD0;
+    float2 glow : TEXCOORD1;
+};
+float4 main(EmberVertex input) : SV_Target
+{
+    float depth = SceneDepth.SampleLevel(DepthSampler, input.position.xy * Scene.xy, 0);
+    // Use the same captured opaque depth as the volume: terrain and infantry
+    // hide sparks behind them, while this pass never writes the scene depth.
+    clip(depth - input.position.z + 0.0000005);
+    float2 corePoint = (input.local - float2(0, 0.30)) * float2(1, 1.6);
+    float squared = dot(corePoint, corePoint);
+    float core = exp2(-squared * 12.0);
+    float halo = exp2(-squared * 3.0);
+    float tail = (1.0 - smoothstep(0.10, 0.34, abs(input.local.x)))
+        * smoothstep(-1.0, -0.30, input.local.y)
+        * (1.0 - smoothstep(-0.18, 0.30, input.local.y));
+    float edge = (1.0 - smoothstep(0.80, 1.0, abs(input.local.x)))
+        * (1.0 - smoothstep(0.85, 1.0, abs(input.local.y)));
+    float3 warm = lerp(float3(1.0, 0.21, 0.025), float3(1.0, 0.43, 0.08), input.glow.y);
+    float3 light = float3(1.0, 0.80, 0.43) * core * 0.95 + warm * (halo * 0.30 + tail * 0.17);
+    return float4(light * input.glow.x * edge, 0);
+}
+)HLSL";
+
+} // namespace
+
+std::string vertexShader()
+{
+    return R"HLSL(
+float4 main(uint vertex : SV_VertexID) : SV_Position
+{
+    float2 uv = float2((vertex << 1) & 2, vertex & 2);
+    return float4(uv * float2(2, -2) + float2(-1, 1), 0, 1);
+}
+)HLSL";
 }
 
-std::string SdlHazardCloudCacheShader(bool lighting)
+std::string pixelShader(Pass pass, bool registerSpaces)
 {
-    return cloudShader(lighting ? 3 : 2);
+    const int number = pass == Pass::Composite ? 1 : pass == Pass::Density ? 2
+        : pass == Pass::Lighting ? 3 : pass == Pass::Heat ? 4 : 0;
+    return withSpaces(cloudShader(number), registerSpaces);
 }
 
-std::string SdlHazardCloudHeatShader()
-{
-    return cloudShader(4);
-}
+std::string emberVertexShader(bool registerSpaces) { return withSpaces(emberVertexSource, registerSpaces); }
+std::string emberPixelShader(bool registerSpaces) { return withSpaces(emberPixelSource, registerSpaces); }
+
+} // namespace HazardCloud

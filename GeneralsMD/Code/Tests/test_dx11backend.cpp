@@ -29,6 +29,7 @@
 
 #include "dx11backend.h"
 #include "dx11resource.h"
+#include "Platform/HazardCloudCore.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -1141,5 +1142,49 @@ TEST(dx11backend_the_smoke_map_holds_each_casters_three_sums)
 
 	staging->Release();
 	resource->Release();
+	backend.Shutdown();
+}
+
+// The volumetric hazard clouds' text is the SDL GPU backend's too, written for DXC.  Every pass of
+// it has to go through the compiler this backend uses at shader model 5, and the device has to take
+// what comes out, or the clouds go Classic on the first hazard of the match.
+TEST(dx11backend_the_hazard_cloud_programs_compile_at_shader_model_5)
+{
+	DX11DeviceClass device;
+	CHECK(device.Create_Offscreen());
+	DX11BackendClass backend;
+	CHECK(backend.Initialise(&device));
+
+	struct Program { std::string source; bool vertex; };
+	const Program programs[] = {
+		{ HazardCloud::vertexShader(), true },
+		{ HazardCloud::pixelShader(HazardCloud::Pass::Volume, false), false },
+		{ HazardCloud::pixelShader(HazardCloud::Pass::Composite, false), false },
+		{ HazardCloud::pixelShader(HazardCloud::Pass::Density, false), false },
+		{ HazardCloud::pixelShader(HazardCloud::Pass::Lighting, false), false },
+		{ HazardCloud::pixelShader(HazardCloud::Pass::Heat, false), false },
+		{ HazardCloud::emberVertexShader(false), true },
+		{ HazardCloud::emberPixelShader(false), false },
+	};
+	for (const Program & program : programs) {
+		std::vector<unsigned char> code;
+		const bool compiled = backend.Compile_Program(program.source, "hazardcloud",
+			program.vertex ? "vs_5_0" : "ps_5_0", code);
+		if (!compiled) {
+			printf("  %s\n", backend.First_Compiler_Error());
+		}
+		CHECK(compiled);
+		if (!compiled) {
+			continue;
+		}
+		ID3D11DeviceChild * made = NULL;
+		const HRESULT result = program.vertex
+			? device.Get_Device()->CreateVertexShader(&code[0], code.size(), NULL, (ID3D11VertexShader **)&made)
+			: device.Get_Device()->CreatePixelShader(&code[0], code.size(), NULL, (ID3D11PixelShader **)&made);
+		CHECK(SUCCEEDED(result));
+		if (made != NULL) {
+			made->Release();
+		}
+	}
 	backend.Shutdown();
 }

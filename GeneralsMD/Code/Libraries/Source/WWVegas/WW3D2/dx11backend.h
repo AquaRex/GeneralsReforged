@@ -263,6 +263,10 @@ public:
 	// Whether the draws are going into the scene's own target.
 	bool Draws_Into_Scene() const;
 
+	// Where the scene is going now: its own target, or a screen filter's texture drawn over the
+	// scene's depth; NULL for a mirror or the sun's map.
+	ID3D11RenderTargetView * Scene_Target() const;
+
 	// The scene's target, its depth and the draws' viewport bound again after a pass that bound
 	// its own on the context mid-scene (the post chain's occlusion).
 	void Resume_Scene();
@@ -364,6 +368,11 @@ public:
 	const char * Target_Trace(unsigned index) const
 		{ return (index < TargetTrace.size()) ? TargetTrace[index].c_str() : ""; }
 	const char * First_Compiler_Error() const { return CompilerError.c_str(); }
+
+	// A program for a pass of someone else's (the hazard clouds), compiled once and kept in the
+	// shader cache with the generated ones, so a second run compiles nothing.
+	bool Compile_Program(const std::string & source, const char * name, const char * profile,
+		std::vector<unsigned char> & bytecode);
 
 private:
 	DX11BackendClass(const DX11BackendClass &);
@@ -941,8 +950,6 @@ private:
 	bool Any_Missing_Texture() const;
 	void Dump_Program(const std::string & key, const std::string & vertex_hlsl,
 		const std::string & pixel_hlsl);
-	bool Compile_Program(const std::string & source, const char * name, const char * profile,
-		std::vector<unsigned char> & bytecode);
 	void Save_Shader_Cache() const;
 
 	std::string CompilerError;

@@ -1137,6 +1137,17 @@ bool DX11BackendClass::Draws_Into_Scene() const
 	return CurrentTarget == NULL && !ShadowMapBound;
 }
 
+ID3D11RenderTargetView * DX11BackendClass::Scene_Target() const
+{
+	if (ShadowMapBound) {
+		return NULL;
+	}
+	if (CurrentTarget == NULL) {
+		return Device->Get_Scene_View();
+	}
+	return CurrentDepth == Device->Get_Depth_Stencil_View() ? CurrentTarget : NULL;
+}
+
 /** The black and white view, the motion blur and the cross fade draw the whole scene into a target
 		of their own, and Draw_Effect refuses every look there; asked first, the scene keeps the heat
 		vision and the disabled tint for those frames instead of drawing the object plain. */

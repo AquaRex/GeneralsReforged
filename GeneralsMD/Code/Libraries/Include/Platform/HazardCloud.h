@@ -34,6 +34,17 @@ struct Palette {
 // Stable user-approved palette, independent of preview files or game options.
 const Palette &defaultPalette(unsigned index);
 
+// The scene camera a cloud is drawn from, handed over by the caller rather than
+// read back from the device, whose transforms can be the last draw's until the
+// next state flush. Matrices are row-major in the Direct3D layout (row vectors,
+// world * view * projection); the viewport is in target pixels.
+struct Camera {
+    float view[16];
+    float projection[16];
+    unsigned x, y, width, height;
+    float minZ, maxZ;
+};
+
 // Main render thread only. Owns up to two fields with independent density,
 // lighting and infantry-wake history. Pipelines and transient scene targets are
 // shared by all layers on the same device. No scene object is registered.
@@ -67,7 +78,7 @@ public:
 
     // Call only in the main scene after opaque geometry/water. False means no
     // cloud scene draw was recorded, so the caller may draw classic effects.
-    virtual bool render() = 0;
+    virtual bool render(const Camera &camera) = 0;
     virtual bool valid() const = 0;
     virtual unsigned activeBodies() const = 0;
     virtual float maxDisturbance() const = 0;
@@ -84,11 +95,15 @@ public:
     virtual void shutdown() = 0;
 };
 
-// A renderer backend (SDL GPU today, Direct3D 11 later) implements Layer and
-// these two entry points. Supported() queries the current device at call time;
-// false includes calls before a usable graphics device exists. CreateLayer()
-// returns nullptr when unsupported; initialize() performs resource allocation.
+// A renderer backend (SDL GPU, Direct3D 11) implements Layer and these entry
+// points. Supported() queries the current device at call time; false includes
+// calls before a usable graphics device exists. CreateLayer() returns nullptr
+// when unsupported; initialize() performs resource allocation.
 bool Supported();
 std::unique_ptr<Layer> CreateLayer();
+// The programs and targets every layer shares outlive the layers, so a new map's
+// first hazard compiles nothing. Release them only when the device goes away
+// (teardown, reset, resolution change), after every layer has been shut down.
+void ReleaseDevice();
 
 } // namespace HazardCloud

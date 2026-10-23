@@ -1,14 +1,12 @@
 // Shared world-space hazard clouds; game and isolated preview use one renderer.
 // Distributed under the repository's GPL-3.0 terms; see LICENSE.md.
 #include "PreRTS.h"
-#include "Platform/SdlHazardCloud.h"
-#include "SdlHazardCloudShader.h"
+#include "Platform/HazardCloudCore.h"
 #include "SdlHazardCloudEmbers.h"
 #include "WW3D2/dx8wrapper.h"
 #include "WW3D2/sdl3shadercompile.h"
 #include "PosixDevice9.h"
 #include "SdlGpuFrame.h"
-#include "SdlRenderMatrix.h"
 #include "SdlResourceMirror.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
@@ -22,20 +20,18 @@
 
 namespace SdlHazardCloud {
 namespace {
-const float Steps = 96.0f;
-const float MaximumDisplacement = 18.0f;
-const unsigned MaximumBodies = 32;
+using namespace HazardCloud;
+
 const SDL_GPUTextureFormat LowTargetFormat = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;
 const SDL_GPUTextureUsageFlags LowTargetUsage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
 const SDL_GPUTextureFormat DensityTargetFormat = SDL_GPU_TEXTUREFORMAT_R16_FLOAT;
-const unsigned CacheSlices = 24;
-const unsigned CacheColumns = 6;
-const unsigned CacheRows = CacheSlices / CacheColumns;
 struct FieldCache {
     SdlTarget density = {};
     SdlTarget lighting = {};
     unsigned side = 0;
 };
+// Kept from the first layer until HazardCloud::ReleaseDevice, so a new map's
+// first hazard compiles nothing.
 struct SharedResources {
     SdlGpuFrame *frame = nullptr;
     SDL_GPUDevice *gpu = nullptr;
@@ -59,19 +55,12 @@ struct SharedResources {
 };
 SharedResources shared;
 
-unsigned cacheSide(const FieldState &field)
-{
-    const float extent = 2.0f * (field.radius + field.fringe + MaximumDisplacement);
-    const unsigned samples = static_cast<unsigned>(std::clamp(std::ceil(extent / 2.0f) + 1.0f, 32.0f, 512.0f));
-    return (samples + 15u) & ~15u;
-}
-
 void releaseShared(bool deviceAlive)
 {
     if (deviceAlive && shared.frame && shared.gpu) {
         if (shared.lowTarget.Colour) shared.frame->Release_After_Batch(shared.lowTarget.Colour, nullptr);
         if (shared.heatBackground.Colour) shared.frame->Release_After_Batch(shared.heatBackground.Colour, nullptr);
-        // Last layer only: pipelines cannot retire through Release_After_Batch.
+        // Pipelines cannot retire through Release_After_Batch.
         shared.frame->Flush();
         SDL_WaitForGPUIdle(shared.gpu);
         SdlHazardCloudEmbers::shutdown();
@@ -96,77 +85,75 @@ void releaseShared(bool deviceAlive)
     }
     shared = {};
 }
-} // namespace
 
-struct Layer::Impl {
-    FieldState fieldStates[2] = {};
-    unsigned fieldCount = 0;
-    float sourceTravel[2] = {}, sourceAge[2] = {}, peakDensity[2] = {};
-    float simulationTime = 0;
-    bool hasSimulationTime = false;
-    bool initialized = false;
-    bool interactionEnabled = true;
-    bool heatEnabled = true;
-    bool flowDirty = true;
-    bool failed = false;
-    bool explicitDomain = false;
-    unsigned renderedFrames = 0;
-    unsigned flowUploads = 0;
-    uint64_t flowUsedBatch = ~uint64_t(0);
-    std::vector<Body> bodies;
-    HazardCloudFlow::Flow flow;
-    std::array<Palette, 4> palettes = {{defaultPalette(0), defaultPalette(1), defaultPalette(2), defaultPalette(3)}};
+bool sharedDeviceAlive()
+{
+    PosixDevice9 *device = dynamic_cast<PosixDevice9 *>(DX8Wrapper::_Get_D3D_Device());
+    return device && shared.frame && device->Get_Gpu() == shared.frame;
+}
+
+class Layer final : public LayerCore {
+public:
+    ~Layer() override { shutdown(); }
+    bool initialize() override;
+    bool render(const Camera &camera) override;
+    std::uint64_t estimatedCacheBytes() const override;
+    void shutdown() override;
+
+private:
+    bool makeResources();
+    bool makeFlowTexture();
+    bool resizeLowTarget(unsigned width, unsigned height);
+    bool prepareHeatBackground(const SdlTarget &target);
+    void captureHeatBackground(const SdlTarget &target);
+    void retireCache(FieldCache &cache);
+    bool resizeFieldCache(unsigned index);
+    void bindCachedTextures(SdlRecordedDraw &draw, bool density);
+    bool prepareCaches(Uniforms &uniforms, SDL_GPUTexture *sceneDepth,
+                       uint32_t vertexOffset, const SdlTarget &restoreTarget);
+    bool uploadTerrain();
+    void bindTerrain(SdlRecordedDraw &draw);
+    bool uploadFlow();
+    bool resolveSceneTarget(PosixDevice9 *device, SdlTarget &target);
+
     SdlGpuFrame *frame = nullptr;
     SDL_GPUDevice *gpu = nullptr;
     SDL_GPUTexture *flowTexture = nullptr;
     SDL_GPUTexture *terrainTexture = nullptr;
-    std::vector<float> terrainPixels = std::vector<float>(TerrainGridSide * TerrainGridSide * 2, 0.0f);
-    bool terrainEnabled[2] = {};
-    float terrainMin[2] = {}, terrainMax[2] = {};
-    bool terrainDirty = false;
+    uint64_t flowUsedBatch = ~uint64_t(0);
     FieldCache fieldCaches[2];
-    SdlHazardCloudUniforms cachedInputs = {};
-    bool cachedInputsValid = false;
-    unsigned cachedFlowUploads = 0;
-    unsigned cacheUpdates = 0;
-    unsigned cacheBakes = 0;
+};
 
-void fail(const char *reason)
-{
-    if (!failed) std::fprintf(stderr, "hazard-cloud: volumetric renderer FAIL: %s\n", reason);
-    failed = true;
-}
-
-bool makeResources()
+bool Layer::makeResources()
 {
     std::vector<unsigned char> spirv;
     std::string log;
-    if (!SDL3_Compile_HLSL_To_SPIRV(SdlHazardCloudVertexShader(), true, spirv, log)
+    if (!SDL3_Compile_HLSL_To_SPIRV(vertexShader(), true, spirv, log)
         || !(shared.vertexShader = SDL3_Create_Shader(gpu, spirv, true, log))) {
         fail(("vertex shader: " + log).c_str());
         return false;
     }
-    if (!SDL3_Compile_HLSL_To_SPIRV(SdlHazardCloudPixelShader(false), false, spirv, log)
+    if (!SDL3_Compile_HLSL_To_SPIRV(pixelShader(Pass::Volume, true), false, spirv, log)
         || !(shared.pixelShader = SDL3_Create_Shader(gpu, spirv, false, log))) {
         fail(("volume shader: " + log).c_str());
         return false;
     }
-    if (!SDL3_Compile_HLSL_To_SPIRV(SdlHazardCloudPixelShader(true), false, spirv, log)
+    if (!SDL3_Compile_HLSL_To_SPIRV(pixelShader(Pass::Composite, true), false, spirv, log)
         || !(shared.compositePixelShader = SDL3_Create_Shader(gpu, spirv, false, log))) {
         fail(("volume composite shader: " + log).c_str());
         return false;
     }
-    if (!SDL3_Compile_HLSL_To_SPIRV(SdlHazardCloudHeatShader(), false, spirv, log)
+    if (!SDL3_Compile_HLSL_To_SPIRV(pixelShader(Pass::Heat, true), false, spirv, log)
         || !(shared.heatPixelShader = SDL3_Create_Shader(gpu, spirv, false, log))) {
         fail(("volume heat shader: " + log).c_str());
         return false;
     }
-    if (!SDL3_Compile_HLSL_To_SPIRV(SdlHazardCloudCacheShader(false), false, spirv, log)
+    if (!SDL3_Compile_HLSL_To_SPIRV(pixelShader(Pass::Density, true), false, spirv, log)
         || !(shared.densityPixelShader = SDL3_Create_Shader(gpu, spirv, false, log))) {
         fail(("volume density cache shader: " + log).c_str());
         return false;
     }
-    if (!SDL3_Compile_HLSL_To_SPIRV(SdlHazardCloudCacheShader(true), false, spirv, log)
+    if (!SDL3_Compile_HLSL_To_SPIRV(pixelShader(Pass::Lighting, true), false, spirv, log)
         || !(shared.lightingPixelShader = SDL3_Create_Shader(gpu, spirv, false, log))) {
         fail(("volume lighting cache shader: " + log).c_str());
         return false;
@@ -245,7 +232,7 @@ bool makeResources()
     return true;
 }
 
-bool makeFlowTexture()
+bool Layer::makeFlowTexture()
 {
     const SDL_GPUTextureFormat flowFormat = SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
     const SDL_GPUTextureUsageFlags flowUsage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
@@ -268,7 +255,7 @@ bool makeFlowTexture()
     return true;
 }
 
-bool resizeLowTarget(unsigned width, unsigned height)
+bool Layer::resizeLowTarget(unsigned width, unsigned height)
 {
     const unsigned lowWidth = width / 2 + width % 2;
     const unsigned lowHeight = height / 2 + height % 2;
@@ -290,7 +277,7 @@ bool resizeLowTarget(unsigned width, unsigned height)
     return true;
 }
 
-bool prepareHeatBackground(const SdlTarget &target)
+bool Layer::prepareHeatBackground(const SdlTarget &target)
 {
     if (!shared.heatBackground.Colour || shared.heatBackground.Width != target.Width || shared.heatBackground.Height != target.Height) {
         SDL_GPUTextureCreateInfo description = {};
@@ -309,7 +296,7 @@ bool prepareHeatBackground(const SdlTarget &target)
     return true;
 }
 
-void captureHeatBackground(const SdlTarget &target)
+void Layer::captureHeatBackground(const SdlTarget &target)
 {
     // Capture the actual scene at this draw, not a possibly earlier pre-water
     // snapshot. The queued blit separates attachment writes from shader reads;
@@ -318,20 +305,16 @@ void captureHeatBackground(const SdlTarget &target)
     frame->Record_Blit(target.Colour, rectangle, shared.heatBackground.Colour, rectangle, false);
 }
 
-void retireCache(FieldCache &cache)
+void Layer::retireCache(FieldCache &cache)
 {
     if (cache.density.Colour) frame->Release_After_Batch(cache.density.Colour, nullptr);
     if (cache.lighting.Colour) frame->Release_After_Batch(cache.lighting.Colour, nullptr);
     cache = {};
 }
 
-bool resizeFieldCache(unsigned index)
+bool Layer::resizeFieldCache(unsigned index)
 {
-    const FieldState &field = fieldStates[index];
-    const float extent = 2.0f * (field.radius + field.fringe + MaximumDisplacement);
-    // Include both domain boundaries, retain at most two world units between
-    // grid nodes, and round the dimension up to a small allocation granularity.
-    const unsigned side = cacheSide(field);
+    const unsigned side = cacheSide(fieldStates[index]);
     FieldCache &cache = fieldCaches[index];
     if (cache.side == side && cache.density.Colour && cache.lighting.Colour) return true;
     SDL_GPUTextureCreateInfo description = {};
@@ -355,11 +338,11 @@ bool resizeFieldCache(unsigned index)
     cache.density = { density, nullptr, description.width, description.height };
     cache.lighting = { lighting, nullptr, description.width, description.height };
     cache.side = side;
-    cachedInputsValid = false;
+    invalidateBake();
     return true;
 }
 
-void bindCachedTextures(SdlRecordedDraw &draw, bool density)
+void Layer::bindCachedTextures(SdlRecordedDraw &draw, bool density)
 {
     for (unsigned i = 0; i < 2; ++i) {
         SDL_GPUTexture *texture = density ? fieldCaches[i].density.Colour : fieldCaches[i].lighting.Colour;
@@ -370,37 +353,23 @@ void bindCachedTextures(SdlRecordedDraw &draw, bool density)
     }
 }
 
-bool prepareCaches(SdlHazardCloudUniforms &uniforms, SDL_GPUTexture *sceneDepth,
-                   uint32_t vertexOffset, const SdlTarget &restoreTarget)
+bool Layer::prepareCaches(Uniforms &uniforms, SDL_GPUTexture *sceneDepth,
+                          uint32_t vertexOffset, const SdlTarget &restoreTarget)
 {
-    bool active[2] = {};
     float *grids[] = { uniforms.Cache0, uniforms.Cache1 };
     for (unsigned i = 0; i < fieldCount; ++i) {
-        const FieldState &field = fieldStates[i];
-        active[i] = field.radius > 0.001f && field.height > 0.002f && field.density > 0.00001f;
-        if (!active[i]) continue;
+        if (!fieldActive(i)) continue;
         if (!resizeFieldCache(i)) return false;
         grids[i][0] = grids[i][1] = static_cast<float>(fieldCaches[i].side);
         grids[i][2] = static_cast<float>(CacheSlices);
         grids[i][3] = static_cast<float>(CacheColumns);
     }
-    // Exclude all view-dependent values from the cache key. Orbiting, zooming,
-    // resizing or drawing a paused frame can reuse the same world-space volume.
-    SdlHazardCloudUniforms inputs = uniforms;
-    std::fill(inputs.WorldFromClip, inputs.WorldFromClip + 16, 0.0f);
-    std::fill(inputs.CameraPosition, inputs.CameraPosition + 4, 0.0f);
-    std::fill(inputs.Viewport, inputs.Viewport + 4, 0.0f);
-    inputs.Scene[0] = inputs.Scene[1] = inputs.Scene[2] = 0;
-    inputs.Settings[1] = inputs.Settings[3] = 0;
-    std::fill(inputs.CachePass, inputs.CachePass + 4, 0.0f);
-    if (cachedInputsValid && cachedFlowUploads == flowUploads
-        && std::memcmp(&inputs, &cachedInputs, sizeof(inputs)) == 0) return true;
+    if (!takeBake(uniforms)) return true;
 
-    bool rebuilt = false;
     for (unsigned i = 0; i < fieldCount; ++i) {
-        if (!active[i]) continue;
+        if (!fieldActive(i)) continue;
         const FieldCache &cache = fieldCaches[i];
-        SdlHazardCloudUniforms bake = uniforms;
+        Uniforms bake = uniforms;
         bake.CachePass[0] = static_cast<float>(i);
         SdlRecordedDraw draw = {};
         draw.Pipeline = shared.densityPipeline;
@@ -441,18 +410,12 @@ bool prepareCaches(SdlHazardCloudUniforms &uniforms, SDL_GPUTexture *sceneDepth,
         frame->Set_Target(cache.lighting);
         frame->Clear_Back_Buffer(true, false, false, 0, 1.0f, 0);
         frame->Record_Draw(draw);
-        ++cacheBakes;
-        rebuilt = true;
     }
     frame->Set_Target(restoreTarget);
-    cachedInputs = inputs;
-    cachedFlowUploads = flowUploads;
-    cachedInputsValid = true;
-    if (rebuilt) ++cacheUpdates;
     return true;
 }
 
-bool uploadTerrain()
+bool Layer::uploadTerrain()
 {
     if (!terrainEnabled[0] && !terrainEnabled[1]) return true;
     if (!terrainTexture) {
@@ -482,11 +445,11 @@ bool uploadTerrain()
     std::memcpy(frame->Upload_Space(bytes, offset), terrainPixels.data(), bytes);
     frame->Queue_Texture_Upload(terrainTexture, 0, TerrainGridSide * 2, TerrainGridSide, offset);
     terrainDirty = false;
-    cachedInputsValid = false;
+    invalidateBake();
     return true;
 }
 
-void bindTerrain(SdlRecordedDraw &draw)
+void Layer::bindTerrain(SdlRecordedDraw &draw)
 {
     draw.SamplerCount = 7;
     draw.Textures[5] = flowTexture;
@@ -495,9 +458,9 @@ void bindTerrain(SdlRecordedDraw &draw)
     draw.Samplers[6] = shared.flowSampler;
 }
 
-bool uploadFlow()
+bool Layer::uploadFlow()
 {
-    if (!flowDirty) return true;
+    if (!flowNeedsUpload()) return true;
     if (!flow.valid()) {
         fail("interaction simulation produced invalid state");
         return false;
@@ -513,12 +476,11 @@ bool uploadFlow()
     uint32_t offset = 0;
     std::memcpy(frame->Upload_Space(bytes, offset), flow.data(), bytes);
     frame->Queue_Texture_Upload(flowTexture, 0, flow.width(), flow.height(), offset);
-    flowDirty = false;
-    ++flowUploads;
+    flowUploaded();
     return true;
 }
 
-bool resolveSceneTarget(PosixDevice9 *device, SdlTarget &target)
+bool Layer::resolveSceneTarget(PosixDevice9 *device, SdlTarget &target)
 {
     IDirect3DSurface9 *current = nullptr, *back = nullptr, *depth = nullptr;
     device->GetRenderTarget(0, &current);
@@ -571,68 +533,9 @@ bool resolveSceneTarget(PosixDevice9 *device, SdlTarget &target)
     return true;
 }
 
-void heatScissor(const float viewProjection[16], const D3DVIEWPORT9 &viewport,
-                 const SdlTarget &target, int32_t rectangle[4])
+bool Layer::render(const Camera &camera)
 {
-    const float left = static_cast<float>(std::min(viewport.X, target.Width));
-    const float top = static_cast<float>(std::min(viewport.Y, target.Height));
-    const float right = left + std::min(viewport.Width, target.Width - static_cast<unsigned>(left));
-    const float bottom = top + std::min(viewport.Height, target.Height - static_cast<unsigned>(top));
-    rectangle[0] = static_cast<int32_t>(left);
-    rectangle[1] = static_cast<int32_t>(top);
-    rectangle[2] = static_cast<int32_t>(right - left);
-    rectangle[3] = static_cast<int32_t>(bottom - top);
-    float minX = 1.0e30f, minY = 1.0e30f, maxX = -1.0e30f, maxY = -1.0e30f;
-    bool found = false;
-    for (unsigned i = 0; i < fieldCount; ++i) {
-        const FieldState &field = fieldStates[i];
-        if (field.palette < 0.5f || field.palette >= 1.5f || field.radius <= 0.001f
-            || field.height <= 0.002f || field.density <= 0.00001f) continue;
-        found = true;
-        const float radius = field.radius + field.fringe + MaximumDisplacement;
-        for (unsigned corner = 0; corner < 8; ++corner) {
-            const float world[4] = {
-                field.ground.x + (corner & 1 ? radius : -radius),
-                field.ground.y + (corner & 2 ? radius : -radius),
-                (terrainEnabled[i] ? (corner & 4 ? terrainMax[i] : terrainMin[i]) : field.ground.z)
-                    + (corner & 4 ? field.height * 2.6f : 0.0f), 1.0f
-            };
-            float clip[4] = {};
-            for (unsigned column = 0; column < 4; ++column)
-                for (unsigned row = 0; row < 4; ++row)
-                    clip[column] += world[row] * viewProjection[row * 4 + column];
-            // A box crossing the near plane cannot be bounded by projecting
-            // only its corners. Keep the full viewport for that unusual view.
-            if (!std::isfinite(clip[0]) || !std::isfinite(clip[1])
-                || !std::isfinite(clip[2]) || !std::isfinite(clip[3])
-                || clip[3] <= 0.00001f || clip[2] <= 0.00001f) return;
-            const float x = viewport.X + 0.5f + (clip[0] / clip[3] + 1.0f) * viewport.Width * 0.5f;
-            const float y = viewport.Y + 0.5f + (1.0f - clip[1] / clip[3]) * viewport.Height * 0.5f;
-            minX = std::min(minX, x); maxX = std::max(maxX, x);
-            minY = std::min(minY, y); maxY = std::max(maxY, y);
-        }
-    }
-    if (!found) { rectangle[2] = rectangle[3] = 0; return; }
-    // Two pixels of conservative rasterization slack keep the projected
-    // envelope intact at viewport edges and odd framebuffer dimensions.
-    const float boundedLeft = std::clamp(std::floor(minX) - 2.0f, left, right);
-    const float boundedTop = std::clamp(std::floor(minY) - 2.0f, top, bottom);
-    const float boundedRight = std::clamp(std::ceil(maxX) + 2.0f, left, right);
-    const float boundedBottom = std::clamp(std::ceil(maxY) + 2.0f, top, bottom);
-    rectangle[0] = static_cast<int32_t>(boundedLeft);
-    rectangle[1] = static_cast<int32_t>(boundedTop);
-    rectangle[2] = static_cast<int32_t>(std::max(0.0f, boundedRight - boundedLeft));
-    rectangle[3] = static_cast<int32_t>(std::max(0.0f, boundedBottom - boundedTop));
-}
-
-bool renderVolume()
-{
-    if (!initialized || failed || !fieldCount) return false;
-    bool active = false;
-    for (unsigned i = 0; i < fieldCount; ++i)
-        active = active || (fieldStates[i].radius > 0.001f && fieldStates[i].height > 0.002f
-            && fieldStates[i].density > 0.00001f);
-    if (!active) return false;
+    if (!initialized || failed || !anyFieldActive()) return false;
     PosixDevice9 *device = static_cast<PosixDevice9 *>(DX8Wrapper::_Get_D3D_Device());
     if (!device || device->Get_Gpu() != frame) {
         fail("the preview graphics device was replaced");
@@ -640,7 +543,7 @@ bool renderVolume()
     }
     // The scene's normal pass can target an intermediate texture. Resolve that
     // actual colour/depth pair, rather than assuming it is the final back buffer.
-    // Reflection and custom passes are excluded by the Render callback below.
+    // Reflection and custom passes are excluded by the caller.
     SdlTarget target;
     if (!resolveSceneTarget(device, target)) return false;
     if (!resizeLowTarget(target.Width, target.Height)) return false;
@@ -654,96 +557,9 @@ bool renderVolume()
         fail("sampleable scene depth is unavailable; volume clipping cannot run");
         return false;
     }
-    D3DMATRIX view, projection;
-    D3DVIEWPORT9 viewport;
-    if (device->GetTransform(D3DTS_VIEW, &view) != D3D_OK
-        || device->GetTransform(D3DTS_PROJECTION, &projection) != D3D_OK
-        || device->GetViewport(&viewport) != D3D_OK || !viewport.Width || !viewport.Height) {
-        fail("could not read the scene camera");
-        return false;
-    }
-    SdlHazardCloudUniforms uniforms = {};
-    float viewProjection[16], inverseView[16];
-    multiply(&view._11, &projection._11, viewProjection);
-    if (!render_inverse(viewProjection, uniforms.WorldFromClip)
-        || !render_inverse(&view._11, inverseView)) {
-        fail("scene camera has a singular transform");
-        return false;
-    }
-    const float depthRange = viewport.MaxZ - viewport.MinZ;
-    if (depthRange <= 1.0e-8f) {
-        fail("scene camera has an empty depth range");
-        return false;
-    }
-    for (unsigned column = 0; column < 4; ++column) {
-        const float row = uniforms.WorldFromClip[8 + column] / depthRange;
-        uniforms.WorldFromClip[12 + column] -= viewport.MinZ * row;
-        uniforms.WorldFromClip[8 + column] = row;
-    }
-    for (unsigned i = 0; i < 3; ++i) uniforms.CameraPosition[i] = inverseView[12 + i];
-    uniforms.CameraPosition[3] = 1;
-    uniforms.Viewport[0] = static_cast<float>(viewport.X) + 0.5f;
-    uniforms.Viewport[1] = static_cast<float>(viewport.Y) + 0.5f;
-    uniforms.Viewport[2] = static_cast<float>(viewport.Width);
-    uniforms.Viewport[3] = static_cast<float>(viewport.Height);
-    uniforms.Scene[0] = 1.0f / target.Width;
-    uniforms.Scene[1] = 1.0f / target.Height;
-    uniforms.Scene[2] = 1;
-    uniforms.Scene[3] = simulationTime;
-    float *fields[] = { uniforms.Field0, uniforms.Field1 };
-    float *shapes[] = { uniforms.Shape0, uniforms.Shape1 };
-    float *sources[] = { uniforms.Source0, uniforms.Source1 };
-    bool hotField = false;
-    for (unsigned i = 0; i < fieldCount; ++i) {
-        const FieldState &field = fieldStates[i];
-        hotField = hotField || (field.palette >= 0.5f && field.palette < 1.5f
-            && field.radius > 0.001f && field.height > 0.002f && field.density > 0.00001f);
-        fields[i][0] = field.ground.x;
-        fields[i][1] = field.ground.y;
-        fields[i][2] = field.ground.z + field.height * 0.5f;
-        fields[i][3] = field.radius;
-        shapes[i][0] = field.height * 0.5f;
-        shapes[i][1] = field.density;
-        shapes[i][2] = field.palette;
-        shapes[i][3] = field.formation;
-        uniforms.Footprints[i] = field.fringe;
-        sources[i][0] = field.release;
-        sources[i][1] = sourceTravel[i];
-        sources[i][2] = peakDensity[i] > 0.0001f
-            ? std::max(0.0f, 1.0f - field.density / peakDensity[i]) : 0.0f;
-        sources[i][3] = sourceAge[i];
-    }
-    float *terrain[] = { uniforms.Terrain0, uniforms.Terrain1 };
-    for (unsigned i = 0; i < 2; ++i) {
-        terrain[i][0] = terrainMin[i];
-        terrain[i][1] = terrainMax[i];
-        terrain[i][2] = terrainEnabled[i] ? 1.0f : 0.0f;
-    }
-    uniforms.Settings[0] = static_cast<float>(fieldCount);
-    // Keep palette values in the cache key: live edits must refresh lighting
-    // even while the source, infantry and simulation clock are paused.
-    for (unsigned i = 0; i < 4; ++i) {
-        const auto &palette = palettes[i];
-        uniforms.PaletteMain[i][0] = palette.main.r;
-        uniforms.PaletteMain[i][1] = palette.main.g;
-        uniforms.PaletteMain[i][2] = palette.main.b;
-        uniforms.PaletteMain[i][3] = palette.brightness;
-        uniforms.PaletteShadow[i][0] = palette.shadow.r;
-        uniforms.PaletteShadow[i][1] = palette.shadow.g;
-        uniforms.PaletteShadow[i][2] = palette.shadow.b;
-        uniforms.PaletteShadow[i][3] = 1.0f - palette.transparency;
-    }
-    // Visible hot-air refraction only for the warm nuclear palette.
-    // This is a preview material control; it never changes a gameplay hazard.
-    uniforms.Settings[1] = heatEnabled && hotField ? 10.0f : 0.0f;
-    uniforms.Settings[2] = 1;
-    uniforms.Settings[3] = Steps;
-    uniforms.Interaction[0] = flow.domainMinX();
-    uniforms.Interaction[1] = flow.domainMinY();
-    uniforms.Interaction[2] = 1.0f / (flow.domainMaxX() - flow.domainMinX());
-    uniforms.Interaction[3] = 1.0f / (flow.domainMaxY() - flow.domainMinY());
-    uniforms.FlowSettings[0] = interactionEnabled ? 1.0f : 0.0f;
-    uniforms.FlowSettings[1] = MaximumDisplacement;
+    Uniforms uniforms;
+    float viewProjection[16];
+    if (!buildUniforms(camera, target.Width, target.Height, uniforms, viewProjection)) return false;
 
     // Complete all potentially failing material allocations before recording
     // a visible scene draw. The adapter can safely fall back to classic clouds.
@@ -792,19 +608,21 @@ bool renderVolume()
     draw.Textures[2] = shared.lowTarget.Colour;
     draw.Samplers[2] = shared.depthSampler;
     std::copy(uniforms.Viewport, uniforms.Viewport + 4, draw.Viewport);
-    draw.Viewport[4] = viewport.MinZ;
-    draw.Viewport[5] = viewport.MaxZ;
-    draw.Scissor[0] = static_cast<int32_t>(viewport.X);
-    draw.Scissor[1] = static_cast<int32_t>(viewport.Y);
-    draw.Scissor[2] = std::min(viewport.Width, target.Width - std::min(viewport.X, target.Width));
-    draw.Scissor[3] = std::min(viewport.Height, target.Height - std::min(viewport.Y, target.Height));
+    draw.Viewport[4] = camera.minZ;
+    draw.Viewport[5] = camera.maxZ;
+    draw.Scissor[0] = static_cast<int32_t>(camera.x);
+    draw.Scissor[1] = static_cast<int32_t>(camera.y);
+    draw.Scissor[2] = std::min(camera.width, target.Width - std::min(camera.x, target.Width));
+    draw.Scissor[3] = std::min(camera.height, target.Height - std::min(camera.y, target.Height));
     frame->Set_Target(target);
     frame->Record_Draw(draw);
     SdlHazardCloudEmbers::render(frame, target, sceneDepth, viewProjection, draw.Viewport,
         fieldStates, fieldCount, simulationTime, terrainTexture, terrainEnabled);
     if (uniforms.Settings[1] > 0) {
         SdlRecordedDraw heatDraw = draw;
-        heatScissor(viewProjection, viewport, target, heatDraw.Scissor);
+        int scissor[4];
+        heatScissor(viewProjection, camera, target.Width, target.Height, scissor);
+        std::copy(scissor, scissor + 4, heatDraw.Scissor);
         if (heatDraw.Scissor[2] > 0 && heatDraw.Scissor[3] > 0) {
             // Include the smoke and embers in the refraction. Warping only the
             // background makes heat disappear under a dense cloud's opacity.
@@ -819,122 +637,11 @@ bool renderVolume()
     flowUsedBatch = frame->Batch();
     // Recorded state is private to this draw. The next engine draw rebinds its
     // own pipeline, samplers and uniforms without any D3D9 state restoration.
-    ++renderedFrames;
+    ++renderedFrameCount;
     return true;
 }
-void setFields(const FieldState *values, unsigned count)
-{
-    if (count > 2 || (count && !values)) {
-        fail("invalid cloud lifecycle field list");
-        return;
-    }
-    for (unsigned i = 0; i < count; ++i) {
-        const FieldState &field = values[i];
-        if (!std::isfinite(field.ground.x) || !std::isfinite(field.ground.y)
-            || !std::isfinite(field.ground.z) || !std::isfinite(field.radius)
-            || !std::isfinite(field.height) || !std::isfinite(field.density)
-            || !std::isfinite(field.palette) || !std::isfinite(field.formation)
-            || !std::isfinite(field.release) || !std::isfinite(field.fringe)
-            || field.fringe < 0 || field.radius < 0 || field.height < 0
-            || field.density < 0 || field.palette < 0 || field.palette > 3
-            || field.formation < 0 || field.formation > 1 || field.release < 0 || field.release > 1) {
-            fail("invalid cloud lifecycle field state");
-            return;
-        }
-    }
-    if (!explicitDomain && count) {
-        float minX = values[0].ground.x, maxX = minX;
-        float minY = values[0].ground.y, maxY = minY;
-        for (unsigned i = 0; i < count; ++i) {
-            const float radius = std::max(1.0f, values[i].radius + values[i].fringe + MaximumDisplacement);
-            minX = std::min(minX, values[i].ground.x - radius);
-            maxX = std::max(maxX, values[i].ground.x + radius);
-            minY = std::min(minY, values[i].ground.y - radius);
-            maxY = std::max(maxY, values[i].ground.y + radius);
-        }
-        if (flow.domainMinX() != minX || flow.domainMaxX() != maxX
-            || flow.domainMinY() != minY || flow.domainMaxY() != maxY) {
-            flow.setDomain(minX, minY, maxX, maxY);
-            flowDirty = true;
-        }
-    }
-    fieldCount = count;
-    for (unsigned i = 0; i < count; ++i) {
-        fieldStates[i] = values[i];
-        peakDensity[i] = std::max(peakDensity[i], values[i].density);
-    }
-}
 
-void reset()
-{
-    flow.reset();
-    flowDirty = true;
-    for (unsigned i = 0; i < 2; ++i) {
-        sourceTravel[i] = sourceAge[i] = peakDensity[i] = 0;
-    }
-}
-
-void setBodies(const Body *values, unsigned count)
-{
-    if (count > MaximumBodies || (count && !values)) {
-        fail("invalid infantry interaction body list");
-        return;
-    }
-    for (unsigned i = 0; i < count; ++i) {
-        const Body &body = values[i];
-        if (!std::isfinite(body.x) || !std::isfinite(body.y) || !std::isfinite(body.z)
-            || !std::isfinite(body.vx) || !std::isfinite(body.vy)
-            || !std::isfinite(body.radius) || !std::isfinite(body.height)
-            || body.radius <= 0 || body.height <= 0) {
-            fail("invalid infantry interaction body");
-            return;
-        }
-    }
-    if (count) bodies.assign(values, values + count);
-    else bodies.clear();
-}
-
-void setInteractionEnabled(bool value)
-{
-    if (interactionEnabled == value) return;
-    interactionEnabled = value;
-    flow.reset();
-    flowDirty = true;
-}
-
-
-void setHeatEnabled(bool value) { heatEnabled = value; }
-
-void update(float timeSeconds)
-{
-    if (!std::isfinite(timeSeconds) || timeSeconds < 0) {
-        fail("invalid simulation time");
-        return;
-    }
-    const float elapsed = hasSimulationTime ? timeSeconds - simulationTime : 0.0f;
-    simulationTime = timeSeconds;
-    hasSimulationTime = true;
-    if (elapsed < 0) {
-        reset();
-    } else if (elapsed > 0 && !failed) {
-        for (unsigned i = 0; i < fieldCount; ++i) {
-            sourceAge[i] += elapsed;
-            sourceTravel[i] += elapsed * fieldStates[i].release * 22.0f;
-        }
-        // Appearance only controls drawing. Keep the same wake history while
-        // the original effects are shown, so toggling back is an in-place A/B.
-        if (interactionEnabled) {
-            flow.step(elapsed, bodies.empty() ? nullptr : bodies.data(),
-                static_cast<unsigned>(bodies.size()));
-            if (!flow.valid()) fail("interaction simulation produced invalid state");
-            flowDirty = true;
-        }
-    }
-}
-
-
-
-bool initialize()
+bool Layer::initialize()
 {
     if (initialized) return !failed;
     if (!HazardCloud::Supported()) return false;
@@ -944,13 +651,17 @@ bool initialize()
         fail("an SDL graphics device is required");
         return false;
     }
-    if (shared.users && (shared.frame != frame || shared.gpu != gpu)) {
-        fail("existing cloud layers belong to a different graphics device");
-        frame = nullptr;
-        gpu = nullptr;
-        return false;
+    if (shared.gpu && (shared.frame != frame || shared.gpu != gpu)) {
+        if (shared.users) {
+            fail("existing cloud layers belong to a different graphics device");
+            frame = nullptr;
+            gpu = nullptr;
+            return false;
+        }
+        // The device was replaced without a ReleaseDevice; its objects went with it.
+        releaseShared(false);
     }
-    if (!shared.users) {
+    if (!shared.gpu) {
         shared.frame = frame;
         shared.gpu = gpu;
         if (!makeResources()) {
@@ -968,7 +679,7 @@ bool initialize()
     return true;
 }
 
-void shutdown()
+void Layer::shutdown()
 {
     if (!initialized) return;
     PosixDevice9 *device = static_cast<PosixDevice9 *>(DX8Wrapper::_Get_D3D_Device());
@@ -980,99 +691,24 @@ void shutdown()
     }
     for (FieldCache &cache : fieldCaches) cache = {};
     flowTexture = terrainTexture = nullptr;
-    terrainDirty = terrainEnabled[0] || terrainEnabled[1];
     initialized = false;
     if (shared.users) --shared.users;
-    if (!shared.users) releaseShared(alive);
     frame = nullptr;
     gpu = nullptr;
-    cachedInputsValid = false;
-    cachedInputs = {};
-    cachedFlowUploads = cacheUpdates = cacheBakes = 0;
-    renderedFrames = flowUploads = 0;
     flowUsedBatch = ~uint64_t(0);
-    flowDirty = true;
-    hasSimulationTime = false;
-    bodies.clear();
-    reset();
+    resetCounters();
 }
-};
 
-Layer::Layer() : impl(new Impl) {}
-Layer::~Layer() { shutdown(); delete impl; }
-bool Layer::initialize() { return impl->initialize(); }
-void Layer::setFields(const FieldState *fields, unsigned count) { impl->setFields(fields, count); }
-void Layer::setBodies(const Body *bodies, unsigned count) { impl->setBodies(bodies, count); }
-void Layer::setFlowDomain(float minX, float minY, float maxX, float maxY)
-{
-    impl->flow.setDomain(minX, minY, maxX, maxY);
-    impl->explicitDomain = true;
-    impl->flowDirty = true;
-    if (!impl->flow.valid()) impl->fail("invalid interaction simulation domain");
-}
-void Layer::setTerrain(unsigned index, const float *heights)
-{
-    if (index >= 2) { impl->fail("invalid terrain field index"); return; }
-    if (!heights) {
-        impl->terrainEnabled[index] = false;
-        impl->terrainMin[index] = impl->terrainMax[index] = 0;
-        return;
-    }
-    float minimum = heights[0], maximum = heights[0];
-    for (unsigned i = 0; i < TerrainGridSide * TerrainGridSide; ++i) {
-        if (!std::isfinite(heights[i]) || std::abs(heights[i]) > 100000.0f) {
-            impl->fail("invalid terrain height");
-            return;
-        }
-        minimum = std::min(minimum, heights[i]);
-        maximum = std::max(maximum, heights[i]);
-    }
-    bool changed = !impl->terrainEnabled[index];
-    for (unsigned y = 0; y < TerrainGridSide; ++y) {
-        float *destination = impl->terrainPixels.data() + y * TerrainGridSide * 2 + index * TerrainGridSide;
-        const float *source = heights + y * TerrainGridSide;
-        changed = changed || std::memcmp(destination, source, TerrainGridSide * sizeof(float)) != 0;
-        std::copy(source, source + TerrainGridSide, destination);
-    }
-    impl->terrainEnabled[index] = true;
-    impl->terrainMin[index] = minimum;
-    impl->terrainMax[index] = maximum;
-    impl->terrainDirty = impl->terrainDirty || changed;
-}
-void Layer::setPalette(unsigned index, const Palette &palette)
-{
-    const float values[] = { palette.main.r, palette.main.g, palette.main.b,
-        palette.shadow.r, palette.shadow.g, palette.shadow.b, palette.brightness, palette.transparency };
-    if (index >= 4) { impl->fail("invalid palette index"); return; }
-    for (unsigned i = 0; i < 8; ++i)
-        if (!std::isfinite(values[i]) || values[i] < 0 || values[i] > (i == 6 ? 2 : 1)) {
-            impl->fail("invalid palette value");
-            return;
-        }
-    impl->palettes[index] = palette;
-}
-void Layer::setInteractionEnabled(bool value) { impl->setInteractionEnabled(value); }
-bool Layer::isInteractionEnabled() const { return impl->interactionEnabled; }
-void Layer::setHeatEnabled(bool value) { impl->setHeatEnabled(value); }
-bool Layer::isHeatEnabled() const { return impl->heatEnabled; }
-void Layer::update(float seconds) { impl->update(seconds); }
-void Layer::reset() { impl->reset(); }
-bool Layer::render() { return impl->renderVolume(); }
-bool Layer::valid() const { return impl->initialized && !impl->failed && impl->flow.valid(); }
-unsigned Layer::activeBodies() const { return impl->flow.activeBodies(); }
-float Layer::maxDisturbance() const { return impl->flow.maxDisturbance(); }
-unsigned Layer::interactionUploads() const { return impl->flowUploads; }
-unsigned Layer::renderedFrames() const { return impl->renderedFrames; }
 std::uint64_t Layer::estimatedCacheBytes() const
 {
-    std::uint64_t result = impl->flowTexture ? 192u * 96u * 4u * sizeof(float) : 0;
-    if (impl->terrainTexture) result += TerrainGridSide * TerrainGridSide * 2u * sizeof(float);
-    for (const FieldCache &cache : impl->fieldCaches)
+    std::uint64_t result = flowTexture ? 192u * 96u * 4u * sizeof(float) : 0;
+    if (terrainTexture) result += TerrainGridSide * TerrainGridSide * 2u * sizeof(float);
+    for (const FieldCache &cache : fieldCaches)
         result += std::uint64_t(cache.side) * cache.side * CacheSlices * 10u;
     return result;
 }
-void Layer::shutdown() { impl->shutdown(); }
 
+} // namespace
 } // namespace SdlHazardCloud
 
 namespace HazardCloud {
@@ -1095,6 +731,11 @@ std::unique_ptr<Layer> CreateLayer()
 {
     if (!Supported()) return nullptr;
     return std::make_unique<SdlHazardCloud::Layer>();
+}
+
+void ReleaseDevice()
+{
+    if (SdlHazardCloud::shared.gpu) SdlHazardCloud::releaseShared(SdlHazardCloud::sharedDeviceAlive());
 }
 
 } // namespace HazardCloud

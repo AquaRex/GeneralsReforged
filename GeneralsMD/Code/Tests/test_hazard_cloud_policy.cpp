@@ -2,6 +2,7 @@
 #include "Platform/HazardCloudPolicy.h"
 #include "Platform/HazardCloud.h"
 #include "Platform/HazardCloudFlow.h"
+#include "Platform/HazardCloudCore.h"
 
 #include <initializer_list>
 #include <limits>
@@ -215,4 +216,93 @@ TEST(hazard_cloud_neutral_flow_advances_and_resets_without_a_renderer)
             CHECK(false);
             break;
         }
+}
+
+namespace {
+
+// The device-free core with no device under it: what a backend would bake and upload.
+class CoreProbe final : public HazardCloud::LayerCore {
+public:
+    bool initialize() override { initialized = true; return true; }
+    bool render(const HazardCloud::Camera &) override { return false; }
+    std::uint64_t estimatedCacheBytes() const override { return 0; }
+    void shutdown() override {}
+    using LayerCore::flowUploaded;
+    bool bakesFrom(float cameraX)
+    {
+        // A perspective camera standing back from the field, moved sideways by cameraX.
+        HazardCloud::Camera camera = {
+            {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, cameraX, 0, 400, 1},
+            {1, 0, 0, 0, 0, 1.7f, 0, 0, 0, 0, 1.001f, 1, 0, 0, -1.001f, 0},
+            0, 0, 1280, 720, 0, 1 };
+        HazardCloud::Uniforms uniforms;
+        float viewProjection[16];
+        CHECK(buildUniforms(camera, 1280, 720, uniforms, viewProjection));
+        return takeBake(uniforms);
+    }
+};
+
+} // namespace
+
+TEST(hazard_cloud_atlases_rebake_on_a_change_and_at_most_twenty_times_a_second)
+{
+    CoreProbe layer;
+    layer.initialize();
+    const HazardCloud::FieldState field = {{0, 0, 0}, 40, 18.61f, 1, 0, 1, 0, 10};
+    layer.setFields(&field, 1);
+    layer.update(1.0f);
+    CHECK(layer.bakesFrom(0));
+    CHECK(!layer.bakesFrom(0));
+    CHECK(!layer.bakesFrom(50));      // the camera never reaches the atlases
+    layer.update(1.01f);              // aging inside one bake period
+    CHECK(!layer.bakesFrom(0));
+    layer.update(1.06f);              // and into the next
+    CHECK(layer.bakesFrom(0));
+    HazardCloud::Palette palette = HazardCloud::defaultPalette(0);
+    palette.brightness = 1.0f;
+    layer.setPalette(0, palette);     // a structural change shows on the next frame
+    CHECK(layer.bakesFrom(0));
+    HazardCloud::FieldState wider = field;
+    wider.radius = 60;
+    layer.setFields(&wider, 1);
+    CHECK(layer.bakesFrom(0));
+    CHECK_EQ(layer.bakes(), 4u);
+}
+
+TEST(hazard_cloud_quiet_wake_grid_uploads_nothing)
+{
+    CoreProbe layer;
+    layer.initialize();
+    const HazardCloud::FieldState field = {{0, 0, 0}, 40, 18.61f, 1, 0, 1, 0, 10};
+    layer.setFields(&field, 1);
+    CHECK(layer.flowNeedsUpload());
+    layer.flowUploaded();
+    float seconds = 1.0f;
+    for (unsigned frame = 0; frame < 30; ++frame) layer.update(seconds += 1.0f / 60.0f);
+    CHECK(!layer.flowNeedsUpload());  // no infantry, nothing to heal
+    const HazardCloud::Body walker = {0, 0, 0, 30, 0, 3, 15};
+    layer.setBodies(&walker, 1);
+    for (unsigned frame = 0; frame < 10; ++frame) layer.update(seconds += 1.0f / 60.0f);
+    CHECK(layer.flowNeedsUpload());
+    CHECK(layer.maxDisturbance() > 0.0f);
+    layer.flowUploaded();
+    layer.setBodies(nullptr, 0);
+    for (unsigned frame = 0; frame < 60 * 20 && layer.maxDisturbance() > 0.0f; ++frame)
+        layer.update(seconds += 1.0f / 60.0f);
+    CHECK_EQ(layer.maxDisturbance(), 0.0f);  // healed, then put at rest
+    layer.flowUploaded();
+    layer.update(seconds += 1.0f / 60.0f);
+    CHECK(!layer.flowNeedsUpload());
+    CHECK(layer.valid());
+}
+
+TEST(hazard_cloud_shader_text_drops_register_spaces_only_for_direct3d_11)
+{
+    using HazardCloud::Pass;
+    for (Pass pass : {Pass::Volume, Pass::Composite, Pass::Density, Pass::Lighting, Pass::Heat}) {
+        CHECK(HazardCloud::pixelShader(pass, true).find(", space2)") != std::string::npos);
+        CHECK(HazardCloud::pixelShader(pass, false).find(", space") == std::string::npos);
+    }
+    CHECK(HazardCloud::emberVertexShader(false).find(", space") == std::string::npos);
+    CHECK(HazardCloud::emberPixelShader(false).find("register(b0)") != std::string::npos);
 }

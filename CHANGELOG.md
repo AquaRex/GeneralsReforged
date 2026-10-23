@@ -17,9 +17,10 @@ found and fixed â€” EA's own, not port damage.**
 
 - Options has a Water Style box. Modern rolls the sea in waves whose crests catch the sun all the way into the shallows, and at the shore they turn along the bank and pile up foam. Boats push foam off their hulls. Classic stays the default, and either way a map keeps the water colour and depth its maker gave it. Linux only for now.
 
-## Volumetric hazard clouds on Linux and macOS
+## Volumetric hazard clouds
 
-- Options has a Cloud Style box. Volumetric draws toxin, anthrax and nuclear fields as moving smoke at the size and for the time the hazard really lasts: low smoke hugs the ground and curls around infantry walking through it, and a nuclear field fades in across its whole width with dark billows and embers rising through the heat shimmer. The damage is exactly what it was. Classic stays the default until the cost in a big battle is measured, and on Windows the box is hidden.
+- Options has a Cloud Style box. Volumetric draws toxin, anthrax and nuclear fields as moving smoke at the size and for the time the hazard really lasts: low smoke hugs the ground and curls around infantry walking through it, and a nuclear field fades in across its whole width with dark billows and embers rising through the heat shimmer. The damage is exactly what it was. Classic stays the default until the cost in a big battle is measured.
+- Windows draws them too, on the default renderer, and so do Linux and macOS. The Direct3D 9 renderer and the Classic graphics setting keep the original puddles whatever the box says, and turning heat effects off takes the shimmer off a nuclear field as well. A cloud that only drifts redraws its smoke twenty times a second rather than every frame, and the second match of a session no longer stalls on the first toxin shell while the clouds' shaders are built again.
 
 ## A rank ladder for every army
 

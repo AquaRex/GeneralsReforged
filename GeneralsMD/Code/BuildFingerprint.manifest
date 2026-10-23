@@ -1830,8 +1830,6 @@ GameEngineDevice/Source/PosixDevice/Render/SdlGpuFrameSunShadow.cpp
 GameEngineDevice/Source/PosixDevice/Render/SdlHazardCloud.cpp
 GameEngineDevice/Source/PosixDevice/Render/SdlHazardCloudEmbers.cpp
 GameEngineDevice/Source/PosixDevice/Render/SdlHazardCloudEmbers.h
-GameEngineDevice/Source/PosixDevice/Render/SdlHazardCloudShader.cpp
-GameEngineDevice/Source/PosixDevice/Render/SdlHazardCloudShader.h
 GameEngineDevice/Source/PosixDevice/Render/SdlPipelineCache.cpp
 GameEngineDevice/Source/PosixDevice/Render/SdlPipelineCache.h
 GameEngineDevice/Source/PosixDevice/Render/SdlProgramCache.cpp
@@ -1856,6 +1854,7 @@ GameEngineDevice/Source/W3DDevice/Common/Thing/W3DModuleFactory.cpp
 GameEngineDevice/Source/W3DDevice/Common/Thing/W3DThingFactory.cpp
 GameEngineDevice/Source/W3DDevice/Common/W3DConvert.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/BaseHeightMap.cpp
+GameEngineDevice/Source/W3DDevice/GameClient/DX11HazardCloud.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DDebrisDraw.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DDefaultDraw.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DDependencyModelDraw.cpp
@@ -1894,7 +1893,9 @@ GameEngineDevice/Source/W3DDevice/GameClient/GUI/W3DGameFont.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/GUI/W3DGameWindow.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/GUI/W3DGameWindowManager.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/HazardCloud.cpp
+GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudCore.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudFlow.cpp
+GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudShader.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudUnsupported.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/HeightMap.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/Shaders/MotionBlur.nvv
@@ -1985,6 +1986,7 @@ Libraries/Include/Platform/D3D9PosixMath.h
 Libraries/Include/Platform/DoubleClickTime.h
 Libraries/Include/Platform/EngineShaderName.h
 Libraries/Include/Platform/HazardCloud.h
+Libraries/Include/Platform/HazardCloudCore.h
 Libraries/Include/Platform/HazardCloudFlow.h
 Libraries/Include/Platform/HazardCloudPolicy.h
 Libraries/Include/Platform/IsWindows9x.h
@@ -1998,7 +2000,6 @@ Libraries/Include/Platform/PosixD3D9/d3d9caps.h
 Libraries/Include/Platform/PosixD3D9/d3d9types.h
 Libraries/Include/Platform/RenderTypes.h
 Libraries/Include/Platform/RendererName.h
-Libraries/Include/Platform/SdlHazardCloud.h
 Libraries/Include/Platform/SleepMilliseconds.h
 Libraries/Include/Platform/StrdupAsWindows.h
 Libraries/Include/Platform/SunShadow.h

@@ -1,6 +1,6 @@
 // Backend-neutral hazard cloud palette and allocation policy.
 // Distributed under the repository's GPL-3.0 terms; see LICENSE.md.
-#include "Platform/HazardCloud.h"
+#include "Platform/HazardCloudCore.h"
 
 #include <algorithm>
 #include <array>
@@ -17,14 +17,16 @@ constexpr std::array<Palette, 4> approved = {{
     {{0.839999974f, 0.629999995f, 1.0f}, {0.192156866f, 0.0470588244f, 0.235294119f}, 1.32000005f, 0.74000001f},
 }};
 
+} // namespace
+
+// Include both domain boundaries, keep at most two world units between grid
+// nodes, and round the dimension up to a small allocation granularity.
 unsigned cacheSide(const FieldState &field)
 {
-    const float extent = 2.0f * (field.radius + field.fringe + 18.0f);
+    const float extent = 2.0f * (field.radius + field.fringe + MaximumDisplacement);
     const unsigned samples = static_cast<unsigned>(std::clamp(std::ceil(extent / 2.0f) + 1.0f, 32.0f, 512.0f));
     return (samples + 15u) & ~15u;
 }
-
-} // namespace
 
 const Palette &defaultPalette(unsigned index) { return approved[index < 4 ? index : 0]; }
 
