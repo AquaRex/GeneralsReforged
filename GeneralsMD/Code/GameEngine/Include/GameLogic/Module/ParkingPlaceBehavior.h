@@ -158,8 +158,9 @@ public:
 	virtual const std::vector<Coord3D>* getTaxiLocations( ObjectID id ) const { return NULL; }
 	virtual const std::vector<Coord3D>* getCreationLocations( ObjectID id ) const { return NULL; }
 
-	/// a new jet of this kind rolls down the runways in turn, one every quarter second, and is sent at
-	/// the target, or at the point when the target is gone by then (the Kargu base's swarm)
+	/// a new jet of this kind rolls out of a hangar and down the runways in turn, one every quarter
+	/// second, and is sent at the target, or at the point when the target is gone by then (the Kargu
+	/// base's swarm)
 	void scramble( const ThingTemplate *jet, ObjectID target, const Coord3D *pos );
 
 private:
@@ -224,6 +225,7 @@ private:
 	void purgeDead();
 	void resetWakeFrame();
 	void launchScramble();
+	void holdHangarDoorsOpen( Bool hold );
 
 	ParkingPlaceInfo* findPPI(ObjectID id);
 	ParkingPlaceInfo* findEmptyPPI();
