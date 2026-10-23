@@ -168,8 +168,8 @@ const unsigned NORMAL_MAPPED_LIGHTS = 4;
 	"float sun_reaching(float4 position)\n" \
 	"{\n" \
 	"    if (ShadowParameters.z <= 0.0) return 1.0;\n" \
-	"    float2 ndc = float2(position.x * ShadowViewport.x * 2.0 - 1.0,\n" \
-	"                        1.0 - position.y * ShadowViewport.y * 2.0);\n" \
+	"    float2 ndc = float2((position.x - ShadowViewport.z) * ShadowViewport.x * 2.0 - 1.0,\n" \
+	"                        1.0 - (position.y - ShadowViewport.w) * ShadowViewport.y * 2.0);\n" \
 	"    float4 sun = mul(float4(ndc, position.z, 1.0), ShadowFromClip);\n" \
 	"    if (sun.w <= 0.0) return 1.0;\n" \
 	"    sun /= sun.w;\n" \
@@ -254,9 +254,7 @@ const unsigned NORMAL_MAPPED_LIGHTS = 4;
 #define SHADOW_APPLY SHADOW_LIT \
 	"    current.rgb *= lerp(1.0, sun_reaching(input.Position), shadow_lit);\n"
 
-// The smoke in the sun's light, for the Direct3D 11 programs only: written after SHADOW_SAMPLING,
-// whose map and matrix it reads, and kept out of the SDL3 GPU text, which declares neither the
-// field it adds to the constant block nor a texture at t6.
+// Shared Windows and SDL smoke sampling, following SHADOW_SAMPLING.
 //
 // The smoke has a map of its own over the same sun (DX11BackendClass::Fill_Smoke_Map).  Each texel
 // holds three sums over the particles the sun sees through it: their optical depth, that times
@@ -274,14 +272,14 @@ const unsigned NORMAL_MAPPED_LIGHTS = 4;
 // plume's sun side lit.  .z is one for a draw whose vertices are in camera space already, which is the
 // particles: they take the sun's map through four wide taps, because a smoke sprite drawn twenty
 // deep would otherwise pay the fifty taps the ground pays, twenty times over.
-#define VOLUMETRIC_SAMPLING \
+#define SUN_SMOKE_SAMPLING \
 	"Texture2D SmokeMap : register(t6);\n" \
 	"SamplerState SmokeSampler : register(s6);\n" \
 	"\n" \
 	"bool sun_point(float4 position, out float3 sun)\n" \
 	"{\n" \
-	"    float2 ndc = float2(position.x * ShadowViewport.x * 2.0 - 1.0,\n" \
-	"                        1.0 - position.y * ShadowViewport.y * 2.0);\n" \
+	"    float2 ndc = float2((position.x - ShadowViewport.z) * ShadowViewport.x * 2.0 - 1.0,\n" \
+	"                        1.0 - (position.y - ShadowViewport.w) * ShadowViewport.y * 2.0);\n" \
 	"    float4 at = mul(float4(ndc, position.z, 1.0), ShadowFromClip);\n" \
 	"    sun = float3(0.0, 0.0, 0.0);\n" \
 	"    if (at.w <= 0.0) return false;\n" \
@@ -343,9 +341,9 @@ const unsigned NORMAL_MAPPED_LIGHTS = 4;
 	"    else sun = sun_reaching(position);\n" \
 	"    return sun * smoke_reaching(position);\n" \
 	"}\n" \
-	"\n" \
-	HEADLIGHT_SAMPLING \
-	BLAST_LIGHT_SAMPLING
+	"\n"
+
+#define VOLUMETRIC_SAMPLING SUN_SMOKE_SAMPLING HEADLIGHT_SAMPLING BLAST_LIGHT_SAMPLING
 
 // Vehicle headlights on a night map, Direct3D 11 only and riding on the smoke's text for that
 // reason: one spot light per lit vehicle, the nearest HEADLIGHT_SLOTS to the camera
@@ -554,6 +552,22 @@ const unsigned NORMAL_MAPPED_LIGHTS = 4;
 #define DRAW_EFFECT_CONSTANTS \
 	"    float4 DrawEffectParameters;\n"
 
+// Ordered cloak coverage reads only the caster opacity; it needs no scene texture.
+#define CLOAK_SHADOW_SAMPLING \
+	"/* Own stealthed unit drawn into the sun's map.  A depth map holds a caster or not, so the\n" \
+	"   cloaked one keeps a share of its texels, an ordered four by four pattern, and the receiving\n" \
+	"   filter, which averages a square of taps over several texels, turns that share into a shadow\n" \
+	"   that strength.  Half the stealth opacity: a quarter to a half, breathing with the body. */\n" \
+	"float4 effect_cloak_shadow(float4 current, float4 position)\n" \
+	"{\n" \
+	"    uint2 cell = uint2(position.xy) & 3u;\n" \
+	"    uint bayer = ((cell.x ^ cell.y) & 1u) * 8u + (cell.y & 1u) * 4u\n" \
+	"        + (((cell.x ^ cell.y) >> 1) & 1u) * 2u + ((cell.y >> 1) & 1u);\n" \
+	"    clip(DrawEffectParameters.w * 0.5 - ((float)bayer + 0.5) / 16.0);\n" \
+	"    return current;\n" \
+	"}\n" \
+	"\n"
+
 #define DRAW_EFFECT_SAMPLING \
 	"Texture2D SceneColour : register(t8);\n" \
 	"\n" \
@@ -723,19 +737,7 @@ const unsigned NORMAL_MAPPED_LIGHTS = 4;
 	"    return current;\n" \
 	"}\n" \
 	"\n" \
-	"/* Own stealthed unit drawn into the sun's map.  A depth map holds a caster or not, so the\n" \
-	"   cloaked one keeps a share of its texels, an ordered four by four pattern, and the receiving\n" \
-	"   filter, which averages a square of taps over several texels, turns that share into a shadow\n" \
-	"   that strength.  Half the stealth opacity: a quarter to a half, breathing with the body. */\n" \
-	"float4 effect_cloak_shadow(float4 current, float4 position)\n" \
-	"{\n" \
-	"    uint2 cell = uint2(position.xy) & 3u;\n" \
-	"    uint bayer = ((cell.x ^ cell.y) & 1u) * 8u + (cell.y & 1u) * 4u\n" \
-	"        + (((cell.x ^ cell.y) >> 1) & 1u) * 2u + ((cell.y >> 1) & 1u);\n" \
-	"    clip(DrawEffectParameters.w * 0.5 - ((float)bayer + 0.5) / 16.0);\n" \
-	"    return current;\n" \
-	"}\n" \
-	"\n"
+	CLOAK_SHADOW_SAMPLING
 
 // SHADOW_APPLY with the smoke in it.  A particle takes the shade whatever its own brightness: the
 // threshold is there for ground under the shroud, and on smoke it tied the shade to the colour, so

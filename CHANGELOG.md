@@ -8,6 +8,15 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
+## Sun and smoke shadow parity on Linux
+
+- Linux draws mapped sun and smoke shadows across terrain, buildings, units,
+  trees and bridges. Sorted cloaked casters retain their partial coverage.
+- Existing shadow options remain authoritative. Unavailable resources retain
+  legacy shadows; legacy water and reflections keep their existing paths.
+- Windows and macOS keep their existing renderer behavior. See
+  [the Linux shadow guide](docs/sdl-sun-shadows.md) for diagnostics and limits.
+
 ## A rank ladder for every army
 
 - Three chevrons are now a whole army's ladder. An American unit climbs 28 promotions from E-1 Private to General of the Army, a Chinese one 19 from Private to General, a GLA one 20 from Recruit to Supreme Liberator. Every unit starts unranked with a bare health bar and no bonus; from the first promotion on, each grade wears its own insignia beside the health bar and floats it up over the unit's head the moment it is earned. Hover the portrait for the rank's name and how far the next one is: "Next rank 340/420 XP".

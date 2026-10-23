@@ -18,6 +18,7 @@
 // Modified 2026 by İlyas Akın for the macOS/Linux port; see NOTICE.md and the git history.
 
 #include "dx11runtime.h"
+#include "Platform/SunShadow.h"
 
 #include <map>
 #include <stdio.h>
@@ -1234,4 +1235,40 @@ void Direct3D11_Take_Frame_Cost(double & pipeline_milliseconds, unsigned & pipel
 		GpuWindow.ConstantRenames += constant_renames;
 	}
 	DX11Texture_Take_Frame_Cost(texture_milliseconds, textures);
+}
+
+// Shadow-only dispatch; does not change per-pixel lighting capability.
+namespace SunShadow {
+bool FillSmoke(IDirect3DDevice9 *,const float *c,unsigned n,float s) { return Direct3D11_Fill_Smoke_Map(c,n,s); }
+bool CasterEffects(IDirect3DDevice9 *) { return Direct3D11_Draw_Effects(); }
+void SetCasterEffect(IDirect3DDevice9 *,unsigned e,const float p[4]) { Direct3D11_Set_Draw_Effect(e,p); }
+CasterEffect GetCasterEffect(IDirect3DDevice9 *) {
+    CasterEffect effect;
+    // Queued caster coverage is Linux-only; preserve Windows sorting behavior.
+    return effect;
+}
+void SetSmokeGlow(IDirect3DDevice9 *,bool g) { Direct3D11_Set_Smoke_Glow(g); }
+static bool receiving = false;
+bool Begin(IDirect3DDevice9 *, unsigned size) { return Direct3D11_Begin_Shadow_Map(size); }
+bool End(IDirect3DDevice9 *) {
+    const bool bound = Direct3D11_Shadow_Map_Bound();
+    Direct3D11_End_Shadow_Map();
+    return bound;
+}
+// The pass's start only hands the frame back to the volumes, as theShadowMapHoldsTheFrame did.
+void Clear(IDirect3DDevice9 *) { receiving = false; }
+bool Parameters(IDirect3DDevice9 *, float bias, float strength, float widest, float narrowest,
+    float texelsPerGap, float unitsPerDepth, float skyFill) {
+    if (!Direct3D11_Is_Active()) return false;
+    Direct3D11_Set_Shadow_Parameters(bias,strength,widest,narrowest,texelsPerGap,unitsPerDepth,skyFill);
+    receiving = true;
+    return true;
+}
+bool ReceivesView(IDirect3DDevice9 *) { return receiving && Direct3D11_Is_Active(); }
+bool OwnsSceneShadows(IDirect3DDevice9 *d) { return ReceivesView(d); }
+bool EnterScene(IDirect3DDevice9 *,bool eligible) { return eligible; }
+void LeaveScene(IDirect3DDevice9 *,bool) {}
+void ExcludeReceivers(IDirect3DDevice9 *, bool) {} // SDL phase-one exclusions; existing D3D11 behavior unchanged.
+bool ReceiversExcluded(IDirect3DDevice9 *) { return false; }
+std::string Report(IDirect3DDevice9 *) { return Direct3D11_Shadow_Map_Report(); }
 }

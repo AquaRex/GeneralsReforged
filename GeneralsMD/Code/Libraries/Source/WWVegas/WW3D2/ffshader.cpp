@@ -239,11 +239,14 @@ static bool generate_combiners(const CombinerDescription & description,
 bool CombinerShader_Generate(const CombinerDescription & description, CombinerShaderTarget target,
 	std::string & hlsl)
 {
-	// The SDL3 GPU program is the D3D11 one with its bindings rewritten, so everything below only
-	// ever sees the two profiles it was written for.  It goes without the smoke: its backend binds
-	// nothing at t6 and uploads no field past SkyUp (SdlEnginePixelConstants).
+	// SDL shares D3D11 arithmetic and constant layouts, then rewrites resource bindings.
+	// Its cloak caster needs only ordered coverage, without cosmetic scene resources.
 	if (target == COMBINER_SHADER_TARGET_SDL3_GPU) {
-		return generate_combiners(description, COMBINER_SHADER_TARGET_D3D11, hlsl, false)
+		CombinerDescription supported = description;
+		// Scene-depth fading and cosmetic refraction still have separate SDL integration work.
+		supported.SoftParticle = SOFT_PARTICLE_NONE;
+		if (supported.DrawEffect != DRAW_EFFECT_CLOAK_SHADOW) supported.DrawEffect = DRAW_EFFECT_NONE;
+		return generate_combiners(supported, target, hlsl, true)
 			&& SDL3_Shader_Retarget(hlsl, false);
 	}
 	return generate_combiners(description, target, hlsl, target == COMBINER_SHADER_TARGET_D3D11);
@@ -252,10 +255,11 @@ bool CombinerShader_Generate(const CombinerDescription & description, CombinerSh
 static bool generate_combiners(const CombinerDescription & description,
 	CombinerShaderTarget target, std::string & hlsl, bool volumetric)
 {
-	// The soft particles ride on the Direct3D 11 text for the smoke's reason: the SDL3 backend binds
-	// nothing at t7 and uploads nothing past SkyUp.
+	const bool sdl = target == COMBINER_SHADER_TARGET_SDL3_GPU;
+	if (sdl) target = COMBINER_SHADER_TARGET_D3D11;
+	// Depth-faded particles remain Windows-only until SDL supplies the scene depth at t7.
 	const bool soft = volumetric && description.SoftParticle != SOFT_PARTICLE_NONE;
-	// The per-object looks likewise: nothing past SoftParticleDepth reaches the SDL3 programs.
+	// SDL accepts only the cloak caster variant; Windows also supplies the cosmetic scene effects.
 	const unsigned effect = (volumetric && description.DrawEffect < DRAW_EFFECT_COUNT)
 		? description.DrawEffect : DRAW_EFFECT_NONE;
 	// The fire look reads no constant, but the vertex half that feeds it is the D3D11 one's.
@@ -403,7 +407,9 @@ static bool generate_combiners(const CombinerDescription & description,
 			hlsl += SOFT_PARTICLE_SAMPLING;
 		}
 		if (effect != DRAW_EFFECT_NONE) {
-			hlsl += DRAW_EFFECT_SAMPLING;
+			// SDL admits only the cloak caster. The complete cosmetic helper declares
+			// SceneColour at t8 even when unused, exceeding its eight-slot draw layout.
+			hlsl += sdl ? CLOAK_SHADOW_SAMPLING : DRAW_EFFECT_SAMPLING;
 		}
 		if (fire != FIRE_LOOK_NONE) {
 			hlsl += FIRE_LOOK_SAMPLING;

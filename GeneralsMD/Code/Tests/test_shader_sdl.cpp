@@ -195,6 +195,50 @@ bool vertex_layout(const std::string & hlsl, std::vector<SDL_GPUVertexAttribute>
 	return !attributes.empty();
 }
 
+TEST(sdl_cloak_caster_fits_the_eight_slot_draw_contract)
+{
+	for (unsigned textured = 0; textured < 2; ++textured) {
+		CombinerDescription description = {};
+		description.StageCount = 1;
+		description.Stages[0].ColourOperation = FF_TOP_SELECTARG1;
+		description.Stages[0].AlphaOperation = FF_TOP_SELECTARG1;
+		description.Stages[0].ColourArgument1 = textured ? FF_TA_TEXTURE : FF_TA_DIFFUSE;
+		description.Stages[0].AlphaArgument1 = description.Stages[0].ColourArgument1;
+		description.Stages[0].TextureBound = textured != 0;
+		description.DrawEffect = DRAW_EFFECT_CLOAK_SHADOW;
+		std::string generated;
+		CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_SDL3_GPU, generated));
+		// The cosmetic cloak's scene texture is outside SDL's eight-slot layout.
+		// Ordered caster coverage must not inherit that unused declaration.
+		CHECK(generated.find("SceneColour") == std::string::npos);
+		CHECK(generated.find("effect_cloak_shadow") != std::string::npos);
+		for (unsigned depth_only = 0; depth_only < 2; ++depth_only) {
+			std::string hlsl = generated;
+			if (depth_only) {
+				// Compile the same depth-only entry point used by Sun_Pixel_Program.
+				const std::string entry = "float4 main(Input input) : SV_Target";
+				const size_t at = hlsl.find(entry);
+				CHECK(at != std::string::npos);
+				if (at == std::string::npos) continue;
+				hlsl.replace(at, entry.size(), "float4 sunCasterPixel(Input input)");
+				hlsl += "\nvoid main(Input input) { sunCasterPixel(input); }\n";
+			}
+			std::vector<unsigned char> spirv;
+			std::string log;
+			const bool compiled = SDL3_Compile_HLSL_To_SPIRV(hlsl, false, spirv, log);
+			CHECK(compiled);
+			if (!compiled) {
+				printf("  cloak caster: %s\n", log.c_str());
+				continue;
+			}
+			unsigned samplers = 0, uniforms = 0;
+			SDL3_Shader_Slots(spirv, false, samplers, uniforms);
+			CHECK(samplers <= 8);
+			CHECK_EQ(uniforms, 1u);
+		}
+	}
+}
+
 TEST(every_generated_program_reaches_sdl3_gpu)
 {
 	const char * spirv_val = getenv("ZH_SPIRV_VAL");
