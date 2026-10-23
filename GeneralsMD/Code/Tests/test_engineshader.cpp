@@ -395,4 +395,15 @@ TEST(engineshader_writes_programs_the_compiler_accepts)
 	std::string monochrome;
 	CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_MONOCHROME, pipeline, monochrome));
 	CHECK(compiles(compile, monochrome, EngineShader_Name(ENGINE_SHADER_MONOCHROME), PIXEL_PROFILE));
+
+	std::string trapezoid_foam;
+	CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID_FOAM, pipeline, trapezoid_foam));
+	CHECK(contains(trapezoid_foam, "SceneDepth"));
+	CHECK(compiles(compile, trapezoid_foam, EngineShader_Name(ENGINE_SHADER_WATER_TRAPEZOID_FOAM),
+		PIXEL_PROFILE));
+
+	std::string river_foam;
+	CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_RIVER_FOAM, pipeline, river_foam));
+	CHECK(compiles(compile, river_foam, EngineShader_Name(ENGINE_SHADER_WATER_RIVER_FOAM),
+		PIXEL_PROFILE));
 }

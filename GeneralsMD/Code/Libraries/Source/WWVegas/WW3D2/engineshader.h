@@ -70,7 +70,12 @@ enum EngineShaderProgram
 	ENGINE_SHADER_FLAT_TERRAIN_NOISE,
 	ENGINE_SHADER_FLAT_TERRAIN_NOISE_2,
 	ENGINE_SHADER_ROAD_NOISE_2,
-	ENGINE_SHADER_MONOCHROME
+	ENGINE_SHADER_MONOCHROME,
+	// The trapezoid and river water again with foam, shore depth and the sun's shadow
+	// (the Water Foam option).  Same D3D9 bytecode, a second name; after the table's last shipped program
+	// so the shader case sweep and its reference set stay as they were.
+	ENGINE_SHADER_WATER_TRAPEZOID_FOAM,
+	ENGINE_SHADER_WATER_RIVER_FOAM
 };
 
 // The name the engine loaded the shader under: a path for the ones that ship as files
@@ -95,6 +100,10 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 // Which transcribed programs paint the ground, and so read the sun's shadow map.  The water and
 // the trees are not among them: both have shadows of their own.
 bool EngineShader_Paints_Ground(EngineShaderProgram program);
+
+// Which transcribed programs read the scene's depth copy at t7: the foam water, for how deep the
+// water is under each pixel.  The copy is the soft particles' (DX11BackendClass::Take_Scene_Depth).
+bool EngineShader_Reads_Scene_Depth(EngineShaderProgram program);
 
 // What the pipeline cache keys this program under and what the dump calls its file.
 const char * EngineShader_Name(EngineShaderProgram program);

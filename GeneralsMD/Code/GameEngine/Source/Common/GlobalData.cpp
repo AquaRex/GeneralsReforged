@@ -1059,6 +1059,9 @@ GlobalData::GlobalData()
 	m_skirmishLobbyOnStart = FALSE;
 	m_optionsMenuOnStart = FALSE;
 	m_randomMapsInMenus = FALSE;
+	m_mapLight = FALSE;
+	m_teamGlow = FALSE;
+	m_waterFoam = FALSE;
 	m_horizontalScrollSpeedFactor = 1.0;
 	m_verticalScrollSpeedFactor = 1.0;
 

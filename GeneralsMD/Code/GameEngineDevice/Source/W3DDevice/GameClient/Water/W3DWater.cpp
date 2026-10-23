@@ -215,10 +215,36 @@ void doSkyBoxSet(Bool startDraw)
 #define AMP_SCALE2	(10.0f/120.0f)
 #define NOISE_FREQ	(2.0f*PI/WAVE_FREQ)
 
-#define NOISE_REPEAT_FACTOR ((float)(1.0f/(16.0f)))
+#define NOISE_REPEAT_FACTOR ((float)(1.0f/(16.0f)))	//the foam programs undo this (TexCoord2 * 16) to find the world
 
 					
 static Bool wireframeForDebug = 0;
+
+//
+// The Water Foam option (WaterFoam): whitecap flecks, a foam band and a soft blend where the
+// water gets shallow, and the sun's shadow on the surface.  It is the D3D11 water program under a
+// second name (engineshader.cpp, "water foam"); the D3D9 bytecode is the same, so -d3d9 and the
+// Classic setting, which has no sun's map to take the pixel back to the world through, keep the
+// plain water and its destination alpha feather.
+//
+#define WATER_FOAM_CYCLE 10.0f	//swell cycles per unit of m_riverVOrigin: about eight seconds a cycle
+
+static Bool waterFoam(void)
+{
+	return TheGlobalData->m_waterFoam && !TheGlobalData->m_classicGraphics
+		&& Direct3D11_Present_Is_Enabled();
+}
+
+// What the foam programs read out of the texture factor: green is the swell's phase, alpha the
+// opacity deep water reaches and red the depth that reaches it over 32.  Alpha zero keeps the
+// water's own alpha, which is every water body that is not feathered.
+static UnsignedInt waterFoamFactor(Real riverVOrigin, Real opaqueDepth, Real deepOpacity)
+{
+	const Real phase = fmodf(riverVOrigin * WATER_FOAM_CYCLE, 1.0f);
+	const Int depth = REAL_TO_INT(WWMath::Clamp(opaqueDepth / 32.0f, 0.0f, 1.0f) * 255.0f);
+	const Int opacity = REAL_TO_INT(WWMath::Clamp(deepOpacity, 0.0f, 1.0f) * 255.0f);
+	return ((UnsignedInt)opacity << 24) | ((UnsignedInt)depth << 16) | ((UnsignedInt)REAL_TO_INT(phase * 255.0f) << 8);
+}
 
 //
 // The river used to get its shroud from a second pass that redrew the whole quad through
@@ -327,6 +353,10 @@ void WaterRenderObjClass::setupJbaWaterShader(void)
 	if (m_riverWaterPixelShader){
 		DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(0,   D3DXVECTOR4(REFLECTION_FACTOR, REFLECTION_FACTOR, REFLECTION_FACTOR, 1.0f), 1);
 		DX8Wrapper::Set_Pixel_Shader(m_riverWaterPixelShader);
+		if (waterFoam()) {
+			DX8Wrapper::Set_DX8_Render_State(D3DRS_TEXTUREFACTOR, waterFoamFactor(m_riverVOrigin, 0.0f, 0.0f));
+			DX8Wrapper::Set_Pixel_Shader(m_riverWaterFoamPixelShader);
+		}
 	}
 }
 
@@ -427,6 +457,8 @@ WaterRenderObjClass::WaterRenderObjClass(void)
 	m_riverWaterPixelShader=0;		///<D3D handle to pixel shader.
 	m_trapezoidWaterPixelShader=0;		///<D3D handle to pixel shader.
 	m_reflectionPixelShader=0;
+	m_riverWaterFoamPixelShader=0;
+	m_trapezoidWaterFoamPixelShader=0;
 	m_waterSparklesTexture=0;
 	m_riverXOffset=0;
 	m_riverYOffset=0;
@@ -916,12 +948,20 @@ void WaterRenderObjClass::ReleaseResources(void)
 	if (m_riverWaterPixelShader)
 		m_riverWaterPixelShader->Release();
 
+	if (m_riverWaterFoamPixelShader)
+		m_riverWaterFoamPixelShader->Release();
+
+	if (m_trapezoidWaterFoamPixelShader)
+		m_trapezoidWaterFoamPixelShader->Release();
+
 	m_dwWavePixelShader=0;
 	m_dwWaveVertexShader=0;
 	m_waterPixelShader = 0;
 	m_trapezoidWaterPixelShader=0;
 	m_reflectionPixelShader=0;
 	m_riverWaterPixelShader=0;
+	m_riverWaterFoamPixelShader=0;
+	m_trapezoidWaterFoamPixelShader=0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1021,8 +1061,11 @@ void WaterRenderObjClass::ReAcquireResources(void)
 		hr = D3DXAssembleShader( shader, (UINT)strlen(shader), NULL, NULL, 0, &compiledShader, NULL);
 		if (hr==0) {
 			hr = 	DX8Wrapper::_Get_D3D_Device()->CreatePixelShader((RenderUInt32*)compiledShader->GetBufferPointer(), &m_riverWaterPixelShader);
+			// the same bytecode under a second name, which the D3D11 backend draws with foam (WaterFoam)
+			DX8Wrapper::_Get_D3D_Device()->CreatePixelShader((RenderUInt32*)compiledShader->GetBufferPointer(), &m_riverWaterFoamPixelShader);
 			compiledShader->Release();
 			Direct3D11_Register_Engine_Shader(m_riverWaterPixelShader, "river water ps.1.1");
+			Direct3D11_Register_Engine_Shader(m_riverWaterFoamPixelShader, "river water foam ps.1.1");
 		}
 		shader = 
 			"ps.1.1\n \
@@ -1051,8 +1094,10 @@ void WaterRenderObjClass::ReAcquireResources(void)
 		hr = D3DXAssembleShader( shader, (UINT)strlen(shader), NULL, NULL, 0, &compiledShader, NULL);
 		if (hr==0) {
 			hr = 	DX8Wrapper::_Get_D3D_Device()->CreatePixelShader((RenderUInt32*)compiledShader->GetBufferPointer(), &m_trapezoidWaterPixelShader);
+			DX8Wrapper::_Get_D3D_Device()->CreatePixelShader((RenderUInt32*)compiledShader->GetBufferPointer(), &m_trapezoidWaterFoamPixelShader);
 			compiledShader->Release();
 			Direct3D11_Register_Engine_Shader(m_trapezoidWaterPixelShader, "trapezoid water ps.1.1");
+			Direct3D11_Register_Engine_Shader(m_trapezoidWaterFoamPixelShader, "trapezoid water foam ps.1.1");
 		}
 		shader =
 			"ps.1.1\n \
@@ -1746,6 +1791,11 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 		WW3D::Add_To_Static_Sort_List(this, sort_level);
 		return;
 	}
+
+	// The foam reads how deep the water is out of the scene's depth, which the ground and every
+	// opaque object have written by now: a copy, taken once here, before the water writes any.
+	if (waterFoam())
+		Direct3D11_Take_Scene_Depth();
 
 	switch(m_waterType)
 	{
@@ -2574,6 +2624,7 @@ void WaterRenderObjClass::renderWaterMesh(void)
 	m_shaderClass.Set_Cull_Mode(ShaderClass::CULL_MODE_ENABLE);	//water should be visible from both sides
 
 	DX8Wrapper::Set_Shader(m_shaderClass);
+	const unsigned oldTextureFactor = DX8Wrapper::Get_DX8_Render_State(D3DRS_TEXTUREFACTOR);	//the foam borrows it
 #if 1
 	setupFlatWaterShader();
 #else 
@@ -2640,6 +2691,8 @@ void WaterRenderObjClass::renderWaterMesh(void)
 //	DX8Wrapper::Set_DX8_Render_State(D3DRS_FILLMODE,D3DFILL_SOLID);
 
 	if (m_trapezoidWaterPixelShader) DX8Wrapper::Set_Pixel_Shader(NULL);
+	if (waterFoam())
+		DX8Wrapper::Set_DX8_Render_State(D3DRS_TEXTUREFACTOR, oldTextureFactor);
 
 	m_vertexBufferD3DOffset += mx*my;	//advance past vertices already in buffer
 
@@ -2896,6 +2949,7 @@ void WaterRenderObjClass::drawRiverWater(PolygonTrigger *pTrig)
 	DX8Wrapper::Set_Vertex_Buffer(vb_access);
 	DX8Wrapper::Set_Texture(0,m_riverTexture);	//set to blue
 
+	const unsigned oldTextureFactor = DX8Wrapper::Get_DX8_Render_State(D3DRS_TEXTUREFACTOR);	//the foam borrows it
 	setupJbaWaterShader();
 
 	//In additive blending we need to use the alpha at the edges of river to darken
@@ -2903,7 +2957,7 @@ void WaterRenderObjClass::drawRiverWater(PolygonTrigger *pTrig)
 	if (TheWaterTransparency->m_additiveBlend)
 		DX8Wrapper::Set_DX8_Render_State(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA );
 
-	if (m_riverWaterPixelShader) DX8Wrapper::Set_Pixel_Shader(m_riverWaterPixelShader);
+	if (m_riverWaterPixelShader) DX8Wrapper::Set_Pixel_Shader(waterFoam() ? m_riverWaterFoamPixelShader : m_riverWaterPixelShader);
  	RenderUInt32 cull;
 	DX8Wrapper::_Get_D3D_Device()->GetRenderState(D3DRS_CULLMODE, &cull);
 	DX8Wrapper::Set_DX8_Render_State(D3DRS_CULLMODE, D3DCULL_NONE);
@@ -2919,6 +2973,8 @@ void WaterRenderObjClass::drawRiverWater(PolygonTrigger *pTrig)
 	}
 
 	if (m_riverWaterPixelShader) DX8Wrapper::Set_Pixel_Shader(NULL);
+	if (waterFoam())
+		DX8Wrapper::Set_DX8_Render_State(D3DRS_TEXTUREFACTOR, oldTextureFactor);
 
 	//restore blend mode to what W3D expects.
 	if (TheWaterTransparency->m_additiveBlend)
@@ -3088,6 +3144,11 @@ void WaterRenderObjClass::setupFlatWaterShader(void)
 	if (m_trapezoidWaterPixelShader){
 		DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(0,   D3DXVECTOR4(REFLECTION_FACTOR, REFLECTION_FACTOR, REFLECTION_FACTOR, 1.0f), 1);
 		DX8Wrapper::Set_Pixel_Shader(m_trapezoidWaterPixelShader);
+		if (waterFoam()) {
+			// unfeathered unless drawTrapezoidWater hands over the depth curve
+			DX8Wrapper::Set_DX8_Render_State(D3DRS_TEXTUREFACTOR, waterFoamFactor(m_riverVOrigin, 0.0f, 0.0f));
+			DX8Wrapper::Set_Pixel_Shader(m_trapezoidWaterFoamPixelShader);
+		}
 	}
 }
 
@@ -3326,10 +3387,21 @@ void WaterRenderObjClass::drawTrapezoidWater(Vector3 points[4])
 	DX8Wrapper::Set_Index_Buffer(ib_access,0);
 	DX8Wrapper::Set_Vertex_Buffer(vb_access);
 
+	const unsigned oldTextureFactor = DX8Wrapper::Get_DX8_Render_State(D3DRS_TEXTUREFACTOR);	//the foam borrows it
 	setupFlatWaterShader();// lorenzen sez use the alpha shader
 
 	//If video card supports it and it's enabled, feather the water edge using destination alpha
-	if (DX8Wrapper::getBackBufferFormat() == WW3D_FORMAT_A8R8G8B8 && TheGlobalData->m_showSoftWaterEdge && TheWaterTransparency->m_transparentWaterDepth !=0)
+	if (DX8Wrapper::getBackBufferFormat() == WW3D_FORMAT_A8R8G8B8 && TheGlobalData->m_showSoftWaterEdge && TheWaterTransparency->m_transparentWaterDepth !=0
+		&& waterFoam() && !TheWaterTransparency->m_additiveBlend)
+	{	// The foam program feathers per pixel instead, by the same curve the shoreline tiles write into
+		// the frame's alpha (BaseHeightMapRenderObjClass::updateShorelineTile): the depth over
+		// TransparentWaterDepth * TransparentWaterMinOpacity, held at TransparentWaterMinOpacity.
+		// The source alpha has to stay the blend factor, or the shallow foam would fade out with it.
+		DX8Wrapper::Set_DX8_Render_State(D3DRS_TEXTUREFACTOR, waterFoamFactor(m_riverVOrigin,
+			TheWaterTransparency->m_transparentWaterDepth * TheWaterTransparency->m_minWaterOpacity,
+			TheWaterTransparency->m_minWaterOpacity));
+	}
+	else if (DX8Wrapper::getBackBufferFormat() == WW3D_FORMAT_A8R8G8B8 && TheGlobalData->m_showSoftWaterEdge && TheWaterTransparency->m_transparentWaterDepth !=0)
 	{		DX8Wrapper::Set_DX8_Render_State(D3DRS_SRCBLEND, D3DBLEND_DESTALPHA );
 			if (!TheWaterTransparency->m_additiveBlend)
 				DX8Wrapper::Set_DX8_Render_State(D3DRS_DESTBLEND, D3DBLEND_INVDESTALPHA );
@@ -3375,6 +3447,8 @@ void WaterRenderObjClass::drawTrapezoidWater(Vector3 points[4])
 	}
 
 	if (m_riverWaterPixelShader) DX8Wrapper::Set_Pixel_Shader(NULL);
+	if (waterFoam())
+		DX8Wrapper::Set_DX8_Render_State(D3DRS_TEXTUREFACTOR, oldTextureFactor);
 	//Restore alpha blend to default values since we may have changed them to feather edges.
 	if (!TheWaterTransparency->m_additiveBlend)
 	{	DX8Wrapper::Set_DX8_Render_State(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA );

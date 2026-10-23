@@ -58,6 +58,7 @@ void Direct3D11_Mirror_Light_Disabled(unsigned) {}
 DX11BufferTwinClass * Direct3D11_Twin_Vertex_Buffer(unsigned, bool) { return NULL; }
 DX11BufferTwinClass * Direct3D11_Twin_Index_Buffer(unsigned, bool) { return NULL; }
 void Direct3D11_Mirror_Texture(unsigned, struct IDirect3DBaseTexture9 *) {}
+void Direct3D11_Set_Haze_Shroud(struct IDirect3DBaseTexture9 *, const float [4]) {}
 
 void Direct3D11_Set_Headlights(const float *, unsigned, const float [3]) {}
 void Direct3D11_Set_Blast_Lights(const float *, unsigned) {}
@@ -77,6 +78,7 @@ void Direct3D11_Set_Scene_View(const float [16]) {}
 void Direct3D11_Set_Smoke_Glow(bool) {}
 void Direct3D11_Set_Fire_Look(bool) {}
 void Direct3D11_Set_Emissive(bool) {}
+void Direct3D11_Set_Team_Glow(bool) {}
 void Direct3D11_Set_Draw_Effect(unsigned, const float [4]) {}
 bool Direct3D11_Draw_Effects() { return false; }
 void Direct3D11_Allow_Draw_Effects(bool) {}

@@ -198,6 +198,8 @@ protected:
 	IDirect3DPixelShader9 *	m_riverWaterPixelShader;		///<D3D pixel shader.
 	IDirect3DPixelShader9 *	m_trapezoidWaterPixelShader;	///<D3D pixel shader
 	IDirect3DPixelShader9 *	m_reflectionPixelShader;	///<darkens water where the reflection texture holds something
+	IDirect3DPixelShader9 *	m_riverWaterFoamPixelShader;	///<the river's bytecode again, named for the D3D11 foam program (WaterFoam)
+	IDirect3DPixelShader9 *	m_trapezoidWaterFoamPixelShader;	///<the trapezoid's bytecode again, named for the D3D11 foam program
 	TextureClass *m_waterSparklesTexture;
 	Real m_riverXOffset;
 	Real m_riverYOffset;

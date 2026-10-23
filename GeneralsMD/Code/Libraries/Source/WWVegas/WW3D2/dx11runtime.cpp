@@ -537,6 +537,16 @@ void Direct3D11_Mirror_Texture(unsigned stage, struct IDirect3DBaseTexture9 * te
 	Backend.Set_Texture_Missing(stage, texture != NULL && view == NULL);
 }
 
+void Direct3D11_Set_Haze_Shroud(struct IDirect3DBaseTexture9 * texture, const float rect[4])
+{
+	if (!Active) {
+		return;
+	}
+	DX11Post_Set_Haze_Shroud(texture == NULL
+		? NULL
+		: DX11Texture_Mirror(Device.Get_Device(), Device.Get_Context(), texture), rect);
+}
+
 void Direct3D11_Set_Headlights(const float * lights, unsigned count, const float gain[3])
 {
 	if (Active) {
@@ -636,6 +646,13 @@ void Direct3D11_Set_Emissive(bool emissive)
 	}
 }
 
+void Direct3D11_Set_Team_Glow(bool glow)
+{
+	if (Active) {
+		Backend.Set_Team_Glow(glow);
+	}
+}
+
 static bool DrawEffectsAllowed = true;
 
 void Direct3D11_Set_Draw_Effect(unsigned effect, const float parameters[4])
@@ -666,7 +683,25 @@ unsigned Direct3D11_Requested_Draw_Effect(float parameters[4])
 
 void Direct3D11_Occlude_Scene()
 {
-	if (Active && Backend.Draws_Into_Scene() && Post.Occlude_Scene(Device.Get_Depth_Texture())) {
+	if (!Active || !Backend.Draws_Into_Scene()) {
+		return;
+	}
+	bool drew = Post.Occlude_Scene(Device.Get_Depth_Texture());
+	// The prototype ground haze goes on at the same moment, over the occlusion and under the fire.
+	if (Post.Wants_Haze_Program()) {
+		std::vector<unsigned char> code;
+		if (Backend.Compile_Pixel_Program(Post.Haze_Program_Source(), "dx11haze", code) && !code.empty()) {
+			Post.Load_Haze_Program(&code[0], code.size());
+		} else {
+			Post.Load_Haze_Program(NULL, 0);
+		}
+	}
+	float world_from_clip[16];
+	if (Backend.Scene_World_From_Clip(world_from_clip)
+			&& Post.Haze_Scene(Device.Get_Depth_Texture(), world_from_clip)) {
+		drew = true;
+	}
+	if (drew) {
 		Backend.Resume_Scene();
 	}
 }
@@ -843,6 +878,7 @@ void Direct3D11_Begin_Scene()
 		if (!FrameOpen) {
 			begin_frame();
 			Post.Open_Frame();
+			Backend.Open_Frame();
 		}
 		// Before the backend binds anything: the scene goes wherever this says it goes, and a frame
 		// that asked for a chain and could not have one falls back to the swap chain here rather

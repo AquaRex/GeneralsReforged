@@ -247,6 +247,7 @@ DX11BackendClass::DX11BackendClass()
 	, SmokeGlow(false)
 	, FireLook(false)
 	, Emissive(false)
+	, TeamGlow(false)
 	, AdditiveGain(1.0f)
 	, GlowDraw(false)
 	, SceneStandIn(NULL)
@@ -299,7 +300,9 @@ DX11BackendClass::DX11BackendClass()
 	set_identity(View);
 	set_identity(Projection);
 	set_identity(SceneView);
+	set_identity(SceneProjection);
 	SceneViewKnown = false;
+	SceneViewThisFrame = false;
 	SmokeMapSurface = NULL;
 	SmokeMapTarget = NULL;
 	SmokeMapTexture = NULL;
@@ -1027,6 +1030,13 @@ void DX11BackendClass::Set_Scene_View(const float view[16])
 		SceneViewKnown = true;
 		ConstantsChanged = true;
 	}
+	memcpy(SceneProjection, Projection, sizeof(SceneProjection));
+	SceneViewThisFrame = true;
+}
+
+void DX11BackendClass::Open_Frame()
+{
+	SceneViewThisFrame = false;
 }
 
 void DX11BackendClass::Set_Smoke_Glow(bool glow)
@@ -1051,6 +1061,28 @@ void DX11BackendClass::Set_Emissive(bool emissive)
 		Emissive = emissive;
 		PipelineChanged = true;
 	}
+}
+
+void DX11BackendClass::Set_Team_Glow(bool glow)
+{
+	if (TeamGlow != glow) {
+		TeamGlow = glow;
+		PipelineChanged = true;
+	}
+}
+
+/** An opaque fixed-function draw into the scene's own target, under no other look: blended, the
+		stripe would add light behind a fading or cloaked body, and a mirror, a portrait or the sun's
+		map has no bloom to feed.  Like Additive_Glow it wants the half float scene (a gain off one)
+		and not Classic, whose picture is -d3d9's (SoftParticlesAllowed carries that setting). */
+bool DX11BackendClass::Team_Glow() const
+{
+	return TeamGlow && AdditiveGain != 1.0f && SoftParticlesAllowed
+		&& !ShadowMapBound && CurrentTarget == NULL
+		&& VertexProgram == ENGINE_SHADER_NONE && PixelProgram == ENGINE_SHADER_NONE
+		&& (VertexFormat & D3DFVF_XYZRHW) == 0
+		&& RenderStates.Get_Render_State(D3DRS_ALPHABLENDENABLE) == FALSE
+		&& Draw_Effect() == DRAW_EFFECT_NONE;
 }
 
 /** Which way a fire billboard wears its look: through the colour for a blend that adds it
@@ -1083,6 +1115,9 @@ void DX11BackendClass::Set_Additive_Gain(float gain)
 		// The factor goes with the blend state when it is bound, so the next draw binds again.
 		StateObjectsChanged = true;
 		Bound.Blend = NULL;
+		if (TeamGlow) {
+			PipelineChanged = true;		// Team_Glow reads it
+		}
 	}
 }
 
@@ -1487,6 +1522,22 @@ static bool invert(const float in[16], float out[16])
 	out[14] = (-a30 * b03 + a31 * b01 - a32 * b00) * scale;
 	out[15] = ( a20 * b03 - a21 * b01 + a22 * b00) * scale;
 	return true;
+}
+
+bool DX11BackendClass::Scene_World_From_Clip(float world_from_clip[16]) const
+{
+	// The scene camera the shadow pass handed over at the top of the frame, not whatever the last
+	// draw left: a camera space particle run leaves an identity view, the interface an orthographic
+	// projection.  Every perspective draw of the scene shares the camera's projection.
+	// Its projection too, not the one the last draw left: the haze goes on after the water and the
+	// translucent meshes, and depth read back through any other projection lands the pixel at
+	// another distance along its own ray.
+	if (!SceneViewThisFrame || SceneProjection[11] == 0.0f) {
+		return false;
+	}
+	float scene_clip[16];
+	multiply(SceneView, SceneProjection, scene_clip);
+	return invert(scene_clip, world_from_clip);
 }
 
 /** What is in the map, read back once.  A caster pass that drew nothing leaves every texel at the
@@ -1949,6 +2000,12 @@ bool DX11BackendClass::Compile_Program(const std::string & source, const char * 
 	return true;
 }
 
+bool DX11BackendClass::Compile_Pixel_Program(const std::string & source, const char * name,
+	std::vector<unsigned char> & bytecode)
+{
+	return Compile_Program(source, name, PIXEL_PROFILE, bytecode);
+}
+
 // The key has characters a file name cannot carry, so it becomes the file's first line and the
 // name is a number.  Both programs of one pipeline go in one file, in the order they run.
 void DX11BackendClass::Dump_Program(const std::string & key, const std::string & vertex_hlsl,
@@ -2186,6 +2243,7 @@ bool DX11BackendClass::Build_Combiner_Description(CombinerDescription & descript
 	description.SoftParticle = Soft_Particle();
 	description.DrawEffect = Draw_Effect();
 	description.FireLook = Fire_Look();
+	description.TeamGlow = Team_Glow();
 	return description.StageCount > 0;
 }
 
@@ -2656,9 +2714,11 @@ void DX11BackendClass::Upload_Pixel_Constants()
 	const bool camera_space = Camera_Space_Draw();
 	const float * const world_to_camera = (camera_space && SceneViewKnown) ? SceneView : View;
 
-	// A look takes its pixel back to the world the same way, with or without a sun's map.
+	// A look takes its pixel back to the world the same way, with or without a sun's map, and so
+	// does a program that reads the scene's depth (the foam water).
 	const unsigned effect = Draw_Effect();
-	if (ShadowReceiving || effect != DRAW_EFFECT_NONE) {
+	const bool reads_depth = EngineShader_Reads_Scene_Depth(PixelProgram);
+	if (ShadowReceiving || effect != DRAW_EFFECT_NONE || reads_depth) {
 		if (!ShadowFromClipValid
 			|| memcmp(ShadowFromClipView, world_to_camera, sizeof(View)) != 0
 			|| memcmp(ShadowFromClipProjection, Projection, sizeof(Projection)) != 0) {
@@ -2674,7 +2734,7 @@ void DX11BackendClass::Upload_Pixel_Constants()
 			}
 		}
 	}
-	if (effect != DRAW_EFFECT_NONE) {
+	if (effect != DRAW_EFFECT_NONE || reads_depth) {
 		pixel_block.ShadowViewport[0] = (ViewportWidth > 0)
 			? 1.0f / static_cast<float>(ViewportWidth) : 0.0f;
 		pixel_block.ShadowViewport[1] = (ViewportHeight > 0)
@@ -3003,6 +3063,17 @@ void DX11BackendClass::Bind_State_Objects()
 	// was taken at the top of the sorted flush (Take_Scene_Depth) and is refreshed in place.
 	if (SoftParticles && Soft_Particle() != SOFT_PARTICLE_NONE) {
 		ID3D11ShaderResourceView * const depth = SceneDepthCopyView;
+		if (!known || depth != Bound.SceneDepth) {
+			context->PSSetShaderResources(DX11_BACKEND_TEXTURE_STAGES + 3, 1, &depth);
+			Bound.SceneDepth = depth;
+		}
+	}
+	// The foam water reads the same copy, which W3DWater takes before it draws.  Into another
+	// target's depth it reads none, and a null view reads zero, which the program takes as deep.
+	if (EngineShader_Reads_Scene_Depth(PixelProgram)) {
+		ID3D11ShaderResourceView * const depth =
+			(CurrentTarget == NULL || CurrentDepth == Device->Get_Depth_Stencil_View())
+			? SceneDepthCopyView : NULL;
 		if (!known || depth != Bound.SceneDepth) {
 			context->PSSetShaderResources(DX11_BACKEND_TEXTURE_STAGES + 3, 1, &depth);
 			Bound.SceneDepth = depth;

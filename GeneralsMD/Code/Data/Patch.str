@@ -1290,6 +1290,30 @@ TOOLTIP:DebrisTrails
 "Blasts throw fragments that trail smoke, and wrecks shed burning shrapnel. Off keeps the original explosions. Applies when you press Accept."
 END
 
+GUI:MapLight
+"Warm Light and Haze"
+END
+
+TOOLTIP:MapLight
+"A low afternoon sun that lights the map warmer and casts longer shadows, and a light haze lying over low ground that aircraft part as they fly through it. Direct3D 11 only. Applies from the next map."
+END
+
+GUI:TeamGlow
+"Team Color Glow"
+END
+
+TOOLTIP:TeamGlow
+"The bright patches of each side's color on units and buildings glow in that color. Direct3D 11 only. Applies from the next map."
+END
+
+GUI:WaterFoam
+"Water Foam"
+END
+
+TOOLTIP:WaterFoam
+"Rivers and lakes carry flecks of foam and a band of it along the shore, and the sun's shadows fall on the water. The sea's waves are unchanged. Direct3D 11 only, and off under Classic Graphics. Applies when you press Accept."
+END
+
 GUI:FormationDrag
 "Drag Out A Formation"
 END

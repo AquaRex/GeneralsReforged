@@ -5,7 +5,8 @@
 #   generals.exe -win -borderless -quickstart -noshellmap -multiInstance -fps 120 -noFPSLimit
 #     -particlecap 2500 -map "Maps\Golden Oasis\Golden Oasis.map" -autoskirmish 2 -takeover
 #     -observer -side 0 FactionAmerica -side 1 FactionChina -seed 1 -scenario geproto_glow
-#     -cinema geproto_glow -video 180 1560 geproto -maxframes 1620 [-protoTeamGlow]
+#     -cinema geproto_glow -video 180 1560 geproto -maxframes 1620
+#   with TeamGlow = yes in the Options.ini of a ZH_USER_DATA_DIR folder for the glow
 
 # the American base
 30    spawn      0  AmericaPowerPlant             1  1950 3380

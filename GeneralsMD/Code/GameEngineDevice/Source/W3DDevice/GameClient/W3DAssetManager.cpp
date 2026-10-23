@@ -974,6 +974,10 @@ int W3DAssetManager::Recolor_Mesh(RenderObjClass *robj, const int color)
 		strncasecmp(meshName,"HOUSECOLOR", 10) == 0)
 	{	for (i=0; i<material->Vertex_Material_Count(); i++)
 			Recolor_Vertex_Material(material->Peek_Vertex_Material(i),color);
+		// The whole mesh is the side's colour, so the whole mesh glows (Direct3D 11 only).  The model
+		// is this recoloured prototype's own: Make_Mesh_Unique cloned it.
+		if (TheGlobalData->m_teamGlow)
+			model->Set_Flag(MeshGeometryClass::TEAM_GLOW, true);
 		didRecolor=1;
 	}
 

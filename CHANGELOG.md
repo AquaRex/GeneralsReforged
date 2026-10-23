@@ -712,6 +712,7 @@ found and fixed â€” EA's own, not port damage.**
   theirs, which they have to: a shadow crawling across fogged ground is the position of a unit you
   are not meant to see. Ground you have never set foot on is still dark and still empty.
 - Woodland stops vanishing when you look at too much of it at once. Every tree on screen was written into one buffer that held about 730 of them, and the ones that did not fit were simply not drawn, so scrolling into a dense corner made whole stands of trees blink out and come back when you left. There are four of those buffers now.
+- Three optional looks for the Direct3D 11 picture, each a box in Options, off until you tick it. Water Foam, on the Effects page after Soft Shorelines, puts foam flecks and a pale band along the shore, softens where water meets land and lets the sun's shadow fall on the water. Warm Light and Haze, on the Graphics page after Heat Haze, swings the sun low and warm and lays a light haze over the map; a jet leaves a soft V parting the haze behind it and a helicopter clears a turbulent patch under its rotors. Team Color Glow, next to it, lets the bright house-colour parts of a unit, the flag and the stripe, glow in their own hue without bleaching to white. Picture only: replays and network games play the same with any of them on, and the haze cost 0.4 ms a frame in our measurement.
 
 ## Every replay, not just the last one
 

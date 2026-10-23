@@ -2667,6 +2667,10 @@ AGAIN:
 			if (primaryW3DView && primaryW3DView->get3DCamera())
 				W3DModelDraw::lightHeadlights(primaryW3DView->get3DCamera()->Get_Position());
 
+			// Once a frame and before any view draws, so a script's blur or black and white filter
+			// does not freeze the haze the way pushing it from the default filter did.
+			W3DShaderManager::pushProtoHaze();
+
 			if (TheWaterRenderObj)
 				TheWaterRenderObj->updateRenderTargetTextures(primaryW3DView->get3DCamera());	//do a render into each texture
 

@@ -110,6 +110,10 @@ DX11BufferTwinClass * Direct3D11_Twin_Index_Buffer(unsigned byte_count, bool dyn
 // first bind and kept on it, so nothing in the loaders has to know this exists.
 void Direct3D11_Mirror_Texture(unsigned stage, struct IDirect3DBaseTexture9 * texture);
 
+// The shroud texture the terrain draws its fog with, handed to the Warm Light haze with the
+// terrain's world to texture mapping (DX11Post_Set_Haze_Shroud).  Null reads everything as in sight.
+void Direct3D11_Set_Haze_Shroud(struct IDirect3DBaseTexture9 * texture, const float rect[4]);
+
 // The vehicle headlights for the frame, nearest the camera first, eight floats each: world
 // position, reach, world direction, cosine of the cone's edge; and what a pixel gains per channel
 // per unit of their light.  A Direct3D 9 run ignores them.
@@ -178,6 +182,10 @@ void Direct3D11_Set_Fire_Look(bool fire);
 // The draws that follow are an Emissive particle system's billboards, which take no shadow and no
 // smoke shade (DX11BackendClass::Set_Emissive).  The sorting pool sets it.
 void Direct3D11_Set_Emissive(bool emissive);
+
+// The draws that follow are a house colour mesh that glows past white for the bloom
+// (DX11BackendClass::Set_Team_Glow, the Team Glow option).  The mesh renderer sets it around the mesh.
+void Direct3D11_Set_Team_Glow(bool glow);
 
 // The look one object's draws are dressed in (DRAW_EFFECT_* in ffshader.h) and its four numbers
 // (DX11BackendClass::Set_Draw_Effect).  The mesh renderer sets it around a mesh's draws and puts

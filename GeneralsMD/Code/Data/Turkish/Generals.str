@@ -15705,6 +15705,30 @@ TOOLTIP:DebrisTrails
 "Patlamalar arkasında duman bırakan parçalar savurur, enkazdan yanan şarapnel saçılır. Kapalıyken patlamalar orijinal haliyle kalır. Kabul Et'e basınca uygulanır."
 END
 
+GUI:MapLight
+"Sıcak Işık ve Pus"
+END
+
+TOOLTIP:MapLight
+"Haritayı daha sıcak aydınlatıp daha uzun gölgeler düşüren alçak bir ikindi güneşi ve alçak zeminin üstünde duran, içinden geçen uçakların araladığı hafif bir pus. Yalnızca Direct3D 11. Bir sonraki haritada uygulanır."
+END
+
+GUI:TeamGlow
+"Takım Rengi Parlaması"
+END
+
+TOOLTIP:TeamGlow
+"Birimlerin ve binaların üstündeki parlak takım rengi bölgeleri kendi renginde parlar. Yalnızca Direct3D 11. Bir sonraki haritada uygulanır."
+END
+
+GUI:WaterFoam
+"Su Köpüğü"
+END
+
+TOOLTIP:WaterFoam
+"Nehirlerde ve göllerde köpük benekleri ve kıyı boyunca bir köpük şeridi belirir, güneşin gölgeleri suya düşer. Denizin dalgaları değişmez. Yalnızca Direct3D 11, Klasik Grafikler açıkken kapalıdır. Kabul Et'e basınca uygulanır."
+END
+
 GUI:FormationDrag
 "Sürükleyerek Düzen Kur"
 END

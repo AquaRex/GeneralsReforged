@@ -123,7 +123,26 @@ struct CombinerDescription
 	// through the colour, for an additive one.  Initialised here for a caller that fills the rest
 	// field by field.
 	unsigned FireLook = 0;
+
+	// D3D11 only: a house colour mesh under the Team Glow option (DX11BackendClass::Set_Team_Glow).  After
+	// the shade the pixel gains its own hue at full brightness, worth TEAM_GLOW_GAIN, the hue's
+	// saturation and how far the texel's luminance is between TEAM_GLOW_LOW and TEAM_GLOW_HIGH, then
+	// the colour is scaled as one so no channel passes TEAM_GLOW_CEILING.  Initialised here for a
+	// caller that fills the rest field by field.
+	bool TeamGlow = false;
 };
+
+// What the brightest house colour texel adds on top of itself under TeamGlow, in units of its own
+// brightest channel.  The bloom's threshold is 1.0, so a whole texel lit past 0.2 goes over, which
+// is a stripe in shade as well as in the sun.
+#define TEAM_GLOW_GAIN "0.8"
+// The texel luminance where the glow starts and where it is whole: the panel's grey stays paint
+// and only the stripe's highlights glow.
+#define TEAM_GLOW_LOW "0.45"
+#define TEAM_GLOW_HIGH "0.8"
+// The brightest channel a glowing pixel may reach, the rest scaled with it: at most half a unit
+// past the bloom's threshold, where the tone curve still keeps a saturated hue apart from white.
+#define TEAM_GLOW_CEILING "1.5"
 
 enum
 {

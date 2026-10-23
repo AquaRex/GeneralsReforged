@@ -62,6 +62,7 @@ Data/Cinema/geproto_alpine.txt
 Data/Cinema/geproto_glow.txt
 Data/Cinema/geproto_hazemove.txt
 Data/Cinema/geproto_oasis.txt
+Data/Cinema/geproto_wake.txt
 Data/Cinema/gunfx.txt
 Data/Cinema/headlights.txt
 Data/Cinema/hero_loop.txt
@@ -229,6 +230,7 @@ Data/Scenarios/blastcheck.txt
 Data/Scenarios/bridgecross.txt
 Data/Scenarios/bridgelong.txt
 Data/Scenarios/broadcastend.txt
+Data/Scenarios/cargocrash.txt
 Data/Scenarios/chokeprobe.txt
 Data/Scenarios/comanchehill.txt
 Data/Scenarios/comanchepods.txt
@@ -257,6 +259,7 @@ Data/Scenarios/geproto_glow.txt
 Data/Scenarios/geproto_hazefog.txt
 Data/Scenarios/geproto_hazemove.txt
 Data/Scenarios/geproto_oasis.txt
+Data/Scenarios/geproto_wake.txt
 Data/Scenarios/givemoney.txt
 Data/Scenarios/glowbase.txt
 Data/Scenarios/glowfight.txt

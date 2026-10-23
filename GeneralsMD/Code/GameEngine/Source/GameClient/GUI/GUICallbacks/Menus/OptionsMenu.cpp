@@ -2799,6 +2799,14 @@ void OptionsMenuInit( WindowLayout *layout, void *userData )
 //			checkAudioHardware->winEnable(FALSE);
 	}
 
+	// three looks only the Direct3D 11 picture draws; under -d3d9 their boxes keep the saved value, greyed
+	if( !TheGlobalData->m_direct3D11 )
+	{
+		static const char *const direct3D11Only[] = { "MapLight", "TeamGlow", "WaterFoam" };
+		for( Int i = 0; i < (Int)( sizeof( direct3D11Only ) / sizeof( direct3D11Only[ 0 ] ) ); ++i )
+			findOptionWidget( *findOptionDef( direct3D11Only[ i ] ) )->winEnable( FALSE );
+	}
+
 
 	// borderless owns the resolution; the list is grey while it is picked
 	updateResolutionEnabled();

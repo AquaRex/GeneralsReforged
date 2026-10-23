@@ -178,6 +178,10 @@ public:
 	// is killed, keeps what it compiled.
 	void Save_Shader_Cache_If_Due();
 	unsigned Compiled_Program_Count() const { return static_cast<unsigned>(CompiledPrograms.size()); }
+	// A pixel program from outside the backend (the post chain's haze) through the same cache, so
+	// only the first run that meets it compiles it.  False when the compiler refused it.
+	bool Compile_Pixel_Program(const std::string & source, const char * name,
+		std::vector<unsigned char> & bytecode);
 
 	// Binds the swap chain's back buffer and depth buffer and sets the viewport over the whole of
 	// it.  D3D11 keeps no default target: without this every draw is complete, legal, and lands
@@ -244,6 +248,11 @@ public:
 	// sorting pool sets it, around those systems' runs.
 	void Set_Emissive(bool emissive);
 
+	// The draws that follow are a house colour mesh under the Team Glow option: its hue is added again
+	// after the shade, past white, for the bloom (ffshader.h, TeamGlow).  The mesh renderer sets it
+	// around such a mesh's draws.  A draw it does not suit takes none (Team_Glow).
+	void Set_Team_Glow(bool glow);
+
 	// The look the draws that follow are dressed in (a DRAW_EFFECT_* value, ffshader.h) and its
 	// four numbers: wall clock seconds, strength, a per-object seed and the object's opacity.  The
 	// mesh renderer sets it around one object's draws and puts DRAW_EFFECT_NONE back after them.
@@ -266,6 +275,14 @@ public:
 	// The scene's target, its depth and the draws' viewport bound again after a pass that bound
 	// its own on the context mid-scene (the post chain's occlusion).
 	void Resume_Scene();
+
+	// The scene camera's clip space back into the world, out of Set_Scene_View's view and the
+	// projection held with it, for a pass over the world that reads its depth (the prototype map
+	// haze).  False when Set_Scene_View has not run since Open_Frame, when that projection is not a
+	// perspective one or the matrix has no inverse.
+	bool Scene_World_From_Clip(float world_from_clip[16]) const;
+	// The top of a frame, before any scene of it: Scene_World_From_Clip waits for this frame's view.
+	void Open_Frame();
 
 	// What an additive draw (ONE, ONE) into the scene is worth, for the Glow option: the blend
 	// takes the draw's colour times this through the blend factor, so fire, muzzle flashes and
@@ -553,9 +570,14 @@ private:
 	float ShadowFromClipProjection[16];
 	bool ShadowFromClipValid;
 
-	// Set_Scene_View's matrix, and whether it has been set.
+	// Set_Scene_View's matrix, and whether it has been set; and the projection held when it was,
+	// which is the scene camera's own (Set_Scene_View follows the camera's Apply).
 	float SceneView[16];
+	float SceneProjection[16];
 	bool SceneViewKnown;
+	// Set_Scene_View ran since the last Open_Frame: the haze reprojects with this frame's camera or
+	// not at all (the shadow pass returns before handing the view over on a frame it skips).
+	bool SceneViewThisFrame;
 	bool Camera_Space_Draw() const;
 	bool SmokeGlow;
 	bool Smoke_Glow() const;
@@ -564,6 +586,9 @@ private:
 	unsigned Fire_Look() const;
 	// Set_Emissive: the current draws take no shadow and no smoke shade (Shadow_Receiving).
 	bool Emissive;
+	// Set_Team_Glow, and whether the current draw takes it.
+	bool TeamGlow;
+	bool Team_Glow() const;
 	// Set_Draw_Effect's look and numbers, and the look the current draw takes after the checks.
 	unsigned DrawEffect;
 	float DrawEffectNumbers[4];
