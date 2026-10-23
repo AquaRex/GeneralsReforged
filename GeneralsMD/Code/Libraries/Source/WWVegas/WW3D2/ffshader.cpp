@@ -245,6 +245,8 @@ bool CombinerShader_Generate(const CombinerDescription & description, CombinerSh
 		CombinerDescription supported = description;
 		// Scene-depth fading and cosmetic refraction still have separate SDL integration work.
 		supported.SoftParticle = SOFT_PARTICLE_NONE;
+		// The fire look's coordinates come out of the Direct3D 11 vertex half, which SDL does not run.
+		supported.FireLook = FIRE_LOOK_NONE;
 		if (supported.DrawEffect != DRAW_EFFECT_CLOAK_SHADOW) supported.DrawEffect = DRAW_EFFECT_NONE;
 		return generate_combiners(supported, target, hlsl, true)
 			&& SDL3_Shader_Retarget(hlsl, false);
