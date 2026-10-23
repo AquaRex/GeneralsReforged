@@ -377,7 +377,10 @@ void Direct3D11_Statistics(unsigned & pipelines_built, unsigned long long & draw
 
 // How many compiled programs came with the game (dx11shaders.shipped) and how many the backend holds now,
 // shipped, cached and compiled together: a run whose held count exceeds the shipped one compiled something.
-void Direct3D11_Program_Statistics(unsigned & shipped, unsigned & held);
+// Of those compiled, how many the worker built off the frame, the longest one from queue to landing, and
+// the draws left out while they were built.
+void Direct3D11_Program_Statistics(unsigned & shipped, unsigned & held, unsigned & off_frame,
+	double & longest_milliseconds, unsigned long long & draws_waited);
 
 // What the frame since the last call spent building pipelines and copying textures, and how many
 // of each, how many times the soft particles copied the scene's depth, and how many constant blocks

@@ -178,8 +178,8 @@ public:
 
 	// Keep every compiled program in this file across runs: read now, written while the game runs
 	// (Save_Shader_Cache_If_Due) and at Shutdown when a program was compiled that the file did not
-	// hold.  A program compiled mid-match costs 25 to 60ms on the frame that first needs it, which is
-	// the stutter a new explosion brought.
+	// hold.  A program compiled on the frame that first needs it costs that frame 100 to 130ms of
+	// FXC, the stutter a new explosion brought; Set_Compile_Off_Frame moves most of them to a worker.
 	void Set_Shader_Cache_Path(const char * path);
 	// The programs that ship with the game, compiled by Microsoft's d3dcompiler_47 when the file was
 	// recorded (Tools/record-dx11-shaders.ps1): read after the user's cache, so for the same source a
@@ -405,6 +405,24 @@ public:
 	// D3DCompile's first flag word; zero is its default optimisation.
 	bool Compile_Program(const std::string & source, const char * name, const char * profile,
 		std::vector<unsigned char> & bytecode, unsigned flags = 0);
+
+	// A generated fixed-function program missing from both caches is compiled on a worker thread
+	// rather than on the frame that first meets it, which cost that frame 100 to 130ms of FXC: the
+	// draws that want it are refused until it lands, about a tenth of a second, and the frame goes
+	// on without them.  Only a scene draw through a perspective camera takes this road.  These still
+	// compile on the spot: a draw into a texture or into the sun's map (drawn once, or a shadow
+	// lost), a pre-transformed one or one under an identity or orthographic projection (the
+	// interface, Render2D's quads, the filters), a multiplicative pass (the terrain's shroud pass:
+	// left out, it would show shrouded ground) and an engine shader (terrain, water, trees).  Roads
+	// and bridges are fixed-function and may wait.  Off unless asked for, so a test that draws and
+	// reads back sees its draw.
+	void Set_Compile_Off_Frame(bool enabled) { CompileOffFrame = enabled; }
+	// Programs the worker compiled, the longest one took from queue to landing, and the draws
+	// refused while their program was being compiled.
+	void Compile_Statistics(unsigned & compiled_off_frame, double & longest_milliseconds,
+		unsigned long long & draws_waited) const
+		{ compiled_off_frame = ProgramsCompiledOffFrame; longest_milliseconds = LongestOffFrameMilliseconds;
+		  draws_waited = DrawsWaitedForProgram; }
 
 private:
 	DX11BackendClass(const DX11BackendClass &);
@@ -1015,6 +1033,30 @@ private:
 	// Bytecode by the hash of the profile and the source it was compiled from.  Two pipelines that
 	// generate the same vertex program share one compile, and so do two runs through the file.
 	std::map<unsigned long long, std::vector<unsigned char> > CompiledPrograms;
+
+	// The worker that compiles off the frame (Set_Compile_Off_Frame), made with its first job and
+	// joined in Shutdown.  It runs D3DCompile and nothing else: the device and the context stay on
+	// this thread, so a device reset leaves it nothing to touch.
+	struct CompileWorker;
+	CompileWorker * Worker;
+	bool CompileOffFrame;
+	// Pipelines waiting on the worker, by key, with the hashes of their two programs.
+	std::map<std::string, std::pair<unsigned long long, unsigned long long> > PendingPipelines;
+	// Programs the worker could not compile: the pipeline then compiles on the spot, which records
+	// the compiler's error and refuses it the usual way.
+	std::map<unsigned long long, bool> FailedOffFrame;
+	unsigned ProgramsCompiledOffFrame;
+	double LongestOffFrameMilliseconds;
+	unsigned long long DrawsWaitedForProgram;
+	// Whether the draw being resolved may wait for the worker (Set_Compile_Off_Frame has which may not).
+	bool Compiles_Off_Frame() const;
+	bool Program_Settled(unsigned long long hash) const
+		{ return CompiledPrograms.count(hash) != 0 || FailedOffFrame.count(hash) != 0; }
+	bool Queue_Off_Frame(unsigned long long hash, const std::string & source, const char * name,
+		const char * profile, unsigned flags);
+	void Take_Off_Frame_Programs();
+	void Stop_Compile_Worker();
+
 	std::string ShaderCachePath;
 	bool ShaderCacheChanged;
 	unsigned ShippedPrograms;

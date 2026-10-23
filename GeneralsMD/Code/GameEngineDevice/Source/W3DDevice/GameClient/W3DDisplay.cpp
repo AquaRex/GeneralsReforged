@@ -554,9 +554,14 @@ W3DDisplay::~W3DDisplay()
 		}
 		unsigned programsShipped = 0;
 		unsigned programsHeld = 0;
-		Direct3D11_Program_Statistics( programsShipped, programsHeld );
-		DEBUG_LOG(("-dx11 programs: %u shipped with the game, %u held at the end\n",
-			programsShipped, programsHeld));
+		unsigned programsOffFrame = 0;
+		double longestOffFrame = 0.0;
+		unsigned long long drawsWaited = 0;
+		Direct3D11_Program_Statistics( programsShipped, programsHeld, programsOffFrame, longestOffFrame,
+			drawsWaited );
+		DEBUG_LOG(("-dx11 programs: %u shipped with the game, %u held at the end; %u compiled off the "
+			"frame (longest %.0f ms), %I64u draws left out while they compiled\n",
+			programsShipped, programsHeld, programsOffFrame, longestOffFrame, drawsWaited));
 
 		unsigned long long noBuffer = 0;
 		unsigned long long noStage = 0;

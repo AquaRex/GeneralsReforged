@@ -174,10 +174,14 @@ void Direct3D11_Statistics(unsigned & pipelines_built, unsigned long long & draw
 	draws_refused = 0;
 }
 
-void Direct3D11_Program_Statistics(unsigned & shipped, unsigned & held)
+void Direct3D11_Program_Statistics(unsigned & shipped, unsigned & held, unsigned & off_frame,
+	double & longest_milliseconds, unsigned long long & draws_waited)
 {
 	shipped = 0;
 	held = 0;
+	off_frame = 0;
+	longest_milliseconds = 0.0;
+	draws_waited = 0;
 }
 void Direct3D11_Take_Frame_Cost(double & pipeline_milliseconds, unsigned & pipelines,
 	double & texture_milliseconds, unsigned & textures, unsigned & depth_copies,

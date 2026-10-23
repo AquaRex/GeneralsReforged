@@ -23,6 +23,11 @@
 #include "dx11resource.h"
 
 #include <d3dcommon.h>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <set>
+#include <thread>
 #include <stdio.h>
 #include <string.h>
 #include <windows.h>
@@ -219,6 +224,11 @@ DX11BackendClass::DX11BackendClass()
 	, PipelinesBuilt(0)
 	, FrameBuildMilliseconds(0.0)
 	, FrameBuildCount(0)
+	, Worker(NULL)
+	, CompileOffFrame(false)
+	, ProgramsCompiledOffFrame(0)
+	, LongestOffFrameMilliseconds(0.0)
+	, DrawsWaitedForProgram(0)
 	, ShaderCacheChanged(false)
 	, ShippedPrograms(0)
 	, LastShaderCacheSave(0)
@@ -528,6 +538,8 @@ void DX11BackendClass::Release_Cached()
 
 void DX11BackendClass::Shutdown()
 {
+	// Before the save, so what the worker finished goes into the file.
+	Stop_Compile_Worker();
 	if (ShaderCacheChanged) {
 		Save_Shader_Cache();
 		ShaderCacheChanged = false;
@@ -1948,6 +1960,8 @@ void DX11BackendClass::Load_Shipped_Programs(const char * path)
 
 void DX11BackendClass::Save_Shader_Cache_If_Due()
 {
+	// Once a frame, so a program whose effect was gone before it landed still reaches the file.
+	Take_Off_Frame_Programs();
 	if (!ShaderCacheChanged) {
 		return;
 	}
@@ -2022,6 +2036,180 @@ bool DX11BackendClass::Compile_Program(const std::string & source, const char * 
 	CompiledPrograms[hash] = bytecode;
 	ShaderCacheChanged = true;
 	return true;
+}
+
+// Jobs waiting at once.  A frame meets a handful of new programs at most; past this a program
+// compiles on the spot, as before.
+static const size_t COMPILE_QUEUE_LIMIT = 64;
+
+// Two threads, because one left the last of a match's first eight new programs waiting 0.9 s.
+static const unsigned COMPILE_THREADS = 2;
+
+// Threads that run D3DCompile, which d3dcompiler_47 allows from any thread.  They never see the
+// device, the context or the backend's maps: jobs go in and bytecode comes out under one lock, and
+// the render thread moves the bytecode into CompiledPrograms.
+struct DX11BackendClass::CompileWorker
+{
+	struct Job
+	{
+		unsigned long long Hash;
+		std::string Source;
+		std::string Name;
+		std::string Profile;
+		unsigned Flags;
+		double Queued;
+	};
+	struct Done
+	{
+		unsigned long long Hash;
+		bool Compiled;
+		std::vector<unsigned char> Bytecode;
+		double Milliseconds;
+	};
+
+	explicit CompileWorker(D3DCompileFunction compiler)
+		: Compiler(compiler), Stopping(false)
+	{
+		for (unsigned index = 0; index < COMPILE_THREADS; ++index) {
+			Threads[index] = std::thread(&CompileWorker::Run, this);
+		}
+	}
+
+	void Run()
+	{
+		for (;;) {
+			Job job;
+			{
+				std::unique_lock<std::mutex> hold(Lock);
+				Wake.wait(hold, [this] { return Stopping || !Jobs.empty(); });
+				if (Stopping) {
+					return;
+				}
+				job = std::move(Jobs.front());
+				Jobs.pop_front();
+			}
+			Done done;
+			done.Hash = job.Hash;
+			ID3DBlob * code = NULL;
+			ID3DBlob * errors = NULL;
+			done.Compiled = SUCCEEDED(Compiler(job.Source.c_str(), job.Source.size(), job.Name.c_str(), NULL,
+				NULL, ENTRY_POINT, job.Profile.c_str(), job.Flags, 0, &code, &errors));
+			if (done.Compiled) {
+				const unsigned char * bytes = static_cast<const unsigned char *>(code->GetBufferPointer());
+				done.Bytecode.assign(bytes, bytes + code->GetBufferSize());
+				code->Release();
+			}
+			if (errors != NULL) {
+				errors->Release();
+			}
+			done.Milliseconds = DX11Resource_Milliseconds_Now() - job.Queued;
+			std::lock_guard<std::mutex> hold(Lock);
+			Finished.push_back(std::move(done));
+		}
+	}
+
+	D3DCompileFunction Compiler;
+	std::mutex Lock;
+	std::condition_variable Wake;
+	std::deque<Job> Jobs;
+	std::vector<Done> Finished;
+	std::set<unsigned long long> Queued;	// queued, running or finished and not yet taken
+	bool Stopping;
+	std::thread Threads[COMPILE_THREADS];
+};
+
+bool DX11BackendClass::Compiles_Off_Frame() const
+{
+	if (!CompileOffFrame || VertexProgram != ENGINE_SHADER_NONE || PixelProgram != ENGINE_SHADER_NONE
+		|| CurrentTarget != NULL || ShadowMapBound || (VertexFormat & D3DFVF_XYZRHW) != 0) {
+		return false;
+	}
+	// A perspective projection has nought in its corner; Render2D's identity and an orthographic
+	// overlay have one, and those are the interface.  Camera-space particles keep the perspective.
+	if (Projection[15] != 0.0f) {
+		return false;
+	}
+	if (RenderStates.Get_Render_State(D3DRS_ALPHABLENDENABLE) != FALSE) {
+		const DWORD source = RenderStates.Get_Render_State(D3DRS_SRCBLEND);
+		const DWORD destination = RenderStates.Get_Render_State(D3DRS_DESTBLEND);
+		if (source == D3DBLEND_DESTCOLOR || source == D3DBLEND_ZERO || destination == D3DBLEND_SRCCOLOR) {
+			return false;
+		}
+	}
+	return true;
+}
+
+bool DX11BackendClass::Queue_Off_Frame(unsigned long long hash, const std::string & source,
+	const char * name, const char * profile, unsigned flags)
+{
+	if (Worker == NULL) {
+		D3DCompileFunction compiler = compiler_function();
+		if (compiler == NULL) {
+			return false;
+		}
+		Worker = new CompileWorker(compiler);
+	}
+	std::lock_guard<std::mutex> hold(Worker->Lock);
+	if (Worker->Queued.count(hash) != 0) {
+		return true;
+	}
+	if (Worker->Jobs.size() >= COMPILE_QUEUE_LIMIT) {
+		return false;
+	}
+	CompileWorker::Job job = { hash, source, name, profile, flags, DX11Resource_Milliseconds_Now() };
+	Worker->Jobs.push_back(std::move(job));
+	Worker->Queued.insert(hash);
+	Worker->Wake.notify_one();
+	return true;
+}
+
+void DX11BackendClass::Take_Off_Frame_Programs()
+{
+	if (Worker == NULL) {
+		return;
+	}
+	std::vector<CompileWorker::Done> finished;
+	{
+		std::lock_guard<std::mutex> hold(Worker->Lock);
+		finished.swap(Worker->Finished);
+		for (size_t index = 0; index < finished.size(); ++index) {
+			Worker->Queued.erase(finished[index].Hash);
+		}
+	}
+	for (size_t index = 0; index < finished.size(); ++index) {
+		CompileWorker::Done & done = finished[index];
+		if (!done.Compiled) {
+			FailedOffFrame[done.Hash] = true;
+			continue;
+		}
+		CompiledPrograms[done.Hash].swap(done.Bytecode);
+		ShaderCacheChanged = true;
+		++ProgramsCompiledOffFrame;
+		if (done.Milliseconds > LongestOffFrameMilliseconds) {
+			LongestOffFrameMilliseconds = done.Milliseconds;
+		}
+	}
+}
+
+void DX11BackendClass::Stop_Compile_Worker()
+{
+	if (Worker == NULL) {
+		return;
+	}
+	{
+		std::lock_guard<std::mutex> hold(Worker->Lock);
+		Worker->Stopping = true;
+	}
+	Worker->Wake.notify_all();
+	// At most the compile each thread is in the middle of; the jobs behind them are dropped and
+	// queued again by the next draw that wants them.
+	for (unsigned index = 0; index < COMPILE_THREADS; ++index) {
+		Worker->Threads[index].join();
+	}
+	Take_Off_Frame_Programs();
+	delete Worker;
+	Worker = NULL;
+	PendingPipelines.clear();
 }
 
 bool DX11BackendClass::Compile_Pixel_Program(const std::string & source, const char * name,
@@ -2469,6 +2657,20 @@ bool DX11BackendClass::Resolve(Pipeline & pipeline)
 		Refuse(key, static_cast<RefusalReason>(refused->second));
 		return false;
 	}
+	// The same key drawn where it may not wait (into a texture, say) compiles on the spot below.
+	const bool off_frame = Compiles_Off_Frame();
+	if (off_frame && !PendingPipelines.empty()) {
+		std::map<std::string, std::pair<unsigned long long, unsigned long long> >::iterator pending
+			= PendingPipelines.find(key);
+		if (pending != PendingPipelines.end()) {
+			Take_Off_Frame_Programs();
+			if (!Program_Settled(pending->second.first) || !Program_Settled(pending->second.second)) {
+				++DrawsWaitedForProgram;
+				return false;
+			}
+			PendingPipelines.erase(pending);
+		}
+	}
 
 	const double build_started = DX11Resource_Milliseconds_Now();
 	std::string vertex_hlsl;
@@ -2507,6 +2709,21 @@ bool DX11BackendClass::Resolve(Pipeline & pipeline)
 	const bool modern_water = EngineShader_Is_Modern_Water(PixelProgram);
 	const char * const pixel_profile = modern_water ? "ps_5_0" : PIXEL_PROFILE;
 	const unsigned pixel_flags = modern_water ? DX11_MODERN_WATER_COMPILE_FLAGS : 0;
+	// A scene draw of a generated program neither cache holds waits for the worker (the header has
+	// which draws do not).  A full queue compiles here, as before.
+	if (off_frame) {
+		const unsigned long long vertex_hash = program_hash(VERTEX_PROFILE, vertex_hlsl, 0);
+		const unsigned long long pixel_hash = program_hash(pixel_profile, pixel_hlsl, pixel_flags);
+		const bool vertex_missing = !Program_Settled(vertex_hash);
+		const bool pixel_missing = !Program_Settled(pixel_hash);
+		if ((vertex_missing || pixel_missing)
+			&& (!vertex_missing || Queue_Off_Frame(vertex_hash, vertex_hlsl, "ffvertex", VERTEX_PROFILE, 0))
+			&& (!pixel_missing || Queue_Off_Frame(pixel_hash, pixel_hlsl, "ffshader", pixel_profile, pixel_flags))) {
+			PendingPipelines[key] = std::make_pair(vertex_hash, pixel_hash);
+			++DrawsWaitedForProgram;
+			return false;
+		}
+	}
 	if (!Compile_Program(vertex_hlsl, "ffvertex", VERTEX_PROFILE, vertex_code)
 		|| !Compile_Program(pixel_hlsl, "ffshader", pixel_profile, pixel_code, pixel_flags)) {
 		Refuse(key, REFUSED_NO_PROGRAM);

@@ -376,6 +376,7 @@ bool Direct3D11_Create(HWND window, unsigned width, unsigned height)
 	cache_path += SHADER_CACHE_FILE;
 	Backend.Set_Shader_Cache_Path(cache_path.c_str());
 	Backend.Load_Shipped_Programs(SHIPPED_SHADER_FILE);
+	Backend.Set_Compile_Off_Frame(true);
 
 	// The chain is the one thing here that is allowed to fail without taking the backend with it:
 	// a machine whose compiler refuses the passes still gets the frame, just not the effect.
@@ -1259,10 +1260,12 @@ void Direct3D11_Statistics(unsigned & pipelines_built, unsigned long long & draw
 	}
 }
 
-void Direct3D11_Program_Statistics(unsigned & shipped, unsigned & held)
+void Direct3D11_Program_Statistics(unsigned & shipped, unsigned & held, unsigned & off_frame,
+	double & longest_milliseconds, unsigned long long & draws_waited)
 {
 	shipped = Active ? Backend.Shipped_Program_Count() : 0;
 	held = Active ? Backend.Compiled_Program_Count() : 0;
+	Backend.Compile_Statistics(off_frame, longest_milliseconds, draws_waited);
 }
 
 void Direct3D11_Take_Frame_Cost(double & pipeline_milliseconds, unsigned & pipelines,

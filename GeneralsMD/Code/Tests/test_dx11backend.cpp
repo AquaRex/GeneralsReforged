@@ -36,6 +36,8 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <chrono>
+#include <thread>
 #include <vector>
 
 static const unsigned TARGET_SIZE = 64;
@@ -366,6 +368,117 @@ TEST(dx11backend_the_same_state_resolves_to_one_pipeline)
 	backend.Statistics(pipelines, made, refused);
 	CHECK_EQ(pipelines, 2u);
 	CHECK_EQ(refused, 0ull);
+
+	indices->Release();
+	vertices->Release();
+	backend.Shutdown();
+}
+
+// The pass-through state under a perspective projection, the only kind of scene draw that may wait
+// for the worker: an identity projection is how Render2D draws the interface.
+static void configure_perspective_pass_through(DX11BackendClass & backend)
+{
+	configure_unlit_pass_through(backend);
+	float perspective[16];
+	set_identity(perspective);
+	perspective[11] = 1.0f;
+	perspective[15] = 0.0f;
+	backend.Set_Transform(D3DTS_PROJECTION, perspective);
+}
+
+// With the compile off the frame, a state neither cache holds leaves its draws out until the
+// worker has its two programs: the second draw of the same state queues nothing more, and the
+// draw after they land is made from them with no compile of its own.
+TEST(dx11backend_a_missing_program_compiles_off_the_frame)
+{
+	DX11DeviceClass device;
+	CHECK(device.Create_Offscreen());
+
+	DX11BackendClass backend;
+	CHECK(backend.Initialise(&device));
+	backend.Set_Compile_Off_Frame(true);
+
+	ID3D11Buffer * vertices = NULL;
+	CHECK(DX11Resource_Create_Vertex_Buffer(device.Get_Device(), sizeof(QUAD_VERTICES),
+		D3DPOOL_MANAGED, 0, QUAD_VERTICES, &vertices));
+
+	ID3D11Buffer * indices = NULL;
+	CHECK(DX11Resource_Create_Index_Buffer(device.Get_Device(), sizeof(QUAD_INDICES),
+		D3DPOOL_MANAGED, 0, QUAD_INDICES, &indices));
+
+	backend.Set_Viewport(0, 0, TARGET_SIZE, TARGET_SIZE);
+	configure_perspective_pass_through(backend);
+	backend.Set_Stream_Source(vertices, sizeof(BackendVertex), 0);
+	backend.Set_Indices(indices, DXGI_FORMAT_R16_UINT);
+
+	CHECK(!backend.Draw_Indexed_Triangles(6, 0, 0));
+	CHECK(!backend.Draw_Indexed_Triangles(6, 0, 0));
+
+	// FXC takes about a tenth of a second for these two; twenty seconds is a hung worker.
+	const unsigned WAIT_STEPS = 2000;
+	bool drawn = false;
+	for (unsigned step = 0; step < WAIT_STEPS && !drawn; ++step) {
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		drawn = backend.Draw_Indexed_Triangles(6, 0, 0);
+	}
+	CHECK(drawn);
+
+	unsigned off_frame = 0;
+	double longest = 0.0;
+	unsigned long long waited = 0;
+	backend.Compile_Statistics(off_frame, longest, waited);
+	CHECK_EQ(off_frame, 2u);
+	CHECK(waited >= 2ull);
+	CHECK(longest > 0.0);
+
+	unsigned pipelines = 0;
+	unsigned long long made = 0;
+	unsigned long long refused = 0;
+	backend.Statistics(pipelines, made, refused);
+	CHECK_EQ(pipelines, 1u);
+	CHECK_EQ(made, 1ull);
+
+	indices->Release();
+	vertices->Release();
+	backend.Shutdown();
+}
+
+// A key still waiting on the worker is drawn at once by a draw that may not wait: the same state
+// under Render2D's identity projection compiles on the spot rather than leaving the interface out.
+TEST(dx11backend_a_draw_that_may_not_wait_compiles_a_pending_key_on_the_spot)
+{
+	DX11DeviceClass device;
+	CHECK(device.Create_Offscreen());
+
+	DX11BackendClass backend;
+	CHECK(backend.Initialise(&device));
+	backend.Set_Compile_Off_Frame(true);
+
+	ID3D11Buffer * vertices = NULL;
+	CHECK(DX11Resource_Create_Vertex_Buffer(device.Get_Device(), sizeof(QUAD_VERTICES),
+		D3DPOOL_MANAGED, 0, QUAD_VERTICES, &vertices));
+
+	ID3D11Buffer * indices = NULL;
+	CHECK(DX11Resource_Create_Index_Buffer(device.Get_Device(), sizeof(QUAD_INDICES),
+		D3DPOOL_MANAGED, 0, QUAD_INDICES, &indices));
+
+	backend.Set_Viewport(0, 0, TARGET_SIZE, TARGET_SIZE);
+	configure_perspective_pass_through(backend);
+	backend.Set_Stream_Source(vertices, sizeof(BackendVertex), 0);
+	backend.Set_Indices(indices, DXGI_FORMAT_R16_UINT);
+
+	CHECK(!backend.Draw_Indexed_Triangles(6, 0, 0));
+	float identity[16];
+	set_identity(identity);
+	backend.Set_Transform(D3DTS_PROJECTION, identity);
+	CHECK(backend.Draw_Indexed_Triangles(6, 0, 0));
+
+	unsigned pipelines = 0;
+	unsigned long long made = 0;
+	unsigned long long refused = 0;
+	backend.Statistics(pipelines, made, refused);
+	CHECK_EQ(pipelines, 1u);
+	CHECK_EQ(made, 1ull);
 
 	indices->Release();
 	vertices->Release();
