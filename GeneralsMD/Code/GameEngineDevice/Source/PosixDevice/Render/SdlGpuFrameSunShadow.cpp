@@ -43,12 +43,12 @@ void SdlGpuFrame::Release_Sun_Shadow()
     SunShadowSize = 0;
 }
 
-// The depth-to-R32 pass the water snapshots use avoids backend-specific raw depth download restrictions.
+// The depth-to-R32 pass the scene snapshots use avoids backend-specific raw depth download restrictions.
 bool SdlGpuFrame::Read_Depth(SDL_GPUTexture *texture, unsigned width, unsigned height,
     std::vector<float> &depth)
 {
     depth.clear();
-    if (!texture || !width || !height || !Flush() || !Create_Water_Depth_Pipeline()) return false;
+    if (!texture || !width || !height || !Flush() || !Create_Scene_Depth_Pipeline()) return false;
     SDL_GPUTextureCreateInfo info = {};
     info.type = SDL_GPU_TEXTURETYPE_2D;
     info.format = SDL_GPU_TEXTUREFORMAT_R32_FLOAT;
@@ -62,7 +62,7 @@ bool SdlGpuFrame::Read_Depth(SDL_GPUTexture *texture, unsigned width, unsigned h
     SDL_GPUCommandBuffer *commands = SDL_AcquireGPUCommandBuffer(GpuDevice);
     bool submitted = false;
     if (commands) {
-        if (Resolve_Water_Depth(commands, texture, resolved, width, height)) {
+        if (Resolve_Scene_Depth(commands, texture, resolved, width, height)) {
             // Previously queued readers were flushed above; this ordered submission owns
             // the resolve, and the existing download waits for it before mapping bytes.
             submitted = SerializeSubmits ? Submit(commands) : Submit_Flush(commands);

@@ -469,3 +469,13 @@ option metadata still compile elsewhere. Windows retains its original shader
 names and shader programs; macOS binds the legacy SDL programs. The Linux style
 widget is hidden on both platforms. Windows/macOS builds and runtime checks remain
 open; Linux compilation and GPU tests do not establish their runtime compatibility.
+
+## Volumetric hazard clouds (2026-10-22)
+
+Windows compiles the neutral cloud core (`Platform/HazardCloud.h`, `HazardCloudPolicy.h`,
+`HazardCloudFlow`, `HazardCloud.cpp`) and links `HazardCloudUnsupported.cpp`, so
+`HazardCloud::Supported()` is false there: the Cloud style selector is hidden and the ground fields
+take upstream's original keys, owner choice, grace period and initial-delay behaviour, because every
+extended rule in `W3DParticleSys.cpp` is conditioned on that capability. The SDL backend
+(`SdlHazardCloud*.cpp`) is built only where the SDL GPU renderer is. A Direct3D 11 backend would
+replace `HazardCloudUnsupported.cpp` and implement `HazardCloud::Layer`.

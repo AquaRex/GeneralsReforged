@@ -1398,6 +1398,9 @@ if(ZH_PLATFORM_POSIX)
 
   # ---- posixd3d9: the device, in the place d3d9.lib has on Windows -----------------------------------
   file(GLOB_RECURSE POSIXD3D9_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/PosixDevice/Render/*.cpp)
+  # Hazard clouds bridge the scene and SDL device; keep that bridge above the
+  # D3D compatibility library so low-level device tests stay independent.
+  list(FILTER POSIXD3D9_SOURCES EXCLUDE REGEX "/SdlHazardCloud[^/]*\\.cpp$")
   add_library(posixd3d9 STATIC ${POSIXD3D9_SOURCES})
   set_target_properties(posixd3d9 PROPERTIES CXX_STANDARD 17)
   target_include_directories(posixd3d9 PUBLIC ${ZH_POSIX_D3D9_INCLUDE})
@@ -1511,6 +1514,9 @@ if(ZH_PLATFORM_POSIX)
   # W3DWebBrowser is the embedded browser as a COM object, which only Win32GameEngine makes; GameEngine
   # has its own WebBrowser off Windows (B5).
   list(FILTER W3DDEVICE_SOURCES EXCLUDE REGEX "/W3DDevice/GameClient/W3DWebBrowser\\.cpp$")
+  # The neutral cloud core is in W3DDevice on every platform. SDL supplies the
+  # POSIX factory below; the no-backend factory is compiled only without it.
+  list(FILTER W3DDEVICE_SOURCES EXCLUDE REGEX "/HazardCloudUnsupported\\.cpp$")
 
   # ---- the movies (V1): Windows' Bink player and its Bink API on FFmpeg, the same two files -------------
   # FFmpeg is built from the tarball Tools/vendor.sh keeps, into the build tree, with the Bink demuxer
@@ -1574,6 +1580,13 @@ if(ZH_PLATFORM_POSIX)
   # BinkVideoPlayer.cpp, unchanged: W3DGameClient makes it on every platform, so it lives with w3ddevice
   list(APPEND W3DDEVICE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/VideoDevice/Bink/BinkVideoPlayer.cpp)
   add_library(w3ddevice STATIC ${W3DDEVICE_SOURCES})
+  set(ZH_POSIX_RENDER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/PosixDevice/Render)
+  # This entire device branch is ZH_PLATFORM_POSIX: Linux and macOS share
+  # the SDL GPU cloud backend and its runtime capability query.
+  target_sources(w3ddevice PRIVATE
+    ${ZH_POSIX_RENDER_DIR}/SdlHazardCloud.cpp
+    ${ZH_POSIX_RENDER_DIR}/SdlHazardCloudShader.cpp
+    ${ZH_POSIX_RENDER_DIR}/SdlHazardCloudEmbers.cpp)
   set_target_properties(w3ddevice PROPERTIES CXX_STANDARD 17)
   target_include_directories(w3ddevice PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Include
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Stubs ${CMAKE_CURRENT_SOURCE_DIR}/Main
@@ -2160,6 +2173,16 @@ endfunction()
 add_lib_test(test_msvc_float_casts)
 target_include_directories(test_msvc_float_casts PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/Include)
 
+add_lib_test(test_hazard_cloud_policy)
+set_target_properties(test_hazard_cloud_policy PROPERTIES CXX_STANDARD 17)
+target_include_directories(test_hazard_cloud_policy PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/Include)
+# Exercise the neutral core and no-backend contract without SDL or a graphics
+# device, on every platform (including builds that use the SDL backend in game).
+target_sources(test_hazard_cloud_policy PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/W3DDevice/GameClient/HazardCloud.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudFlow.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudUnsupported.cpp)
+
 add_lib_test(test_wwmath wwmath wwlib wwsaveload wwdebug)
 target_include_directories(test_wwmath PRIVATE ${WW}/WWLib ${WW}/WWSaveLoad ${WW}/Wwutil)
 # R1, smooth motion: W3DSmoothMotion.h's blend and verdicts, header-only over WWMath.
@@ -2350,6 +2373,13 @@ endif()
 # does not link (B6).
 if(ZH_PLATFORM_POSIX)
   target_link_libraries(test_gameengine PRIVATE posixdevice w3ddevice)
+else()
+  # FunctionLexicon pulls in OptionsMenu, which queries the cloud capability.
+  # These tests omit gameenginedevice, so use its real no-backend entry points.
+  foreach(name test_gameengine test_terrain_golden test_water_grid test_rank_ladder)
+    target_sources(${name} PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudUnsupported.cpp)
+  endforeach()
 endif()
 # the well-known Dict keys and a handful of device/exe entry points live in
 # GameEngineDevice, which Phase 4 ports; stand-ins until then.

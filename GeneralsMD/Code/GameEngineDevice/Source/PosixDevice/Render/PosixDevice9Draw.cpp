@@ -1004,7 +1004,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		WaterShoreOverlay::View view;
 		view.colour=reinterpret_cast<std::uintptr_t>(target.Colour);view.depth=reinterpret_cast<std::uintptr_t>(target.Depth);
 		view.width=target.Width;view.height=target.Height;
-		shore_depth=Gpu->Ready_Water_Depth(target,view.capture);
+		shore_depth=Gpu->Ready_Scene_Depth(target,view.capture);
 		SdlPixelConstants unused={};SdlWaterPixelConstants water;Build_Water_Constants(unused,water);
 		memcpy(view.worldFromClip,water.WorldFromClip,sizeof(view.worldFromClip));
 		memcpy(view.viewport,water.Viewport,sizeof(view.viewport));
@@ -1116,7 +1116,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	const unsigned int index_size = (call.Indexed && index_buffer->format() == D3DFMT_INDEX32) ? 4 : 2;
 	const bool water_draw = pixel_engine == ENGINE_SHADER_WATER_TRAPEZOID || pixel_engine == ENGINE_SHADER_WATER_RIVER;
 	SDL_GPUTexture *water_background = water_draw ? Gpu->Water_Background(target) : NULL;
-	SDL_GPUTexture *water_depth = water_draw ? Gpu->Water_Depth(target) : NULL;
+	SDL_GPUTexture *water_depth = water_draw ? Gpu->Scene_Depth(target) : NULL;
 	bool water_history = water_draw && Water_Foam_History_Available();
 	draw.VertexSamplerCount = vertex_program.SamplerSlots;
 	for (unsigned int slot = 0; slot < draw.VertexSamplerCount && slot < 3; ++slot) {
@@ -1513,7 +1513,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		ShoreRegion region;region.patch=ShorePatch;
 		region.view.colour=reinterpret_cast<std::uintptr_t>(target.Colour);region.view.depth=reinterpret_cast<std::uintptr_t>(target.Depth);
 		region.view.width=target.Width;region.view.height=target.Height;
-		if(Gpu->Ready_Water_Depth(target,region.view.capture)==water_depth) {
+		if(Gpu->Ready_Scene_Depth(target,region.view.capture)==water_depth) {
 			SdlWaterPixelConstants water;Build_Water_Constants(pixel_constants,water);
 			memcpy(region.view.worldFromClip,water.WorldFromClip,sizeof(region.view.worldFromClip));
 			memcpy(region.view.viewport,water.Viewport,sizeof(region.view.viewport));

@@ -56,6 +56,14 @@
 #include "GameClient/Drawable.h"
 #include "Platform/WaterFoamParticlePolicy.h"
 #include <map>
+#include "Common/ThingTemplate.h"
+#include "GameClient/Drawable.h"
+#include "Platform/HazardCloudPolicy.h"
+#include "Platform/HazardCloud.h"
+#include <array>
+#include <memory>
+#include <cmath>
+#include <tuple>
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -707,17 +715,38 @@ static const Real	FIELD_GAIN						= 0.7f;		///< of the template's brightest colo
 static const Int	FIELD_FADE_IN					= LOGICFRAMES_PER_SECOND / 2;			///< logic frames
 static const Int	FIELD_FADE_OUT				= 3 * LOGICFRAMES_PER_SECOND;			///< logic frames before the field object dies
 static const Int	FIELD_FADE_GONE				= FIELD_FADE_OUT;	///< logic frames, a field fogged over or whose object went early
+// Stable until device resources are released. FieldKey ordering must never query
+// a live device: changing its answer while keys exist would invalidate the map.
+static bool s_fieldCloudsSupported = false;
+static bool s_fieldCloudCapabilityKnown = false;
+static bool fieldCloudsSupported();
+
 static const Real	FIELD_OBJECT_REACH		= 5.0f;		///< how near the field's centre its object stands
 
 struct FieldKey
 {
 	const ParticleSystemTemplate *tmpl;
 	Int x, y;
+	Int z;
+	Int palette;
+	ObjectID owner;
 	bool operator<( const FieldKey &o ) const
 	{
+		if (s_fieldCloudsSupported) {
+			// The initial nuke emitter and its periodic radiation pulses describe
+			// one hazard. Keep its age/cache when the emitter template changes.
+			const bool bound = palette >= 0 && owner != INVALID_ID;
+			const bool otherBound = o.palette >= 0 && o.owner != INVALID_ID;
+			if (bound != otherBound) return bound < otherBound;
+			if (bound) {
+				if (owner != o.owner) return owner < o.owner;
+				return palette < o.palette;
+			}
+		}
 		if (tmpl != o.tmpl) return tmpl < o.tmpl;
 		if (x != o.x) return x < o.x;
-		return y < o.y;
+		if (y != o.y) return y < o.y;
+		return s_fieldCloudsSupported && z < o.z;
 	}
 };
 
@@ -726,6 +755,10 @@ struct FieldKey
 struct FieldState
 {
 	Int born;						///< logic frame it was first seen
+	Int visualBorn;             ///< formation age survives fog fade changes
+	Real cloudShown, cloudFormation, cloudGoneDensity, cloudGoneFormation, cloudRevealFrom;
+	Int cloudGoneAt, cloudRevealAt;
+	Int cloudDieFrame;          ///< owner's LifetimeUpdate die frame at the last sync point, or -1
 	Int seen;						///< logic frame a system was last seen at it
 	ObjectID object;		///< the object whose life it fades with, or INVALID_ID
 	Int gone;						///< logic frame it began going out (fog, or its object gone), or -1
@@ -747,6 +780,26 @@ static const Real	FIELD_STACK						= 2.5f;		///< puddles' worth of cover a spot 
 static const Real	FIELD_SATURATE				= 0.6f;		///< share of the weakest channel taken out of the colour
 
 static std::map<FieldKey, FieldState>	s_fieldStates;
+struct FieldSystemOwner { ObjectID object; unsigned pass; };
+static std::map<ParticleSystemID, FieldSystemOwner> s_fieldSystemOwners;
+static unsigned s_fieldCollectionPass = 0;
+
+static bool fieldCloudsSupported()
+{
+	if (!s_fieldCloudCapabilityKnown) {
+		const bool supported = HazardCloud::Supported();
+		// In particular, a previously unavailable device may now have a backend.
+		// Destroy keys before changing their comparator's mode.
+		if (supported != s_fieldCloudsSupported) {
+			s_fieldStates.clear();
+			s_fieldSystemOwners.clear();
+		}
+		s_fieldCloudsSupported = supported;
+		s_fieldCloudCapabilityKnown = true;
+	}
+	return s_fieldCloudsSupported;
+}
+static Bool s_fieldSkipNextFadeIn = FALSE;
 
 /** One puddle of this frame's fields, before it is laid. */
 struct FieldPuddle
@@ -785,7 +838,7 @@ static std::vector<FieldDraw>		s_fieldDraws;
 static std::vector<FieldBounds>	s_fieldBounds;	///< one a field draw, in their order
 
 /** The CLEANUP_HAZARD object with a LifetimeUpdate standing on a field's centre, if there is one. */
-static ObjectID findFieldObject( const Coord3D &centre )
+static ObjectID findFieldObject( const Coord3D &centre, Int palette = -1 )
 {
 	static NameKeyType key_LifetimeUpdate = NAMEKEY( "LifetimeUpdate" );
 	ObjectID found = INVALID_ID;
@@ -794,10 +847,19 @@ static ObjectID findFieldObject( const Coord3D &centre )
 	{
 		if (!obj->isKindOf( KINDOF_CLEANUP_HAZARD ))
 			continue;
+		if (s_fieldCloudsSupported) {
+			if (obj->isDestroyed() || obj->isEffectivelyDead())
+				continue;
+			if (palette >= 0 && HazardCloudPolicy::paletteForOwner(obj->getTemplate()->getName().str()) != palette)
+				continue;
+		}
 		const Coord3D *pos = obj->getPosition();
+		if (s_fieldCloudsSupported && WWMath::Fabs(pos->z - centre.z) > FIELD_OBJECT_REACH)
+			continue;
 		const Real dx = pos->x - centre.x, dy = pos->y - centre.y;
 		const Real d = dx * dx + dy * dy;
-		if (d <= best && obj->findUpdateModule( key_LifetimeUpdate ) != NULL)
+		const bool nearer = s_fieldCloudsSupported ? (d < best || (found == INVALID_ID && d <= best)) : d <= best;
+		if (nearer && obj->findUpdateModule( key_LifetimeUpdate ) != NULL)
 		{
 			best = d;
 			found = obj->getID();
@@ -822,7 +884,9 @@ static inline Real midValue( const GameClientRandomVariable &v )
 static Real fieldFade( FieldState &state, Int now )
 {
 	static NameKeyType key_LifetimeUpdate = NAMEKEY( "LifetimeUpdate" );
-	Bool lost = now - state.seen > FIELD_GRACE
+	// A capable backend follows the owner's life between sparse emitters.
+	// Otherwise retain the upstream emitter grace, including for bound owners.
+	Bool lost = ((!s_fieldCloudsSupported || state.object == INVALID_ID) && now - state.seen > FIELD_GRACE)
 		|| ThePartitionManager->getShroudStatusForPlayer( TheObserverCamera.getShroudPlayerIndex(), &state.centre ) != CELLSHROUD_CLEAR;
 	Int remaining = state.particleEnd - now;
 	if (!lost && state.object != INVALID_ID)
@@ -858,20 +922,259 @@ static Real fieldFade( FieldState &state, Int now )
 	return state.shown;
 }
 
+namespace {
+// A busy battlefield has a fixed visual memory/draw budget. Fields which cannot
+// be admitted keep the ordinary ground effect, including unknown mod templates.
+constexpr unsigned MaxCloudLayers = 8;
+constexpr std::uint64_t CloudCacheBudget = 192ull * 1024 * 1024;
+struct CloudLayer {
+	FieldKey key = {};
+	std::unique_ptr<HazardCloud::Layer> renderer;
+	unsigned used = 0;
+	float terrainChecked = -100;
+	float terrainReach = -1;
+	bool terrainValid = false;
+};
+std::array<CloudLayer, MaxCloudLayers> s_cloudLayers;
+unsigned s_cloudPass = 0, s_cloudDraws = 0;
+struct CloudWalker { Coord3D position; HazardCloud::Body body; unsigned frame; };
+std::map<ObjectID, CloudWalker> s_cloudWalkers;
+std::vector<HazardCloud::Body> s_cloudBodies;
+unsigned s_cloudBodyFrame = ~0u;
+
+bool isCloudMainPass()
+{
+	return !ShaderClass::Is_Backface_Culling_Inverted()
+		&& W3DDisplay::m_3DScene
+		&& W3DDisplay::m_3DScene->getCustomPassMode() == SCENE_PASS_DEFAULT;
+}
+
+bool modernCloudsEnabled()
+{
+	return fieldCloudsSupported() && TheGlobalData && TheGlobalData->m_cloudStyle == 1 && isCloudMainPass();
+}
+
+void releaseCloudLayers()
+{
+	for (auto &slot : s_cloudLayers) slot = CloudLayer{};
+	s_cloudWalkers.clear();
+	s_cloudBodies.clear();
+	s_cloudBodyFrame = ~0u;
+}
+
+void beginCloudPass(unsigned now)
+{
+	if (!fieldCloudsSupported() || !TheGlobalData || TheGlobalData->m_cloudStyle != 1) {
+		releaseCloudLayers();
+		return;
+	}
+	// A water reflection/custom pass must not evict main-view caches or wakes.
+	if (!modernCloudsEnabled()) return;
+	++s_cloudPass;
+	s_cloudDraws = 0;
+}
+
+void updateCloudBodies(unsigned now)
+{
+	if (s_cloudBodyFrame == now) return;
+	s_cloudBodies.clear();
+	for (Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject()) {
+		if (!obj->isKindOf(KINDOF_INFANTRY) || obj->isDestroyed() || obj->isEffectivelyDead()) continue;
+		Drawable *draw = obj->getDrawable();
+		const Coord3D &pos = *obj->getPosition();
+		// Invisible infantry must not disclose themselves through a smoke wake.
+		if (!draw || draw->isDrawableEffectivelyHidden() || draw->getFullyObscuredByShroud()
+			|| draw->getStealthLook() != STEALTHLOOK_NONE || draw->getEffectiveOpacity() < .99f
+			|| ThePartitionManager->getShroudStatusForPlayer(TheObserverCamera.getShroudPlayerIndex(), &pos) != CELLSHROUD_CLEAR)
+			continue;
+		HazardCloud::Body body = {};
+		body.x = pos.x; body.y = pos.y; body.z = pos.z;
+		body.radius = std::clamp(obj->getGeometryInfo().getBoundingCircleRadius(), 1.f, 12.f);
+		body.height = std::clamp(obj->getGeometryInfo().getMaxHeightAbovePosition(), 4.f, 30.f);
+		auto old = s_cloudWalkers.find(obj->getID());
+		if (old != s_cloudWalkers.end() && now > old->second.frame && now - old->second.frame <= LOGICFRAMES_PER_SECOND / 2) {
+			const float dt = float(now - old->second.frame) / LOGICFRAMES_PER_SECOND;
+			body.vx = (pos.x - old->second.position.x) / dt;
+			body.vy = (pos.y - old->second.position.y) / dt;
+			if (body.vx * body.vx + body.vy * body.vy > 100.f * 100.f) body.vx = body.vy = 0;
+		}
+		s_cloudWalkers[obj->getID()] = {pos, body, now};
+		s_cloudBodies.push_back(body);
+	}
+	for (auto it = s_cloudWalkers.begin(); it != s_cloudWalkers.end();) {
+		if (it->second.frame != now) it = s_cloudWalkers.erase(it); else ++it;
+	}
+	s_cloudBodyFrame = now;
+}
+
+bool updateCloudTerrain(CloudLayer &slot, const HazardCloud::FieldState &field, bool onGround)
+{
+	if (!onGround) { slot.renderer->setTerrain(0, nullptr); return true; }
+	constexpr unsigned side = HazardCloud::TerrainGridSide;
+	std::array<float, side * side> heights;
+	const float reach = field.radius + field.fringe + 18.f;
+	float low = field.ground.z, high = field.ground.z;
+	for (unsigned y = 0; y < side; ++y) for (unsigned x = 0; x < side; ++x) {
+		const float dx = -reach + 2 * reach * x / (side - 1), dy = -reach + 2 * reach * y / (side - 1);
+		const float z = TheTerrainRenderObject->getHeightMapHeight(field.ground.x + dx, field.ground.y + dy, NULL);
+		if (!std::isfinite(z)) return false;
+		heights[y * side + x] = z;
+		low = (std::min)(low, z); high = (std::max)(high, z);
+	}
+	slot.renderer->setTerrain(0, high - low > .001f ? heights.data() : nullptr);
+	return true;
+}
+
+bool drawModernCloud(const FieldKey &key, FieldState &state, float fade, float seconds, int now)
+{
+	if (!modernCloudsEnabled() || key.palette < 0) return false;
+	if (s_cloudDraws >= MaxCloudLayers) return false;
+	const float age = (std::max)(0.f, float(now - state.visualBorn) / LOGICFRAMES_PER_SECOND);
+	// the owner's life was read at the sync point (updateGroundFields), not beside the tick
+	const int remaining = state.cloudDieFrame >= 0 ? state.cloudDieFrame - now : state.particleEnd - now;
+	const float left = (std::max)(0.f, float(remaining) / LOGICFRAMES_PER_SECOND);
+	const float lifetime = age + left;
+	const auto buildup = HazardCloudPolicy::visualBuildup(key.palette, state.radius >= 100.f, age, lifetime);
+	HazardCloud::FieldState field = {};
+	field.ground = state.centre;
+	const float ground = TheTerrainRenderObject->getHeightMapHeight(state.centre.x, state.centre.y, NULL);
+	const bool onGround = state.centre.z - ground < FIELD_ON_GROUND;
+	if (onGround) field.ground.z = ground;
+	field.radius = state.radius;
+	field.height = 18.61f; // Approved infantry-height cloud from the shared preview.
+	field.palette = float(key.palette);
+	field.fringe = HazardCloudPolicy::visualFringe(state.size);
+	field.formation = buildup.formation;
+	field.release = buildup.release;
+	const float endFade = std::clamp(left / (std::max)(.1f, (std::min)(3.f, lifetime * .25f)), 0.f, 1.f);
+	field.density = buildup.density * endFade * state.stealth;
+	if (state.gone >= 0) {
+		if (state.cloudGoneAt != state.gone) {
+			state.cloudGoneAt = state.gone;
+			state.cloudGoneDensity = state.cloudShown;
+			state.cloudGoneFormation = state.cloudFormation;
+		}
+		// Do not let a young cloud keep thickening after it becomes hidden or
+		// its owner is removed. Fade from the last actually shown appearance.
+		field.density = state.cloudGoneDensity * std::clamp(1.f - float(now - state.gone) / FIELD_FADE_GONE, 0.f, 1.f);
+		field.formation = state.cloudGoneFormation;
+		field.release = 0;
+	} else {
+		if (state.cloudGoneAt >= 0) {
+			state.cloudRevealAt = now;
+			state.cloudRevealFrom = state.cloudShown;
+			state.cloudGoneAt = -1;
+		}
+		const float reveal = std::clamp(float(now - state.cloudRevealAt) / FIELD_FADE_IN, 0.f, 1.f);
+		field.density = state.cloudRevealFrom + (field.density - state.cloudRevealFrom) * reveal;
+	}
+	state.cloudShown = field.density;
+	state.cloudFormation = field.formation;
+	if (!HazardCloudPolicy::validField(field.ground.x, field.ground.y, field.ground.z, field.radius,
+		field.height, field.density, field.formation, field.fringe, key.palette)) return false;
+	// A fully faded modern field is intentionally invisible. Drawing Classic
+	// here would flash its puddle back during buildup/cleanup boundary frames.
+	if (field.density <= .00001f) return true;
+	CloudLayer *slot = nullptr;
+	for (auto &candidate : s_cloudLayers)
+		if (candidate.renderer && !(key < candidate.key) && !(candidate.key < key)) { slot = &candidate; break; }
+	if (!slot) {
+		for (auto &candidate : s_cloudLayers) if (!candidate.renderer) { slot = &candidate; break; }
+		if (!slot) for (auto &candidate : s_cloudLayers)
+			if (candidate.used != s_cloudPass && (!slot || candidate.used < slot->used)) slot = &candidate;
+		if (!slot) return false;
+		*slot = CloudLayer{};
+		slot->key = key;
+	}
+	const auto wanted = HazardCloud::Layer::estimateCacheBytes(&field, 1);
+	std::uint64_t used = 0;
+	for (const auto &other : s_cloudLayers) if (&other != slot && other.renderer) used += other.renderer->estimatedCacheBytes();
+	if (wanted > CloudCacheBudget) return false;
+	while (used > CloudCacheBudget - wanted) {
+		CloudLayer *oldest = nullptr;
+		for (auto &other : s_cloudLayers)
+			if (&other != slot && other.renderer && other.used != s_cloudPass
+				&& (!oldest || other.used < oldest->used)) oldest = &other;
+		if (!oldest) return false;
+		used -= oldest->renderer->estimatedCacheBytes();
+		*oldest = CloudLayer{};
+	}
+	if (!slot->renderer) {
+		slot->renderer = HazardCloud::CreateLayer();
+		if (!slot->renderer || !slot->renderer->initialize()) { slot->renderer.reset(); return false; }
+		const float reach = field.radius + field.fringe + 24.f;
+		slot->renderer->setFlowDomain(field.ground.x - reach, field.ground.y - reach, field.ground.x + reach, field.ground.y + reach);
+	}
+	slot->renderer->setFields(&field, 1);
+	if (seconds < slot->terrainChecked || seconds - slot->terrainChecked >= 1.f
+		|| slot->terrainReach != field.radius + field.fringe) {
+		slot->terrainValid = updateCloudTerrain(*slot, field, onGround);
+		slot->terrainChecked = seconds;
+		slot->terrainReach = field.radius + field.fringe;
+	}
+	if (!slot->terrainValid) return false;
+	std::array<HazardCloud::Body, 32> bodies;
+	unsigned count = 0;
+	for (const auto &body : s_cloudBodies) {
+		const float dx = body.x - field.ground.x, dy = body.y - field.ground.y;
+		const float reach = field.radius + field.fringe + body.radius;
+		const float localGround = onGround ? TheTerrainRenderObject->getHeightMapHeight(body.x, body.y, NULL) : field.ground.z;
+		if (dx * dx + dy * dy <= reach * reach && std::fabs(body.z - localGround) < field.height)
+			if (count < bodies.size()) bodies[count++] = body;
+	}
+	slot->renderer->setBodies(bodies.data(), count);
+	slot->renderer->update(seconds);
+	slot->used = s_cloudPass;
+	if (!slot->renderer->render()) return false;
+	++s_cloudDraws;
+	return true;
+}
+} // namespace
+
 /** This frame's fields from their systems, and each one's fade, at the sync point before the render:
 	* finding a field's object, its life and the fog over it read the logic (LOGIC-THREAD.md phase 3).
 	* `systems` is every isGroundField system in list order, empty ones too. */
 static void updateGroundFields( const std::vector<ParticleSystem *> &systems )
 {
 	const Int now = (Int)TheGameLogic->getFrame();
+	// An explicit cache refresh may need an immediate comparison while paused.
+	// Consume this once, even if this sync point has no fields, so later gameplay
+	// emitters always retain the normal fade-in unless explicitly refreshed again.
+	const bool cloudsSupported = fieldCloudsSupported();
+	const Bool skipFadeIn = cloudsSupported && s_fieldSkipNextFadeIn;
+	s_fieldSkipNextFadeIn = FALSE;
+	if (cloudsSupported) ++s_fieldCollectionPass;
+	std::map<std::tuple<Int, Int, Int, Int>, ObjectID> fieldOwners;
 
 	// where the fields are this frame, and what each one looks like
 	for (size_t f = 0; f < systems.size(); ++f)
 	{
 		ParticleSystem *sys = systems[ f ];
+		if (cloudsSupported && sys->getInitialDelayLeft() > 0) continue;
+
 		Coord3D pos;
 		sys->getPosition( &pos );
-		FieldKey key = { sys->getTemplate(), REAL_TO_INT_FLOOR( pos.x + 0.5f ), REAL_TO_INT_FLOOR( pos.y + 0.5f ) };
+		Int palette = -1;
+		ObjectID owner = INVALID_ID;
+		if (cloudsSupported) {
+			palette = HazardCloudPolicy::paletteForTemplate(sys->getTemplate()->getName().str());
+			const auto ownerKey = std::make_tuple(REAL_TO_INT_FLOOR(pos.x + .5f), REAL_TO_INT_FLOOR(pos.y + .5f),
+				REAL_TO_INT_FLOOR(pos.z + .5f), palette);
+			auto binding = s_fieldSystemOwners.find(sys->getSystemID());
+			if (palette >= 0 && binding != s_fieldSystemOwners.end()) owner = binding->second.object;
+			if (owner == INVALID_ID) {
+				auto ownerEntry = fieldOwners.find(ownerKey);
+				if (ownerEntry == fieldOwners.end()) ownerEntry = fieldOwners.emplace(ownerKey, findFieldObject(pos, palette)).first;
+				owner = ownerEntry->second;
+			}
+			if (palette >= 0) {
+				// A surviving emitter retains its hazard identity after cleanup.
+				// Otherwise its last particles would create a fresh, growing cloud.
+				s_fieldSystemOwners[sys->getSystemID()] = {owner, s_fieldCollectionPass};
+			}
+		}
+		FieldKey key = { sys->getTemplate(), REAL_TO_INT_FLOOR( pos.x + 0.5f ), REAL_TO_INT_FLOOR( pos.y + 0.5f ),
+			cloudsSupported ? REAL_TO_INT_FLOOR(pos.z + .5f) : 0, palette, owner };
 		const ParticleSystemInfo::EmissionVolumeType volume = sys->getEmisionVolumeType();
 		const Real radius = volume == ParticleSystemInfo::SPHERE ? sys->m_emissionVolume.sphere.radius
 			: (volume == ParticleSystemInfo::CYLINDER ? sys->m_emissionVolume.cylinder.radius : 0.0f);
@@ -881,14 +1184,32 @@ static void updateGroundFields( const std::vector<ParticleSystem *> &systems )
 			life = WWMath::Max( life, (Int)p->getLifetimeLeft() );
 
 		std::map<FieldKey, FieldState>::iterator st = s_fieldStates.find( key );
+		// A blast FX can precede its cleanup object within the same tick. Adopt
+		// that unbound visual when the owner arrives rather than drawing it twice.
+		if (cloudsSupported && st == s_fieldStates.end() && palette >= 0 && owner != INVALID_ID) {
+			for (auto orphan = s_fieldStates.begin(); orphan != s_fieldStates.end(); ++orphan) {
+				const FieldKey &old = orphan->first;
+				if (old.owner == INVALID_ID && old.palette == palette && old.x == key.x && old.y == key.y && old.z == key.z) {
+					FieldState adopted = orphan->second;
+					adopted.object = owner;
+					s_fieldStates.erase(orphan);
+					st = s_fieldStates.emplace(key, adopted).first;
+					break;
+				}
+			}
+		}
 		if (st == s_fieldStates.end() || st->second.seen != now)
 		{
 			if (st == s_fieldStates.end())
 			{
-				FieldState fresh;
-				fresh.born = now;
+				FieldState fresh = {};
+				fresh.born = now - (skipFadeIn ? FIELD_FADE_IN : 0);
+				fresh.visualBorn = fresh.born;
+				fresh.cloudGoneAt = -1;
+				fresh.cloudRevealAt = now - FIELD_FADE_IN;
+				fresh.cloudDieFrame = -1;
 				fresh.seen = now;
-				fresh.object = findFieldObject( pos );
+				fresh.object = cloudsSupported ? owner : findFieldObject( pos );
 				fresh.gone = -1;
 				fresh.goneFade = 0.0f;
 				fresh.shown = 0.0f;
@@ -926,6 +1247,10 @@ static void updateGroundFields( const std::vector<ParticleSystem *> &systems )
 		}
 		st->second.stealth = sys->getStealthFade();
 	}
+	for (auto binding = s_fieldSystemOwners.begin(); binding != s_fieldSystemOwners.end();) {
+		if (binding->second.pass != s_fieldCollectionPass) binding = s_fieldSystemOwners.erase(binding);
+		else ++binding;
+	}
 
 	for (std::map<FieldKey, FieldState>::iterator st = s_fieldStates.begin(); st != s_fieldStates.end(); )
 	{
@@ -943,6 +1268,21 @@ static void updateGroundFields( const std::vector<ParticleSystem *> &systems )
 		}
 		++st;
 	}
+	if (cloudsSupported) {
+		// The hazard clouds' owners' lifetimes and the infantry wading through them read the logic, so
+		// they are taken here with the rest, not in the render beside the tick.
+		static NameKeyType key_cloudLife = NAMEKEY("LifetimeUpdate");
+		for (std::map<FieldKey, FieldState>::iterator st = s_fieldStates.begin(); st != s_fieldStates.end(); ++st) {
+			FieldState &state = st->second;
+			state.cloudDieFrame = -1;
+			if (state.object == INVALID_ID || st->first.palette < 0) continue;
+			Object *obj = TheGameLogic->findObjectByID(state.object);
+			if (obj) if (auto *life = static_cast<LifetimeUpdate *>(obj->findUpdateModule(key_cloudLife)))
+				state.cloudDieFrame = Int(life->getDieFrame());
+		}
+		if (TheGlobalData && TheGlobalData->m_cloudStyle == 1)
+			updateCloudBodies((unsigned)now);
+	}
 }
 
 /** Lays the fields updateGroundFields found on the terrain into the field buffers; drawGroundFields
@@ -954,6 +1294,7 @@ static Int collectGroundFields( const AABoxClass &view )
 	const Real seconds = ((Real)now + (TheSmoothMotionActive ? TheSmoothMotionAlpha : 0.0f)) / LOGICFRAMES_PER_SECOND;
 	s_fieldPuddles.clear();
 	s_fieldDraws.clear();
+	beginCloudPass(now);
 
 	Int laid = 0;
 	for (std::map<FieldKey, FieldState>::iterator st = s_fieldStates.begin(); st != s_fieldStates.end(); ++st)
@@ -968,10 +1309,26 @@ static Int collectGroundFields( const AABoxClass &view )
 
 		// a field off screen is still collected, as its puddles dim the ones it overlaps on screen
 		const Real size = state.size;
-		const Real reach = state.radius + size;
+		Real reach = state.radius + size;
+		Bool groundVolume = FALSE;
+		if (modernCloudsEnabled() && key.palette >= 0) {
+			reach = state.radius + HazardCloudPolicy::visualFringe(size) + 18.f;
+			groundVolume = TRUE;
+		}
 		const Bool visible = WWMath::Fabs( state.centre.x - view.Center.X ) <= view.Extent.X + reach
 			&& WWMath::Fabs( state.centre.y - view.Center.Y ) <= view.Extent.Y + reach
-			&& WWMath::Fabs( state.centre.z - view.Center.Z ) <= view.Extent.Z + reach;
+			&& (groundVolume || WWMath::Fabs( state.centre.z - view.Center.Z ) <= view.Extent.Z + reach);
+		if (visible) {
+			if (drawModernCloud(key, state, fade, seconds, now)) {
+				// Preserve the client's existing area-effect particle ceiling even
+				// though the replacement does not build the old puddle geometry.
+				const Real spread = state.radius / size;
+				laid += WWMath::Clamp_Int((Int)ceilf(FIELD_COVER * spread * spread), 1, FIELD_MAX_PUDDLES);
+				if (state.color.red >= state.color.green && state.color.red >= state.color.blue)
+					laid += WWMath::Clamp_Int((Int)(state.radius / FIELD_BUBBLE_SPACING), 1, FIELD_MAX_BUBBLES);
+				continue;
+			}
+		}
 
 		FieldBatch batch;
 		if (!particlePresetShader( state.shader, &batch.glow ))
@@ -1271,6 +1628,7 @@ W3DParticleSystemManager::W3DParticleSystemManager()
 
 W3DParticleSystemManager::~W3DParticleSystemManager()
 {
+	releaseCloudResources();
 	delete m_pointGroup;
 
 //	W3DDisplay::m_3DScene->Remove_Render_Object( m_streakLine );
@@ -1297,7 +1655,27 @@ void W3DParticleSystemManager::reset()
 	m_frameView.clear();
 	m_fieldSystems.clear();
 	m_sunMapCasters.clear();
-	s_fieldStates.clear();	// the object IDs it holds belong to the game that ended
+	invalidateGroundFields();	// the object IDs it holds belong to the game that ended
+}
+
+void W3DParticleSystemManager::invalidateGroundFields(bool fadeIn)
+{
+	releaseCloudResources();
+	// Ground draw buffers are rebuilt by the next collect/draw; their texture
+	// references are already released at the end of each draw. Only this map
+	// persists the footprint after an emitter is removed or changes appearance.
+	s_fieldStates.clear();
+	s_fieldSystemOwners.clear();
+	s_fieldSkipNextFadeIn = !fadeIn;
+}
+
+void W3DParticleSystemManager::releaseCloudResources()
+{
+	releaseCloudLayers();
+	// Query the replacement device at the next sync point. The helper clears
+	// keys before changing their ordering if support changed; unchanged support
+	// retains field ages/owner bindings across a resize or device reset.
+	s_fieldCloudCapabilityKnown = false;
 }
 
 /** LOGIC-THREAD.md phase 3.  A system's stealth fade asks its object's drawable, and a field asks for

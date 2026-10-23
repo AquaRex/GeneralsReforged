@@ -67,7 +67,7 @@ static const char GAMMA_PIXEL_HLSL[] =
 
 // A separate colour-only pass avoids both read/write attachment feedback and backend-specific
 // depth/stencil copy restrictions. Point sampling preserves object edges and the original depth.
-static const char WATER_DEPTH_PIXEL_HLSL[] =
+static const char SCENE_DEPTH_PIXEL_HLSL[] =
 	"Texture2D<float> SceneDepth : register(t0, space2);\n"
 	"SamplerState DepthSampler : register(s0, space2);\n"
 	"float main([[vk::location(0)]] float2 uv : TEXCOORD0) : SV_Target0\n"
@@ -180,7 +180,7 @@ SdlGpuFrame * SdlGpuFrame::Create(RenderWindow window, unsigned int width, unsig
 		delete frame;
 		return NULL;
 	}
-	// Prefer a sampleable stencil format for the water's GPU depth resolve. Preserve rendering on a
+	// Prefer a sampleable stencil format for the scene depth resolve (water, hazard clouds). Preserve rendering on a
 	// device without one by retaining the ordinary depth target, and disabling scene-depth sampling.
 	const SDL_GPUTextureFormat depth_formats[] = {
 		SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT, SDL_GPU_TEXTUREFORMAT_D32_FLOAT_S8_UINT };
@@ -244,10 +244,10 @@ SdlGpuFrame::~SdlGpuFrame()
 	if (GammaPixel != NULL) SDL_ReleaseGPUShader(GpuDevice, GammaPixel);
 	if (RampTexture != NULL) SDL_ReleaseGPUTexture(GpuDevice, RampTexture);
 	if (PointSampler != NULL) SDL_ReleaseGPUSampler(GpuDevice, PointSampler);
-	if (WaterDepthPipeline != NULL) SDL_ReleaseGPUGraphicsPipeline(GpuDevice, WaterDepthPipeline);
-	if (WaterDepthVertex != NULL) SDL_ReleaseGPUShader(GpuDevice, WaterDepthVertex);
-	if (WaterDepthPixel != NULL) SDL_ReleaseGPUShader(GpuDevice, WaterDepthPixel);
-	if (WaterDepthSampler != NULL) SDL_ReleaseGPUSampler(GpuDevice, WaterDepthSampler);
+	if (SceneDepthPipeline != NULL) SDL_ReleaseGPUGraphicsPipeline(GpuDevice, SceneDepthPipeline);
+	if (SceneDepthVertex != NULL) SDL_ReleaseGPUShader(GpuDevice, SceneDepthVertex);
+	if (SceneDepthPixel != NULL) SDL_ReleaseGPUShader(GpuDevice, SceneDepthPixel);
+	if (SceneDepthSampler != NULL) SDL_ReleaseGPUSampler(GpuDevice, SceneDepthSampler);
 	if (Window != NULL) SDL_ReleaseWindowFromGPUDevice(GpuDevice, Window);
 	SDL_DestroyGPUDevice(GpuDevice);
 }
@@ -529,7 +529,7 @@ SdlGpuFrame::WaterSnapshot *SdlGpuFrame::Water_Snapshot(const SdlTarget &source)
 		info.sample_count = SDL_GPU_SAMPLECOUNT_1;
 		fresh.Colour = SDL_CreateGPUTexture(GpuDevice, &info);
 		if (!fresh.Colour) return NULL;
-		if (source.Depth && DepthSampleable && Create_Water_Depth_Pipeline()) {
+		if (source.Depth && DepthSampleable && Create_Scene_Depth_Pipeline()) {
 			info.format = SDL_GPU_TEXTUREFORMAT_R32_FLOAT;
 			fresh.Depth = SDL_CreateGPUTexture(GpuDevice, &info);
 		}
@@ -573,13 +573,13 @@ SDL_GPUTexture *SdlGpuFrame::Water_Background(const SdlTarget &source)
 	return snapshot ? snapshot->Colour : NULL;
 }
 
-SDL_GPUTexture *SdlGpuFrame::Water_Depth(const SdlTarget &source)
+SDL_GPUTexture *SdlGpuFrame::Scene_Depth(const SdlTarget &source)
 {
 	WaterSnapshot *snapshot = Water_Snapshot(source);
 	return snapshot ? snapshot->Depth : NULL;
 }
 
-SDL_GPUTexture *SdlGpuFrame::Ready_Water_Depth(const SdlTarget &source, uint64_t &serial) const
+SDL_GPUTexture *SdlGpuFrame::Ready_Scene_Depth(const SdlTarget &source, uint64_t &serial) const
 {
 	serial = 0;
 	for (const WaterSnapshot &snapshot : WaterSnapshots) {
@@ -593,65 +593,65 @@ SDL_GPUTexture *SdlGpuFrame::Ready_Water_Depth(const SdlTarget &source, uint64_t
 	return NULL;
 }
 
-bool SdlGpuFrame::Create_Water_Depth_Pipeline()
+bool SdlGpuFrame::Create_Scene_Depth_Pipeline()
 {
-	if (WaterDepthPipeline && WaterDepthSampler) return true;
+	if (SceneDepthPipeline && SceneDepthSampler) return true;
 	std::string log;
-	if (!WaterDepthVertex) {
+	if (!SceneDepthVertex) {
 		std::vector<unsigned char> spirv;
 		if (!SDL3_Compile_HLSL_To_SPIRV(GAMMA_VERTEX_HLSL, true, spirv, log)
-			|| !(WaterDepthVertex = SDL3_Create_Shader(GpuDevice, spirv, true, log))) {
+			|| !(SceneDepthVertex = SDL3_Create_Shader(GpuDevice, spirv, true, log))) {
 			static bool reported = false;
 			if (!reported) {
 				reported = true;
-				fprintf(stderr, "SdlGpuFrame: water depth vertex: %s\n", log.c_str());
+				fprintf(stderr, "SdlGpuFrame: scene depth vertex: %s\n", log.c_str());
 			}
 			return false;
 		}
 	}
-	if (!WaterDepthPixel) {
+	if (!SceneDepthPixel) {
 		std::vector<unsigned char> spirv;
-		if (!SDL3_Compile_HLSL_To_SPIRV(WATER_DEPTH_PIXEL_HLSL, false, spirv, log)
-			|| !(WaterDepthPixel = SDL3_Create_Shader(GpuDevice, spirv, false, log))) {
+		if (!SDL3_Compile_HLSL_To_SPIRV(SCENE_DEPTH_PIXEL_HLSL, false, spirv, log)
+			|| !(SceneDepthPixel = SDL3_Create_Shader(GpuDevice, spirv, false, log))) {
 			static bool reported = false;
 			if (!reported) {
 				reported = true;
-				fprintf(stderr, "SdlGpuFrame: water depth pixel: %s\n", log.c_str());
+				fprintf(stderr, "SdlGpuFrame: scene depth pixel: %s\n", log.c_str());
 			}
 			return false;
 		}
 	}
-	if (!WaterDepthPipeline) {
+	if (!SceneDepthPipeline) {
 		SDL_GPUColorTargetDescription target = {};
 		target.format = SDL_GPU_TEXTUREFORMAT_R32_FLOAT;
 		SDL_GPUGraphicsPipelineCreateInfo info = {};
-		info.vertex_shader = WaterDepthVertex;
-		info.fragment_shader = WaterDepthPixel;
+		info.vertex_shader = SceneDepthVertex;
+		info.fragment_shader = SceneDepthPixel;
 		info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
 		info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
 		info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
 		info.target_info.color_target_descriptions = &target;
 		info.target_info.num_color_targets = 1;
-		WaterDepthPipeline = SDL_CreateGPUGraphicsPipeline(GpuDevice, &info);
+		SceneDepthPipeline = SDL_CreateGPUGraphicsPipeline(GpuDevice, &info);
 	}
-	if (!WaterDepthSampler) {
+	if (!SceneDepthSampler) {
 		SDL_GPUSamplerCreateInfo sampler = {};
 		sampler.min_filter = sampler.mag_filter = SDL_GPU_FILTER_NEAREST;
 		sampler.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
 		sampler.address_mode_u = sampler.address_mode_v = sampler.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
-		WaterDepthSampler = SDL_CreateGPUSampler(GpuDevice, &sampler);
+		SceneDepthSampler = SDL_CreateGPUSampler(GpuDevice, &sampler);
 	}
-	if (!WaterDepthPipeline || !WaterDepthSampler) {
+	if (!SceneDepthPipeline || !SceneDepthSampler) {
 		static bool reported = false;
 		if (!reported) {
 			reported = true;
-			fprintf(stderr, "SdlGpuFrame: water depth resolve: %s\n", SDL_GetError());
+			fprintf(stderr, "SdlGpuFrame: scene depth resolve: %s\n", SDL_GetError());
 		}
 	}
-	return WaterDepthPipeline && WaterDepthSampler;
+	return SceneDepthPipeline && SceneDepthSampler;
 }
 
-bool SdlGpuFrame::Resolve_Water_Depth(SDL_GPUCommandBuffer *commands, SDL_GPUTexture *source,
+bool SdlGpuFrame::Resolve_Scene_Depth(SDL_GPUCommandBuffer *commands, SDL_GPUTexture *source,
 	SDL_GPUTexture *destination, unsigned int width, unsigned int height)
 {
 	SDL_GPUColorTargetInfo colour = {};
@@ -660,8 +660,8 @@ bool SdlGpuFrame::Resolve_Water_Depth(SDL_GPUCommandBuffer *commands, SDL_GPUTex
 	colour.store_op = SDL_GPU_STOREOP_STORE;
 	SDL_GPURenderPass *pass = SDL_BeginGPURenderPass(commands, &colour, 1, NULL);
 	if (!pass) return false;
-	SDL_BindGPUGraphicsPipeline(pass, WaterDepthPipeline);
-	const SDL_GPUTextureSamplerBinding binding = { source, WaterDepthSampler };
+	SDL_BindGPUGraphicsPipeline(pass, SceneDepthPipeline);
+	const SDL_GPUTextureSamplerBinding binding = { source, SceneDepthSampler };
 	SDL_BindGPUFragmentSamplers(pass, 0, &binding, 1);
 	const SDL_GPUViewport viewport = { 0, 0, (float)width, (float)height, 0, 1 };
 	SDL_SetGPUViewport(pass, &viewport);
