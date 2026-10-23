@@ -830,6 +830,7 @@ GameEngine/Include/GameLogic/Module/HighlanderBody.h
 GameEngine/Include/GameLogic/Module/HijackerUpdate.h
 GameEngine/Include/GameLogic/Module/HiveStructureBody.h
 GameEngine/Include/GameLogic/Module/HordeUpdate.h
+GameEngine/Include/GameLogic/Module/IdleHackerUpdate.h
 GameEngine/Include/GameLogic/Module/ImmortalBody.h
 GameEngine/Include/GameLogic/Module/InactiveBody.h
 GameEngine/Include/GameLogic/Module/InstantDeathBehavior.h
@@ -1553,6 +1554,7 @@ GameEngine/Source/GameLogic/Object/Update/HeightDieUpdate.cpp
 GameEngine/Source/GameLogic/Object/Update/HelicopterSlowDeathUpdate.cpp
 GameEngine/Source/GameLogic/Object/Update/HijackerUpdate.cpp
 GameEngine/Source/GameLogic/Object/Update/HordeUpdate.cpp
+GameEngine/Source/GameLogic/Object/Update/IdleHackerUpdate.cpp
 GameEngine/Source/GameLogic/Object/Update/JammerUpdate.cpp
 GameEngine/Source/GameLogic/Object/Update/LaserUpdate.cpp
 GameEngine/Source/GameLogic/Object/Update/LifetimeUpdate.cpp

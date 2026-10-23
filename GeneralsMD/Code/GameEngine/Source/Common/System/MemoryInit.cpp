@@ -402,6 +402,7 @@ static PoolSizeRec sizes[] =
 	{ "SpyVisionSpecialPower", 256, 32 },
 	{ "StealthDetectorUpdate", 256, 32 },
 	{ "JammerUpdate", 32, 32 },
+	{ "IdleHackerUpdate", 64, 32 },
 	{ "StealthUpdate", 512, 128 },
 	{ "StealthUpgrade", 256, 32 },
 	{ "StatusBitsUpgrade", 128, 128 },

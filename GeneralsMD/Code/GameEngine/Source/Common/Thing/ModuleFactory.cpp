@@ -171,6 +171,7 @@
 #include "GameLogic/Module/MissileLauncherBuildingUpdate.h"
 #include "GameLogic/Module/StealthDetectorUpdate.h"
 #include "GameLogic/Module/JammerUpdate.h"
+#include "GameLogic/Module/IdleHackerUpdate.h"
 #include "GameLogic/Module/StealthUpdate.h"
 #include "GameLogic/Module/SpawnPointProductionExitUpdate.h"
 #include "GameLogic/Module/SpawnBehavior.h"
@@ -398,6 +399,7 @@ void ModuleFactory::init( void )
 	addModule( BaseRegenerateUpdate );
 	addModule( StealthDetectorUpdate );
 	addModule( JammerUpdate );
+	addModule( IdleHackerUpdate );
 	addModule( StealthUpdate );
 	addModule( DeletionUpdate );
 	addModule( SmartBombTargetHomingUpdate );
