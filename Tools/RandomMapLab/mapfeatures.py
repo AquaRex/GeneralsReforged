@@ -26,9 +26,10 @@ the distance from the map's middle over half the map, 0 the middle, 1 the edge):
                    nearest_start}]  ground between the middle and the starts that no base touches
     water        [{kind river|lake|sea, river_flag, spans_map, area, length, width, winding,
                    depth_bytes, bank_bytes, centre_share, nearest_start, reaches_edge,
-                   surface_bytes}]  kind by the shape of the wet cells (a river four times longer
+                   surface_bytes, start_clear}]  kind by the shape of the wet cells (a river four times longer
                    than wide, a sea 30% of the map); river_flag is WorldBuilder's, which is
-                   unreliable; spans_map a polygon over 90% of the map both ways
+                   unreliable; spans_map a polygon over 90% of the map both ways; start_clear
+                   the nearest start's distance to it over the least distance between two starts
     bridges      [{template, length, over water|gap|ground, ends_dz_middle [a, b], centre_share,
                    on_mesa}]  a FLAG_BRIDGE_POINT1 object and the FLAG_BRIDGE_POINT2 one after it
     roads        [{template, segments, length}]  FLAG_ROAD_POINT1/2 pairs, by template
@@ -37,6 +38,7 @@ the distance from the map's middle over half the map, 0 the middle, 1 the edge):
     tech         [{template, centre_share, nearest_start, on_mesa}]  tech buildings but derricks
     piles        {count, dz_start, company {template: per pile}}  what stands within 10 cells of a pile
     starts_raised  mapstyle's call: whether the bases stand on plateaus above the middle
+    split_without_bridges  whether a start reaches another only over a bridge
 """
 
 import json
@@ -241,7 +243,10 @@ def inventory(data, source=""):
                       "rim_cliff_share": round(float(cliff[rim].mean()), 3), "exits": int(exits),
                       "centre_share": cs, "nearest_start": near, "_mask": piece})
 
-    # water, area by area
+    # water, area by area; how near it comes to a start is in start spacings, so a map of another
+    # size or seat count can keep it as far off
+    spacing = min([math.hypot(p[0] - q[0], p[1] - q[1]) for i, p in enumerate(starts) for q in starts[i + 1:]]
+                  or [float(m.playable)])
     flags = river_flags(data)
     bodies = []
     areas = m.water_areas
@@ -261,7 +266,9 @@ def inventory(data, source=""):
         kind = ("river" if length >= 4.0 * width else
                 "sea" if wet.sum() >= SEA_WET * play.sum() else "lake")
         cs, near = where(*cells)
+        gap = ndimage.distance_transform_edt(~wet)
         bodies.append({"kind": kind, "river_flag": bool(flags[index]) if index < len(flags) else False,
+                       "start_clear": round(min(float(gap[p]) for p in starts) / spacing, 3),
                        "spans_map": spans, "area": int(wet.sum()),
                        "length": round(length, 1), "width": round(width, 1),
                        "winding": round(winding, 1),
@@ -337,7 +344,12 @@ def inventory(data, source=""):
              "dz_start": float(np.median([h[int(y) + b, int(x) + b] - start_h for x, y in m.piles])) if m.piles else None,
              "company": {t: round(n / float(max(len(m.piles), 1)), 2) for t, n in company.most_common()}}
 
+    # whether some start reaches another only over a bridge (the grid has none of them)
+    ground, _ = ndimage.label(passable)
+    split = len(set(int(ground[p]) for p in starts)) > 1
+
     return {"source": source, "size_cells": [m.playable_x, m.playable_y], "players": len(starts),
+            "split_without_bridges": split,
             "levels": {"start_bytes": start_h, "middle_bytes": middle_h, "peaks": peaks},
             "high_ground": high_ground, "base": base, "canyons": canyons, "mesas": mesas,
             "water": bodies, "bridges": bridges, "roads": list(roads.values()), "towns": towns,

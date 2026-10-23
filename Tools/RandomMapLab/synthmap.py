@@ -57,14 +57,16 @@ Quilting copies real cells and is a fixed amount of work.
     python synthmap.py selfcheck
 
 A skeleton is what `test_gameengine.exe write_the_maps_RMG_DUMP_names` writes with RMG_DUMP set.
-Output per skeleton: <name>_<exemplar>_<crc>.map (raw CkMp, BlendTileData version 8 with the
-exemplar's texture table and the cliff bits, the exemplar's lighting, a water area per river) and
-the same name .png, each cell its texture's average colour under the map's sun. The line it prints
+Output per skeleton, in a folder <name>_<exemplar>_<crc> that drops into Maps as it is: the .map
+(raw CkMp, BlendTileData version 8 with the exemplar's texture table and the cliff bits, the
+exemplar's lighting, a water area per river, a mapName), the map.str naming it, and the same name
+.png, each cell its texture's average colour under the map's sun. The line it prints
 says whether every start still reaches every other, every dock, derrick and tech building, over
 the bridges and round the water, and whether it would without the bridges.
 """
 
 import argparse
+import copy
 import math
 import os
 import re
@@ -120,7 +122,8 @@ FORD_AT = 0.6               # of the open middle's radius, where an arm's ford i
 FORD_CELLS = 8.0            # half a ford's width
 SHORE_CELLS = 6.0           # a river's bed to its waterline
 VALLEY_CELLS = 20.0         # the waterline up to the banks
-RIVER_SLOPE = 3.0           # bytes a cell the ground past a river's banks may rise (a cliff is 15.7)
+RIVER_TRIES = 6             # river layouts as good for the starts tried for the towns and tech they leave room for
+RIVER_SLOPE = 3.0          # bytes a cell the ground past a river's banks may rise (a cliff is 15.7)
 TOWN_MARGIN = 10            # cells round a town's buildings copied with it
 TOWN_STEP = 8               # cells between the places tried for a town
 TOWN_RELIEF = 50            # bytes of rise under a town's box that levelling it may take away
@@ -132,6 +135,7 @@ TREE_TRIES = 40             # clump placements tried a tree still wanted
 
 SCENERY = re.compile(r"^(Tree|Rocks|RockCluster|Tent|Amb_|AmbientWind|WoodTower|QuonsetHut)")
 SKELETON_SCENERY = re.compile(r"^(Tree|Rocks|RockCluster)")
+STANDING = re.compile(r"^(Tent|WoodTower|QuonsetHut)")      # scenery that is a building, not off a cliff
 
 
 #-----------------------------------------------------------------------------------------------
@@ -605,7 +609,7 @@ def compose(skel, src, seed):
 
     rivers = [w for w in inv["water"] if w["kind"] == "river" and w["length"] >= 0.5 * shortest]
     if rivers:
-        h = carve_river(h, skel, f, plan, src, rivers[0], seed)
+        h = place_river(h, skel, f, plan, src, rivers[0], seed)
     plan.notes += ["%s of %d cells" % (w["kind"], w["area"]) for w in inv["water"] if w not in rivers[:1]]
 
     h = stamp_towns(h, skel, f, plan, src, seed)
@@ -718,21 +722,63 @@ def carve_middle(h, skel, f, plan, src, canyon, mesa, seed):
     return out
 
 
-def carve_river(h, skel, f, plan, src, river, seed):
-    """A river as the inventory has it, on an axis clear of every start, dock and derrick: its bed,
-    a shore up to the waterline and a valley up to its banks, winding, across the map if the
-    exemplar's is, with the exemplar's bridges evenly along it where it narrows to their length,
-    and a water area over it."""
+def place_river(h, skel, f, plan, src, river, seed):
+    """carve_river where its nearest start stands as far from the water, in start spacings, as the
+    exemplar's does, and where without the bridges the starts still share their ground when the
+    exemplar's do: of the offsets round the exemplar's own, either side, edge to edge or the
+    exemplar's length, the nearest to its offset that meets both, else the clearest that splits
+    nothing. A river laid by its offset alone came 45 cells from a Heartland start (0.16 spacings
+    against the exemplar's 0.38), and every wave of that side filed over a bridge to gather."""
+    starts = skel.starts
+    spacing = min(math.hypot(p[0] - q[0], p[1] - q[1]) for i, p in enumerate(starts) for q in starts[i + 1:])
+    want = river.get("start_clear", 0.0)
+    may_split = src.inventory.get("split_without_bridges", True)
+    first = 1.0 if hash_unit(seed, 78, 4) < 0.5 else -1.0
+    ranked = []
+    for step in (0.0, 0.1, -0.1, 0.2, -0.2, 0.3, -0.3, 0.45, -0.45):
+        share = river["centre_share"] + step
+        if not 0.0 <= share <= 0.9:
+            continue
+        for sign in (first, -first):
+            for edge in (river["reaches_edge"], not river["reaches_edge"]):
+                trial = copy.deepcopy(plan)
+                out = carve_river(h, skel, f, trial, src, river, seed, sign * share * f.half, edge)
+                wet = trial.wet & (out < trial.water[0][1])
+                gap = ndimage.distance_transform_edt(~wet)
+                clear = min(float(gap[p]) for p in starts) / spacing
+                ground, _ = ndimage.label(walkable(span_cliff(out)) & ~wet)
+                split = len(set(int(ground[p]) for p in starts)) > 1
+                score = (split and not may_split, clear < want, abs(step) + 0.05 * (edge != river["reaches_edge"]), -clear)
+                ranked.append((score, sign * share * f.half, edge))
+    # and of the best few, the one that leaves the fewest bridges, towns and tech buildings unbuilt:
+    # a river moved for the starts' sake can take the only ground a town or a refinery had
+    ranked.sort(key=lambda r: r[0])
+    best = None
+    for rank, (score, side, edge) in enumerate(ranked[:RIVER_TRIES]):
+        if score[:2] != ranked[0][0][:2]:
+            break
+        trial = copy.deepcopy(plan)
+        out = stamp_towns(carve_river(h, skel, f, trial, src, river, seed, side, edge), skel, f, trial, src, seed)
+        place_tech(out, skel, f, trial, src.inventory, seed)
+        if best is None or (len(trial.notes), rank) < best[0]:
+            best = ((len(trial.notes), rank), side, edge)
+    return carve_river(h, skel, f, plan, src, river, seed, best[1], best[2])
+
+
+def carve_river(h, skel, f, plan, src, river, seed, side, edge):
+    """A river as the inventory has it, side cells off the middle on an axis clear of every start,
+    dock and derrick: its bed, a shore up to the waterline and a valley up to its banks, winding,
+    across the map when edge is set, else the exemplar's length, with the exemplar's bridges evenly
+    along it where it narrows to their length, and a water area over it."""
     inv = src.inventory
     # as far under the middle as the exemplar's, but never so far that the bed would go below 0
     surface = max(skel.bowl + river["surface_bytes"] - inv["levels"]["middle_bytes"], river["depth_bytes"] + 2.0)
     bed = surface - river["depth_bytes"]
     bank = surface + max(river["bank_bytes"], 4.0)
-    side = (1.0 if hash_unit(seed, 78, 4) < 0.5 else -1.0) * river["centre_share"] * f.half
     angle = f.axis(seed, 78, side)
     my, mx = Frame.point(angle, f.cy, f.cx, 0.0, side)
     s, c = f.along(angle, my, mx)
-    length = 0.5 * math.hypot(*skel.h.shape) + 20.0 if river["reaches_edge"] else 0.5 * river["length"] * f.k
+    length = 0.5 * math.hypot(*skel.h.shape) + 20.0 if edge else 0.5 * river["length"] * f.k
     phase = hash_unit(seed, 78, 3) * 2.0 * math.pi
     wave = max(river["length"] / 1.5, 120.0)
     amp = 1.4 * river["winding"] * f.k
@@ -752,14 +798,17 @@ def carve_river(h, skel, f, plan, src, river, seed):
         for nudge in sorted(range(-48, 52, 4), key=abs):
             y, x = Frame.point(angle, my, mx, even + nudge, float(wander(even + nudge)))
             clear = np.hypot(f.yy - y, f.xx - x) <= 0.5 * bridge["length"] + 8.0
-            if f.guard[clear].max() < 0.01 and all(abs(even + nudge - s) > 30.0 for s in sites):
+            # (a crossing off the playable ground, which a river laid far off the middle can ask
+            # for, is none)
+            if clear.any() and f.play[clear].all() and f.guard[clear].max() < 0.01 and all(abs(even + nudge - s) > 30.0 for s in sites):
                 sites.append(even + nudge)
                 break
         else:
             plan.notes.append("%s bridge (no crossing clear of the sites)" % bridge["template"])
             ours = [b for b in ours if b is not bridge]
     narrow = np.ones(h.shape)
-    half = 0.5 * river["width"] * f.k
+    # the exemplar's width is its wet cells', and the wet band is the bed and half the shore each side
+    half = max(0.5 * (river["width"] * f.k - SHORE_CELLS), 3.0)
     for at, bridge in zip(sites, ours):
         to = min(1.0, max(bridge["length"] - 2.0 * SHORE_CELLS - 4.0, 6.0) / (2.0 * half))
         narrow = np.minimum(narrow, 1.0 - (1.0 - to) * fade((24.0 - np.abs(s - at)) / 12.0))
@@ -855,7 +904,9 @@ def place_tech(h, skel, f, plan, inv, seed):
             plan.tech.append((tech["template"], plan.mesa))
             continue
         turn = hash_unit(seed, 80, number)
-        radius = tech["centre_share"] * f.half
+        # no further out than 0.8 of the way to an edge: past the inscribed circle is a corner, where
+        # Winding River's hospital went and no army ever passes
+        radius = min(tech["centre_share"], 0.8) * f.half
         for q in range(64):
             angle = 2.0 * math.pi * (q + turn) / 64.0
             y = int(f.cy + radius * math.sin(angle))
@@ -1263,7 +1314,8 @@ def synthesise(skeleton_path, src, out_dir, seed):
     # the water by a few cells, as the water area's polygon is drawn round the bed loosely, and
     # after the levelling, which can ring a pad with cliff.
     level_wet = plan.wet & (h < max([surface for _, surface in plan.water] + [0.0]))
-    ground = reach(walkable(span_cliff(h)) & ~level_wet | decks, skel.starts[0])
+    cliff = span_cliff(h)
+    ground = reach(walkable(cliff) & ~level_wet | decks, skel.starts[0])
     ground &= ~(box(level_wet, 3) > 0) & ~decks
     _, (near_y, near_x) = ndimage.distance_transform_edt(~ground, return_indices=True)
     snapped = 0
@@ -1321,7 +1373,11 @@ def synthesise(skeleton_path, src, out_dir, seed):
             body += struct.pack("<H", len(value)) + value if kind == 3 else value
         return (raw.ids["Object"], 3, body)
 
-    kept.extend(neutral(*entry) for entry in added)
+    # no tower, hut or tent where the new ground has a cliff (rocks may stand there): the AI sends
+    # infantry to garrison a tower, and on Heartland ten Tank Hunters stood wedged at the foot of
+    # the cliff under one for 1354 of the match's 1359 wedges
+    kept.extend(neutral(*entry) for entry in added
+                if not (STANDING.match(entry[0]) and cliff[int(entry[2]), int(entry[1])]))
 
     # the bridges, each the exemplar's own pair of objects for its template, moved to its two ends
     pairs = {}
@@ -1359,6 +1415,9 @@ def synthesise(skeleton_path, src, out_dir, seed):
             if any(key == "waypointID" for key, _, _ in object_entries(body, src.raw.names)) or \
                     re.match(r"(?i)(supply|tech|.*waypoint)", template):
                 continue
+            # the levelled box feathers into the ground round it, and a house in that rim can sit on a cliff
+            if any(cliff[int(cy), int(cx)] for _, (cy, cx) in places):
+                continue
             for b, (_, (cy, cx)) in zip(group, places):
                 counter[0] += 1
                 copied += 1
@@ -1374,10 +1433,21 @@ def synthesise(skeleton_path, src, out_dir, seed):
         raw.replace("PolygonTriggers", version, water_triggers(version, body, plan.water, m.border))
     raw.replace("GlobalLighting", *src.raw.body("GlobalLighting"))
 
-    name = "%s_%s_%08x" % (os.path.splitext(os.path.basename(skeleton_path))[0], src.label, src.crc)
-    out = os.path.join(out_dir, name + ".map")
+    skeleton_name = os.path.splitext(os.path.basename(skeleton_path))[0]
+    name = "%s_%s_%08x" % (skeleton_name, src.label, src.crc)
+    # the shell names a map by WorldInfo's mapName, a label the map.str beside the map holds; with
+    # none it logs "Missing TheKey_mapName!" and shows the file name
+    version, body = raw.body("WorldInfo")
+    entries = [e for e in dict_entries(body, 0, raw.names)[0] if e[0] != "mapName"]
+    raw.replace("WorldInfo", version, encode_dict(entries + [("mapName", 3, ascii_value("MAP:" + name))], raw))
+    # a folder of its own, as the map cache wants a map: Maps\<name>\<name>.map
+    folder = os.path.join(out_dir, name)
+    os.makedirs(folder, exist_ok=True)
+    out = os.path.join(folder, name + ".map")
     with open(out, "wb") as handle:
         handle.write(raw.bytes())
+    with open(os.path.join(folder, "map.str"), "w", newline="\r\n") as handle:
+        handle.write('MAP:%s\n"%s synth %s"\nEND\n' % (name, src.label, skeleton_name))
     finished = time.time()
 
     # every start walks to every other one, and to every dock, derrick and tech building, over
