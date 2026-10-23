@@ -473,12 +473,24 @@ names and shader programs; macOS binds the legacy SDL programs. The Linux style
 widget is hidden on both platforms. Windows/macOS builds and runtime checks remain
 open; Linux compilation and GPU tests do not establish their runtime compatibility.
 
-## Volumetric hazard clouds (2026-10-22)
+## Volumetric hazard clouds (2026-10-22, Direct3D 11 2026-10-23)
 
 Windows compiles the neutral cloud core (`Platform/HazardCloud.h`, `HazardCloudPolicy.h`,
-`HazardCloudFlow`, `HazardCloud.cpp`) and links `HazardCloudUnsupported.cpp`, so
-`HazardCloud::Supported()` is false there: the Cloud style selector is hidden and the ground fields
-take upstream's original keys, owner choice, grace period and initial-delay behaviour, because every
-extended rule in `W3DParticleSys.cpp` is conditioned on that capability. The SDL backend
-(`SdlHazardCloud*.cpp`) is built only where the SDL GPU renderer is. A Direct3D 11 backend would
-replace `HazardCloudUnsupported.cpp` and implement `HazardCloud::Layer`.
+`HazardCloudFlow`, `HazardCloud.cpp`) and, since 2026-10-23, the device-free half of a layer
+(`Platform/HazardCloudCore.h`, `HazardCloudCore.cpp`, `HazardCloudShader.cpp`) that the SDL backend
+shares. `gameenginedevice` links `DX11HazardCloud.cpp` in place of `HazardCloudUnsupported.cpp`,
+which only the device-less tests still link. `HazardCloud::Supported()` is true while the Direct3D
+11 frame presents on a feature level 11 device, so the Cloud style selector shows on the default
+renderer and stays hidden under `-d3d9` and `-headless`.
+
+The extended field rules in `W3DParticleSys.cpp` (keys, owner choice, grace period, initial delay)
+now need the Volumetric style as well as the capability, and the Classic graphics setting turns
+them off, so a Classic player on any platform tracks the fields as upstream did. The cloud programs
+are compiled by the backend's `Compile_Program` at shader model 5 and kept in
+`Run/dx11shaders.cache`; the shipped cache (`dx11shaders.shipped`) holds none of them until it is
+recorded again, so a player's first Volumetric hazard pays their compile once.
+
+The Direct3D 11 path was built and run on Windows: `test_dx11backend` compiles all eight programs
+with d3dcompiler_47, and a Twilight Flame Scud Storm field drew on the default renderer with no
+refusal in the log. The SDL backend was moved onto the shared core in the same change and has not
+been compiled since; Linux and macOS builds are owed.
