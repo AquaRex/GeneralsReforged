@@ -324,6 +324,11 @@ void Direct3D11_Register_Engine_Shader(const void * shader, const char * file_pa
 void Direct3D11_Mirror_Vertex_Shader_Constant(unsigned first_register, const float * values,
 	unsigned count);
 
+// The Modern water's pixel registers, c0 to the last hull packet (DX11_WATER_REGISTERS), which
+// W3DWater sets for its own draws and nothing else reads; and what its draws did, for the log.
+void Direct3D11_Set_Water_Constants(unsigned first_register, const float * values, unsigned count);
+std::string Direct3D11_Water_Report();
+
 // The draw, made alongside the Direct3D 9 one rather than instead of it: phase 2 is finished when
 // the D3D11 picture can replace the D3D9 one, and until then both have to be able to produce it.
 // False means the backend could not resolve a pipeline for this state and drew nothing, which is

@@ -140,6 +140,13 @@ public:
 	// The engine's own float4 shader constant bank, as it sets it.  The transcribed programs index
 	// it by the same register number the SetVertexShaderConstantF call used.
 	void Set_Vertex_Program_Constant(unsigned first_register, const float * values, unsigned count);
+
+	// The Modern water's float4 registers as W3DWater sets them (Platform/WaterConstants.h), up to
+	// DX11_WATER_REGISTERS.  Only a Modern water draw reads them, through dx11water.cpp's blocks.
+	void Set_Water_Constants(unsigned first_register, const float * values, unsigned count);
+	// What the Modern water drew with, for the shutdown report: its draws, the GPU ocean's updates,
+	// or why the analytic surface stood in for it.
+	std::string Water_Report() const;
 	void Set_Stream_Source(ID3D11Buffer * buffer, unsigned stride, unsigned offset);
 	void Set_Indices(ID3D11Buffer * buffer, DXGI_FORMAT format);
 
@@ -528,6 +535,23 @@ private:
 	// What the viewport is, so a pre-transformed vertex can be put back into clip space.
 	unsigned ViewportWidth;
 	unsigned ViewportHeight;
+	unsigned ViewportX;
+	unsigned ViewportY;
+
+	// The Modern water (dx11water.cpp): its registers, the stages past the fourth, the copies of the
+	// scene it refracts through, the GPU ocean and the displaced vertex programs.  Prepare runs
+	// before a water draw binds anything, because the ocean's passes take the context; Bind after
+	// the draw's own bindings, Unbind after the draw.
+	struct WaterResources;
+	WaterResources * Water;
+	static WaterResources * Create_Water();
+	static void Destroy_Water(WaterResources * water);
+	void Set_Water_Texture(unsigned stage, ID3D11ShaderResourceView * texture);
+	bool Prepare_Water();
+	void Bind_Water();
+	void Unbind_Water();
+	void Water_Scene_Changed(ID3D11Resource * target);	// null: a new frame, every copy is old
+	void Release_Water();
 
 	// The sun's depth buffer and the two views of it: one to draw into, one to sample.  The
 	// viewport the frame was using is kept while it is bound, because the map is square and the

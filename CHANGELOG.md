@@ -13,9 +13,10 @@ found and fixed â€” EA's own, not port damage.**
 - A tree's shadow used to be its outline laid flat at the foot of the trunk, which sank into the ground on a slope and never darkened a tank parked under it. Now every tree, the palms included, puts its real leaves into the sun's shadow, gaps between the fronds and all, and that shadow falls over the hillside and over the units standing in the wood. Direct3D 11 on Windows and Linux both draw it; the Direct3D 9 renderer keeps the old flat shadows.
 - Linux gets the sun's shadows Windows already had, soft under a helicopter and hard under a tank, and the smoke shadow that darkens a battlefield under a thick plume. Your own cloaked units still cast only a faint part of theirs.
 
-## Modern water on Linux
+## Modern water
 
-- Options has a Water Style box. Modern rolls the sea in waves whose crests catch the sun all the way into the shallows, and at the shore they turn along the bank and pile up foam. Boats push foam off their hulls. Classic stays the default, and either way a map keeps the water colour and depth its maker gave it. Linux only for now.
+- Options has a Water Style box. Modern rolls the sea in waves whose crests catch the sun all the way into the shallows, and at the shore they turn along the bank and pile up foam. Boats push foam off their hulls. Classic stays the default, and either way a map keeps the water colour and depth its maker gave it.
+- Windows has it now on the default renderer, and the box switches it in the middle of a match. The Direct3D 9 renderer and macOS keep the Classic water and hide the box. Linux still draws one thing Windows does not, a second band of foam laid over the surf where waves break on a beach. The first Modern frame on a fresh install stops for about a minute while its two water shaders compile; every match after that loads them from the cache.
 
 ## Volumetric hazard clouds
 

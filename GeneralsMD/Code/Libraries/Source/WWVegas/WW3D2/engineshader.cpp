@@ -678,8 +678,9 @@ WaterRefractionSample waterRefractedScene(float2 originalPixel, float2 offset,
         // discontinuously changes absorption and also contaminates neighbouring derivatives.
         bool nearestValid = waterRefractionHit(nearestTexel, world, opticalWorld, view, nearestHit);
         [branch] if (nearestValid) {
-            float4 validWeights = float4(0, 0, 0, 0);
-            validWeights[nearest] = weights[nearest];
+            // A mask rather than validWeights[nearest]: FXC cannot write a vector at a runtime index,
+            // and DXC's HLSL 2021 takes no vector ternary.
+            float4 validWeights = weights * float4(int4(0, 1, 2, 3) == nearest);
             bool completeFootprint = true;
             [unroll] for (int i = 0; i < 4; ++i) {
                 [branch] if (i != nearest && weights[i] > 0.0) {
@@ -1332,9 +1333,10 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 		hlsl.clear();
 		return false;
 	}
+	const bool modern_water = EngineShader_Is_Modern_Water(program);
 	if (target == COMBINER_SHADER_TARGET_SDL3_GPU) {
 #if defined(__linux__)
-		if (program == ENGINE_SHADER_WATER_TRAPEZOID || program == ENGINE_SHADER_WATER_RIVER) {
+		if (modern_water) {
 			write_modern_water(hlsl, program == ENGINE_SHADER_WATER_RIVER);
 			if (!CombinerShader_Append_Pixel_Pipeline(pipeline, hlsl)) return false;
 			hlsl += "    return current;\n}\n";
@@ -1343,6 +1345,14 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 #endif // __linux__
 		return write_engine_pixel_program(program, pipeline, hlsl, EngineShader_Paints_Ground(program))
 			&& SDL3_Shader_Retarget(hlsl, false);
+	}
+	// Direct3D 11 draws the Modern water from the same text, bound by dx11water.cpp.  The Classic
+	// style registers the classic names, whose transcription is the one this target always wrote.
+	if (modern_water) {
+		write_modern_water(hlsl, program == ENGINE_SHADER_WATER_RIVER);
+		if (!CombinerShader_Append_Pixel_Pipeline(pipeline, hlsl)) return false;
+		hlsl += "    return current;\n}\n";
+		return true;
 	}
 	return write_engine_pixel_program(program, pipeline, hlsl, true);
 }

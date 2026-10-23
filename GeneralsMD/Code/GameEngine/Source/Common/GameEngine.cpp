@@ -32,6 +32,7 @@
 #include "zhio.h"
 #include "Common/MessageBoxFlags.h"	// MessageBoxWrapper and its flags
 #include "Platform/SleepMilliseconds.h"
+#include "Platform/ModernWaterBuild.h"
 #if !defined(_WIN32)
 #include <unistd.h>		// getpid, for the model-checksum cache's scratch file
 #endif
@@ -1103,7 +1104,7 @@ void GameEngine::init( int argc, char *argv[] )
 		ini.load( AsciiString( "Data\\INI\\Water.ini" ), INI_LOAD_OVERWRITE, &xferCRC );
 		// Visual material rules have their own parser, shared with the standalone preview.
 		// They do not change gameplay state or the legacy map WaterTransparency values.
-#if defined(__linux__)
+#if ZH_MODERN_WATER
 		loadModernWaterSettings();
 #endif
 		ini.load( AsciiString( "Data\\INI\\Default\\Weather.ini" ), INI_LOAD_OVERWRITE, &xferCRC );

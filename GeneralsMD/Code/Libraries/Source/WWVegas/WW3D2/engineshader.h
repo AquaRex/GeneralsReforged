@@ -99,6 +99,13 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 // the trees are not among them: both have shadows of their own.
 bool EngineShader_Paints_Ground(EngineShaderProgram program);
 
+// The two programs the Modern water style draws with: the plain names, which W3DWater registers
+// only under that style.  Their text reads the water's own constant block and fifteen stages.
+inline bool EngineShader_Is_Modern_Water(EngineShaderProgram program)
+{
+	return program == ENGINE_SHADER_WATER_TRAPEZOID || program == ENGINE_SHADER_WATER_RIVER;
+}
+
 // What the pipeline cache keys this program under and what the dump calls its file.
 const char * EngineShader_Name(EngineShaderProgram program);
 

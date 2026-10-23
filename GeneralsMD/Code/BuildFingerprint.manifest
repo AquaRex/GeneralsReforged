@@ -1992,6 +1992,7 @@ Libraries/Include/Platform/HazardCloudPolicy.h
 Libraries/Include/Platform/IsWindows9x.h
 Libraries/Include/Platform/LoadTiming.h
 Libraries/Include/Platform/MSVCCompat.h
+Libraries/Include/Platform/ModernWaterBuild.h
 Libraries/Include/Platform/ModernWaterConfig.h
 Libraries/Include/Platform/ModernWaterMaterial.h
 Libraries/Include/Platform/MsvcFloatCasts.h
@@ -2008,6 +2009,7 @@ Libraries/Include/Platform/WaterBedMaterial.h
 Libraries/Include/Platform/WaterBowLift.h
 Libraries/Include/Platform/WaterBowRefinement.h
 Libraries/Include/Platform/WaterBowShoulder.h
+Libraries/Include/Platform/WaterConstants.h
 Libraries/Include/Platform/WaterFftFiltering.h
 Libraries/Include/Platform/WaterFftGeometry.h
 Libraries/Include/Platform/WaterFftSampling.h
@@ -2198,6 +2200,8 @@ Libraries/Source/WWVegas/WW3D2/dx11texture.cpp
 Libraries/Source/WWVegas/WW3D2/dx11texture.h
 Libraries/Source/WWVegas/WW3D2/dx11twin.cpp
 Libraries/Source/WWVegas/WW3D2/dx11twin.h
+Libraries/Source/WWVegas/WW3D2/dx11water.cpp
+Libraries/Source/WWVegas/WW3D2/dx11water.h
 Libraries/Source/WWVegas/WW3D2/dx8caps.cpp
 Libraries/Source/WWVegas/WW3D2/dx8caps.h
 Libraries/Source/WWVegas/WW3D2/dx8fvf.cpp

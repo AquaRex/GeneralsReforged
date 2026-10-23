@@ -548,7 +548,10 @@ W3DDisplay::~W3DDisplay()
 			texturesMirrored, texturesReused, texturesRefused,
 			pipelines, drawsMade, drawsRefused));
 		if( Direct3D11_Is_Active() )
+		{
 			DEBUG_LOG(("-dx11 constants: %s\n", Direct3D11_Constant_Path()));
+			DEBUG_LOG(("-dx11 water: %s\n", Direct3D11_Water_Report().c_str()));
+		}
 		unsigned programsShipped = 0;
 		unsigned programsHeld = 0;
 		Direct3D11_Program_Statistics( programsShipped, programsHeld );
@@ -2337,7 +2340,7 @@ static void takeReadsForRender( Bool renders )
 	TheInGameUI->recordDraw();
 	TheTerrainRenderObject->takeWaypointsForRender();
 	TheTerrainRenderObject->stepTrees();	// before the particles: a falling tree's FX makes systems
-#if defined(__linux__)
+#if ZH_MODERN_WATER
 	if (TheWaterRenderObj) TheWaterRenderObj->takeReadsForRender();
 #endif
 	static_cast<W3DParticleSystemManager *>( TheParticleSystemManager )->takeReadsForRender();

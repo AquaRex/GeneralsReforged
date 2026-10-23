@@ -87,7 +87,7 @@ extern Real TheParticleFillMS;
 extern UnsignedInt TheParticlesPastGroupLimit;
 #endif
 
-#if defined(__linux__)
+#if ZH_MODERN_WATER
 // Modern water replaces only verified vessel-surface particles, after that hull's water draw.  The
 // owner is the one the frame view took at the sync point, so the draw reads no live object.
 static Bool replaceLegacyVesselFoam(ParticleSystem *sys, ObjectID owner)
@@ -1755,7 +1755,7 @@ void W3DParticleSystemManager::refreshFrameView( void )
 		SystemView view;
 		view.system = sys;
 		view.fade = fade;
-#if defined(__linux__)
+#if ZH_MODERN_WATER
 		view.owner = INVALID_ID;
 		if (sys->getAttachedDrawable() != INVALID_DRAWABLE_ID) {
 			const Drawable *drawable = TheGameClient->findDrawableByID(sys->getAttachedDrawable());
@@ -1958,7 +1958,7 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 	for (size_t v = 0; v < m_frameView.size(); ++v)
 	{
 		ParticleSystem *sys = m_frameView[ v ].system;
-#if defined(__linux__)
+#if ZH_MODERN_WATER
 		if (replaceLegacyVesselFoam(sys, m_frameView[ v ].owner))
 			continue;
 #endif
@@ -2057,7 +2057,7 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 #endif
 			continue;
 		}
-#if defined(__linux__)
+#if ZH_MODERN_WATER
 		if (replaceLegacyVesselFoam(sys, m_frameView[ v ].owner))
 			continue;
 #endif

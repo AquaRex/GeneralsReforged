@@ -282,8 +282,8 @@ TEST(runtime_bed_material_is_tileable_deterministic_and_has_distinct_relief)
 
 TEST(classic_water_uses_the_original_program_and_separate_cache_identity)
 {
-    // D3D11 retains the original transcription. Classic on SDL must be exactly that
-    // program after binding retargeting, including fog/alpha-test variants.
+    // D3D11's Classic names keep the original transcription. Classic on SDL must be exactly
+    // that program after binding retargeting, including fog/alpha-test variants.
     for (unsigned river=0; river<2; ++river) for (unsigned state=0; state<4; ++state) {
         const auto original=river?ENGINE_SHADER_WATER_RIVER:ENGINE_SHADER_WATER_TRAPEZOID;
         const auto classic=river?ENGINE_SHADER_WATER_CLASSIC_RIVER:ENGINE_SHADER_WATER_CLASSIC_TRAPEZOID;
@@ -292,7 +292,7 @@ TEST(classic_water_uses_the_original_program_and_separate_cache_identity)
         pipeline.AlphaTestEnabled=(state&2)!=0;
         pipeline.AlphaFunction=FF_CMP_GREATEREQUAL;
         std::string expected,actual,modern;
-        CHECK(EngineShader_Pixel_Program(original,pipeline,expected,COMBINER_SHADER_TARGET_D3D11));
+        CHECK(EngineShader_Pixel_Program(classic,pipeline,expected,COMBINER_SHADER_TARGET_D3D11));
         CHECK(SDL3_Shader_Retarget(expected,false));
         CHECK(EngineShader_Pixel_Program(classic,pipeline,actual,COMBINER_SHADER_TARGET_SDL3_GPU));
         CHECK(actual==expected);

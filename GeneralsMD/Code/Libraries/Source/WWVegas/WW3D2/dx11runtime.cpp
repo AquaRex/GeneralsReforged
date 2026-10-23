@@ -1089,6 +1089,18 @@ void Direct3D11_Mirror_Vertex_Shader_Constant(unsigned first_register, const flo
 	}
 }
 
+void Direct3D11_Set_Water_Constants(unsigned first_register, const float * values, unsigned count)
+{
+	if (Active) {
+		Backend.Set_Water_Constants(first_register, values, count);
+	}
+}
+
+std::string Direct3D11_Water_Report()
+{
+	return Active ? Backend.Water_Report() : std::string("no Direct3D 11 backend");
+}
+
 bool Direct3D11_Draw_Indexed_Triangles(unsigned index_count, unsigned start_index,
 	unsigned base_vertex)
 {

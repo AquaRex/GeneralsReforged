@@ -37,6 +37,7 @@
 #include "WW3D2/streak.h"
 #include "WW3D2/rinfo.h"
 #include "WWLib/bittype.h"
+#include "Platform/ModernWaterBuild.h"
 
 #include <vector>
 
@@ -112,7 +113,7 @@ private:
 	{
 		ParticleSystem *	system;
 		Real							fade;				///< ParticleSystem::getStealthFade, above zero
-#if defined(__linux__)
+#if ZH_MODERN_WATER
 		ObjectID owner;					///< vessel foam's attached object at the sync point
 #endif
 	};

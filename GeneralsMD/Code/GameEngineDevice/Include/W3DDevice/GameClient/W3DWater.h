@@ -46,6 +46,7 @@
 #include "Common/Snapshot.h"
 #include "GameLogic/WaterGridMotion.h"
 #include "Platform/RenderTypes.h"
+#include "Platform/ModernWaterBuild.h"
 #include "Platform/WaterOpticalContext.h"
 #include "Platform/WaterProjectedMesh.h"
 #include "Platform/WaterHullVisual.h"
@@ -125,7 +126,7 @@ public:
 	void reset( void );  ///< reset any resources we need to
 	void load(void);	///< load/setup any map dependent features
 	void update( void ); ///< update phase of the water
-#if defined(__linux__)
+#if ZH_MODERN_WATER
 	void takeReadsForRender(void);
 #endif
 	void enableWaterGrid(Bool state);	///< used to active custom water for special maps. (i.e DAM).  The grid is TerrainLogic's WaterGrid; this builds its buffers
@@ -237,7 +238,7 @@ protected:
 		Vector3 position; Real radius,height,major,minor,cosine,sine; Bool box,hasHull=FALSE;
 	};
 	std::vector<ModernWaterObstacle> m_modernObstacles, m_modernPatchObstacles;
-#if defined(__linux__)
+#if ZH_MODERN_WATER
 	struct ModernWaterObject {
 		Drawable *drawable;
 		Vector3 position;
@@ -349,7 +350,7 @@ protected:
 	};
 
 	Setting m_settings[ TIME_OF_DAY_COUNT ];	///< settings for each time of day
-#if defined(__linux__)
+#if ZH_MODERN_WATER
 	void drawRiverWater(const WaterPolygonForDraw *pTrig);
 #else
 	void drawRiverWater(PolygonTrigger *pTrig);
