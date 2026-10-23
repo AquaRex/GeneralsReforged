@@ -33,6 +33,7 @@
 #include "GameLogic/PartitionManager.h"
 #include "GameLogic/Module/AIUpdate.h"
 #include "GameLogic/Module/ContainModule.h"
+#include "GameLogic/Module/HackInternetAIUpdate.h"
 #include "GameLogic/Module/IdleHackerUpdate.h"
 
 //-------------------------------------------------------------------------------------------------
@@ -104,7 +105,8 @@ UpdateSleepTime IdleHackerUpdate::update( void )
 	const UnsignedInt now = TheGameLogic->getFrame();
 
 	// Checked every frame: an order that keeps the hacker busy for a single frame still resets the clock.
-	if( me->getControllingPlayer()->getPlayerType() != PLAYER_HUMAN || me->isContained() || me->isEffectivelyDead() || !ai->isIdle() )
+	if( me->getControllingPlayer()->getPlayerType() != PLAYER_HUMAN || me->isContained() || me->isEffectivelyDead() || !ai->isIdle() ||
+			ai->getHackInternetAIInterface()->isHeldByPlayer() )
 	{
 		m_idleSinceFrame = now;
 		return UPDATE_SLEEP_NONE;

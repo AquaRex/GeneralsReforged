@@ -201,6 +201,8 @@ static Bool parseActionType( const AsciiString &token, ScenarioActionType *actio
 		*action = SCENARIO_ACTION_DOCK;
 	else if (token == "stop")
 		*action = SCENARIO_ACTION_STOP;
+	else if (token == "clickstop")
+		*action = SCENARIO_ACTION_CLICKSTOP;
 	else if (token == "arrive")
 		*action = SCENARIO_ACTION_ARRIVE;
 	else if (token == "particles")
@@ -353,6 +355,7 @@ static Int tokensNeededFor( ScenarioActionType action )
 		case SCENARIO_ACTION_GIVEMONEY:		return SCENARIO_TOKENS_STANCE;
 		case SCENARIO_ACTION_RANK:				return SCENARIO_TOKENS_STANCE;
 		case SCENARIO_ACTION_STOP:				return SCENARIO_TOKENS_STOP;
+		case SCENARIO_ACTION_CLICKSTOP:		return SCENARIO_TOKENS_STOP;
 		case SCENARIO_ACTION_TALLY:				return SCENARIO_TOKENS_STOP;
 		case SCENARIO_ACTION_PURCHASE:		return SCENARIO_TOKENS_STOP;
 		case SCENARIO_ACTION_ARRIVE:			return SCENARIO_TOKENS_ARRIVE;
@@ -518,6 +521,7 @@ ScenarioParseResult ScenarioDrill_parseLine( const char *line, ScenarioAction *a
 			break;
 
 		case SCENARIO_ACTION_STOP:
+		case SCENARIO_ACTION_CLICKSTOP:
 		case SCENARIO_ACTION_TALLY:
 		case SCENARIO_ACTION_PURCHASE:
 			break;
@@ -1896,6 +1900,14 @@ static Bool executeOrder( const ScenarioAction &action, Player *player, const Co
 		{
 			group->groupIdle( CMD_FROM_SCRIPT );
 			DEBUG_LOG(("SCENARIO: frame %d stop slot %d '%s' x%d\n",
+								 action.frame, action.slot, action.selector.str(), taken));
+			break;
+		}
+
+		case SCENARIO_ACTION_CLICKSTOP:
+		{
+			group->groupIdle( CMD_FROM_PLAYER );		// what GameLogicDispatch does with MSG_DO_STOP
+			DEBUG_LOG(("SCENARIO: frame %d clickstop slot %d '%s' x%d\n",
 								 action.frame, action.slot, action.selector.str(), taken));
 			break;
 		}

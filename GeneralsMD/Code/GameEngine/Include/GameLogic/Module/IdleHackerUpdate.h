@@ -20,8 +20,9 @@
 //
 // A human player's hacker left standing for IdleTime goes into the nearest own Internet Center with
 // a free seat within CenterRange, or else starts hacking where it stands.  Any order resets the
-// clock, since it leaves the hacker busy for at least one frame.  The computer's hackers are put to
-// work by AIPlayer (putToHacking), so this one leaves them alone.
+// clock, since it leaves the hacker busy for at least one frame.  A stop or an exit the player
+// ordered holds it until his next order (HackInternetAIUpdate::isHeldByPlayer).  The computer's
+// hackers are put to work by AIPlayer (putToHacking), so this one leaves them alone.
 //
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
