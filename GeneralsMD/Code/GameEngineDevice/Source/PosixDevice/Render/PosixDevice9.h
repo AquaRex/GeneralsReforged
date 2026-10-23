@@ -46,6 +46,9 @@
 
 #include "Platform/RenderTypes.h"
 #include "Platform/D3D9Posix.h"
+#include "Platform/WaterShoreOverlay.h"
+#include "Platform/WaterHullVisualLayout.h"
+#include <memory>
 
 #include <atomic>
 #include <memory>
@@ -62,6 +65,8 @@ struct CombinerDescription;
 struct VertexPipelineDescription;
 struct SdlVertexConstants;
 struct SdlPixelConstants;
+struct SdlWaterPixelConstants;
+struct SdlWaterVisualPixelConstants;
 
 /// AddRef and Release for one of the interfaces, counted as COM counts.
 template <class Interface>
@@ -160,7 +165,9 @@ public:
 		STREAM_COUNT = 16,
 		RENDER_TARGET_COUNT = 4,
 		VERTEX_SHADER_CONSTANT_COUNT = 256,
-		PIXEL_SHADER_CONSTANT_COUNT = 32
+		// Existing water uses c0-c175; exact mesh metadata is c176-c183, c184-c191
+		// remains spare, and c192-c895 supplies the three bounded fragment packet blocks.
+		PIXEL_SHADER_CONSTANT_COUNT = WaterHullVisualLayout::PixelRegisterCount
 	};
 
 	PosixDevice9(PosixDirect3D9 *adapter, RenderWindow window, const D3DPRESENT_PARAMETERS &parameters);
@@ -183,6 +190,11 @@ public:
 	void Clear_Sun_Shadow();
 	std::string Sun_Shadow_Report();
 	bool Read_Sun_Shadow(std::vector<float> &depth);
+	// Render-only explicit metadata: never infers .wak ownership from texture names.
+	void Shore_Begin(bool enabled);
+	void Shore_End();
+	void Shore_Patch(const WaterShoreOverlay::Quad *patch);
+	void Shore_Track(const WaterShoreOverlay::Quad *track);
 
 	// What the resource code (PosixDevice9Resources.cpp) reads.
 	const D3DPRESENT_PARAMETERS & Get_Present_Parameters() const { return Parameters; }
@@ -250,6 +262,9 @@ public:
 	bool Build_Vertex_Description(VertexPipelineDescription &description, std::string *refusal = NULL) const;
 	/// The two constant blocks, packed to match the descriptions above.
 	void Build_Constants(SdlVertexConstants &vertex, SdlPixelConstants &pixel) const;
+	void Build_Water_Constants(const SdlPixelConstants &pixel, SdlWaterPixelConstants &water) const;
+	void Build_Water_Visual_Constants(const SdlWaterPixelConstants &water, SdlWaterVisualPixelConstants &visual) const;
+	bool Water_Foam_History_Available() const;
 
 	/// Makes the implicit back buffer (and depth surface, when the present parameters ask for one) from
 	/// the present parameters, and binds them as render target 0 and the depth surface.  CreateDevice and
@@ -367,6 +382,16 @@ protected:
 	void Build_Sun_Constants(struct SdlEnginePixelConstants &constants) const;
 	struct SDL_GPUTexture *Sun_Texture() const;
 	struct SDL_GPUSampler *Sun_Sampler() const;
+	struct ShoreRegion {
+		WaterShoreOverlay::Quad patch;
+		WaterShoreOverlay::View view;
+		float terrain[4];
+		std::shared_ptr<IDirect3DBaseTexture9> height, optical;
+	};
+	bool ShoreActive=false, ShoreHasPatch=false, ShoreHasTrack=false;
+	WaterShoreOverlay::Quad ShorePatch, ShoreTrack;
+	std::vector<ShoreRegion> ShoreRegions; // <=128; COM refs released at scope end/reset/destruction
+
 	~PosixDevice9() override;
 
 	/// Drops every implicit surface and every render target and depth binding.  Reset and the destructor.

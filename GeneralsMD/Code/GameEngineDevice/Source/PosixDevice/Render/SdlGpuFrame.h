@@ -64,7 +64,7 @@ struct SdlTarget
 /// One draw as the flush replays it, everything by value.  The device's resolve fills it.
 struct SdlRecordedDraw
 {
-	enum { MAXIMUM_SAMPLERS = 8 };
+	enum { MAXIMUM_SAMPLERS = 16, MAXIMUM_UNIFORM_SLOTS = 4, WATER_PIXEL_BLOCKS = 3 };
 	SDL_GPUGraphicsPipeline * Pipeline;
 	SDL_GPUBuffer * VertexBuffer;		///< a GPU copy, or null for the batch's staging stream
 	uint32_t VertexOffset;				///< bytes into it
@@ -76,11 +76,18 @@ struct SdlRecordedDraw
 	int32_t BaseVertex;
 	uint32_t VertexConstants;			///< offsets into the batch's constant bytes (Constants)
 	uint32_t VertexConstantsSize;
+	uint32_t VertexWaterConstants;		///< water-only b1; aliases this draw's immutable pixel constants
+	uint32_t VertexWaterConstantsSize;
 	uint32_t PixelConstants;
 	uint32_t PixelConstantsSize;
+	uint32_t PixelWaterConstants[WATER_PIXEL_BLOCKS]; ///< immutable modern-water-only PS b1..b3
+	uint32_t PixelWaterConstantsSize[WATER_PIXEL_BLOCKS]; ///< zero for every other draw
 	uint32_t SamplerCount;
 	SDL_GPUTexture * Textures[MAXIMUM_SAMPLERS];
 	SDL_GPUSampler * Samplers[MAXIMUM_SAMPLERS];
+	uint32_t VertexSamplerCount;
+	SDL_GPUTexture * VertexTextures[MAXIMUM_SAMPLERS];
+	SDL_GPUSampler * VertexSamplers[MAXIMUM_SAMPLERS];
 	float Viewport[6];					///< x, y, width, height, min depth, max depth: as the GPU takes it
 	int32_t Scissor[4];					///< x, y, width, height
 	uint32_t StencilReference;
@@ -155,8 +162,8 @@ public:
 	void Queue_Texture_Upload(SDL_GPUTexture * texture, unsigned int level, unsigned int width, unsigned int height,
 		uint32_t upload_offset);
 	/// A constant block's bytes, for stage 0 (vertex) or 1 (pixel); the same bytes as that stage's block
-	/// before share its offset, so the flush pushes only a change.
-	uint32_t Constants(unsigned int stage, const void * bytes, uint32_t size);
+	/// before at the same slot share its offset, so the flush pushes only a change.
+	uint32_t Constants(unsigned int stage, const void * bytes, uint32_t size, unsigned int slot=0);
 	void Record_Draw(const SdlRecordedDraw & draw);
 	/// A GPU object nothing will record again, released once the batch that may use it has gone.
 	void Release_After_Batch(SDL_GPUTexture * texture, SDL_GPUBuffer * buffer);
@@ -167,6 +174,8 @@ public:
 	bool Batch_Is_Full();
 	/// The depth-stencil's SDL_GPUTextureFormat.  Every pass has it attached.
 	unsigned int Depth_Format() const { return DepthFormat; }
+	/// Sampling is optional on older devices. The selected depth format supports this complete usage.
+	unsigned int Depth_Usage() const;
 
 	/// Flush, then the back buffer to the window through the gamma ramp (null: none, a straight blit).
 	bool Present(const uint16_t (*ramp)[256]);
@@ -219,6 +228,20 @@ public:
 	/// What the last Present showed: the back buffer is copied here at each Present, so the front buffer
 	/// (GetFrontBufferData) is the presented picture whenever it is asked for (A3d).
 	SDL_GPUTexture * Front_Copy() const { return FrontCopy; }
+	/// Opaque scene before the first water draw, cached per actual colour/depth target and frame.
+	SDL_GPUTexture * Water_Background(const SdlTarget &source);
+	/// Device depth (0..1), resolved into an independent R32_FLOAT texture between render passes.
+	/// Null if sampled depth is unsupported. Never aliases the depth attachment used by water.
+	SDL_GPUTexture * Water_Depth(const SdlTarget &source);
+	/// Read-only lookup; never captures after water/overlays have already changed the scene.
+	SDL_GPUTexture * Ready_Water_Depth(const SdlTarget &source, uint64_t &serial) const;
+	/// Lazy, GPU-only Phillips spectrum/IFFT. Previous draws finish recording before maps change;
+	/// repeated paused times reuse the same field. Failure leaves the analytic water fallback usable.
+	bool Prepare_Ocean(float time);
+	SDL_GPUTexture * Ocean_Map(unsigned int index) const;
+	SDL_GPUSampler * Ocean_Sampler() const;
+	uint64_t Ocean_Updates() const { return OceanUpdates; }
+
 	unsigned int Width() const { return BackWidth; }
 	unsigned int Height() const { return BackHeight; }
 	/// The back buffer's format, and so what a Present_To target has to be.
@@ -290,14 +313,38 @@ private:
 	bool Create_Sun_Smoke();
 	void Release_Sun_Smoke();
 	bool Fail_Sun_Smoke(const char *reason);
-	// The depth reader is diagnostic-only and samples the independent sun target.
-	SDL_GPUShader *SunDepthVertex = NULL, *SunDepthPixel = NULL;
-	SDL_GPUGraphicsPipeline *SunDepthPipeline = NULL;
-	SDL_GPUSampler *SunDepthSampler = NULL;
-	bool Create_Sun_Depth_Reader();
-	bool Resolve_Sun_Depth(struct SDL_GPUCommandBuffer *commands, SDL_GPUTexture *source,
-		SDL_GPUTexture *destination, unsigned width, unsigned height);
 	void Release_Sun_Shadow();
+	struct WaterSnapshot
+	{
+		SdlTarget Source;
+		SDL_GPUTexture *Colour, *Depth;
+		bool Ready;
+		uint64_t UsedFrame;
+		uint64_t CaptureSerial;
+	};
+	std::vector<WaterSnapshot> WaterSnapshots; // at most eight; replaced resources retire with their batch
+	uint64_t WaterFrame = 0;
+	uint64_t WaterCaptureSerial = 0;
+	bool DepthSampleable = false;
+	SDL_GPUShader *WaterDepthVertex = NULL, *WaterDepthPixel = NULL;
+	SDL_GPUGraphicsPipeline *WaterDepthPipeline = NULL;
+	SDL_GPUSampler *WaterDepthSampler = NULL;
+	struct OceanResources;
+	OceanResources *Ocean = NULL;
+	bool OceanFailed = false, OceanReady = false;
+	float OceanTime = 0;
+	uint64_t OceanUpdates = 0;
+	bool Create_Ocean();
+	void Release_Ocean();
+	bool Fail_Ocean(const char *reason);
+
+	WaterSnapshot *Water_Snapshot(const SdlTarget &source);
+	void Invalidate_Water_Snapshots(SDL_GPUTexture *colour, SDL_GPUTexture *depth);
+	void Refresh_Water_Snapshots();
+	// The depth-to-R32F resolve; the water snapshots and the sun's diagnostic Read_Depth share it.
+	bool Create_Water_Depth_Pipeline();
+	bool Resolve_Water_Depth(struct SDL_GPUCommandBuffer *commands, SDL_GPUTexture *source,
+		SDL_GPUTexture *destination, unsigned int width, unsigned int height);
 	bool Copy_To_Front(struct SDL_GPUCommandBuffer * commands);
 	unsigned int DepthFormat;			///< an SDL_GPUTextureFormat: D24S8 where there is one, else D32S8
 	unsigned int BackWidth;
@@ -312,6 +359,7 @@ private:
 		int32_t Rect[4];				///< x, y, width, height
 		uint32_t Target;				///< into Targets: where a clear or draw goes
 		bool IsBlit;					///< a copy between textures, Rect to BlitRect
+		bool IsDepthSnapshot;		///< sampled depth to R32_FLOAT, with neither scene attachment bound
 		SDL_GPUTexture * BlitSource;
 		SDL_GPUTexture * BlitDestination;
 		int32_t BlitRect[4];
@@ -339,7 +387,7 @@ private:
 	std::vector<ArenaByte> StreamBytes;
 	std::vector<ArenaByte> UploadBytes;
 	std::vector<ArenaByte> ConstantBytes;
-	uint32_t LastConstants[2], LastConstantsSize[2];
+	uint32_t LastConstants[2][SdlRecordedDraw::MAXIMUM_UNIFORM_SLOTS], LastConstantsSize[2][SdlRecordedDraw::MAXIMUM_UNIFORM_SLOTS];
 	std::vector<Upload> Uploads;
 	std::vector<SDL_GPUTexture *> DeadTextures;
 	std::vector<SDL_GPUBuffer *> DeadBuffers;

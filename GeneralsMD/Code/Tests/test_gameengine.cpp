@@ -15238,6 +15238,32 @@ TEST(order_lines_are_a_live_check_box_that_starts_on)
 	TheWritableGlobalData = saved;
 }
 
+TEST(water_style_defaults_to_classic_and_preserves_an_explicit_modern_choice)
+{
+    GlobalData *saved=TheWritableGlobalData;
+    GlobalData *scratch=NEW GlobalData;
+    TheWritableGlobalData=scratch;
+    const OptionDef *water=findOptionDef("WaterStyle");
+    CHECK(water!=NULL);
+    if (water) {
+        UserPreferences pref;
+        CHECK_EQ(scratch->m_waterStyle,0);
+        loadOptionsFromPreferences(pref);
+        CHECK_EQ(water->get(),0);
+        pref["WaterStyle"]="1";
+        loadOptionsFromPreferences(pref);
+        CHECK_EQ(water->get(),1);
+        saveOptionsToPreferences(pref);
+        CHECK_STR(pref["WaterStyle"].str(),"1");
+        pref["WaterStyle"]="0";
+        loadOptionsFromPreferences(pref);
+        CHECK_EQ(water->get(),0);
+        CHECK_EQ(water->apply,APPLY_LIVE);
+    }
+    delete scratch;
+    TheWritableGlobalData=saved;
+}
+
 TEST(option_catalog_round_trips_every_key_through_options_ini)
 {
 	/* Every row has to survive the trip out to Options.ini and back, at both ends of its range.

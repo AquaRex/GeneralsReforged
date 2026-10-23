@@ -460,3 +460,12 @@ The generic SDL additions are depth-only targets, target-specific depth formats,
 smoke moments and diagnostic depth readback. The original emulated pixel register
 count, sampler limit, single-uniform bindings and legacy water source stay intact.
 No Modern water, cloud-volume feature, preview or workflow change is included.
+
+## Linux Modern water proposal (2026-10-18)
+
+New water surfaces, material loading and native particle replacements are admitted
+only on Linux. Shared water declarations, portable sampling helpers and inert
+option metadata still compile elsewhere. Windows retains its original shader
+names and shader programs; macOS binds the legacy SDL programs. The Linux style
+widget is hidden on both platforms. Windows/macOS builds and runtime checks remain
+open; Linux compilation and GPU tests do not establish their runtime compatibility.

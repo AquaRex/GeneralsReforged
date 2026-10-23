@@ -17,6 +17,18 @@ found and fixed â€” EA's own, not port damage.**
 - Windows and macOS keep their existing renderer behavior. See
   [the Linux shadow guide](docs/sdl-sun-shadows.md) for diagnostics and limits.
 
+## Modern water on Linux
+
+- Modern is an opt-in under Options > Water style; Classic stays the default.
+  Water rolls in waves with sunlight following the crests into the shallows.
+  Shores redirect waves along their banks and gather foam; vessels leave wakes.
+- Modern water preserves map-authored depth and opacity, matches material rules
+  to the effective water color and texture, and adds pollution and bubbles only
+  to matching water.
+- A standalone editor uses the game's water renderer and material rules. Invalid
+  saved colors leave the current colors intact; default exports protect the
+  loaded rule file. Explicit export destinations remain available.
+
 ## A rank ladder for every army
 
 - Three chevrons are now a whole army's ladder. An American unit climbs 28 promotions from E-1 Private to General of the Army, a Chinese one 19 from Private to General, a GLA one 20 from Recruit to Supreme Liberator. Every unit starts unranked with a bare health bar and no bonus; from the first promotion on, each grade wears its own insignia beside the health bar and floats it up over the unit's head the moment it is earned. Hover the portrait for the rank's name and how far the next one is: "Next rank 340/420 XP".
