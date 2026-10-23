@@ -24,21 +24,29 @@ the distance from the map's middle over half the map, 0 the middle, 1 the edge):
                    reaches_edge}]  dry ground 25 below the middle, long and thin
     mesas        [{area, radius, top_dz_middle, rim_cliff_share, exits, centre_share,
                    nearest_start}]  ground between the middle and the starts that no base touches
-    water        [{kind river|lake|sea, river_flag, spans_map, area, length, width, winding,
+    water        [{kind river|lake|sea|coast, river_flag, spans_map, area, length, width, winding,
                    depth_bytes, bank_bytes, centre_share, nearest_start, reaches_edge,
-                   surface_bytes, start_clear}]  kind by the shape of the wet cells (a river four times longer
-                   than wide, a sea 30% of the map); river_flag is WorldBuilder's, which is
-                   unreliable; spans_map a polygon over 90% of the map both ways; start_clear
-                   the nearest start's distance to it over the least distance between two starts
+                   surface_bytes, start_clear, edges, share, joins}]  kind by the shape of the wet
+                   cells (sea on every edge, an island map; a coast along 40% of an edge or more;
+                   a river four times longer than wide; a sea 30% of the map); river_flag
+                   is WorldBuilder's, which is unreliable; spans_map a polygon over 90% of the map
+                   both ways; start_clear the nearest start's distance to it over the least
+                   distance between two starts; edges the wet share of each playable edge (low y,
+                   high x, high y, low x); share of the playable cells; joins the index of the
+                   longer river a river runs into, its junction
     bridges      [{template, length, over water|gap|ground, ends_dz_middle [a, b], centre_share,
-                   on_mesa}]  a FLAG_BRIDGE_POINT1 object and the FLAG_BRIDGE_POINT2 one after it
-    roads        [{template, segments, length}]  FLAG_ROAD_POINT1/2 pairs, by template
+                   on_mesa, water}]  a FLAG_BRIDGE_POINT1 object and the FLAG_BRIDGE_POINT2 one
+                   after it; water the index of the water it crosses
+    roads        [{template, segments, length, outside_segments, outside_length, segment_length,
+                   flags [first, second]}]  FLAG_ROAD_POINT1/2 pairs, by template; outside is away
+                   from the towns; flags the end flags (corner types) most of its pairs carry
     towns        [{buildings, templates {name: n}, radius, centre_share, nearest_start, box}]
                  clusters of five or more civilian buildings (civilianbuilding.ini), 20 cells apart
     tech         [{template, centre_share, nearest_start, on_mesa}]  tech buildings but derricks
     piles        {count, dz_start, company {template: per pile}}  what stands within 10 cells of a pile
     starts_raised  mapstyle's call: whether the bases stand on plateaus above the middle
     split_without_bridges  whether a start reaches another only over a bridge
+    road_exits   how many places roads leave the map at
 """
 
 import json
@@ -73,6 +81,10 @@ TOWN_GAP = 20               # cells between two buildings of one town
 TOWN_BUILDINGS = 5
 SEA_SHARE = 0.9             # of the map a water polygon spans both ways to be laid over all of it
 SEA_WET = 0.3               # of the playable cells wet that make a sea rather than a lake
+JOIN_CELLS = 3              # cells between two rivers' water that make one the other's branch
+COAST_EDGE = 0.4            # of a playable edge wet that makes water the sea's coast
+FULL_EDGE = 0.9             # of every playable edge wet: the sea all round, an island map
+EXIT_CELLS = 4              # cells off the playable edge a road's end leaves the map at
 
 
 def objects_in_order(data):
@@ -249,6 +261,7 @@ def inventory(data, source=""):
                   or [float(m.playable)])
     flags = river_flags(data)
     bodies = []
+    wet_masks = []
     areas = m.water_areas
     for index, area in enumerate(areas):
         m.water_areas = [area]
@@ -263,7 +276,11 @@ def inventory(data, source=""):
         # on shallow streams, and a polygon over the whole map often floods only a river's bed
         xs_, ys_ = [p[0] for p in area[0]], [p[1] for p in area[0]]
         spans = bool(np.ptp(xs_) >= SEA_SHARE * m.playable_x and np.ptp(ys_) >= SEA_SHARE * m.playable_y)
-        kind = ("river" if length >= 4.0 * width else
+        sides = [wet[b, b:b + m.playable_x].mean(), wet[b:b + m.playable_y, b + m.playable_x - 1].mean(),
+                 wet[b + m.playable_y - 1, b:b + m.playable_x].mean(), wet[b:b + m.playable_y, b].mean()]
+        kind = ("sea" if min(sides) >= FULL_EDGE else
+                "coast" if max(sides) >= COAST_EDGE else
+                "river" if length >= 4.0 * width else
                 "sea" if wet.sum() >= SEA_WET * play.sum() else "lake")
         cs, near = where(*cells)
         gap = ndimage.distance_transform_edt(~wet)
@@ -275,12 +292,25 @@ def inventory(data, source=""):
                        "depth_bytes": round(surface - float(np.median(h[wet])), 1),
                        "bank_bytes": round(float(np.median(h[bank])) - surface, 1) if bank.any() else 0.0,
                        "surface_bytes": round(surface, 1), "centre_share": cs, "nearest_start": near,
-                       "reaches_edge": edge(*cells)})
+                       "reaches_edge": edge(*cells),
+                       "edges": [round(float(side), 2) for side in sides],
+                       "share": round(float(wet.sum()) / play.sum(), 3)})
+        wet_masks.append(wet)
     m.water_areas = areas
+    # a river that runs into a longer one is its branch: the junction is where their water meets
+    for index, body in enumerate(bodies):
+        body["joins"] = None
+        if body["kind"] != "river":
+            continue
+        grown = ndimage.binary_dilation(wet_masks[index], iterations=JOIN_CELLS)
+        longer = [j for j, other in enumerate(bodies) if other["kind"] == "river" and j != index and
+                  (other["length"], -j) > (body["length"], -index) and (grown & wet_masks[j]).any()]
+        if longer:
+            body["joins"] = max(longer, key=lambda j: bodies[j]["length"])
 
     # bridges and roads, as the engine pairs them (W3DBridgeBuffer::loadBridges)
     objects = objects_in_order(data)
-    bridges, roads = [], {}
+    bridges, roads, segments = [], {}, []
     for first, second in zip(objects, objects[1:]):
         (template, x1, y1, f1), (_, x2, y2, f2) = first, second
         a = (int(y1) + b, int(x1) + b)
@@ -297,10 +327,13 @@ def inventory(data, source=""):
                   if ndimage.binary_dilation(mesa["_mask"], iterations=4)[a] or
                   ndimage.binary_dilation(mesa["_mask"], iterations=4)[z]]
             cs, _ = where(np.array([a[0], z[0]]), np.array([a[1], z[1]]))
+            crossed = [sum(1 for p in line if mask[p]) for mask in wet_masks]
             bridges.append({"template": template, "length": round(length, 1), "over": over,
                             "ends_dz_middle": [float(h[a] - middle_h), float(h[z] - middle_h)],
-                            "centre_share": cs, "on_mesa": on[0] if on else None})
+                            "centre_share": cs, "on_mesa": on[0] if on else None,
+                            "water": int(np.argmax(crossed)) if over == "water" else None})
         elif f1 & FLAG_ROAD_POINT1 and f2 & FLAG_ROAD_POINT2:
+            segments.append((template, x1 + b, y1 + b, x2 + b, y2 + b, f1, f2))
             entry = roads.setdefault(template, {"template": template, "segments": 0, "length": 0.0})
             entry["segments"] += 1
             entry["length"] = round(entry["length"] + length, 1)
@@ -329,6 +362,26 @@ def inventory(data, source=""):
                           "radius": round(radius, 1), "centre_share": cs, "nearest_start": near,
                           "box": [float(xs.min() - b), float(ys.min() - b), float(xs.max() - b), float(ys.max() - b)]})
 
+    # the roads outside the towns, the network a generator lays between the places: their length
+    # and segment count, the segment length, and the end flags (corner type) a segment mostly has
+    def in_town(x, y):
+        return any(t["box"][0] - TOWN_GAP <= x - b <= t["box"][2] + TOWN_GAP and
+                   t["box"][1] - TOWN_GAP <= y - b <= t["box"][3] + TOWN_GAP for t in towns)
+
+    # where roads leave the map: road ends at the playable edge, those within 20 cells one exit
+    ends = [(x, y) for s in segments for x, y in ((s[1], s[2]), (s[3], s[4]))
+            if min(x - b, y - b, b + m.playable_x - 1 - x, b + m.playable_y - 1 - y) <= EXIT_CELLS]
+    exits = []
+    for x, y in ends:
+        if all(math.hypot(x - ex, y - ey) > TOWN_GAP for ex, ey in exits):
+            exits.append((x, y))
+    for entry in roads.values():
+        outside = [s for s in segments if s[0] == entry["template"] and not in_town((s[1] + s[3]) / 2, (s[2] + s[4]) / 2)]
+        entry["outside_segments"] = len(outside)
+        entry["outside_length"] = round(sum(math.hypot(s[3] - s[1], s[4] - s[2]) for s in outside), 1)
+        entry["segment_length"] = round(entry["length"] / entry["segments"], 1)
+        entry["flags"] = list(Counter((s[5], s[6]) for s in segments if s[0] == entry["template"]).most_common(1)[0][0])
+
     # the tech buildings but the derricks, which are money, and what stands with the small piles
     tech = []
     for t, x, y, f in objects:
@@ -349,7 +402,7 @@ def inventory(data, source=""):
     split = len(set(int(ground[p]) for p in starts)) > 1
 
     return {"source": source, "size_cells": [m.playable_x, m.playable_y], "players": len(starts),
-            "split_without_bridges": split,
+            "split_without_bridges": split, "road_exits": len(exits),
             "levels": {"start_bytes": start_h, "middle_bytes": middle_h, "peaks": peaks},
             "high_ground": high_ground, "base": base, "canyons": canyons, "mesas": mesas,
             "water": bodies, "bridges": bridges, "roads": list(roads.values()), "towns": towns,

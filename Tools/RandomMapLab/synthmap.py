@@ -78,7 +78,8 @@ from collections import deque
 
 import numpy as np
 from PIL import Image, ImageDraw
-from scipy import ndimage
+from scipy import ndimage, sparse
+from scipy.sparse import csgraph
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -123,6 +124,24 @@ FORD_CELLS = 8.0            # half a ford's width
 SHORE_CELLS = 6.0           # a river's bed to its waterline
 VALLEY_CELLS = 20.0         # the waterline up to the banks
 RIVER_TRIES = 6             # river layouts as good for the starts tried for the towns and tech they leave room for
+RIVER_MIN = 0.3             # of the map's shorter side a river runs at least to be built as one
+JUNCTION_CLEAR = 40.0       # cells between a branch's junction and a bridge
+BRANCH_TURN = 0.6           # radians a branch leaves its main river at, at least
+BRANCH_TRIES = 6            # branch courses tried, clearest of the sites first
+BRANCH_SETTLE = 40.0        # cells off the junction before a branch winds
+LAKE_CELLS = 200            # a smaller lake is a pond, not built
+LAKE_POINTS = 24            # corners of a lake's water area
+SEA_FLOOR = 8.0             # bytes: the lowest sea level, a bed under it to dig
+COAST_WOBBLE = 8.0          # cells a coastline wanders off its straight course
+CAUSEWAY_CELLS = 12.0       # half the width of the land joining an island start to the middle
+ROAD_CLIMB = 0.5            # a road's cost a cell for each byte a cell the ground climbs, against 1 for flat
+ROAD_LEAST = 6              # cells: a shorter piece of road is not laid
+ROAD_SPACING = 2            # cells round a laid road where another road joins it and stops
+ROAD_TOLERANCE = 1.5        # cells a simplified road may stray off the way it was found
+ROAD_CLEAR = 3              # cells round a road no tree or rock stands
+ROAD_MIN = 60.0             # cells of the exemplar's roads outside its towns, scaled, worth a network
+COAST_EDGE = mapfeatures.COAST_EDGE
+FULL_EDGE = mapfeatures.FULL_EDGE
 RIVER_SLOPE = 3.0          # bytes a cell the ground past a river's banks may rise (a cliff is 15.7)
 TOWN_MARGIN = 10            # cells round a town's buildings copied with it
 TOWN_STEP = 8               # cells between the places tried for a town
@@ -134,7 +153,7 @@ CLUMP_CELLS = 5             # the exemplar's trees this close to one go down tog
 TREE_TRIES = 40             # clump placements tried a tree still wanted
 
 SCENERY = re.compile(r"^(Tree|Rocks|RockCluster|Tent|Amb_|AmbientWind|WoodTower|QuonsetHut)")
-SKELETON_SCENERY = re.compile(r"^(Tree|Rocks|RockCluster)")
+SKELETON_SCENERY = re.compile(r"^(Tree|Rocks|RockCluster|AmbientWaves)")   # its lakes' waves go with its lakes
 STANDING = re.compile(r"^(Tent|WoodTower|QuonsetHut)")      # scenery that is a building, not off a cliff
 
 
@@ -258,19 +277,23 @@ def line_cells(a, z, shape):
 
 
 def water_triggers(version, body, areas, border):
-    """PolygonTriggers with a water area per (points (y, x) in grid cells, surface bytes) added,
-    each with an id none of the others has."""
+    """PolygonTriggers without the skeleton's own water areas (compose filled its lakes in) and
+    with a water area per (points (y, x) in grid cells, surface bytes) added, each with an id none
+    of the others has. The AI's perimeters and every other trigger stay as they are."""
     if version != 4:
         raise ValueError("PolygonTriggers version %d, expected 4" % version)
-    count = struct.unpack_from("<i", body, 0)[0]
-    pos, ids = 4, []
-    for _ in range(count):
+    pos, ids, out, count = 4, [], b"", 0
+    for _ in range(struct.unpack_from("<i", body, 0)[0]):
+        begin = pos
         pos = ascii_at(body, pos)[1]
         pos = ascii_at(body, pos)[1]
         ids.append(struct.unpack_from("<i", body, pos)[0])
+        is_water = body[pos + 4]
         pos += 4 + 1 + 1 + 4
         pos += 4 + 12 * struct.unpack_from("<i", body, pos)[0]
-    out = body[4:]
+        if not is_water:
+            out += body[begin:pos]
+            count += 1
     for number, (points, surface) in enumerate(areas):
         out += ascii_value("Water%d" % (number + 1)) + ascii_value("")
         out += struct.pack("<iBBii", max(ids + [0]) + 1 + number, 1, 0, 0, len(points))
@@ -422,6 +445,11 @@ class Grid:
         yy, xx = np.mgrid[0:m.height, 0:m.width]
         middle = np.hypot(xx + 0.5 - cx, yy + 0.5 - cy) <= 0.25 * m.playable
         self.bowl = float(np.median(self.h[middle]))
+        if self.plateau - self.bowl <= MIN_RELIEF:
+            # bases not raised: the ground level is the map's, not its middle's, which on Tournament
+            # Lake is a mountain 160 bytes over the grass and put the quilting's level on its rock
+            play = (slice(m.border, m.border + m.playable_y), slice(m.border, m.border + m.playable_x))
+            self.bowl = float(np.median(self.h[play]))
         self.centre = (cy, cx)
         self.scale = max(self.plateau - self.bowl, MIN_RELIEF)
         self.t = np.clip((self.h - self.bowl) / self.scale, -0.6, 2.2)
@@ -524,7 +552,10 @@ class Plan:
         self.gentle = np.zeros(shape, bool)     # slopes it made, kept from the detail like a ramp
         self.keepout = np.zeros(shape, bool)    # no copied scenery: bridge ends, towns, the canyon walls
         self.wet = np.zeros(shape, bool)        # inside a water polygon
+        self.level = np.full(shape, -1.0)       # that polygon's surface, bytes: under it is water
         self.water = []                         # (points (y, x) in cells of the grid, surface bytes)
+        self.lines = []                         # each river's centre line, for its branches and roads
+        self.roads = []                         # (template, [(y, x), ...]) polylines in cells of the grid
         self.bridges = []                       # (template, (y, x), (y, x)) in cells of the grid
         self.stamps = []                        # (ty, tx, sy, sx, rows, cols): an exemplar rectangle copied whole
         self.tech = []                          # (template, (y, x))
@@ -587,7 +618,7 @@ def compose(skel, src, seed):
     inv = src.inventory
     f = Frame(skel)
     plan = Plan(skel.h.shape)
-    h = skel.h.astype(np.float64)
+    h = fill_lakes(skel)
     shortest = min(inv["size_cells"])
 
     if f.bowl and inv["starts_raised"]:
@@ -607,16 +638,31 @@ def compose(skel, src, seed):
     plan.notes += ["canyon %d long off the middle" % c["length"] for c in inv["canyons"] if c not in canyons]
     plan.notes += ["mesa r%d off the middle" % x["radius"] for x in inv["mesas"] if x not in mesas]
 
-    rivers = [w for w in inv["water"] if w["kind"] == "river" and w["length"] >= 0.5 * shortest]
-    if rivers:
-        h = place_river(h, skel, f, plan, src, rivers[0], seed)
-    plan.notes += ["%s of %d cells" % (w["kind"], w["area"]) for w in inv["water"] if w not in rivers[:1]]
+    # the water: the sea first, as the rivers run into it, then the rivers longest first and their
+    # branches, then the lakes, each clear of what is already there
+    waters = inv["water"]
+    built = set()
+    for index, body in enumerate(waters):
+        if body["kind"] in ("sea", "coast"):
+            h = carve_sea(h, skel, f, plan, src, index, seed)
+            built.add(index)
+    rivers = [i for i, w in enumerate(waters) if w["kind"] == "river" and w["length"] >= RIVER_MIN * shortest]
+    mains = sorted([i for i in rivers if waters[i]["joins"] not in rivers], key=lambda i: -waters[i]["length"])
+    for order, index in enumerate(mains):
+        h = place_river(h, skel, f, plan, src, index, order, seed)
+    for index in rivers:
+        if index not in mains:
+            h = place_branch(h, skel, f, plan, src, index, seed)
+    built.update(rivers)
+    for index, body in enumerate(waters):
+        if body["kind"] == "lake" and body["area"] >= LAKE_CELLS:
+            h = carve_lake(h, skel, f, plan, src, index, seed)
+            built.add(index)
+    plan.notes += ["%s of %d cells" % (w["kind"], w["area"]) for i, w in enumerate(waters) if i not in built]
 
     h = stamp_towns(h, skel, f, plan, src, seed)
-    if inv["roads"]:
-        plan.notes.append("roads outside the towns (%d segments in the exemplar)" %
-                          sum(r["segments"] for r in inv["roads"]))
     place_tech(h, skel, f, plan, inv, seed)
+    lay_roads(h, skel, f, plan, src, seed)
     skel.set_heights(h)
     return plan
 
@@ -722,18 +768,236 @@ def carve_middle(h, skel, f, plan, src, canyon, mesa, seed):
     return out
 
 
-def place_river(h, skel, f, plan, src, river, seed):
+def fill_lakes(skel):
+    """The skeleton's heights with its own lakes filled to their rims: the exemplar's water takes
+    their place (water_triggers drops their areas)."""
+    m = skel.m
+    h = skel.h.astype(np.float64)
+    areas = m.water_areas
+    filled = np.zeros(h.shape, bool)
+    for area in areas:
+        m.water_areas = [area]
+        wet = np.frombuffer(bytes(m.water_grid()), np.uint8).reshape(h.shape).astype(bool)
+        if wet.any():
+            rim = ndimage.binary_dilation(wet, iterations=3) & ~wet
+            h[wet] = np.median(h[rim])
+            filled |= wet
+    m.water_areas = []
+    near = box(filled, 4) > 0
+    h[near] = box(h, 3)[near]
+    return h
+
+
+def carve_lake(h, skel, f, plan, src, index, seed):
+    """A lake as the exemplar's: an ellipse of its length and width, as far from the middle as it
+    was (no further than 0.8 of the way to an edge), on the bearing the seed turns first that keeps
+    it, its shore and its valley clear of the sites, the water and the canyon. It stands at the
+    exemplar's level against the middle, or lower where its rim is lower, so no shore is a dam."""
+    inv = src.inventory
+    lake = inv["water"][index]
+    a = max(0.5 * lake["length"] * f.k, 6.0)
+    b = max(0.5 * lake["width"] * f.k, 5.0)
+    tilt = hash_unit(seed, 90 + index, 2) * math.pi
+    taken = (box(plan.wet, 6) > 0) | plan.keepout | ~f.play
+    count = np.pad(taken.astype(np.int32).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+    reach = int(max(a, b) + SHORE_CELLS) + 1
+    # every clear place on an eight cell grid, the nearest the lake's own distance from the middle
+    # first, whose water and shore keep off every pad, dock and derrick (which may stand on its
+    # banks: the carving spares their ground)
+    places = []
+    for my in range(reach, h.shape[0] - reach, TOWN_STEP):
+        for mx in range(reach, h.shape[1] - reach, TOWN_STEP):
+            if count[my + reach, mx + reach] - count[my - reach, mx + reach] - \
+                    count[my + reach, mx - reach] + count[my - reach, mx - reach]:
+                continue
+            share = math.hypot(my - f.cy, mx - f.cx) / f.half
+            places.append((abs(share - min(lake["centre_share"], 0.8)) +
+                           0.05 * hash_unit(seed, 90 + index, my * 4096 + mx), my, mx))
+    for _, my, mx in sorted(places):
+        s, c = f.along(tilt, my, mx)
+        inland = (1.0 - np.hypot(s / a, c / b)) * b       # cells in from the waterline, about
+        if not (f.guard > 0.01)[inland > -SHORE_CELLS].any():
+            break
+    else:
+        plan.notes.append("lake of %d cells (no clear ground)" % lake["area"])
+        return h
+    rim = (inland < -1.0) & (inland > -SHORE_CELLS)
+    surface = min(skel.bowl + lake["surface_bytes"] - src.bowl, float(h[rim].min()) - 2.0)
+    bed = max(surface - lake["depth_bytes"], 1.0)
+    target = np.where(inland >= 0.0, surface + 3.0 - (surface + 3.0 - bed) * fade(inland / SHORE_CELLS),
+                      surface + 3.0 + RIVER_SLOPE * np.maximum(-inland - SHORE_CELLS, 0.0))
+    out = h - (1.0 - f.guard) * np.maximum(h - target, 0.0)
+    band = inland > -2.0
+    plan.wet |= band
+    plan.level[band] = np.maximum(plan.level[band], surface)
+    plan.gentle |= (inland < 0.0) & (out < h - 0.5)
+    points = [Frame.point(tilt, my, mx, (a + 2.0) * math.cos(t), (b + 2.0) * math.sin(t))
+              for t in np.linspace(0.0, 2.0 * math.pi, LAKE_POINTS, endpoint=False)]
+    plan.water.append((points, surface))
+    return out
+
+
+def carve_sea(h, skel, f, plan, src, index, seed):
+    """The sea along the edges the exemplar's touches, turned a quarter at a time to the turn that
+    keeps it furthest off the sites (an island map's sea is on every edge): a coast a wet share as
+    big as the exemplar's in, no nearer a start, dock or derrick than its shore and valley, a
+    wandering line with a beach up from the water. Its area is a strip along each edge it holds,
+    or round the corner it holds, as WorldBuilder's sea is one plane over everything low."""
+    inv = src.inventory
+    sea = inv["water"][index]
+    m = skel.m
+    bd = m.border
+    y0, x0, y1, x1 = bd, bd, bd + m.playable_y - 1, bd + m.playable_x - 1
+    edge_distance = [f.yy - y0, x1 - f.xx, y1 - f.yy, f.xx - x0]            # low y, high x, high y, low x
+    corners = {(0, 1): (y0, x1), (1, 2): (y1, x1), (2, 3): (y1, x0), (0, 3): (y0, x0)}
+    margin = SHORE_CELLS + VALLEY_CELLS
+    if min(sea["edges"]) >= FULL_EDGE:
+        return carve_islands(h, skel, f, plan, src, index, seed)
+    best = None
+    for turn in range(4):
+        wet_edges = [(i + turn) % 4 for i in range(4) if sea["edges"][i] >= COAST_EDGE]
+        full = [(i + turn) % 4 for i in range(4) if sea["edges"][i] >= FULL_EDGE]
+        if full:
+            d = np.min([edge_distance[i] for i in full], axis=0)
+            corner = None
+        else:
+            pair = tuple(sorted(wet_edges[:2])) if len(wet_edges) >= 2 else None
+            corner = corners.get(pair) if pair else None
+            d = (np.hypot(f.yy - corner[0], f.xx - corner[1]) if corner else edge_distance[wet_edges[0]])
+        wobble = COAST_WOBBLE * np.sin(2.0 * math.pi * (f.yy + f.xx) / 97.0 + hash_unit(seed, 95, turn) * 6.283)
+        d = d + wobble
+        # the widest coast as wet as the exemplar's that keeps its valley off every site
+        cap = float(d[f.guard > 0.01].min()) - margin if (f.guard > 0.01).any() else float(d.max())
+        order = np.sort(d[f.play])
+        width = min(float(order[min(int(sea["share"] * len(order)), len(order) - 1)]), cap)
+        score = (-width, hash_unit(seed, 96, turn))
+        if best is None or score < best[0]:
+            best = (score, turn, d, width, full, corner, wet_edges)
+    _, turn, d, width, full, corner, wet_edges = best
+    if width <= 0:
+        plan.notes.append("sea of %d cells (no coast clear of the sites)" % sea["area"])
+        return h
+    reach = width + COAST_WOBBLE + margin + 10.0
+    # the area: a strip along each full edge, or the corner's square, out past the beach
+    strips = [((0, 0), (0, x1 + bd), (reach + y0, x1 + bd), (reach + y0, 0)),
+              ((0, x1 - reach), (0, x1 + bd), (y1 + bd, x1 + bd), (y1 + bd, x1 - reach)),
+              ((y1 - reach, 0), (y1 - reach, x1 + bd), (y1 + bd, x1 + bd), (y1 + bd, 0)),
+              ((0, 0), (0, reach + x0), (y1 + bd, reach + x0), (y1 + bd, 0))]
+    if full:
+        boxes = [strips[i] for i in full]
+    elif corner:
+        cy, cx = corner
+        sy, sx = (1.0 if cy > f.cy else -1.0), (1.0 if cx > f.cx else -1.0)
+        far = reach + bd
+        boxes = [((cy + sy * bd, cx + sx * bd), (cy + sy * bd, cx - sx * far),
+                  (cy - sy * far, cx - sx * far), (cy - sy * far, cx + sx * bd))]
+    else:
+        boxes = [strips[wet_edges[0]]]
+    return lay_sea(h, skel, f, plan, src, sea, d - width, boxes)
+
+
+def carve_islands(h, skel, f, plan, src, index, seed):
+    """An island map's sea (Tournament Island's): land round every start, dock and derrick and the
+    middle, as wide as leaves the exemplar's share of water but never under a pad's own ground
+    and its shore, the starts joined to the middle by causeways unless the exemplar's starts reach
+    each other only over bridges. The sea's area is the whole map, as WorldBuilder lays one."""
+    sea = src.inventory["water"][index]
+
+    def distance_from(points):
+        cores = np.zeros(h.shape, bool)
+        for y, x in points:
+            cores[int(y), int(x)] = True
+        return ndimage.distance_transform_edt(~cores)
+
+    from_starts = distance_from(skel.starts)
+    from_sites = distance_from(f.sites[len(skel.starts):] + [(f.cy, f.cx)])
+    roads = np.zeros(h.shape, bool)
+    if not src.inventory.get("split_without_bridges", False):
+        for y, x in skel.starts:
+            roads |= line_cells((y, x), (f.cy, f.cx), h.shape)
+    from_roads = ndimage.distance_transform_edt(~roads) if roads.any() else np.full(h.shape, 1e9)
+    wobble = COAST_WOBBLE * np.sin(2.0 * math.pi * (f.yy + f.xx) / 97.0 + hash_unit(seed, 95, 0) * 6.283) * \
+        np.sin(2.0 * math.pi * (f.yy - f.xx) / 131.0)
+    # a start's island holds its pad and the shore round it; a dock's or derrick's, its own ground
+    shore = SHORE_CELLS + VALLEY_CELLS
+    site_land = SITE_RADIUS[1] + 10.0 + shore
+
+    def land(radius):
+        return np.maximum(np.maximum(radius - from_starts, site_land - from_sites),
+                          CAUSEWAY_CELLS - from_roads) + wobble
+
+    least = PAD_RADIUS[1] + 10.0 + shore
+    radius = least
+    for trial in np.arange(least, 0.5 * min(h.shape), 2.0):
+        if float((land(trial)[f.play] < 0.0).mean()) < sea["share"]:
+            break
+        radius = trial
+    inland = land(radius)
+    corner = np.array(h.shape, np.float64) - 1.0
+    whole = [(0.0, 0.0), (0.0, corner[1]), (corner[0], corner[1]), (corner[0], 0.0)]
+    return lay_sea(h, skel, f, plan, src, sea, inland, [whole])
+
+
+def lay_sea(h, skel, f, plan, src, sea, inland, boxes):
+    """The sea where inland (cells from the coastline, under 0 at sea) is under 0: its bed, a beach
+    up from the waterline, higher ground cut back to a walkable slope, ground the plane would flood
+    inside its areas raised to the beach, and the areas themselves."""
+    surface = max(skel.bowl + sea["surface_bytes"] - src.bowl, SEA_FLOOR)
+    bed = max(surface - max(sea["depth_bytes"], 6.0), 0.0)
+    target = np.where(inland < 0.0, surface - (surface - bed) * fade(-inland / SHORE_CELLS),
+                      surface + 2.0 + RIVER_SLOPE * np.maximum(inland - 2.0, 0.0))
+    out = h - (1.0 - f.guard) * np.maximum(h - target, 0.0)
+    shape = np.array(h.shape, np.float64) - 1.0
+    footprint = np.zeros(h.shape, bool)
+    for corners_ in boxes:
+        points = [tuple(np.clip(p, 0, shape)) for p in corners_]
+        plan.water.append((points, surface))
+        ys, xs = [p[0] for p in points], [p[1] for p in points]
+        footprint[int(min(ys)):int(max(ys)) + 1, int(min(xs)):int(max(xs)) + 1] = True
+    # inland ground the plane would flood is raised to the beach
+    low = footprint & (inland >= 0.0) & (out < surface + 2.0)
+    out[low] = surface + 2.0
+    band = footprint & (inland < 1.0)
+    plan.wet |= band
+    plan.level[footprint] = np.maximum(plan.level[footprint], surface)
+    plan.gentle |= footprint & (inland >= 0.0) & (out < h - 0.5)
+    got = float((band & f.play).sum()) / f.play.sum()
+    if got < 0.8 * sea["share"]:
+        plan.notes.append("sea at %d%% of the map against the exemplar's %d%% (the starts stand nearer the edge)" % (
+            100 * got, 100 * sea["share"]))
+    return out
+
+
+def judge(out, trial, starts):
+    """How a trial layout of water treats the starts: the nearest start's distance to the water in
+    start spacings, and whether without the bridges the starts no longer share their ground."""
+    spacing = min(math.hypot(p[0] - q[0], p[1] - q[1]) for i, p in enumerate(starts) for q in starts[i + 1:])
+    wet = trial.wet & (out < trial.level)
+    gap = ndimage.distance_transform_edt(~wet)
+    ground, _ = ndimage.label(walkable(span_cliff(out)) & ~wet)
+    return min(float(gap[p]) for p in starts) / spacing, len(set(int(ground[p]) for p in starts)) > 1
+
+
+def river_bridges(inv, index):
+    """The exemplar's bridges over its water number index."""
+    return [b for b in inv["bridges"] if b["over"] == "water" and b.get("water", index) == index]
+
+
+def place_river(h, skel, f, plan, src, index, order, seed):
     """carve_river where its nearest start stands as far from the water, in start spacings, as the
     exemplar's does, and where without the bridges the starts still share their ground when the
     exemplar's do: of the offsets round the exemplar's own, either side, edge to edge or the
     exemplar's length, the nearest to its offset that meets both, else the clearest that splits
     nothing. A river laid by its offset alone came 45 cells from a Heartland start (0.16 spacings
-    against the exemplar's 0.38), and every wave of that side filed over a bridge to gather."""
-    starts = skel.starts
-    spacing = min(math.hypot(p[0] - q[0], p[1] - q[1]) for i, p in enumerate(starts) for q in starts[i + 1:])
+    against the exemplar's 0.38), and every wave of that side filed over a bridge to gather. A
+    second river (order 1 on) is laid clear of the water already there; its branches come later."""
+    inv = src.inventory
+    river = inv["water"][index]
+    salt = 78 + 7 * order
     want = river.get("start_clear", 0.0)
-    may_split = src.inventory.get("split_without_bridges", True)
-    first = 1.0 if hash_unit(seed, 78, 4) < 0.5 else -1.0
+    may_split = inv.get("split_without_bridges", True)
+    first = 1.0 if hash_unit(seed, salt, 4) < 0.5 else -1.0
+    bridges = river_bridges(inv, index)
     ranked = []
     for step in (0.0, 0.1, -0.1, 0.2, -0.2, 0.3, -0.3, 0.45, -0.45):
         share = river["centre_share"] + step
@@ -742,65 +1006,134 @@ def place_river(h, skel, f, plan, src, river, seed):
         for sign in (first, -first):
             for edge in (river["reaches_edge"], not river["reaches_edge"]):
                 trial = copy.deepcopy(plan)
-                out = carve_river(h, skel, f, trial, src, river, seed, sign * share * f.half, edge)
-                wet = trial.wet & (out < trial.water[0][1])
-                gap = ndimage.distance_transform_edt(~wet)
-                clear = min(float(gap[p]) for p in starts) / spacing
-                ground, _ = ndimage.label(walkable(span_cliff(out)) & ~wet)
-                split = len(set(int(ground[p]) for p in starts)) > 1
-                score = (split and not may_split, clear < want, abs(step) + 0.05 * (edge != river["reaches_edge"]), -clear)
-                ranked.append((score, sign * share * f.half, edge))
+                line = river_line(skel, f, river, seed, salt, sign * share * f.half, edge)
+                out = carve_river(h, skel, f, trial, src, river, index, seed, line, bridges)
+                clear, split = judge(out, trial, skel.starts)
+                meets = bool((trial.lines[-1]["wet"] & plan.wet).any())
+                score = (meets, split and not may_split, clear < want,
+                         abs(step) + 0.05 * (edge != river["reaches_edge"]), -clear)
+                ranked.append((score, line))
     # and of the best few, the one that leaves the fewest bridges, towns and tech buildings unbuilt:
     # a river moved for the starts' sake can take the only ground a town or a refinery had
     ranked.sort(key=lambda r: r[0])
     best = None
-    for rank, (score, side, edge) in enumerate(ranked[:RIVER_TRIES]):
-        if score[:2] != ranked[0][0][:2]:
+    for rank, (score, line) in enumerate(ranked[:RIVER_TRIES]):
+        if score[:3] != ranked[0][0][:3]:
             break
         trial = copy.deepcopy(plan)
-        out = stamp_towns(carve_river(h, skel, f, trial, src, river, seed, side, edge), skel, f, trial, src, seed)
-        place_tech(out, skel, f, trial, src.inventory, seed)
+        out = stamp_towns(carve_river(h, skel, f, trial, src, river, index, seed, line, bridges), skel, f, trial, src, seed)
+        place_tech(out, skel, f, trial, inv, seed)
         if best is None or (len(trial.notes), rank) < best[0]:
-            best = ((len(trial.notes), rank), side, edge)
-    return carve_river(h, skel, f, plan, src, river, seed, best[1], best[2])
+            best = ((len(trial.notes), rank), line)
+    return carve_river(h, skel, f, plan, src, river, index, seed, best[1], bridges)
 
 
-def carve_river(h, skel, f, plan, src, river, seed, side, edge):
-    """A river as the inventory has it, side cells off the middle on an axis clear of every start,
-    dock and derrick: its bed, a shore up to the waterline and a valley up to its banks, winding,
-    across the map when edge is set, else the exemplar's length, with the exemplar's bridges evenly
-    along it where it narrows to their length, and a water area over it."""
+def river_line(skel, f, river, seed, salt, side, edge):
+    """A river's axis side cells off the middle, on the bearing clearest of every start, dock and
+    derrick, across the map when edge is set, else the exemplar's length:
+    (angle, y, x, from, to, anchored, salt) in the terms of Frame.along."""
+    angle = f.axis(seed, salt, side)
+    my, mx = Frame.point(angle, f.cy, f.cx, 0.0, side)
+    length = 0.5 * math.hypot(*skel.h.shape) + 20.0 if edge else 0.5 * river["length"] * f.k
+    return (angle, my, mx, -length, length, False, salt)
+
+
+def place_branch(h, skel, f, plan, src, index, seed):
+    """A river that runs into a longer one, as the exemplar's does: from a junction on the main
+    river away from its bridges, out on the bearing that keeps the nearest start as far off as the
+    exemplar's, splits the starts only if the exemplar's do and is not near parallel to the main,
+    to the edge if the exemplar's reaches it. Its water stands at the main river's level."""
     inv = src.inventory
-    # as far under the middle as the exemplar's, but never so far that the bed would go below 0
-    surface = max(skel.bowl + river["surface_bytes"] - inv["levels"]["middle_bytes"], river["depth_bytes"] + 2.0)
+    river = inv["water"][index]
+    main = next((line for line in plan.lines if line["index"] == river["joins"]), None)
+    if main is None:
+        plan.notes.append("river branch of %d cells (its main river was not built)" % river["area"])
+        return h
+    want = river.get("start_clear", 0.0)
+    may_split = inv.get("split_without_bridges", True)
+    bridges = river_bridges(inv, index)
+    points = main["points"]
+    quarter = len(points) // 5
+    ranked = []
+    for k in range(quarter, len(points) - quarter, 3):
+        jy, jx = points[k]
+        if min([math.hypot(jy - y, jx - x) for y, x in main["sites"]] + [1e9]) < JUNCTION_CLEAR:
+            continue
+        ty, tx = points[k + 1][0] - points[k - 1][0], points[k + 1][1] - points[k - 1][1]
+        course = math.atan2(ty, tx)
+        for q in range(16):
+            angle = 2.0 * math.pi * (q + hash_unit(seed, 85, k)) / 16.0
+            turn = abs((angle - course + math.pi) % (2.0 * math.pi) - math.pi)
+            if not BRANCH_TURN <= turn <= math.pi - BRANCH_TURN:
+                continue
+            length = 0.0
+            while length < (2.0 * min(skel.h.shape) if river["reaches_edge"] else river["length"] * f.k):
+                y, x = jy + (length + 4.0) * math.sin(angle), jx + (length + 4.0) * math.cos(angle)
+                if not (0 <= int(y) < h.shape[0] and 0 <= int(x) < h.shape[1]) or not f.play[int(y), int(x)]:
+                    break
+                length += 4.0
+            if length < 0.5 * river["length"] * f.k:
+                continue
+            clear = min(abs((y - jy) * math.cos(angle) - (x - jx) * math.sin(angle))
+                        if 0.0 <= (y - jy) * math.sin(angle) + (x - jx) * math.cos(angle) <= length
+                        else math.hypot(y - jy, x - jx) for y, x in f.sites)
+            ranked.append((-clear, k, angle, length))
+    ranked.sort()
+    best = None
+    for clearness, k, angle, length in ranked[:BRANCH_TRIES]:
+        jy, jx = points[k]
+        line = (angle, jy, jx, -main["half"] - SHORE_CELLS, length + 20.0, True, 85)
+        trial = copy.deepcopy(plan)
+        out = carve_river(h, skel, f, trial, src, river, index, seed, line, bridges, main["surface"])
+        clear, split = judge(out, trial, skel.starts)
+        score = (split and not may_split, clear < want, len(trial.notes), clearness)
+        if best is None or score < best[0]:
+            best = (score, line)
+    if best is None:
+        plan.notes.append("river branch of %d cells (no way off the main river clear of the sites)" % river["area"])
+        return h
+    return carve_river(h, skel, f, plan, src, river, index, seed, best[1], bridges, main["surface"])
+
+
+def carve_river(h, skel, f, plan, src, river, index, seed, line, bridges, surface=None):
+    """A river as the inventory has it along line (river_line's, or a branch's from its junction):
+    its bed, a shore up to the waterline and a valley up to its banks, winding, with the given
+    bridges evenly along it where it narrows to their length, and a water area over it. A branch
+    is anchored: it winds only once clear of the junction and runs on into the main river's bed."""
+    angle, my, mx, s_lo, s_hi, anchored, salt = line
+    if surface is None:
+        # as far under the ground level as the exemplar's, but never so far that the bed would go below 0
+        surface = max(skel.bowl + river["surface_bytes"] - src.bowl, river["depth_bytes"] + 2.0)
     bed = surface - river["depth_bytes"]
     bank = surface + max(river["bank_bytes"], 4.0)
-    angle = f.axis(seed, 78, side)
-    my, mx = Frame.point(angle, f.cy, f.cx, 0.0, side)
     s, c = f.along(angle, my, mx)
-    length = 0.5 * math.hypot(*skel.h.shape) + 20.0 if edge else 0.5 * river["length"] * f.k
-    phase = hash_unit(seed, 78, 3) * 2.0 * math.pi
+    phase = hash_unit(seed, salt, 3) * 2.0 * math.pi
     wave = max(river["length"] / 1.5, 120.0)
     amp = 1.4 * river["winding"] * f.k
 
     def wander(at):
-        return amp * np.sin(2.0 * math.pi * at / wave + phase)
+        settle = fade(np.asarray(at) / BRANCH_SETTLE) if anchored else 1.0
+        return amp * np.sin(2.0 * math.pi * np.asarray(at) / wave + phase) * settle
 
-    ours = [b for b in inv["bridges"] if b["over"] == "water"]
-    inside = [v for v in np.arange(-length, length, 2.0)
+    ours = list(bridges)
+    inside = [v for v in np.arange(s_lo, s_hi, 2.0)
               if f.play[tuple(np.clip(np.rint(Frame.point(angle, my, mx, v, float(wander(v)))).astype(int), 0,
                                       np.array(skel.h.shape) - 1))]]
-    s0, s1 = (min(inside), max(inside)) if inside else (-length, length)
-    # evenly along it, each moved to the nearest place clear of every start, dock and derrick
+    s0, s1 = (min(inside), max(inside)) if inside else (s_lo, s_hi)
+    if anchored:
+        s0 = max(s0, JUNCTION_CLEAR)
+    # evenly along it, each moved to the nearest place clear of every start, dock and derrick and of
+    # the water already there
     sites = []
-    for i, bridge in enumerate(ours):
-        even = s0 + (i + 1) * (s1 - s0) / (len(ours) + 1)
+    for i, bridge in enumerate(bridges):
+        even = s0 + (i + 1) * (s1 - s0) / (len(bridges) + 1)
         for nudge in sorted(range(-48, 52, 4), key=abs):
             y, x = Frame.point(angle, my, mx, even + nudge, float(wander(even + nudge)))
             clear = np.hypot(f.yy - y, f.xx - x) <= 0.5 * bridge["length"] + 8.0
             # (a crossing off the playable ground, which a river laid far off the middle can ask
             # for, is none)
-            if clear.any() and f.play[clear].all() and f.guard[clear].max() < 0.01 and all(abs(even + nudge - s) > 30.0 for s in sites):
+            if clear.any() and f.play[clear].all() and f.guard[clear].max() < 0.01 and \
+                    not plan.wet[clear].any() and all(abs(even + nudge - s) > 30.0 for s in sites):
                 sites.append(even + nudge)
                 break
         else:
@@ -814,7 +1147,7 @@ def carve_river(h, skel, f, plan, src, river, seed, side, edge):
         narrow = np.minimum(narrow, 1.0 - (1.0 - to) * fade((24.0 - np.abs(s - at)) / 12.0))
     inner = half * narrow
     d = np.abs(c - wander(s))
-    within = np.abs(s) <= length
+    within = (s >= s_lo) & (s <= s_hi)
     # past the banks the ground may rise RIVER_SLOPE a cell, so higher ground is cut back to a
     # walkable valley side and not to a wall
     outside = d - inner - SHORE_CELLS - VALLEY_CELLS
@@ -823,23 +1156,29 @@ def carve_river(h, skel, f, plan, src, river, seed, side, edge):
                                np.where(outside < 0.0,
                                         surface + 3.0 + (bank - surface - 3.0) * fade((d - inner - SHORE_CELLS) / VALLEY_CELLS),
                                         bank + RIVER_SLOPE * outside)))
-    w = fade((length - np.abs(s)) / VALLEY_CELLS) * (1.0 - f.guard)
-    out = h - w * np.maximum(h - target, 0.0)
-    plan.wet |= (d < inner + 0.5 * SHORE_CELLS) & within
+    ends = np.minimum(np.where(anchored, VALLEY_CELLS, s - s_lo), s_hi - s)
+    w = fade(ends / VALLEY_CELLS) * (1.0 - f.guard)
+    out = np.minimum(h, h - w * np.maximum(h - target, 0.0))
+    band = (d < inner + 0.5 * SHORE_CELLS) & within
+    plan.wet |= band
+    plan.level[band] = np.maximum(plan.level[band], surface)
     plan.gentle |= (d >= inner) & (out < h - 0.5)
 
     # the water area: the waterline either side of the bed, every eight cells along
     shape = np.array(skel.h.shape, np.float64) - 1.0
     left, right = [], []
-    for v in np.arange(-length, length + 8.0, 8.0):
+    for v in np.arange(s_lo, s_hi + 8.0, 8.0):
         width = half + 0.5 * SHORE_CELLS + 2.0
         for out_list, sign in ((left, 1.0), (right, -1.0)):
             out_list.append(tuple(np.clip(Frame.point(angle, my, mx, v, float(wander(v)) + sign * width), 0, shape)))
     plan.water.append((left + right[::-1], surface))
+    plan.lines.append({"index": index, "surface": surface, "half": half, "wet": band,
+                       "points": [Frame.point(angle, my, mx, v, float(wander(v))) for v in np.arange(s0, s1, 4.0)],
+                       "sites": [Frame.point(angle, my, mx, at, float(wander(at))) for at in sites]})
 
     for at, bridge in zip(sites, ours):
         centre = float(wander(at))
-        tangent = 2.0 * math.pi * amp / wave * math.cos(2.0 * math.pi * at / wave + phase)
+        tangent = float(wander(at + 1.0) - wander(at - 1.0)) / 2.0
         # across the river where it runs, not across the axis
         turn = math.atan(tangent)
         reach = 0.5 * bridge["length"]
@@ -894,9 +1233,9 @@ def stamp_towns(h, skel, f, plan, src, seed):
 
 def place_tech(h, skel, f, plan, inv, seed):
     """The exemplar's tech buildings: one that stood on a mesa on ours, the rest as far from the
-    middle as they were, on the nearest flat ground, out of the river and the skeleton's lakes and
-    off the bridges' ends, whose ramps the levelling would flatten."""
-    barred = np.frombuffer(bytes(skel.m.water_grid()), np.uint8).reshape(h.shape).astype(bool)
+    middle as they were, on the nearest flat ground, out of the water and off the bridges' ends,
+    whose ramps the levelling would flatten."""
+    barred = box(plan.wet, 2) > 0
     for _, a, z in plan.bridges:
         barred |= box(line_cells(a, z, h.shape), BRIDGE_CLEAR) > 0
     for number, tech in enumerate(inv["tech"]):
@@ -921,6 +1260,145 @@ def place_tech(h, skel, f, plan, inv, seed):
                 break
         else:
             plan.notes.append("%s (no flat ground)" % tech["template"])
+
+
+def lay_roads(h, skel, f, plan, src, seed):
+    """The exemplar's road network outside its towns, rebuilt between our places: every start, town
+    and tech building joined by the cheapest way over walkable dry ground (a climb costs, a cliff
+    and the water bar it, a bridge carries it across a river), the joins of a minimum spanning tree
+    first and then the next cheapest until the roads are as long as the exemplar's, scaled to the
+    map. Each road is cut where it reaches a base's pad, a town's box or a tech building, and where
+    it runs onto a road already laid, then simplified to the exemplar's segment length; the
+    templates go to the longest roads first in the exemplar's mix."""
+    roads = [r for r in src.inventory["roads"] if r.get("outside_length", 0.0) > 0.0]
+    if not roads:
+        return
+    scale = 2.0 * f.half / float(np.mean(src.inventory["size_cells"]))
+    wanted = scale * sum(r["outside_length"] for r in roads)
+    if wanted < ROAD_MIN:
+        plan.notes.append("roads outside the towns (the exemplar's are %d cells long)" % wanted)
+        return
+    shape = h.shape
+    cliff = span_cliff(np.rint(h))
+    open_ = walkable(cliff) & ~(box(plan.wet, 2) > 0) & f.play
+    # the places: starts, towns, tech, docks, and as many ways off the map as the exemplar's roads
+    # have, evenly round the edge from a bearing the seed turns, each the nearest open edge cell
+    docks = [(int(y) + skel.m.border, int(x) + skel.m.border) for x, y in skel.m.supplies]
+    nodes = list(skel.starts) + [(ty + rows // 2, tx + cols // 2) for ty, tx, _, _, rows, cols in plan.stamps] + \
+        [p for _, p in plan.tech] + docks
+    rim = f.play & ~(box(f.play.astype(float), 1) > 0.99) & open_
+    exits = src.inventory.get("road_exits", 0)
+    if exits and rim.any():
+        ys, xs = np.nonzero(rim)
+        bearings = np.arctan2(ys - f.cy, xs - f.cx)
+        for k in range(exits):
+            angle = (2.0 * math.pi * (k + hash_unit(seed, 97, 0)) / exits + math.pi) % (2.0 * math.pi) - math.pi
+            pick = int(np.argmin(np.abs((bearings - angle + math.pi) % (2.0 * math.pi) - math.pi)))
+            nodes.append((int(ys[pick]), int(xs[pick])))
+    if len(nodes) < 2:
+        return
+    for _, a, z in plan.bridges:
+        for y, x in (a, z):
+            open_[int(y) - 2:int(y) + 3, int(x) - 2:int(x) + 3] = True
+    for y, x in nodes:
+        open_[int(y) - 2:int(y) + 3, int(x) - 2:int(x) + 3] = True
+    gy, gx = np.gradient(h)
+    cost = 1.0 + ROAD_CLIMB * np.hypot(gy, gx)
+    index = np.arange(h.size).reshape(shape)
+    rows_, cols_, weights = [], [], []
+    for dy, dx in ((0, 1), (1, 0), (1, 1), (1, -1)):
+        a = (slice(0, shape[0] - dy), slice(max(-dx, 0), shape[1] - max(dx, 0)))
+        b = (slice(dy, shape[0]), slice(max(dx, 0), shape[1] + min(dx, 0)))
+        both = open_[a] & open_[b]
+        rows_.append(index[a][both])
+        cols_.append(index[b][both])
+        weights.append((0.5 * (cost[a] + cost[b]) * math.hypot(dy, dx))[both])
+    for _, a, z in plan.bridges:
+        rows_.append(np.array([index[int(a[0]), int(a[1])]]))
+        cols_.append(np.array([index[int(z[0]), int(z[1])]]))
+        weights.append(np.array([math.hypot(z[0] - a[0], z[1] - a[1])]))
+    graph = sparse.csr_matrix((np.concatenate(weights), (np.concatenate(rows_), np.concatenate(cols_))),
+                              shape=(h.size, h.size))
+    starts_ = [index[int(y), int(x)] for y, x in nodes]
+    distance, previous = csgraph.dijkstra(graph, directed=False, indices=starts_, return_predecessors=True)
+    between = distance[:, starts_]
+    tree = csgraph.minimum_spanning_tree(np.where(np.isfinite(between), between + 1e-6, 0.0)).toarray()
+    joins = sorted(((i, j) for i in range(len(nodes)) for j in range(len(nodes)) if tree[i, j] > 0),
+                   key=lambda ij: between[ij])
+    others = sorted((between[i, j], i, j) for i in range(len(nodes)) for j in range(i + 1, len(nodes))
+                    if np.isfinite(between[i, j]) and (i, j) not in joins and (j, i) not in joins)
+
+    # where a road stops: a pad, a town's box, a tech building's ground
+    stop = np.zeros(shape, bool)
+    for y, x in skel.starts:
+        stop |= np.hypot(f.yy - y, f.xx - x) < PAD_RADIUS[0]
+    for ty, tx, _, _, rows, cols in plan.stamps:
+        stop[ty:ty + rows, tx:tx + cols] = True
+    for _, (y, x) in plan.tech:
+        stop |= np.hypot(f.yy - y, f.xx - x) < TECH_FLAT + 2
+    for y, x in docks:
+        stop |= np.hypot(f.yy - y, f.xx - x) < SITE_RADIUS[0]
+    used = np.zeros(shape, bool)
+    polylines = []
+    laid = 0.0
+    for i, j in joins + [(i, j) for _, i, j in others]:
+        if laid >= wanted:
+            break
+        cell, run = starts_[j], []
+        while cell != starts_[i] and cell >= 0:
+            run.append(divmod(int(cell), shape[1]))
+            cell = previous[i, cell]
+        run.append(divmod(int(starts_[i]), shape[1]))
+        # cut it into the pieces between stops, bridges (a jump) and roads already laid
+        piece = []
+        for k, (y, x) in enumerate(run):
+            jump = k and max(abs(y - run[k - 1][0]), abs(x - run[k - 1][1])) > 1
+            if stop[y, x] or used[y, x] or jump:
+                if len(piece) > ROAD_LEAST:
+                    polylines.append(piece)
+                piece = [] if (stop[y, x] or used[y, x]) else [(y, x)]
+                continue
+            piece.append((y, x))
+        if len(piece) > ROAD_LEAST:
+            polylines.append(piece)
+        for y, x in run:
+            if not stop[y, x]:
+                used[max(y - ROAD_SPACING, 0):y + ROAD_SPACING + 1, max(x - ROAD_SPACING, 0):x + ROAD_SPACING + 1] = True
+        laid = sum(len(p) for p in polylines)
+    # the templates by share of length, the longest roads to the most used
+    polylines.sort(key=len, reverse=True)
+    total = sum(r["outside_length"] for r in roads)
+    owed = {r["template"]: r["outside_length"] / total * laid for r in roads}
+    mask = np.zeros(shape, bool)
+    for piece in polylines:
+        template = max(owed, key=lambda t: owed[t])
+        owed[template] -= len(piece)
+        step = next(r["segment_length"] for r in roads if r["template"] == template)
+        points = simplify(piece, ROAD_TOLERANCE)
+        points = [p for a, z in zip(points, points[1:]) for p in subdivide(a, z, step)] + [points[-1]]
+        plan.roads.append((template, [(float(y), float(x)) for y, x in points]))
+        for y, x in piece:
+            mask[y, x] = True
+    plan.keepout |= box(mask, ROAD_CLEAR) > 0
+
+
+def simplify(points, tolerance):
+    """Douglas and Peucker: the fewest of the points that keep the line within tolerance cells."""
+    if len(points) < 3:
+        return list(points)
+    (ay, ax), (zy, zx) = points[0], points[-1]
+    span = math.hypot(zy - ay, zx - ax) or 1.0
+    far = [abs((zy - ay) * (x - ax) - (zx - ax) * (y - ay)) / span for y, x in points]
+    k = int(np.argmax(far))
+    if far[k] <= tolerance:
+        return [points[0], points[-1]]
+    return simplify(points[:k + 1], tolerance)[:-1] + simplify(points[k:], tolerance)
+
+
+def subdivide(a, z, step):
+    """a and the points between a and z no further apart than step (z itself left out)."""
+    pieces = max(int(math.ceil(math.hypot(z[0] - a[0], z[1] - a[1]) / max(step, 1.0))), 1)
+    return [(a[0] + (z[0] - a[0]) * k / pieces, a[1] + (z[1] - a[1]) * k / pieces) for k in range(pieces)]
 
 
 #-----------------------------------------------------------------------------------------------
@@ -1215,11 +1693,11 @@ def synthesise(skeleton_path, src, out_dir, seed):
     keep = np.maximum(keep, np.clip(box(gentle, 2) * 2.0 - 0.5, 0, 1))
     keep = np.maximum(keep, box(plan.wet, 2) > 0)
     paths = box(waypoint_paths(raw, (th, tw), m.border), PATH_CELLS) > 0
-    # the skeleton's own lakes, which plan.wet does not hold: a tree there stood in the water
-    lakes = box(np.frombuffer(bytes(m.water_grid()), np.uint8).reshape(th, tw), 2) > 0
-    trees_allowed = play & (pads < 0.9) & (keep < 0.5) & ~paths & ~plan.keepout & ~plan.wet & ~lakes
+    trees_allowed = play & (pads < 0.9) & (keep < 0.5) & ~paths & ~plan.keepout & ~(box(plan.wet, 2) > 0)
     # as many trees as the exemplar's density gives the open ground, all of them where trees may stand
-    trees_wanted = src.tree_density * (play & (pads < 0.9) & ~plan.wet).sum()
+    # less the trees the towns bring with them, which the exemplar's density counted too
+    in_towns = sum(float(src.trees[sy:sy + rows, sx:sx + cols].sum()) for _, _, sy, sx, rows, cols in plan.stamps)
+    trees_wanted = max(src.tree_density * (play & (pads < 0.9) & ~plan.wet).sum() - in_towns, 0.0)
 
     # the exemplar's detail: what its height has that its own blur does not
     sy_map, sx_map, detail, patches = quilt(src, skel, keep, seed, src.t - box(src.t, DETAIL_RADIUS),
@@ -1236,6 +1714,9 @@ def synthesise(skeleton_path, src, out_dir, seed):
     t = skel.t + (1.0 - rim) * detail
     h = skel.bowl + t * skel.scale
     h = keep * skel.h + (1.0 - keep) * h
+    # ground under a sea's plane but not the sea's (the detail can dip it) would be a pond
+    dry = (plan.level >= 0.0) & ~plan.wet
+    h = np.where(dry, np.maximum(h, plan.level + 1.0), h)
     h = np.clip(np.rint(h), 0, 255).astype(np.int32)
     cliff = span_cliff(h)       # Twilight's painted bits are exactly its heights' (selfcheck)
 
@@ -1252,7 +1733,7 @@ def synthesise(skeleton_path, src, out_dir, seed):
             continue
         (piles if template == "SupplyPileSmall" else kept).append(chunk)
 
-    wet = plan.wet & (h < max([surface for _, surface in plan.water] + [0.0]))
+    wet = plan.wet & (h < plan.level)
     decks = np.zeros((th, tw), bool)
     for _, a, z in plan.bridges:
         decks |= box(line_cells(a, z, (th, tw)), 1) > 0
@@ -1313,7 +1794,7 @@ def synthesise(skeleton_path, src, out_dir, seed):
     # share, or a wave walks at a bank or a wall it cannot reach and stands there wedged. Clear of
     # the water by a few cells, as the water area's polygon is drawn round the bed loosely, and
     # after the levelling, which can ring a pad with cliff.
-    level_wet = plan.wet & (h < max([surface for _, surface in plan.water] + [0.0]))
+    level_wet = plan.wet & (h < plan.level)
     cliff = span_cliff(h)
     ground = reach(walkable(cliff) & ~level_wet | decks, skel.starts[0])
     ground &= ~(box(level_wet, 3) > 0) & ~decks
@@ -1335,7 +1816,7 @@ def synthesise(skeleton_path, src, out_dir, seed):
     hit = np.zeros(src.h.shape, bool)
     for cell in src.scenery:
         hit[cell] = True
-    landed = hit[sy_map, sx_map] & play & (pads < 0.9) & (keep < 0.95) & ~plan.keepout & ~plan.wet & ~lakes & ~stamped
+    landed = hit[sy_map, sx_map] & play & (pads < 0.9) & (keep < 0.95) & ~plan.keepout & ~(box(plan.wet, 2) > 0) & ~stamped
     taken = [(int(p[0]), int(p[1])) for p in sites] + [p for _, p in plan.tech]
     for y, x in zip(*np.nonzero(landed)):
         if any(abs(y - py) < 6 and abs(x - px) < 6 for py, px in taken):
@@ -1390,6 +1871,25 @@ def synthesise(skeleton_path, src, out_dir, seed):
             counter[0] += 1
             kept.append(moved_object(body, src.raw.names, raw, x - m.border, y - m.border, counter[0]))
 
+    # the roads, a pair of objects a segment, each the exemplar's own pair for its template with the
+    # end flags (the corner type) most of its pairs carry, the segments of a road sharing their ends
+    road_pairs = {}
+    common = {r["template"]: tuple(r.get("flags", ())) for r in src.inventory["roads"]}
+    for (_, _, first), (_, _, second) in zip(src.objects, src.objects[1:]):
+        flags = struct.unpack_from("<i", first, 16)[0], struct.unpack_from("<i", second, 16)[0]
+        if flags[0] & mapfeatures.FLAG_ROAD_POINT1 and flags[1] & mapfeatures.FLAG_ROAD_POINT2:
+            template = object_head(first)[3]
+            if template not in road_pairs or (flags == common.get(template) and
+                                              road_pairs[template][2] != flags):
+                road_pairs[template] = (first, second, flags)
+    segments = 0
+    for template, points in plan.roads:
+        for a, z in zip(points, points[1:]):
+            for body, (y, x) in zip(road_pairs[template][:2], (a, z)):
+                counter[0] += 1
+                kept.append(moved_object(body, src.raw.names, raw, x - m.border, y - m.border, counter[0]))
+            segments += 1
+
     # the towns: every object of the exemplar inside each stamped box, moved with it; a road only
     # with both its ends inside
     copied = 0
@@ -1428,9 +1928,8 @@ def synthesise(skeleton_path, src, out_dir, seed):
     raw.replace("HeightMapData", version, body[:-th * tw] + h.astype(np.uint8).tobytes())
     cliff = span_cliff(h)
     raw.replace("BlendTileData", 8, blend_chunk(src, sy_map, sx_map, cliff))
-    if plan.water:
-        version, body = raw.body("PolygonTriggers")
-        raw.replace("PolygonTriggers", version, water_triggers(version, body, plan.water, m.border))
+    version, body = raw.body("PolygonTriggers")
+    raw.replace("PolygonTriggers", version, water_triggers(version, body, plan.water, m.border))
     raw.replace("GlobalLighting", *src.raw.body("GlobalLighting"))
 
     skeleton_name = os.path.splitext(os.path.basename(skeleton_path))[0]
@@ -1452,7 +1951,7 @@ def synthesise(skeleton_path, src, out_dir, seed):
 
     # every start walks to every other one, and to every dock, derrick and tech building, over
     # the bridges and round the water
-    passable = walkable(cliff) & ~(plan.wet & (h < max([s for _, s in plan.water] + [0.0]))) | decks
+    passable = walkable(cliff) & ~(plan.wet & (h < plan.level)) | decks
     reached = reach(passable, skel.starts[0])
     docks = [(int(y + 0.5) + m.border, int(x + 0.5) + m.border) for x, y in m.supplies + m.derricks]
 
@@ -1464,11 +1963,12 @@ def synthesise(skeleton_path, src, out_dir, seed):
                  for points in (skel.starts, [p for _, p in plan.tech])]
     trees = sum(1 for entry in added if entry[0].startswith("Tree"))
     print("%s: %d patches, quilt %.1f s, total %.1f s, %d scenery (%d trees, want %d), piles %d/%d, "
-          "tech %d, bridges %d, towns %d (%d objects), water %d, waypoints moved %d, cut off: starts %d "
+          "tech %d, bridges %d, roads %d (%d segments), towns %d (%d objects), water %d, waypoints moved %d, cut off: starts %d "
           "sites %d tech %d, without the bridges: starts %d tech %d" % (
               name, patches, quilted - began, finished - began, len(added) - len(plan.tech), trees,
               round(trees_wanted), min(len(piles), len(sites)), len(piles),
-              len(plan.tech), len(plan.bridges), len(plan.stamps), copied, len(plan.water), snapped,
+              len(plan.tech), len(plan.bridges), len(plan.roads), segments, len(plan.stamps), copied,
+              len(plan.water), snapped,
               cut_off(skel.starts), cut_off(docks), cut_off([p for _, p in plan.tech]), *unbridged))
     for note in plan.notes:
         print("  not built: " + note)
@@ -1632,12 +2132,23 @@ def feature_rows(inv):
     canyon = max(inv["canyons"], key=lambda c: c["length"], default=None)
     mesa = max(inv["mesas"], key=lambda x: x["area"], default=None)
     river = max([w for w in inv["water"] if w["kind"] == "river"], key=lambda w: w["length"], default=None)
+    rivers = [w for w in inv["water"] if w["kind"] == "river"]
+    others = [w for w in inv["water"] if w["kind"] != "river"]
+    outside = [r for r in inv["roads"] if r.get("outside_segments")]
     return [
         ("high ground", "%+d, %d%%" % (high["dz_start"], 100 * high["share"]) if high else "-"),
         ("canyon", "w%.0f l%.0f wind %.0f%s" % (canyon["width"], canyon["length"], canyon["winding"],
                                                 " edge" if canyon["reaches_edge"] else "") if canyon else "-"),
         ("mesa", "r%.0f %+d, %d exits" % (mesa["radius"], mesa["top_dz_middle"], mesa["exits"]) if mesa else "-"),
         ("river", "w%.0f l%.0f, %d deep" % (river["width"], river["length"], river["depth_bytes"]) if river else "-"),
+        ("rivers", "%d, %d branch" % (len(rivers), sum(1 for w in rivers if w["joins"] is not None))
+         if rivers else "-"),
+        ("lake/sea", " ".join("%s %d%% z%d" % (w["kind"], round(100 * w["share"]), w["surface_bytes"]) for w in others)
+         or "-"),
+        ("roads out", "%d seg %d long: %s" % (sum(r["outside_segments"] for r in outside),
+                                              sum(r["outside_length"] for r in outside),
+                                              " ".join("%s %d" % (r["template"], r["outside_segments"]) for r in outside))
+         if outside else "-"),
         ("bridges", "%d %s" % (len(inv["bridges"]), " ".join(sorted(set(b["template"] for b in inv["bridges"]))))
          if inv["bridges"] else "-"),
         ("towns", " ".join(str(t["buildings"]) for t in inv["towns"]) or "-"),
@@ -1793,6 +2304,9 @@ def selfcheck():
     step = np.zeros((6, 6), np.int32)
     step[:, 3:] = 40
     assert span_cliff(step)[:5, 2].all() and not span_cliff(step)[:5, 0].any()
+    assert simplify([(0, k) for k in range(10)], 1.0) == [(0, 0), (0, 9)]
+    assert simplify([(0, 0), (0, 5), (5, 5)], 1.0) == [(0, 0), (0, 5), (5, 5)]
+    assert len(subdivide((0, 0), (0, 25), 10.0)) == 3
 
     # what the synthesis leans on: the exemplar's cliff bits are its heights', and its tiles and
     # blend tiles are a function of class and cell
