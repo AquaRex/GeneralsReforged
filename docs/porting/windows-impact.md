@@ -472,6 +472,8 @@ option metadata still compile elsewhere. Windows retains its original shader
 names and shader programs; macOS binds the legacy SDL programs. The Linux style
 widget is hidden on both platforms. Windows/macOS builds and runtime checks remain
 open; Linux compilation and GPU tests do not establish their runtime compatibility.
+The Windows half of this paragraph no longer holds: the last section below brings the
+Modern water to Direct3D 11.
 
 ## Volumetric hazard clouds (2026-10-22, Direct3D 11 2026-10-23)
 
@@ -494,3 +496,56 @@ The Direct3D 11 path was built and run on Windows: `test_dx11backend` compiles a
 with d3dcompiler_47, and a Twilight Flame Scud Storm field drew on the default renderer with no
 refusal in the log. The SDL backend was moved onto the shared core in the same change and has not
 been compiled since; Linux and macOS builds are owed.
+
+## Modern water on Direct3D 11 (2026-10-23)
+
+The Modern water now builds on Windows as well as Linux. `Platform/ModernWaterBuild.h` defines
+`ZH_MODERN_WATER` for both, and the `__linux__` gates in `W3DWater.cpp`/`.h`, the vessel-foam gates
+in `W3DParticleSys.cpp`/`.h`, `W3DDisplay.cpp`'s read of the water at the sync point and
+`GameEngine.cpp`'s `ModernWater.ini` load take it instead. `ModernWater::Supported()` decides at run
+time: true on Linux, and on Windows while Direct3D 11 is active and presenting, so `-d3d9` and
+`-headless` stay Classic and the options menu hides the Water Style box for them. macOS compiles
+none of it, as before. The wave tracks keep their `__linux__` gates, so Windows still updates them in
+their own flush.
+
+One consequence for Classic on Windows: `W3DWater` now draws from the polygon copy taken at the
+sync point (`takeReadsForRender`) and reads the pause from it, as Linux always did, instead of
+walking the live `PolygonTrigger` list during the draw. The data is the same. A Classic shot of
+the Bombardment Beach shore at 1000,2350, frame 600, differs from the previous build's on 0.01% of
+the sampled pixels by more than 40, the clouds' wall-clock drift.
+
+`engineshader.cpp` now writes the Modern text for the plain `trapezoid water ps.1.1` and `river
+water ps.1.1` names on the Direct3D 11 target too; the `classic ...` names keep EA's transcription,
+and `W3DWater::registerWaterStyleShaders` registers those under Classic on Windows. The Classic
+programs' text, and so their keys in `dx11shaders.cache` and `dx11shaders.shipped`, are unchanged.
+
+The draw is the backend's (`WW3D2/dx11water.cpp`). A Modern draw binds fifteen stages: the
+backend's four, the shore's optical field at t4, copies of the target's colour and depth taken at
+the frame's first water draw into that target at t5 and t6, the bed at t7, the ocean's six maps at
+t8 to t13 and the vessels' foam atlas at t14, white where nothing is bound. Its four constant
+blocks come from W3DWater's 896 registers, which on Windows go to the backend through
+`Direct3D11_Set_Water_Constants` instead of the Direct3D 9 device (`WaterConstants.h` builds the
+block; it mirrors `PosixDevice9::Build_Water_Constants`, which the SDL device keeps until Linux can
+be built against the shared one). Over open sea the GPU ocean runs on the context first (spectrum,
+sixteen butterflies, the sign pass, then `GenerateMips` on six RGBA32F maps) and the draw's vertex
+half is swapped for the displaced one. Stages past 7 now reach the backend too:
+`DX8Wrapper::Set_DX8_Texture` mirrors them, where it used to hand them to the Direct3D 9 device alone.
+The shore overlay's second pass and its foam on the wave tracks are not drawn on Windows yet. The
+backend keeps one scene copy where the SDL device keeps one per target, so a frame drawing water
+into one target, then another, then the first again refracts the first water in its third draw.
+`W3DWater::Render` now saves stages 0, 1, 4 and 7 from the wrapper's record (`Get_DX8_Texture`,
+`Get_DX8_Texture_Stage_State`) rather than the Direct3D 9 device, which `Defer_D3D9_State` leaves
+behind the wrapper under Direct3D 11.
+
+The two Modern pixel programs need shader model 5 (FXC refuses the dynamically indexed write that
+`waterRefractionHit`'s neighbour mask used to make, and that line is now a multiply both compilers
+take). Each takes about 34 s to compile with d3dcompiler_47 at the backend's default flags, so the
+first Modern frame without a cache stalls for over a minute and `test_dx11backend` grew to 89 s.
+They are not in `dx11shaders.shipped`; recording them is open.
+
+Measured on 2026-10-23, Release, 1280x720 windowed, `-noFPSLimit -msaa 0`, the same Bombardment
+Beach skirmish: with the shore in view the frame is 4.44 ms mean (p99 10.25) on Classic and 17.63
+ms (p99 25.75) on Modern; with the camera inland at 1000,1850, 5.28 against 12.49 ms. The log's
+`-dx11 water:` line counted 1400 Modern draws, all displaced by the GPU ocean, and no refused draw.
+The Linux side of the shared changes (`engineshader.cpp`, `WaterShoreOverlay.h`, `test_shader_sdl.cpp`,
+the gate swap) has not been compiled.
