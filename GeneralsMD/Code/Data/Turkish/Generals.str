@@ -15697,6 +15697,38 @@ TOOLTIP:SmokeFireLighting
 "Ateşin yanındaki duman onun turuncu ışığını alır. Kabul Et'e basınca uygulanır."
 END
 
+GUI:WaterStyle
+"Su Görünümü"
+END
+
+GUI:WaterStyle0
+"Klasik"
+END
+
+GUI:WaterStyle1
+"Modern"
+END
+
+TOOLTIP:WaterStyle
+"Klasik, orijinal suyu, parıltıları, yansımaları ve dümen sularını kullanır. Modern; dalgalar, kıyı ayrıntısı ve gövde köpüğü ekler. Kabul Et'e basınca uygulanır."
+END
+
+GUI:CloudStyle
+"Bulut Görünümü"
+END
+
+GUI:CloudStyle0
+"Klasik"
+END
+
+GUI:CloudStyle1
+"Hacimsel"
+END
+
+TOOLTIP:CloudStyle
+"Klasik, orijinal toksin ve radyasyon efektlerini kullanır. Hacimsel; hareket eden duman, daha koyu nükleer pus ve sıcak hava titremesi ekler. Kabul Et'e basınca, sahadaki bulutlara da uygulanır."
+END
+
 GUI:DebrisTrails
 "Patlama Parça İzleri"
 END

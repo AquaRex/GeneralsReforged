@@ -1211,7 +1211,7 @@ GUI:CloudStyle1
 END
 
 TOOLTIP:CloudStyle
-"Classic uses the original toxin and radiation effects. Volumetric adds moving smoke, darker nuclear haze and heat shimmer. Applied when you Accept."
+"Classic uses the original toxin and radiation effects. Volumetric adds moving smoke, darker nuclear haze and heat shimmer. Applies when you press Accept, to the clouds already on the field too."
 END
 
 LAN:ErrorModMismatch
