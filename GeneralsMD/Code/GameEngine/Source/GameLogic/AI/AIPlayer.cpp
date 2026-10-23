@@ -2764,7 +2764,7 @@ void AIPlayer::sendForSpotters( TeamInQueue *team, const Object *gun )
 		order->m_thing = spotter;
 		order->m_factoryID = INVALID_ID;
 		order->m_numRequired = spotters;
-		order->m_required = true;
+		order->m_required = false;		// a team whose spotters are late goes out without them rather than disbanding at the build timeout
 		order->m_next = team->m_workOrders;
 		team->m_workOrders = order;
 	}
@@ -2927,10 +2927,79 @@ Bool AIPlayer::isAGoodIdeaToBuildTeam( TeamPrototype *proto )
 }
 
 // ------------------------------------------------------------------------------------------------
+/** A spotter killed in the field was never replaced: the team's guns kept walking with nobody to see
+	* for them.  An attack team that still has a gun firing past its own sight and none of the side's
+	* spotter left on its list trains one as a reinforcement, which joins it where it stands.  One order at
+	* a time, and not for a team still being built, whose spotters sendForSpotters has in hand. */
+Bool AIPlayer::replaceSpotter( void )
+{
+	if( !isSkirmishAI() || getSkillProfile()->m_artillerySpotters <= 0 )
+		return false;
+	for( Player::PlayerTeamList::const_iterator t = m_player->getPlayerTeams()->begin(); t != m_player->getPlayerTeams()->end(); ++t )
+	{
+		TeamPrototype *proto = (*t);
+		const ThingTemplate *spotter = missingSpotterFor( m_player, proto );
+		if( spotter == NULL )
+			continue;
+		Bool busy = false;
+		for( DLINK_ITERATOR<TeamInQueue> iter = iterate_TeamBuildQueue(); !iter.done(); iter.advance() )
+			if( iter.cur()->m_team->getPrototype() == proto )
+				busy = true;
+		if( busy )
+			continue;
+		for( DLINK_ITERATOR<Team> iter = proto->iterate_TeamInstanceList(); !iter.done(); iter.advance() )
+		{
+			Team *team = iter.cur();
+			Bool blindGun = false;
+			Bool sighted = false;
+			for( DLINK_ITERATOR<Object> m = team->iterate_TeamMemberList(); !m.done(); m.advance() )
+			{
+				if( m.cur()->isEffectivelyDead() )
+					continue;
+				blindGun |= m.cur()->getTemplate()->acquiresBeyondVision();
+				sighted |= m.cur()->getTemplate()->isEquivalentTo( spotter );
+			}
+			if( !blindGun || sighted )
+				continue;
+
+			const Bool canBuildUnits = m_player->getCanBuildUnits();
+			m_player->setCanBuildUnits( TRUE );
+			Object *factory = findFactory( spotter, TRUE );
+			m_player->setCanBuildUnits( canBuildUnits );
+			if( factory == NULL )
+				return false;
+
+			WorkOrder *order = newInstance(WorkOrder);
+			order->m_thing = spotter;
+			order->m_factoryID = INVALID_ID;
+			order->m_numRequired = 1;
+			order->m_required = false;
+			order->m_next = NULL;
+			TeamInQueue *teamQ = newInstance(TeamInQueue);
+			prependTo_TeamBuildQueue( teamQ );
+			teamQ->m_priorityBuild = false;
+			teamQ->m_reinforcement = true;
+			teamQ->m_workOrders = order;
+			teamQ->m_frameStarted = TheGameLogic->getFrame();
+			teamQ->m_team = team;
+			DEBUG_LOG(("AI ARTILLERY frame %d player %d replaces the spotter of team '%s'\n", TheGameLogic->getFrame(),
+				m_player->getPlayerIndex(), team->getName().str()));
+			m_teamDelay = 0;
+			startTraining( order, teamQ->m_priorityBuild, teamQ->m_team->getName() );
+			return true;
+		}
+	}
+	return false;
+}
+
+// ------------------------------------------------------------------------------------------------
 /** See if any existing teams need reinforcements, and have higher priority. */
 // ------------------------------------------------------------------------------------------------
 Bool AIPlayer::selectTeamToReinforce( Int minPriority )
 {
+	if( replaceSpotter() )
+		return true;
+
 	// Find a high production priority team that needs reinforcements.
 	Player::PlayerTeamList::const_iterator t;
 	Team *curTeam = NULL;
@@ -10503,7 +10572,7 @@ Bool AIPlayer::isGunshipRider( const Object *obj ) const
 {
 	return obj->isKindOf( KINDOF_INFANTRY ) && !obj->isKindOf( KINDOF_HERO ) && obj->isSelectable() && !obj->isContained() &&
 		!obj->isEffectivelyDead() && obj->getAI() && leavesToFinish( obj ) && !isMassUnit( obj->getID() ) && !isSlaved( obj ) &&
-		!obj->isKindOf( KINDOF_MOB_NEXUS );
+		!obj->isKindOf( KINDOF_MOB_NEXUS ) && !obj->getTemplate()->hasSpotterSight();		// a spotter is the eyes of a gun team, not a seat filler
 }
 
 /** An infantryman who rides out with the army, where loadGunships puts him. */
@@ -10946,7 +11015,7 @@ static const ThingTemplate *gunshipRiderTemplate( Object *factory, const ThingTe
 			continue;
 		const ThingTemplate *tmpl = button->getThingTemplate();
 		if( tmpl == NULL || !tmpl->isKindOf( KINDOF_INFANTRY ) || !tmpl->canPossiblyHaveAnyWeapon() || tmpl->isKindOf( KINDOF_DOZER ) ||
-				tmpl->isKindOf( KINDOF_MONEY_HACKER ) || tmpl->isKindOf( KINDOF_HERO ) ||
+				tmpl->isKindOf( KINDOF_MONEY_HACKER ) || tmpl->isKindOf( KINDOF_HERO ) || tmpl->hasSpotterSight() ||
 				tmpl->calcCostToBuild( factory->getControllingPlayer() ) <= 0 ||
 				TheBuildAssistant->canMakeUnit( factory, tmpl ) != CANMAKE_OK )
 			continue;

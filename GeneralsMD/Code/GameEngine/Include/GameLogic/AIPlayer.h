@@ -537,6 +537,7 @@ protected:
 	void computeCenterAndRadiusOfBase(Coord3D *center, Real *radius);
 	Object *findFactory(const ThingTemplate *thing, Bool busyOK); ///< Find a factory to build a unit.  If force is true, may return a busy factory.
 	void sendForSpotters( TeamInQueue *team, const Object *gun );	///< a gun that fires past its own sight came out for this team: train its spotters
+	Bool replaceSpotter( void );				///< a team in the field has a gun that fires past its own sight and no spotter left: train it one
 	void queueUnits( void );						///< Check the team build list, & queue up units at any idle factories.
 	void checkForSupplyCenter( BuildListInfo *info, Object *bldg);
  	void queueSupplyTruck(void);
