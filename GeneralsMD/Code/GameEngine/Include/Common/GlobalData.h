@@ -199,8 +199,10 @@ enum TextLanguageType
 	TEXT_LANGUAGE_ENGLISH	= 0,
 	TEXT_LANGUAGE_TURKISH	= 1,
 	TEXT_LANGUAGE_GERMAN	= 2,
+	TEXT_LANGUAGE_UKRAINIAN	= 3,
+	TEXT_LANGUAGE_RUSSIAN	= 4,
 
-	TEXT_LANGUAGE_COUNT		= 3,
+	TEXT_LANGUAGE_COUNT		= 5,
 };
 
 /** The LightingStyle option.  Classic draws a map's lights as the map gives them; Reforged takes

@@ -807,6 +807,14 @@ GUI:Language2
 "Deutsch"
 END
 
+GUI:Language3
+"Українська"
+END
+
+GUI:Language4
+"Русский"
+END
+
 TOOLTIP:Language
 "The language of menus, orders, briefings and subtitles. Voices and videos stay as installed. Takes effect the next time the game starts."
 END

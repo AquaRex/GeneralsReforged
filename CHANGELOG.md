@@ -8,6 +8,12 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
+## Ukrainian and Russian
+
+- The language box under Options, Gameplay goes on past Deutsch to Українська and Русский, each written in its own alphabet, so a player finds their language without reading a word of English first. All 4684 lines the game shows are translated in both, menus, tooltips, briefings and the fork's own options included. The launcher's game language box offers the two as well.
+- The command bar's one-key shortcuts used to go dead the moment a Russian or Ukrainian keyboard layout was on: the key marked C typed с, and no button answers to с. The game now reads a key from a non-Latin layout by where it sits on the keyboard, so C is C whichever layout Windows has active, in every language.
+- The check that refuses a broken Turkish or German line reads both new files on every build. A tooltip whose blanks would not match the English one is turned away before it can crash the game.
+
 ## Trees cast the shadow of their own crowns
 
 - A tree's shadow used to be its outline laid flat at the foot of the trunk, which sank into the ground on a slope and never darkened a tank parked under it. Now every tree, the palms included, puts its real leaves into the sun's shadow, gaps between the fronds and all, and that shadow falls over the hillside and over the units standing in the wood. Direct3D 11 on Windows and Linux both draw it; the Direct3D 9 renderer keeps the old flat shadows.

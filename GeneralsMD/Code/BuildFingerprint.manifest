@@ -111,6 +111,7 @@ Data/Cinema/rankauranight.txt
 Data/Cinema/rankaurasnow.txt
 Data/Cinema/rankladder.txt
 Data/Cinema/rankzero.txt
+Data/Cinema/readme_water.txt
 Data/Cinema/rf_ai.txt
 Data/Cinema/rf_ai_wave.txt
 Data/Cinema/rf_beach.txt
@@ -216,6 +217,7 @@ Data/INI/WeaponReforged.ini
 Data/INI/WindowTransitionsReforged.ini
 Data/Install_Final.bmp
 Data/Patch.str
+Data/Russian/Generals.str
 Data/Scenarios/airbelow.txt
 Data/Scenarios/airbelowfar.txt
 Data/Scenarios/alphaaurora.txt
@@ -341,6 +343,8 @@ Data/Scenarios/rankaurasnow.txt
 Data/Scenarios/rankladder.txt
 Data/Scenarios/rankzero.txt
 Data/Scenarios/reachshot.txt
+Data/Scenarios/readme_hud.txt
+Data/Scenarios/readme_water.txt
 Data/Scenarios/repeatbuild.txt
 Data/Scenarios/rf_mass840.txt
 Data/Scenarios/rf_night.txt
@@ -421,6 +425,7 @@ Data/Scenarios/wallgarrison.txt
 Data/Scenarios/wreckcheck.txt
 Data/Scripts/SkirmishScripts.scb
 Data/Turkish/Generals.str
+Data/Ukrainian/Generals.str
 Data/Window/ControlBar.wnd
 Data/Window/ControlBarPopupDescription.wnd
 Data/Window/ControlBarPro.txt

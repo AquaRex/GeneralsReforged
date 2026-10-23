@@ -128,7 +128,8 @@ GameMessageDisposition HotKeyTranslator::translateGameMessage(const GameMessage 
 			const UINT virtualKey = MapVirtualKeyExW(scanCode, MAPVK_VSC_TO_VK, layout);
 			BYTE keys[256] = { 0 };
 			WCHAR out[4] = { 0 };
-			if( virtualKey != 0 && ToUnicodeEx(virtualKey, scanCode, keys, out, 4, 0x4, layout) == 1 )
+			// a Cyrillic or other non-Latin letter never names a hotkey, so that player keeps the US position
+			if( virtualKey != 0 && ToUnicodeEx(virtualKey, scanCode, keys, out, 4, 0x4, layout) == 1 && out[0] < 0x0250 )
 				typed = (WideChar)out[0];
 		}
 #endif
