@@ -451,8 +451,11 @@ This feature starts directly from reference/3.1.0. Sun capture, tree capture,
 shadow-option admission and queued cloak coverage are enabled on Linux. The
 Windows Direct3D 11 backend sources remain unchanged; the shared adapter forwards
 existing calls and returns empty queued coverage. Windows retains its original
-water programs, tree silhouettes, caster selection and constant-cache comparisons.
-macOS refuses the new scene capture and retains its existing shadows. Shared API,
+water programs, caster selection and constant-cache comparisons. Tree capture is
+on under Direct3D 11 too since the Windows follow-up: the batched trees and the
+object palms draw into the sun's map, and their silhouettes, blob decals and
+flattened palm copies stand down while `SunShadow::OwnsSceneShadows` holds; under
+`-d3d9` no map takes the frame and the silhouettes stay. macOS refuses the new scene capture and retains its existing shadows. Shared API,
 shader and queue metadata still compile on these platforms; native builds and
 runtime validation remain required. Linux tests do not establish that evidence.
 

@@ -8,38 +8,18 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
-## Sun and smoke shadow parity on Linux
+## Trees cast the shadow of their own crowns
 
-- Linux draws mapped sun and smoke shadows across terrain, buildings, units,
-  trees and bridges. Sorted cloaked casters retain their partial coverage.
-- Existing shadow options remain authoritative. Unavailable resources retain
-  legacy shadows; legacy water and reflections keep their existing paths.
-- Windows and macOS keep their existing renderer behavior. See
-  [the Linux shadow guide](docs/sdl-sun-shadows.md) for diagnostics and limits.
+- A tree's shadow used to be its outline laid flat at the foot of the trunk, which sank into the ground on a slope and never darkened a tank parked under it. Now every tree, the palms included, puts its real leaves into the sun's shadow, gaps between the fronds and all, and that shadow falls over the hillside and over the units standing in the wood. Direct3D 11 on Windows and Linux both draw it; the Direct3D 9 renderer keeps the old flat shadows.
+- Linux gets the sun's shadows Windows already had, soft under a helicopter and hard under a tank, and the smoke shadow that darkens a battlefield under a thick plume. Your own cloaked units still cast only a faint part of theirs.
 
 ## Modern water on Linux
 
-- Modern is an opt-in under Options > Water style; Classic stays the default.
-  Water rolls in waves with sunlight following the crests into the shallows.
-  Shores redirect waves along their banks and gather foam; vessels leave wakes.
-- Modern water preserves map-authored depth and opacity, matches material rules
-  to the effective water color and texture, and adds pollution and bubbles only
-  to matching water.
-- A standalone editor uses the game's water renderer and material rules. Invalid
-  saved colors leave the current colors intact; default exports protect the
-  loaded rule file. Explicit export destinations remain available.
+- Options has a Water Style box. Modern rolls the sea in waves whose crests catch the sun all the way into the shallows, and at the shore they turn along the bank and pile up foam. Boats push foam off their hulls. Classic stays the default, and either way a map keeps the water colour and depth its maker gave it. Linux only for now.
 
-## Volumetric hazard clouds
+## Volumetric hazard clouds on Linux and macOS
 
-- Options > Graphics has a Cloud style choice, Classic or Volumetric, that switches live.
-  Classic, the original toxin and radiation effects, stays the default; Volumetric is an
-  opt-in while its cost in a crowded battle is measured.
-- Volumetric draws the toxin, beta, gamma and nuclear fields as moving smoke with the
-  hazards' actual radii and lifetimes. Low smoke follows the terrain and stirs around
-  visible infantry; nuclear fields fade in across their whole area with darker billows,
-  rising embers and heat shimmer. Gameplay damage and simulation are unchanged.
-- It needs a renderer that supports it, today the SDL GPU renderer on Linux and macOS.
-  Elsewhere the choice is hidden. A field it cannot admit keeps the Classic effect.
+- Options has a Cloud Style box. Volumetric draws toxin, anthrax and nuclear fields as moving smoke at the size and for the time the hazard really lasts: low smoke hugs the ground and curls around infantry walking through it, and a nuclear field fades in across its whole width with dark billows and embers rising through the heat shimmer. The damage is exactly what it was. Classic stays the default until the cost in a big battle is measured, and on Windows the box is hidden.
 
 ## A rank ladder for every army
 

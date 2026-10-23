@@ -4178,7 +4178,11 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 {
 	// A failed, disabled or empty pass must not expose the previous view's shadow.
 	SunShadow::Clear(DX8Wrapper::_Get_D3D_Device());
+#if defined(__linux__)
+	// The SDL device reads the D3D9 state it was handed.  Under Direct3D 11 nothing reads it back,
+	// and a flush here would send every held-back state to a device that draws nothing, every frame.
 	DX8Wrapper::Flush_Deferred_D3D9_State();
+#endif
 	// Trees historically cast under either shadow option. Smoke has its own option;
 	// it may keep an otherwise empty depth capture alive without enabling geometry.
 #if defined(__linux__)
@@ -4408,10 +4412,8 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 	sunInfo.drawEffect = DRAW_EFFECT_NONE;
 	// Use the trees actually present. The loader can override ShowTrees for multiplayer,
 	// and changing that preference does not remove trees from an already loaded map.
-#if defined(__linux__)
 	if (geometryShadows)
-		TheTerrainRenderObject->renderTreeShadowCasters(sunInfo, &sceneCamera, casterCull);
-#endif
+		castersCounted += TheTerrainRenderObject->renderTreeShadowCasters(sunInfo, &sceneCamera, casterCull);
 	TheDX8MeshRenderer.Flush();
 	/* A mesh the material system calls translucent goes to the sort lists rather than to the mesh
 		 renderer, and a helicopter's rotor disc is one of them: without this the map holds the
@@ -4520,8 +4522,8 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 		 ground - handed the frame back to the volumes for that one frame, so the whole scene's
 		 shadows changed style and back again as the camera moved. Backend scene ownership is
 		 installed only after successful parameters. */
-	DX8Wrapper::Flush_Deferred_D3D9_State();
 #if defined(__linux__)
+	DX8Wrapper::Flush_Deferred_D3D9_State();	// as at the top: only the SDL device reads it
 	if (captured)
 		SunShadow::Parameters(DX8Wrapper::_Get_D3D_Device(), depthBias, strength, widest,
 			narrowest, penumbra / worldPerTexel, unitsPerUnitOfDepth, skyFill);
