@@ -32,6 +32,7 @@
 #include "Common/ActionManager.h"
 #include "Common/GlobalData.h"
 #include "Common/MiscAudio.h"
+#include "Common/Player.h"
 #include "Common/ThingFactory.h"
 #include "Common/ThingTemplate.h"
 #include "GameClient/Drawable.h"
@@ -2154,6 +2155,27 @@ void JetAIUpdate::getProducerLocation()
 }
 
 //-------------------------------------------------------------------------------------------------
+/// a kamikaze looking for a new target weighs this many of the dearest in its area
+static const Int KAMIKAZE_RETARGET_CANDIDATES = 32;
+
+/// what the other live drones of one kind and owner are heading for
+struct KamikazeHeadings
+{
+	const Object* self;
+	std::vector<ObjectID> targets;
+};
+
+static void collectKamikazeHeading(Object* obj, void* userData)
+{
+	KamikazeHeadings* headings = (KamikazeHeadings*)userData;
+	// the template itself: isEquivalentTo would take the jet a drone is a reskin of as well
+	if (obj == headings->self || obj->isEffectivelyDead() ||
+			obj->getTemplate()->getFinalOverride() != headings->self->getTemplate()->getFinalOverride())
+		return;
+	headings->targets.push_back(obj->getAIUpdateInterface()->getJetAIUpdate()->friend_getKamikazeTargetID());
+}
+
+//-------------------------------------------------------------------------------------------------
 UpdateSleepTime JetAIUpdate::update()
 {
 	const JetAIUpdateModuleData* d = getJetAIUpdateModuleData();
@@ -2164,18 +2186,32 @@ UpdateSleepTime JetAIUpdate::update()
 
 	ParkingPlaceBehaviorInterface* pp = getPP(getObject()->getProducerID());
 
-	// a kamikaze whose target is gone takes the dearest enemy left in the area it was sent to, or dives
-	// into the area, rather than flying home with its one shot (notifyVictimIsDead) to land and wait
+	// a kamikaze whose target is gone takes the dearest enemy left in the area it was sent to that no
+	// other drone of its swarm is heading for, the dearest of all when every one has a drone already, or
+	// dives into the area, rather than flying home with its one shot (notifyVictimIsDead) to land and wait
 	if (d->m_kamikazeRange > 0.0f && getFlag(ALLOW_AIR_LOCO) && !getFlag(TAKEOFF_IN_PROGRESS) &&
 			!getFlag(LANDING_IN_PROGRESS) && !getFlag(HAS_PENDING_COMMAND) && AIUpdateInterface::isIdle())
 	{
 		std::vector<Object*> found;
-		Weapon_findMostValuableEnemies(jet, &m_kamikazeArea, d->m_kamikazeRange, 1, found);
-		DEBUG_LOG(("KAMIKAZE frame %d '%s' %d lost its target at (%.0f,%.0f), %s\n", TheGameLogic->getFrame(), jet->getTemplate()->getName().str(),
-			jet->getID(), jet->getPosition()->x, jet->getPosition()->y, found.empty() ? "dives into the area" : found.front()->getTemplate()->getName().str()));
+		Weapon_findMostValuableEnemies(jet, &m_kamikazeArea, d->m_kamikazeRange, KAMIKAZE_RETARGET_CANDIDATES, found);
+		KamikazeHeadings headings;
+		headings.self = jet;
+		jet->getControllingPlayer()->iterateObjects(collectKamikazeHeading, &headings);
+		Object* pick = found.empty() ? NULL : found.front();
+		for (std::vector<Object*>::const_iterator it = found.begin(); it != found.end(); ++it)
+		{
+			if (std::find(headings.targets.begin(), headings.targets.end(), (*it)->getID()) == headings.targets.end())
+			{
+				pick = *it;
+				break;
+			}
+		}
+		DEBUG_LOG(("KAMIKAZE frame %d '%s' %d lost its target at (%.0f,%.0f), %s %d\n", TheGameLogic->getFrame(), jet->getTemplate()->getName().str(),
+			jet->getID(), jet->getPosition()->x, jet->getPosition()->y, pick ? pick->getTemplate()->getName().str() : "dives into the area",
+			pick ? (Int)pick->getID() : 0));
 		// a script's order, as the scramble gave (ParkingPlaceBehavior::launchScramble), so it chases
-		if (!found.empty())
-			aiAttackObject(found.front(), NO_MAX_SHOTS_LIMIT, CMD_FROM_SCRIPT);
+		if (pick)
+			aiAttackObject(pick, NO_MAX_SHOTS_LIMIT, CMD_FROM_SCRIPT);
 		else
 			aiAttackPosition(&m_kamikazeArea, NO_MAX_SHOTS_LIMIT, CMD_FROM_SCRIPT);
 	}

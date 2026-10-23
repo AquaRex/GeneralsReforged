@@ -140,6 +140,8 @@ public:
 	void friend_purgePendingCommand();
 	/// a kamikaze whose target dies on the way looks for another here, and dives here when there is none
 	void friend_setKamikazeArea( const Coord3D *pos ) { m_kamikazeArea = *pos; }
+	/// what a kamikaze was last sent at, held on the runway or flown: its most recent order's target
+	ObjectID friend_getKamikazeTargetID() const { return m_mostRecentCommand.getTargetObjectID(); }
 	/// put on its runway's threshold with its space reserved, it starts the takeoff roll now
 	void friend_takeOffNow();
 
