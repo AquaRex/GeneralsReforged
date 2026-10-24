@@ -89,6 +89,14 @@ public:
 		duel map. */
 	static Int cellsFor( RandomMapSize size, Int numPlayers );
 
+	/** The same for a map built from a shipped one: Medium gives each player the ground a seat has
+		on the template, the other sizes a fixed share more or less of it. An empty or uninstalled
+		template falls back to the plain table. */
+	static Int cellsFor( RandomMapSize size, Int numPlayers, const AsciiString& templatePath );
+
+	/** That rule on a template's playable cells and seats, for the tests. */
+	static Int cellsForTemplate( RandomMapSize size, Int numPlayers, Int cellsX, Int cellsY, Int seats );
+
 	/** Settings clamped the way generate() clamps them, so callers can report the truth. A template
 		drops the style, and one that is not an installed shipped map is dropped itself. */
 	static void clampSettings( RandomMapSettings& settings );

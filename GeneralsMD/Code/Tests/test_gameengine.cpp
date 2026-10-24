@@ -10745,6 +10745,24 @@ TEST(map_size_is_chosen_and_then_grows_with_the_players)
 	CHECK_EQ( theRMGParse.m_boundaryX, settings.m_playableCells );
 }
 
+TEST(a_template_map_gives_each_player_the_ground_a_seat_has_on_the_template)
+{
+	// Twilight Flame: 486 by 469 playable, eight seats
+	const Int TEMPLATE_X = 486, TEMPLATE_Y = 469, TEMPLATE_SEATS = 8;
+
+	CHECK_EQ( RandomMapGenerator::cellsForTemplate( RANDOM_MAP_SIZE_NORMAL, 8, TEMPLATE_X, TEMPLATE_Y, TEMPLATE_SEATS ), 477 );
+	CHECK_EQ( RandomMapGenerator::cellsForTemplate( RANDOM_MAP_SIZE_NORMAL, 4, TEMPLATE_X, TEMPLATE_Y, TEMPLATE_SEATS ), 337 );
+	CHECK_EQ( RandomMapGenerator::cellsForTemplate( RANDOM_MAP_SIZE_HUGE, 8, TEMPLATE_X, TEMPLATE_Y, TEMPLATE_SEATS ), 708 );
+	for( Int size = 0; size + 1 < RANDOM_MAP_SIZE_COUNT; size++ )
+		for( Int players = RandomMapGenerator::MIN_PLAYERS; players <= RandomMapGenerator::MAX_PLAYERS; players++ )
+			CHECK( RandomMapGenerator::cellsForTemplate( (RandomMapSize)size, players, TEMPLATE_X, TEMPLATE_Y, TEMPLATE_SEATS ) <
+				RandomMapGenerator::cellsForTemplate( (RandomMapSize)( size + 1 ), players, TEMPLATE_X, TEMPLATE_Y, TEMPLATE_SEATS ) );
+
+	// no template, or one this machine does not have, is the plain table
+	CHECK_EQ( RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_LARGE, 6, AsciiString::TheEmptyString ),
+		RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_LARGE, 6 ) );
+}
+
 //-------------------------------------------------------------------------------------------------
 /** A generated map is not playable if a start cannot walk to the money, or has only one way out
 	of its own base. The flood here is the pathfinder's own: four neighbours, a cliff when the
@@ -11461,8 +11479,12 @@ TEST(a_template_map_comes_out_the_same_twice_and_every_start_walks_to_every_othe
 
 		std::vector<char> first, second, preview;
 		RMGTemplateReport report;
+		// once inline and once on a pool: the floods the generator forks must not change a byte
+		const Int POOL_WORKERS = 4;
 		CHECK( rmgSynthesise( settings, exemplar, NULL, first, &preview, &report ) );
+		JobSystem::init( POOL_WORKERS );
 		CHECK( rmgSynthesise( settings, exemplar, NULL, second, NULL, NULL ) );
+		JobSystem::shutdown();
 		CHECK( !first.empty() && first == second );
 		CHECK( first.size() > 4 && memcmp( &first[0], "CkMp", 4 ) == 0 );
 		CHECK_EQ( report.m_cutOffStarts, 0 );
@@ -11545,6 +11567,8 @@ TEST(write_the_maps_RMG_TEMPLATE_DUMP_names)
 	std::vector<char> exemplar;
 	CHECK( readWholeFile( source, exemplar ) );
 	const char *next = dump + read;
+	// the pool the game starts, so the time is the one a player waits
+	JobSystem::init();
 	RandomMapSettings settings;
 	while( sscanf( next, " %d,%d,%d%n", &settings.m_seed, &settings.m_numPlayers, &settings.m_playableCells, &read ) == 3 )
 	{
@@ -11581,6 +11605,7 @@ TEST(write_the_maps_RMG_TEMPLATE_DUMP_names)
 			report.m_roads, report.m_trees, report.m_scenery, report.m_cutOffStarts, report.m_cutOffSites, report.m_cutOffTech,
 			report.m_notes.str() );
 	}
+	JobSystem::shutdown();
 }
 
 //-------------------------------------------------------------------------------------------------

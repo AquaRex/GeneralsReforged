@@ -470,7 +470,8 @@ Int parseMapName(char *args[], int num)
 	lists it like any hand-made map and -autoskirmish starts on it.  The same seed gives the same
 	map on every machine, so both sides of a network game can be handed the same command line.
 	The size is either a cell count outright or one of the five sizes, which are counts
-	that grow with the number of players rather than fixed ones. A style name last ("twilight")
+	that grow with the number of players rather than fixed ones; with a template they come from the
+	ground a seat has on it, and no size word means its Medium. A style name last ("twilight")
 	makes a map in that shipped map's style and adds "_<style>" to the name. */
 //=============================================================================
 Int parseRandomMap(char *args[], int num)
@@ -489,13 +490,14 @@ Int parseRandomMap(char *args[], int num)
 	if (num > eaten && isdigit((UnsignedByte)args[eaten][0]))
 		settings.m_numPlayers = atoi( args[eaten++] );
 
+	// a size word becomes cells once the template is known, since a template's sizes are its own
+	RandomMapSize size = RANDOM_MAP_SIZE_COUNT;
 	if (num > eaten && isdigit((UnsignedByte)args[eaten][0]))
 	{
 		settings.m_playableCells = atoi( args[eaten++] );
 	}
 	else if (num > eaten)
 	{
-		RandomMapSize size = RANDOM_MAP_SIZE_COUNT;
 		if (strcasecmp( args[eaten], "tiny" ) == 0)
 			size = RANDOM_MAP_SIZE_TINY;
 		else if (strcasecmp( args[eaten], "small" ) == 0)
@@ -508,10 +510,7 @@ Int parseRandomMap(char *args[], int num)
 			size = RANDOM_MAP_SIZE_HUGE;
 
 		if (size != RANDOM_MAP_SIZE_COUNT)
-		{
-			settings.m_playableCells = RandomMapGenerator::cellsFor( size, settings.m_numPlayers );
 			eaten++;
-		}
 	}
 
 	if (num > eaten && RandomMapGenerator::styleNamed( args[eaten] ) != 0)
@@ -533,7 +532,11 @@ Int parseRandomMap(char *args[], int num)
 		RandomMapGenerator::clampSettings( checked );
 		if (checked.m_template.isEmpty())
 			DEBUG_LOG(("-randommap: no shipped map '%s' installed, generating without a template\n", settings.m_template.str()));
+		else if (settings.m_playableCells <= 0 && size == RANDOM_MAP_SIZE_COUNT)
+			size = RANDOM_MAP_SIZE_NORMAL;
 	}
+	if (size != RANDOM_MAP_SIZE_COUNT)
+		settings.m_playableCells = RandomMapGenerator::cellsFor( size, settings.m_numPlayers, settings.m_template );
 
 	AsciiString path;
 	if (!stageRandomMap( settings, path ))

@@ -11,6 +11,7 @@ found and fixed â€” EA's own, not port damage.**
 ## A Random tab in the map list
 
 - Select Map has a third tab beside Official and Unofficial. Pick a map type from the official maps (or Surprise me), a size from Tiny to Extra Large and the number of players, and a new map is made from them on the spot, in the skirmish, LAN and online rooms alike. The preview and its start positions are that map before you accept it, so there is no guessing what you will land on. New Map rolls another with the same choice, and so does every change you make. Extra Large still seats eight.
+- A map built from an official map takes its sizes from that map. Medium gives every player the ground one seat has on the original, so four players on a Twilight Flame map get 337 cells a side where they had 304, and eight get 477 where they had 416; Extra Large for eight is 708. Surprise me keeps the sizes it always had.
 - The player count starts at the number of seats already taken in the room. The tab, the map type and the size you used last are remembered for the next time.
 - In a LAN or online room the other players do not download anything: the map's name carries its recipe, and their own game builds the same map from it and checks it against yours. A room that records stats keeps to the official list.
 - Random maps used to be reachable only by a hidden command-line switch that added five rows to the skirmish list.

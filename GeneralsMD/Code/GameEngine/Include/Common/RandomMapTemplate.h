@@ -57,6 +57,10 @@ struct RMGTemplateReport
 	first read. FALSE when no such map is installed. */
 extern Bool rmgTemplateCRC( const AsciiString& templatePath, UnsignedInt *crcOut );
 
+/** A shipped map's playable cells across and down and its number of seats, kept after the first read.
+	FALSE when no such map is installed or it is not a skirmish map the reader knows. */
+extern Bool rmgTemplateShape( const AsciiString& templatePath, Int *cellsX, Int *cellsY, Int *seats );
+
 /** "maps\twilight flame\twilight flame.map" to "twilight flame" and back; only a shipped map's own
 	folder-and-file shape has a token, since the token is what the generated map's name carries. */
 extern Bool rmgTemplateToken( const AsciiString& templatePath, AsciiString& tokenOut );

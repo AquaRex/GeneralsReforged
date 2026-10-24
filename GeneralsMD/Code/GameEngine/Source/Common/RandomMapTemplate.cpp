@@ -5112,6 +5112,20 @@ Int repairReach( std::vector<Int>& heights, Int W, Int H, const Plan& plan, cons
 // The synthesis
 //-----------------------------------------------------------------------------
 
+/** The exemplar, unpacked the way the map loader unpacks it. */
+static Bool unpackExemplar( const std::vector<char>& exemplarBytes, std::vector<char>& raw )
+{
+	if( !CompressionManager::isDataCompressed( &exemplarBytes[0], (Int)exemplarBytes.size() ) )
+	{
+		raw = exemplarBytes;
+		return TRUE;
+	}
+	Int size = CompressionManager::getUncompressedSize( &exemplarBytes[0], (Int)exemplarBytes.size() );
+	raw.resize( size );
+	std::vector<char> packed( exemplarBytes );
+	return CompressionManager::decompressData( &packed[0], (Int)packed.size(), &raw[0], size ) == size;
+}
+
 Bool rmgSynthesise( const RandomMapSettings& clamped, const std::vector<char>& exemplarBytes,
 	RMGCivilianTest civilian, std::vector<char>& mapBytes, std::vector<char> *previewBytes,
 	RMGTemplateReport *report )
@@ -5120,21 +5134,12 @@ Bool rmgSynthesise( const RandomMapSettings& clamped, const std::vector<char>& e
 	UnsignedInt callersFPMode = getFPMode();
 	setFPMode();
 
-	// the exemplar, unpacked the way the map loader unpacks it
 	std::vector<char> raw;
-	if( CompressionManager::isDataCompressed( &exemplarBytes[0], (Int)exemplarBytes.size() ) )
+	if( !unpackExemplar( exemplarBytes, raw ) )
 	{
-		Int size = CompressionManager::getUncompressedSize( &exemplarBytes[0], (Int)exemplarBytes.size() );
-		raw.resize( size );
-		std::vector<char> packed( exemplarBytes );
-		if( CompressionManager::decompressData( &packed[0], (Int)packed.size(), &raw[0], size ) != size )
-		{
-			restoreFPMode( callersFPMode );
-			return FALSE;
-		}
+		restoreFPMode( callersFPMode );
+		return FALSE;
 	}
-	else
-		raw = exemplarBytes;
 
 	// the template is a file off the disk or a mod: bytes that end early refuse it rather than read past it
 	Exemplar src;
@@ -5820,6 +5825,42 @@ Bool rmgTemplateCRC( const AsciiString& templatePath, UnsignedInt *crcOut )
 	theCRCs[templatePath] = value;
 	*crcOut = value;
 	return TRUE;
+}
+
+struct TemplateShape { Int cellsX, cellsY, seats; };
+
+Bool rmgTemplateShape( const AsciiString& templatePath, Int *cellsX, Int *cellsY, Int *seats )
+{
+	// the size buttons ask on every click; a map that would not load is kept as no seats
+	static std::map<AsciiString, TemplateShape> theShapes;
+	std::map<AsciiString, TemplateShape>::const_iterator it = theShapes.find( templatePath );
+	if( it == theShapes.end() )
+	{
+		TemplateShape shape = { 0, 0, 0 };
+		std::vector<char> bytes, raw;
+		if( TheFileSystem == NULL || !readTemplate( templatePath, bytes ) )
+			return FALSE;
+		SynthMap map;
+		try
+		{
+			if( unpackExemplar( bytes, raw ) && map.load( raw ) )
+			{
+				shape.cellsX = map.playX;
+				shape.cellsY = map.playY;
+				shape.seats = (Int)map.starts.size();
+			}
+		}
+		catch( const ShortMap& fault )
+		{
+			DEBUG_LOG(( "random map: the template '%s' ends at byte %d of a chunk, %d wanted at %d\n",
+				templatePath.str(), fault.size, fault.count, fault.pos ));
+		}
+		it = theShapes.insert( std::make_pair( templatePath, shape ) ).first;
+	}
+	*cellsX = it->second.cellsX;
+	*cellsY = it->second.cellsY;
+	*seats = it->second.seats;
+	return it->second.seats > 0;
 }
 
 Bool rmgTemplateToken( const AsciiString& templatePath, AsciiString& tokenOut )

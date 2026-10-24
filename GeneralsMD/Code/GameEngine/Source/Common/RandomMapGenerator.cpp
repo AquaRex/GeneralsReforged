@@ -47,6 +47,7 @@
 #include "Common/MapObject.h"
 #include "Common/MapReaderWriterInfo.h"
 #include "GameLogic/FPUControl.h"
+#include "Common/JobSystem.h"
 
 /** The sentinel WorldHeightMap::ParseBlendTileData asserts on after every blend entry. It is
 	FLAG_VAL in WorldHeightMap.h, which lives in GameEngineDevice and so cannot be included from
@@ -1060,6 +1061,9 @@ private:
 	Real outwardBearing( Real cellX, Real cellY ) const;
 	Bool findContestedSite( Int startA, Int startB, Real minWalk, Real clearance, RMGPoint *out ) const;
 	void floodDistancesFromCell( Int startX, Int startY, std::vector<Int>& dist ) const;
+	void floodDistancesFromCell( Int startX, Int startY, std::vector<Int>& dist, std::vector<Int>& queue ) const;
+	void floodFromEveryStart( std::vector< std::vector<Int> >& dist );
+	static void floodFromStartJob( Int start, void *context );
 	void walkFromStarts( std::vector< std::vector<Int> >& walk, std::vector<Int>& owner,
 											 std::vector<Int>& lead );
 	Bool findSiteByWalk( const std::vector< std::vector<Int> >& walk, const std::vector<Int>& owner,
@@ -1087,6 +1091,7 @@ private:
 	std::map<Int, Short> m_blendLookup;	///< tile and shape to the table entry that holds them
 	std::vector<RMGSite> m_sites;		///< everything placed so far, with its elbow room
 	std::vector<char> m_routeLock;		///< cells on a walk to somebody's money, which pads leave alone
+	std::vector< std::vector<Int> > m_floodQueues;	///< a breadth-first queue a start, kept between floods
 	std::vector<char> m_baseLevelled;	///< cells a base blend has touched
 	std::vector<UnsignedByte> m_baseUnder;	///< and the ground it blended there
 	std::vector<UnsignedByte> m_baseResult;	///< and what it left, so a second levelling can tell
@@ -5421,6 +5426,14 @@ Bool RMGLayout::findSiteOnCompass( Real centreX, Real centreY, Real targetRadius
 
 void RMGLayout::floodDistancesFromCell( Int startX, Int startY, std::vector<Int>& dist ) const
 {
+	std::vector<Int> queue( m_width * m_height );
+	floodDistancesFromCell( startX, startY, dist, queue );
+}
+
+/** The same with the queue in hand, a cell per map cell, so a pool job that floods allocates nothing
+	once dist is that size too. */
+void RMGLayout::floodDistancesFromCell( Int startX, Int startY, std::vector<Int>& dist, std::vector<Int>& queue ) const
+{
 	Int width = m_width;
 	dist.assign( width * m_height, -1 );
 
@@ -5429,15 +5442,14 @@ void RMGLayout::floodDistancesFromCell( Int startX, Int startY, std::vector<Int>
 	if( !passableAtCell( startX, startY ) )
 		return;
 
-	std::vector<Int> queue;
 	dist[startY * width + startX] = 0;
-	queue.push_back( startY * width + startX );
+	queue[0] = startY * width + startX;
+	Int tail = 1;
 
 	static const Int offsetX[4] = { 1, -1, 0, 0 };
 	static const Int offsetY[4] = { 0, 0, 1, -1 };
 
-	UnsignedInt head = 0;
-	while( head < queue.size() )
+	for( Int head = 0; head < tail; )
 	{
 		Int index = queue[head++];
 		Int x = index % width;
@@ -5456,9 +5468,41 @@ void RMGLayout::floodDistancesFromCell( Int startX, Int startY, std::vector<Int>
 				continue;
 
 			dist[next] = here + 1;
-			queue.push_back( next );
+			queue[tail++] = next;
 		}
 	}
+}
+
+struct RMGStartFloods
+{
+	const RMGLayout *layout;
+	std::vector< std::vector<Int> > *dist;
+	std::vector< std::vector<Int> > *queues;
+};
+
+void RMGLayout::floodFromStartJob( Int start, void *context )
+{
+	RMGStartFloods *floods = (RMGStartFloods *)context;
+	const RMGLayout *layout = floods->layout;
+	Int x = (Int)(layout->m_starts[start].m_cellX + 0.5f) + RMG_BORDER_CELLS;
+	Int y = (Int)(layout->m_starts[start].m_cellY + 0.5f) + RMG_BORDER_CELLS;
+	layout->floodDistancesFromCell( x, y, (*floods->dist)[start], (*floods->queues)[start] );
+}
+
+/** A flood from every start, on the pool: each writes only its own start's arrays, sized here first. */
+void RMGLayout::floodFromEveryStart( std::vector< std::vector<Int> >& dist )
+{
+	const Int players = (Int)m_starts.size();
+	const Int cells = m_width * m_height;
+	dist.resize( players );
+	m_floodQueues.resize( players );
+	for( Int i = 0; i < players; i++ )
+	{
+		dist[i].resize( cells );
+		m_floodQueues[i].resize( cells );
+	}
+	RMGStartFloods floods = { this, &dist, &m_floodQueues };
+	JobSystem::parallel_for( players, 1, floodFromStartJob, &floods );
 }
 
 /** The dock worth fighting over: a cell both players can walk to, as even a walk
@@ -5535,13 +5579,7 @@ void RMGLayout::walkFromStarts( std::vector< std::vector<Int> >& walk, std::vect
 	buildPassability();
 
 	Int players = (Int)m_starts.size();
-	walk.resize( players );
-	for( Int i = 0; i < players; i++ )
-	{
-		Int x = (Int)(m_starts[i].m_cellX + 0.5f) + RMG_BORDER_CELLS;
-		Int y = (Int)(m_starts[i].m_cellY + 0.5f) + RMG_BORDER_CELLS;
-		floodDistancesFromCell( x, y, walk[i] );
-	}
+	floodFromEveryStart( walk );
 
 	Int cells = m_width * m_height;
 	owner.assign( cells, -1 );
@@ -6632,12 +6670,13 @@ void RMGLayout::addApproachPaths( Int *waypointID )
 	/* The starts are playable-area cells and the flood runs on map cells, border included. These
 		paths used to flood from the start's playable cell read as a map cell, twenty cells short on
 		both axes, so every waypoint but the last stood on ground offset from the real route. */
-	std::vector<Int> dist;
+	std::vector< std::vector<Int> > floods;
+	floodFromEveryStart( floods );
 	for( UnsignedInt target = 0; target < m_starts.size(); target++ )
 	{
 		const Int targetX = (Int)(m_starts[target].m_cellX + 0.5f) + RMG_BORDER_CELLS;
 		const Int targetY = (Int)(m_starts[target].m_cellY + 0.5f) + RMG_BORDER_CELLS;
-		floodDistancesFromCell( targetX, targetY, dist );
+		const std::vector<Int>& dist = floods[target];
 
 		for( UnsignedInt from = 0; from < m_starts.size(); from++ )
 		{
@@ -7306,6 +7345,29 @@ Int RandomMapGenerator::cellsFor( RandomMapSize size, Int numPlayers )
 	if( cells < MIN_CELLS ) cells = MIN_CELLS;
 	if( cells > MAX_CELLS ) cells = MAX_CELLS;
 	return cells;
+}
+
+Int RandomMapGenerator::cellsForTemplate( RandomMapSize size, Int numPlayers, Int cellsX, Int cellsY, Int seats )
+{
+	// area against Medium, in percent: Extra Large for eight on Twilight Flame is 708 across
+	static const Int AREA_PERCENT[RANDOM_MAP_SIZE_COUNT] = { 45, 70, 100, 140, 220 };
+	const Int PERCENT = 100;
+
+	if( numPlayers < MIN_PLAYERS ) numPlayers = MIN_PLAYERS;
+	if( numPlayers > MAX_PLAYERS ) numPlayers = MAX_PLAYERS;
+	double area = (double)cellsX * cellsY * numPlayers * AREA_PERCENT[size] / ( (double)seats * PERCENT );
+	Int cells = (Int)sqrt( area );
+	if( cells < MIN_CELLS ) cells = MIN_CELLS;
+	if( cells > MAX_CELLS ) cells = MAX_CELLS;
+	return cells;
+}
+
+Int RandomMapGenerator::cellsFor( RandomMapSize size, Int numPlayers, const AsciiString& templatePath )
+{
+	Int cellsX, cellsY, seats;
+	if( templatePath.isEmpty() || !rmgTemplateShape( templatePath, &cellsX, &cellsY, &seats ) )
+		return cellsFor( size, numPlayers );
+	return cellsForTemplate( size, numPlayers, cellsX, cellsY, seats );
 }
 
 void RandomMapGenerator::clampSettings( RandomMapSettings& settings )

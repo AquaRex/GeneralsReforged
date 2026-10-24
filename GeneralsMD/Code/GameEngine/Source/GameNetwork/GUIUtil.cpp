@@ -1177,7 +1177,7 @@ static void stageRandomTabMap(void)
 	RandomMapSettings settings;
 	settings.m_seed = (Int)((Clock_Milliseconds() + 7919u * ++theRolls) & 0x7fffffff);
 	settings.m_numPlayers = theRandomPlayers;
-	settings.m_playableCells = RandomMapGenerator::cellsFor((RandomMapSize)theRandomSize, theRandomPlayers);
+	settings.m_playableCells = RandomMapGenerator::cellsFor((RandomMapSize)theRandomSize, theRandomPlayers, theRandomTemplate);
 	settings.m_template = theRandomTemplate;
 	stageRandomMap(settings, theStagedMap);
 	theStagedMap.toLower();
@@ -1198,7 +1198,7 @@ static void showRandomTab(Bool open)
 	// reopening the picker shows the map it made last time, unless the room changed under it
 	const Bool sameChoice = !theStagedMap.isEmpty()
 		&& theStagedSettings.m_numPlayers == theRandomPlayers
-		&& theStagedSettings.m_playableCells == RandomMapGenerator::cellsFor((RandomMapSize)theRandomSize, theRandomPlayers)
+		&& theStagedSettings.m_playableCells == RandomMapGenerator::cellsFor((RandomMapSize)theRandomSize, theRandomPlayers, theRandomTemplate)
 		&& theStagedSettings.m_template == theRandomTemplate;
 	if (sameChoice)
 		showStagedMap();
