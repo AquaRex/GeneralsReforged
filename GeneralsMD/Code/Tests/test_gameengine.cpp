@@ -11917,7 +11917,7 @@ TEST(a_template_map_comes_out_the_same_twice_and_every_start_walks_to_every_othe
 	RandomMapGenerator::generate( exemplarSettings, exemplar );
 
 	// the bytes themselves, pinned like the generator's: a change here is a change to every template map's name
-	static const UnsignedInt theTemplateFingerprints[2] = { 0xCA5261C2u, 0x4B364A10u };
+	static const UnsignedInt theTemplateFingerprints[2] = { 0xF9D5107Cu, 0xEE6AC80Cu };
 	for( Int players = 2; players <= 8; players += 6 )
 	{
 		RandomMapSettings settings;
