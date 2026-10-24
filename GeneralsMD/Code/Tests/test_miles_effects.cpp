@@ -8,8 +8,10 @@
  * back through AIL_ex_start_capture, the tap -wav writes its file from.  The expected numbers are the
  * physics the helpers in MSS.h claim, worked out here, not read back from them.
  *
- * Not covered: XAudio2's own filter, reverb and duck, which only a player on Windows hears, and the
- * delay a world sound starts with, which is the game's request list and not this library.
+ * The room is MSS/mss_ex_room.h, which miles_xaudio2 runs too, so the room tests hold for what a
+ * player on Windows hears.  Not covered: XAudio2's own filter and its wall-clock duck, which need an
+ * audio device, and the delay a world sound starts with, which is the game's request list and not
+ * this library.
  */
 #include "test_harness.h"
 

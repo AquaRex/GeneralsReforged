@@ -10,6 +10,8 @@
  * sound opens its own XAudio2 on Windows and goes through neither.
  */
 
+#include <stdlib.h>
+
 #include "MSS/MSS.h"
 
 #define MSS_API_LIST \
@@ -107,6 +109,12 @@ MSS_API_LIST
 
 void AILCALL AIL_ex_offline_mix(void)
 {
+	// ZH_WAV_XAUDIO2 keeps a -wav run on XAudio2, recording through the master's tap what a player
+	// hears.  The mix then runs on the device's clock: it needs an audio device, plays aloud, and the
+	// file is as long as the wall clock the run took, so the run has to go at the speed of play.
+	if (getenv("ZH_WAV_XAUDIO2") != NULL) {
+		return;
+	}
 	g_offline = true;
 	MA_AIL_ex_offline_mix();
 }

@@ -15,7 +15,7 @@
  *                           pair and an occlusion scalar.  On top of those (MSS.h's AIL_ex_ air,
  *                           room and duck): the voice's own one-pole filter for air and occlusion,
  *                           its frequency ratio for doppler, and a second send into one submix
- *                           running XAudio2's reverb.
+ *                           running mss_ex_room.h's room, miles_miniaudio's own.
  *   EOS callbacks        -> the service thread notices a voice run dry and calls back from there,
  *                           which is the thread context Miles used (MilesAudioManager locks for it).
  */
@@ -23,7 +23,6 @@
 #include <windows.h>
 #include <mmreg.h>
 #include <xaudio2.h>
-#include <xaudio2fx.h>
 #include <xapo.h>
 #include <math.h>
 #include <stdio.h>
@@ -41,6 +40,7 @@ extern "C" {
 }
 
 #include "MSS/MSS.h"
+#include "MSS/mss_ex_room.h"
 
 namespace {
 
@@ -293,6 +293,7 @@ struct Sample
 	AILSAMPLECB endOfSample;
 	AIL3DSAMPLECB endOf3DSample;
 	bool playing;
+	bool started;	// the voice has been started once, and gets no second buffer (freshVoice)
 	float positionX, positionY, positionZ;
 	float minDistance, maxDistance;
 	float occlusion;
@@ -352,7 +353,7 @@ struct Engine
 	IXAudio2 *xaudio;
 	IXAudio2MasteringVoice *master;
 	unsigned int masterRate;
-	IXAudio2SubmixVoice *room;	// XAudio2's reverb, AIL_ex_set_reverb; NULL where it could not be made
+	IXAudio2SubmixVoice *room;	// RoomTap, AIL_ex_set_reverb; NULL where it could not be made
 	CRITICAL_SECTION lock;
 	HANDLE serviceThread;
 	volatile LONG serviceRunning;
@@ -546,22 +547,23 @@ void retireVoice(IXAudio2SourceVoice **voice)
 	}
 }
 
-bool ensureVoice(Sample *sample, const WAVEFORMATEX &format)
+// Every sound gets a voice nobody has played before, and a voice is never fed again once it has
+// been started.  Crash reports 890, 1254, 1724 and 1748 are xaudio2_9.dll's resampler reading a
+// source buffer at frame -1 as an unsigned 32-bit index, 8 GB past the buffer (1748, on the same
+// build of the DLL as Windows 10 19041: the int16 reader at +0x56760 handed base - 2 + 0xFFFFFFFF * 2
+// by its caller at +0x56B14).  Its history path covers frame -1 only when the index is signed.  The voices
+// were reused, Stop, FlushSourceBuffers and a new buffer for each sound on a pooled handle,
+// carrying the resampler's position from the cut-off sound into the new one; the PCM copy above
+// (v3.3.0) did not stop the crash, 1724 and 1748 are v3.3.0.  A fresh voice starts at frame 0 with
+// no position to carry, the way every fire-and-forget XAudio2 sound starts.
+bool freshVoice(Sample *sample, const WAVEFORMATEX &format)
 {
 	if (g_engine.xaudio == NULL) {
 		return false;
 	}
 
-	if (sample->voice != NULL &&
-		sample->format.nChannels == format.nChannels &&
-		sample->format.nSamplesPerSec == format.nSamplesPerSec &&
-		sample->format.wBitsPerSample == format.wBitsPerSample) {
-		sample->voice->Stop(0);
-		sample->voice->FlushSourceBuffers();
-		return true;
-	}
-
 	retireVoice(&sample->voice);
+	sample->started = false;
 	sample->format = format;
 	if (!sample->is3D) {
 		return SUCCEEDED(g_engine.xaudio->CreateSourceVoice(&sample->voice, &format, 0, 4.0f, &g_sampleCallback));
@@ -572,22 +574,6 @@ bool ensureVoice(Sample *sample, const WAVEFORMATEX &format)
 	XAUDIO2_VOICE_SENDS sendList = { g_engine.room != NULL ? 2u : 1u, sends };
 	return SUCCEEDED(g_engine.xaudio->CreateSourceVoice(&sample->voice, &format, XAUDIO2_VOICE_USEFILTER, 4.0f,
 		&g_sampleCallback, &sendList));
-}
-
-// The room every 3D sample sends to: XAudio2's own reverb, on a stereo submix into the master.  The
-// reverb takes 20 to 48 kHz only, and a device outside that plays with no room at all.
-void createRoom()
-{
-	IUnknown *reverb = NULL;
-	if (FAILED(XAudio2CreateReverb(&reverb, 0))) {
-		return;
-	}
-	XAUDIO2_EFFECT_DESCRIPTOR descriptor = { reverb, TRUE, 2 };
-	XAUDIO2_EFFECT_CHAIN chain = { 1, &descriptor };
-	if (FAILED(g_engine.xaudio->CreateSubmixVoice(&g_engine.room, 2, g_engine.masterRate, 0, 0, NULL, &chain))) {
-		g_engine.room = NULL;
-	}
-	reverb->Release();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -841,13 +827,14 @@ DWORD WINAPI serviceThreadMain(LPVOID)
 		std::vector<H3DSAMPLE> sample3DHandles;
 		std::vector<AILSTREAMCB> streamCallbacks;
 		std::vector<HSTREAM> streamHandles;
+		std::vector<IXAudio2SourceVoice *> spentVoices;
 
 		EnterCriticalSection(&g_engine.lock);
 		for (size_t i = 0; i < g_engine.retiredVoices.size(); ) {
 			XAUDIO2_VOICE_STATE state;
 			g_engine.retiredVoices[i]->GetState(&state);
 			if (state.BuffersQueued == 0) {
-				g_engine.retiredVoices[i]->DestroyVoice();
+				spentVoices.push_back(g_engine.retiredVoices[i]);
 				g_engine.retiredVoices.erase(g_engine.retiredVoices.begin() + i);
 			} else {
 				++i;
@@ -902,6 +889,12 @@ DWORD WINAPI serviceThreadMain(LPVOID)
 			serviceStream(g_engine.streams[i], &streamCallbacks, &streamHandles);
 		}
 		LeaveCriticalSection(&g_engine.lock);
+
+		// DestroyVoice waits for the mixer's pass to end, and with a voice retired for every sound
+		// played that is too long to hold the game's AIL calls up; nothing names these voices any more.
+		for (size_t i = 0; i < spentVoices.size(); ++i) {
+			spentVoices[i]->DestroyVoice();
+		}
 
 		// Callbacks run outside the lock: the game takes its own locks in them.
 		for (size_t i = 0; i < sampleCallbacks.size(); ++i) {
@@ -969,20 +962,12 @@ void writeWaveHeader(FILE *file, unsigned int channels, unsigned int samplesPerS
 	writeLittleU32(file, dataBytes);
 }
 
-// The master voice's one effect: MSS.h's limiter on everything, then, while AIL_ex_start_capture has
-// a file open, the recording of what the limiter let out.
-class MasterTap : public IXAPO
+// An effect of our own on a voice, working on the voice's float mix in place, with the format the
+// voice has.  XAudio2 holds a reference while the voice has it in its chain.
+class InPlaceEffect : public IXAPO
 {
 public:
-	MasterTap(FILE *file, unsigned int channels, unsigned int samplesPerSecond)
-		: m_references(1), m_file(file), m_channels(channels),
-		  m_samplesPerSecond(samplesPerSecond), m_dataBytes(0), m_sizesWrittenAt(0)
-	{
-		AIL_ex_limiter_init(&m_limiter, (S32)channels, (F32)samplesPerSecond);
-		if (m_file != NULL) {
-			writeWaveHeader(m_file, m_channels, m_samplesPerSecond, 0);
-		}
-	}
+	InPlaceEffect() : m_references(1) {}
 
 	STDMETHOD(QueryInterface)(REFIID riid, void **object)
 	{
@@ -1034,21 +1019,16 @@ public:
 		return S_OK;
 	}
 
-	STDMETHOD(IsInputFormatSupported)(const WAVEFORMATEX *, const WAVEFORMATEX *requested,
-		WAVEFORMATEX **supported)
+	// Any format is taken.  The out pointer is for the nearest format to one refused, allocated with
+	// XAPOAlloc for the caller to free, so a yes leaves it alone, as CXAPOBase does: handing back the
+	// caller's own pointer gives it something of its own to free.
+	STDMETHOD(IsInputFormatSupported)(const WAVEFORMATEX *, const WAVEFORMATEX *, WAVEFORMATEX **)
 	{
-		if (supported != NULL) {
-			*supported = const_cast<WAVEFORMATEX *>(requested);
-		}
 		return S_OK;
 	}
 
-	STDMETHOD(IsOutputFormatSupported)(const WAVEFORMATEX *, const WAVEFORMATEX *requested,
-		WAVEFORMATEX **supported)
+	STDMETHOD(IsOutputFormatSupported)(const WAVEFORMATEX *, const WAVEFORMATEX *, WAVEFORMATEX **)
 	{
-		if (supported != NULL) {
-			*supported = const_cast<WAVEFORMATEX *>(requested);
-		}
 		return S_OK;
 	}
 
@@ -1069,6 +1049,38 @@ public:
 
 	STDMETHOD_(void, UnlockForProcess)()
 	{
+	}
+
+	STDMETHOD_(UINT32, CalcInputFrames)(UINT32 outputFrameCount)
+	{
+		return outputFrameCount;
+	}
+
+	STDMETHOD_(UINT32, CalcOutputFrames)(UINT32 inputFrameCount)
+	{
+		return inputFrameCount;
+	}
+
+protected:
+	virtual ~InPlaceEffect() {}
+
+private:
+	volatile LONG m_references;
+};
+
+// The master voice's one effect: MSS.h's limiter on everything, then, while AIL_ex_start_capture has
+// a file open, the recording of what the limiter let out.
+class MasterTap : public InPlaceEffect
+{
+public:
+	MasterTap(FILE *file, unsigned int channels, unsigned int samplesPerSecond)
+		: m_file(file), m_channels(channels), m_samplesPerSecond(samplesPerSecond), m_dataBytes(0),
+		  m_sizesWrittenAt(0)
+	{
+		AIL_ex_limiter_init(&m_limiter, (S32)channels, (F32)samplesPerSecond);
+		if (m_file != NULL) {
+			writeWaveHeader(m_file, m_channels, m_samplesPerSecond, 0);
+		}
 	}
 
 	STDMETHOD_(void, Process)(UINT32, const XAPO_PROCESS_BUFFER_PARAMETERS *input, UINT32,
@@ -1101,16 +1113,6 @@ public:
 			writeSamples(converted, batch);
 			read += batch;
 		}
-	}
-
-	STDMETHOD_(UINT32, CalcInputFrames)(UINT32 outputFrameCount)
-	{
-		return outputFrameCount;
-	}
-
-	STDMETHOD_(UINT32, CalcOutputFrames)(UINT32 inputFrameCount)
-	{
-		return inputFrameCount;
 	}
 
 private:
@@ -1146,7 +1148,6 @@ private:
 		writeLittleU32(m_file, m_dataBytes);
 	}
 
-	volatile LONG m_references;
 	AIL_EX_LIMITER m_limiter;
 	FILE *m_file;	// NULL when nothing is being recorded
 	unsigned int m_channels;
@@ -1173,6 +1174,95 @@ bool installMasterTap(FILE *file)
 	const HRESULT result = g_engine.master->SetEffectChain(&chain);
 	tap->Release();
 	return SUCCEEDED(result);
+}
+
+// The room submix's effect: the send, which every voice puts on both channels alike, through
+// mss_ex_room.h's room, the one miles_miniaudio mixes, so a player and a -wav run hear one room.
+class RoomTap : public InPlaceEffect
+{
+public:
+	explicit RoomTap(unsigned int samplesPerSecond)
+		: m_pending(false), m_decay(0.0f), m_damping(0.0f), m_echo(0.0f), m_slap(0.0f)
+	{
+		InitializeCriticalSection(&m_settingsLock);
+		initRoom(&m_room, samplesPerSecond);
+	}
+
+	// AIL_ex_set_reverb's, from the game's thread: the mixer takes them up at its next pass.
+	void set(float decay, float damping, float echo, float slap)
+	{
+		EnterCriticalSection(&m_settingsLock);
+		m_decay = decay;
+		m_damping = damping;
+		m_echo = echo;
+		m_slap = slap;
+		m_pending = true;
+		LeaveCriticalSection(&m_settingsLock);
+	}
+
+	STDMETHOD(LockForProcess)(UINT32, const XAPO_LOCKFORPROCESS_BUFFER_PARAMETERS *input, UINT32,
+		const XAPO_LOCKFORPROCESS_BUFFER_PARAMETERS *)
+	{
+		m_send.resize(input[0].MaxFrameCount);
+		return S_OK;
+	}
+
+	STDMETHOD_(void, Process)(UINT32, const XAPO_PROCESS_BUFFER_PARAMETERS *input, UINT32,
+		XAPO_PROCESS_BUFFER_PARAMETERS *output, BOOL)
+	{
+		EnterCriticalSection(&m_settingsLock);
+		if (m_pending) {
+			setRoom(&m_room, m_decay, m_damping, m_echo, m_slap);
+			m_pending = false;
+		}
+		LeaveCriticalSection(&m_settingsLock);
+
+		// in place: the send read off the left channel, then the buffer is the room's answer alone; a
+		// silent pass is no send, and the tail still rings
+		const UINT32 frames = input[0].ValidFrameCount;
+		float *mix = (float *)input[0].pBuffer;
+		const bool silent = input[0].BufferFlags == XAPO_BUFFER_SILENT;
+		for (UINT32 frame = 0; frame < frames; ++frame) {
+			m_send[frame] = silent ? 0.0f : mix[frame * ROOM_OUTPUT_CHANNELS];
+		}
+		memset(mix, 0, (size_t)frames * ROOM_OUTPUT_CHANNELS * sizeof(float));
+		processRoom(&m_room, &m_send[0], mix, frames);
+		if (output != NULL) {
+			output[0].ValidFrameCount = frames;
+			output[0].BufferFlags = XAPO_BUFFER_VALID;
+		}
+	}
+
+private:
+	~RoomTap()
+	{
+		DeleteCriticalSection(&m_settingsLock);
+	}
+
+	Room m_room;	// the mixer thread's alone
+	std::vector<float> m_send;
+	CRITICAL_SECTION m_settingsLock;
+	bool m_pending;
+	float m_decay;
+	float m_damping;
+	float m_echo;
+	float m_slap;
+};
+
+RoomTap *g_roomTap;	// our reference, for AIL_ex_set_reverb; the room voice holds XAudio2's
+
+// The room every 3D sample sends to: RoomTap on a stereo submix into the master, at the master's rate.
+void createRoom()
+{
+	RoomTap *tap = new RoomTap(g_engine.masterRate);
+	XAUDIO2_EFFECT_DESCRIPTOR descriptor = { static_cast<IXAPO *>(tap), TRUE, 2 };
+	XAUDIO2_EFFECT_CHAIN chain = { 1, &descriptor };
+	if (FAILED(g_engine.xaudio->CreateSubmixVoice(&g_engine.room, 2, g_engine.masterRate, 0, 0, NULL, &chain))) {
+		g_engine.room = NULL;
+		tap->Release();
+		return;
+	}
+	g_roomTap = tap;
 }
 
 } // namespace
@@ -1277,6 +1367,8 @@ void AILCALL AIL_shutdown(void)
 	if (g_engine.room != NULL) {
 		g_engine.room->DestroyVoice();
 		g_engine.room = NULL;
+		g_roomTap->Release();
+		g_roomTap = NULL;
 	}
 	if (g_engine.master != NULL) {
 		g_engine.master->DestroyVoice();
@@ -1430,10 +1522,7 @@ void AILCALL AIL_init_sample(HSAMPLE handle)
 	}
 
 	EnterCriticalSection(&g_engine.lock);
-	if (sample->voice != NULL) {
-		sample->voice->Stop(0);
-		sample->voice->FlushSourceBuffers();
-	}
+	retireVoice(&sample->voice);
 	sample->playing = false;
 	sample->volume = 1.0f;
 	sample->pan = DEFAULT_PAN;
@@ -1453,7 +1542,7 @@ S32 AILCALL AIL_set_sample_file(HSAMPLE handle, const void *file_image, S32)
 
 	EnterCriticalSection(&g_engine.lock);
 	sample->playing = false;
-	const bool ready = ensureVoice(sample, wave.format);
+	const bool ready = freshVoice(sample, wave.format);
 	if (ready) {
 		releaseSampleData(sample->data);
 		sample->data = copySampleData(wave.data, wave.dataBytes);
@@ -1473,8 +1562,11 @@ void AILCALL AIL_start_sample(HSAMPLE handle)
 	}
 
 	EnterCriticalSection(&g_engine.lock);
-	sample->voice->Stop(0);
-	sample->voice->FlushSourceBuffers();
+	// a second start of the same sound: a voice of its own again, as freshVoice says why
+	if (sample->started && !freshVoice(sample, sample->format)) {
+		LeaveCriticalSection(&g_engine.lock);
+		return;
+	}
 
 	XAUDIO2_BUFFER buffer;
 	memset(&buffer, 0, sizeof(buffer));
@@ -1487,6 +1579,7 @@ void AILCALL AIL_start_sample(HSAMPLE handle)
 		refreshSampleOutput(sample);
 		sample->voice->Start(0);
 		sample->playing = true;
+		sample->started = true;
 	} else {
 		releaseSampleData(sample->data);
 	}
@@ -1721,36 +1814,9 @@ void AILCALL AIL_ex_set_3D_air(F32 speed_of_sound, F32 absorption_distance)
 void AILCALL AIL_ex_set_reverb(F32 wet, F32 decay, F32 damping, F32 echo, F32 slap)
 {
 	g_roomSend.store(wet);
-	if (g_engine.room == NULL) {
-		return;
+	if (g_roomTap != NULL) {
+		g_roomTap->set(decay, damping, echo, slap);
 	}
-
-	// I3DL2's terms, from its open-air preset: the top end loses up to 30 dB and dies sooner as the
-	// damping rises, and an echo is an early reflection that late, less smeared, at the slap's level
-	// in millibels against the reverb's: -200 for a slap of 0.35, as miles_miniaudio hears it.
-	const float REFERENCE_SLAP = 0.35f;
-	const INT32 MILLIBELS_PER_DECADE = 2000;
-	const INT32 REFLECTIONS_AT_REFERENCE = -200;
-	const float MAX_REVERB_DELAY = 0.1f;	// I3DL2's ReverbDelay limit
-	const INT32 MIN_REFLECTIONS = -10000;	// I3DL2's Reflections range, millibels
-	const INT32 MAX_REFLECTIONS = 1000;
-	XAUDIO2FX_REVERB_I3DL2_PARAMETERS room = XAUDIO2FX_I3DL2_PRESET_PLAIN;
-	room.WetDryMix = 100.0f;
-	room.Room = 0;
-	room.RoomHF = -(INT32)(damping * 3000.0f);
-	room.DecayTime = decay;
-	room.DecayHFRatio = 1.0f - 0.9f * damping;
-	const INT32 reflections = echo > 0.0f && slap > 0.0f
-		? REFLECTIONS_AT_REFERENCE + (INT32)(MILLIBELS_PER_DECADE * log10f(slap / REFERENCE_SLAP))
-		: MIN_REFLECTIONS;
-	room.Reflections = reflections > MAX_REFLECTIONS ? MAX_REFLECTIONS : (reflections < MIN_REFLECTIONS ? MIN_REFLECTIONS : reflections);
-	room.ReflectionsDelay = echo;
-	room.Reverb = -600;
-	room.ReverbDelay = echo * 0.5f + 0.01f < MAX_REVERB_DELAY ? echo * 0.5f + 0.01f : MAX_REVERB_DELAY;
-	room.Diffusion = echo > 0.0f ? 60.0f : 100.0f;
-	XAUDIO2FX_REVERB_PARAMETERS native;
-	ReverbConvertI3DL2ToNative(&room, &native);
-	g_engine.room->SetEffectParameters(0, &native, sizeof(native));
 }
 
 void AILCALL AIL_ex_duck(H3DSAMPLE trigger, F32 gain, F32 seconds)
