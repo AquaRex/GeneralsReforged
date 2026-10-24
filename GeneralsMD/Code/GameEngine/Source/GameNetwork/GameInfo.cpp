@@ -38,6 +38,7 @@
 #include "Common/file.h"
 #include "Common/FileSystem.h"
 #include "Common/GameState.h"
+#include "Common/RandomMapGenerator.h"
 #include "GameClient/GameText.h"
 #include "GameClient/MapUtil.h"
 #include "GameLogic/AI.h"
@@ -1132,58 +1133,14 @@ static Bool truncatePlayerNames( const GameInfo *game, AsciiString playerNames[M
 	return TRUE;
 }
 
-static AsciiString buildGameInfoAsciiString( const GameInfo *game, const AsciiString playerNames[MAX_SLOTS] );
+static AsciiString buildGameInfoAsciiString( const GameInfo *game, const AsciiString& mapField, const AsciiString playerNames[MAX_SLOTS] );
 
-//
-// The LAN packet has room for m_lanMaxOptionsLength bytes of this.  EA shortened each name while it
-// appended the slots, sharing what was left between the slots still to come; once the fixed fields
-// had used it all the share went negative, the name emptied, and removeLastChar on an empty string
-// looped forever - the host of a room with long names hung.  The string is built with whole names
-// first and only rebuilt with shortened ones when it does not fit.
-//
-AsciiString GameInfoToAsciiString( const GameInfo *game )
+// What a user map's folder is prefixed with in the portable path, as the map field writes it.
+static const char *const USER_MAPS_FIELD_PREFIX = "userdata/maps/";
+
+AsciiString GameInfoMapField( const AsciiString& portableMapPath )
 {
-	if (!game)
-		return AsciiString::TheEmptyString;
-
-	AsciiString playerNames[MAX_SLOTS];
-	Int playerNamesLength = 0;
-	for (Int i = 0; i < MAX_SLOTS; ++i)
-	{
-		const GameSlot *slot = game->getConstSlot(i);
-		if (slot && slot->isHuman())
-		{
-			playerNames[i] = WideCharStringToMultiByte(slot->getName().str()).c_str();
-			playerNamesLength += playerNames[i].getLength();
-		}
-	}
-
-	AsciiString optionsString = buildGameInfoAsciiString(game, playerNames);
-	Bool optionsFit = TheLAN == NULL || optionsString.getLength() <= m_lanMaxOptionsLength;
-	if (!optionsFit)
-	{
-		const Int fixedLength = optionsString.getLength() - playerNamesLength;
-		if (truncatePlayerNames(game, playerNames, m_lanMaxOptionsLength - fixedLength))
-		{
-			optionsString = buildGameInfoAsciiString(game, playerNames);
-			optionsFit = optionsString.getLength() <= m_lanMaxOptionsLength;
-		}
-	}
-
-	if (!optionsFit)
-	{
-		DEBUG_CRASH(("WARNING: options string cannot fit within the expected length!  Length is %d, but max is %d!\n",
-			optionsString.getLength(), m_lanMaxOptionsLength));
-		return AsciiString::TheEmptyString;
-	}
-
-	return optionsString;
-}
-
-static AsciiString buildGameInfoAsciiString( const GameInfo *game, const AsciiString playerNames[MAX_SLOTS] )
-{
-	AsciiString mapName = game->getMap();
-	mapName = TheGameState->realMapPathToPortableMapPath(mapName);
+	AsciiString mapName = portableMapPath;
 	AsciiString newMapName;
 	if (mapName.getLength() > 0)
 	{
@@ -1203,18 +1160,116 @@ static AsciiString buildGameInfoAsciiString( const GameInfo *game, const AsciiSt
 			newMapName.concat(token);
 			mapName.nextToken(&token, "\\/");
 		}
-		DEBUG_LOG(("Map name is %s\n", mapName.str()));
 	}
 
+	if (!newMapName.startsWithNoCase(USER_MAPS_FIELD_PREFIX))
+		return newMapName;
+	const AsciiString folder(newMapName.str() + strlen(USER_MAPS_FIELD_PREFIX));
+	AsciiString wire;
+	return generatedMapWireName(folder, wire) ? wire : folder;
+}
+
+AsciiString GameInfoMapPathFromField( const AsciiString& field )
+{
+	AsciiString mapName;
+	AsciiString tempstr = field;
+	if (strpbrk(field.str(), "\\/") == NULL)
+	{
+		mapName = "userdata\\maps\\";
+		generatedMapFromWireName(field, tempstr);
+	}
+	AsciiString token;
+	tempstr.nextToken(&token, "\\/");
+	while (tempstr.getLength() > 0)
+	{
+		mapName.concat(token);
+		mapName.concat('\\');
+		tempstr.nextToken(&token, "\\/");
+	}
+	mapName.concat(token);
+	mapName.concat('\\');
+	mapName.concat(token);
+	mapName.concat(".map");
+	return mapName;
+}
+
+AsciiString GameInfoToAsciiString( const GameInfo *game )
+{
+	if (!game)
+		return AsciiString::TheEmptyString;
+
+	return GameInfoOptionsString(game, TheGameState->realMapPathToPortableMapPath(game->getMap()),
+		TheLAN == NULL ? 0 : m_lanMaxOptionsLength);
+}
+
+//
+// The LAN packet has room for m_lanMaxOptionsLength bytes of this.  EA shortened each name while it
+// appended the slots, sharing what was left between the slots still to come; once the fixed fields
+// had used it all the share went negative, the name emptied, and removeLastChar on an empty string
+// looped forever - the host of a room with long names hung.  The string is built with whole names
+// first and only rebuilt with shortened ones when it does not fit.
+//
+AsciiString GameInfoOptionsString( const GameInfo *game, const AsciiString& portableMapPath, Int maxLength )
+{
+	const AsciiString mapField = GameInfoMapField(portableMapPath);
+	AsciiString playerNames[MAX_SLOTS];
+	Int playerNamesLength = 0;
+	for (Int i = 0; i < MAX_SLOTS; ++i)
+	{
+		const GameSlot *slot = game->getConstSlot(i);
+		if (slot && slot->isHuman())
+		{
+			playerNames[i] = WideCharStringToMultiByte(slot->getName().str()).c_str();
+			playerNamesLength += playerNames[i].getLength();
+		}
+	}
+
+	AsciiString optionsString = buildGameInfoAsciiString(game, mapField, playerNames);
+	Bool optionsFit = maxLength == 0 || optionsString.getLength() <= maxLength;
+	if (!optionsFit)
+	{
+		const Int fixedLength = optionsString.getLength() - playerNamesLength;
+		if (truncatePlayerNames(game, playerNames, maxLength - fixedLength))
+		{
+			optionsString = buildGameInfoAsciiString(game, mapField, playerNames);
+			optionsFit = optionsString.getLength() <= maxLength;
+		}
+	}
+
+	if (!optionsFit)
+	{
+		DEBUG_CRASH(("WARNING: options string cannot fit within the expected length!  Length is %d, but max is %d!\n",
+			optionsString.getLength(), maxLength));
+		return AsciiString::TheEmptyString;
+	}
+
+	return optionsString;
+}
+
+// "PT=30;" when the value is not 0; the parser reads an absent field as 0, so an option left off
+// costs the eight player names nothing.
+static void concatOptionUnlessZero( AsciiString& optionsString, const char *key, Int value )
+{
+	if (value == 0)
+		return;
+	AsciiString field;
+	field.format("%s=%d;", key, value);
+	optionsString.concat(field);
+}
+
+static AsciiString buildGameInfoAsciiString( const GameInfo *game, const AsciiString& mapField, const AsciiString playerNames[MAX_SLOTS] )
+{
 	AsciiString optionsString;
-	optionsString.format("US=%d;M=%2.2x%s;MC=%X;MS=%d;SD=%d;C=%d;SR=%u;SC=%u;O=%c;PT=%d;UL=%d;PR=%d;IS=%d;TR=%d;PL=%d;", game->getUseStats(), game->getMapContentsMask(), newMapName.str(),
+	optionsString.format("US=%d;M=%2.2x%s;MC=%X;MS=%d;SD=%d;C=%d;SR=%u;SC=%u;O=%c;", game->getUseStats(), game->getMapContentsMask(), mapField.str(),
 		game->getMapCRC(), game->getMapSize(), game->getSeed(), game->getCRCInterval(), game->getSuperweaponRestriction(),
-		game->getStartingCash().countMoney(), game->oldFactionsOnly() ? 'Y' : 'N', game->getPeaceTime(),
-		game->getUnitLimit() ? 1 : 0, game->getProRules() ? 1 : 0, game->getIncomeSharing(), game->getTechRespawn(),
-		game->getSupplyPileLimit() );
-	// written only when on, so a normal-speed game's string is the one it always was
-	if (game->getTurbo())
-		optionsString.concat("TB=1;");
+		game->getStartingCash().countMoney(), game->oldFactionsOnly() ? 'Y' : 'N' );
+	concatOptionUnlessZero(optionsString, "PT", game->getPeaceTime());
+	concatOptionUnlessZero(optionsString, "UL", game->getUnitLimit() ? 1 : 0);
+	concatOptionUnlessZero(optionsString, "PR", game->getProRules() ? 1 : 0);
+	concatOptionUnlessZero(optionsString, "IS", game->getIncomeSharing());
+	concatOptionUnlessZero(optionsString, "TR", game->getTechRespawn());
+	concatOptionUnlessZero(optionsString, "PL", game->getSupplyPileLimit());
+	concatOptionUnlessZero(optionsString, "TB", game->getTurbo() ? 1 : 0);
 
 	//add player info for each slot
 	optionsString.concat(slotListID);
@@ -1358,22 +1413,7 @@ Bool ParseAsciiStringToGameInfo(GameInfo *game, AsciiString options)
 				break;
 			}
 			mapContentsMask = grabHexInt(val.str());
-			AsciiString tempstr;
-			AsciiString token;
-			tempstr = val.str()+2;
-			tempstr.nextToken(&token, "\\/");
-			while (tempstr.getLength() > 0)
-			{
-				mapName.concat(token);
-				mapName.concat('\\');
-				tempstr.nextToken(&token, "\\/");
-			}
-			mapName.concat(token);
-			mapName.concat('\\');
-			mapName.concat(token);
-			mapName.concat('.');
-			mapName.concat(TheMapCache->getMapExtension());
-			mapName = TheGameState->portableMapPathToRealMapPath(mapName);
+			mapName = TheGameState->portableMapPathToRealMapPath(GameInfoMapPathFromField(AsciiString(val.str() + 2)));
 			sawMap = true;
 			DEBUG_LOG(("ParseAsciiStringToGameInfo - map name is %s\n", mapName.str()));
 		}

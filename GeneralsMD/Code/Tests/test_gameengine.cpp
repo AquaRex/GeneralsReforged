@@ -11451,7 +11451,7 @@ TEST(a_template_map_comes_out_the_same_twice_and_every_start_walks_to_every_othe
 	RandomMapGenerator::generate( exemplarSettings, exemplar );
 
 	// the bytes themselves, pinned like the generator's: a change here is a change to every template map's name
-	static const UnsignedInt theTemplateFingerprints[2] = { 0x3CB57194u, 0x9E3848D7u };
+	static const UnsignedInt theTemplateFingerprints[2] = { 0xCA5261C2u, 0x4B364A10u };
 	for( Int players = 2; players <= 8; players += 6 )
 	{
 		RandomMapSettings settings;
@@ -17456,6 +17456,82 @@ TEST(the_superweapon_rule_is_a_mode_with_one_exception)
 	CHECK_EQ( (Int)game.getSuperweaponRestriction(), (Int)SUPERWEAPONS_LIMIT );
 	game.setSuperweaponRestriction( SUPERWEAPONS_NONE );
 	CHECK_EQ( (Int)game.getSuperweaponRestriction(), (Int)SUPERWEAPONS_NONE );
+
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = saved;
+}
+
+#include "GameNetwork/LANAPI.h"
+
+/* The shortest name each human seat keeps in an options string built for the LAN budget. */
+static Int shortestHumanName( const AsciiString& options )
+{
+	Int shortest = 1 << 30;
+	const char *slots = strstr( options.str(), "S=" );
+	for( const char *p = slots + 2; *p && *p != ';'; )
+	{
+		const char *end = strchr( p, ':' );
+		if( *p == 'H' )
+			shortest = std::min( shortest, (Int)( strchr( p, ',' ) - p - 1 ) );
+		p = end + 1;
+	}
+	return shortest;
+}
+
+/* A LAN game's options string has 400 bytes, and eight humans' seats take 34 of them each before a
+	 letter of a name. EA cut the names to fit; this checks that a generated map's name never costs a
+	 seat more of its name than a shipped map's does, and that a map field reads back to its path. */
+TEST(lan_options_fit_eight_humans_on_a_generated_template_map)
+{
+	const char *const paths[] = {
+		"maps\\bombardment beach\\bombardment beach.map",
+		"userdata\\maps\\my map\\my map.map",
+		"userdata\\maps\\rmg_v17_2147483647_8p_672c\\rmg_v17_2147483647_8p_672c.map",
+		"userdata\\maps\\rmg_v17_5_2p_140c_twilight\\rmg_v17_5_2p_140c_twilight.map",
+		"userdata\\maps\\rmg_v17_2147483647_8p_672c_tffffffff_bombardment beach\\rmg_v17_2147483647_8p_672c_tffffffff_bombardment beach.map",
+	};
+	for( Int i = 0; i < 4; ++i )
+		CHECK_STR( GameInfoMapPathFromField( GameInfoMapField( AsciiString( paths[i] ) ) ).str(), paths[i] );
+	CHECK_STR( GameInfoMapField( AsciiString( paths[0] ) ).str(), "maps/bombardment beach" );
+	CHECK_STR( GameInfoMapField( AsciiString( paths[1] ) ).str(), "my map" );
+	CHECK_STR( GameInfoMapField( AsciiString( paths[2] ) ).str(), "~17_zik0zj_8_io" );
+	CHECK_STR( GameInfoMapField( AsciiString( paths[3] ) ).str(), "~17_5_2_3w_twilight" );
+	// a field written before user maps went alone still reads back
+	CHECK_STR( GameInfoMapPathFromField( AsciiString( "userdata/maps/my map" ) ).str(), paths[1] );
+	// a template map's CRC and folder go as four letters; reading them back needs the shipped maps,
+	// which replay-check on a template map covers
+	const AsciiString wire = GameInfoMapField( AsciiString( paths[4] ) );
+	CHECK( wire.startsWith( "~17_zik0zj_8_io~" ) );
+	CHECK_EQ( wire.getLength(), 20 );
+
+	GlobalData *saved = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+
+	SkirmishGameInfo game;
+	game.init();
+	for( Int i = 0; i < MAX_SLOTS; ++i )
+	{
+		AsciiString ascii;
+		ascii.format( "Commander%03d", i );
+		UnicodeString name;
+		name.translate( ascii );
+		GameSlot *slot = game.getSlot( i );
+		slot->setState( SLOT_PLAYER, name, 0xC0A80164u + i );
+		slot->setPort( 8088 );
+		slot->setAccept();
+		slot->setMapAvailability( TRUE );
+	}
+	game.setSeed( 2147483647 );
+	game.setMapCRC( 0xFFFFFFFFu );
+	game.setMapSize( 9999999 );
+
+	const AsciiString shipped = GameInfoOptionsString( &game, AsciiString( paths[0] ), m_lanMaxOptionsLength );
+	const AsciiString generated = GameInfoOptionsString( &game, AsciiString( paths[4] ), m_lanMaxOptionsLength );
+	printf( "    shipped   %d bytes, names keep %d: %s\n", shipped.getLength(), shortestHumanName( shipped ), shipped.str() );
+	printf( "    generated %d bytes, names keep %d: %s\n", generated.getLength(), shortestHumanName( generated ), generated.str() );
+	CHECK( !generated.isEmpty() );
+	CHECK( generated.getLength() <= m_lanMaxOptionsLength );
+	CHECK( shortestHumanName( generated ) >= shortestHumanName( shipped ) );
 
 	delete TheWritableGlobalData;
 	TheWritableGlobalData = saved;

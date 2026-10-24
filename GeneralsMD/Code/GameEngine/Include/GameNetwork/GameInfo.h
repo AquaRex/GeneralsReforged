@@ -358,6 +358,18 @@ Int         GameInfo::getSupplyPileLimit( void ) const      { return m_supplyPil
 AsciiString GameInfoToAsciiString( const GameInfo *game );
 Bool ParseAsciiStringToGameInfo( GameInfo *game, AsciiString options );
 
+// GameInfoToAsciiString with the map's portable path given and the length the string has to fit
+// (0: any), shortening the human players' names to fit; empty when even one letter a name is too
+// long.  The tests build the string through this, with no TheGameState or TheLAN.
+AsciiString GameInfoOptionsString( const GameInfo *game, const AsciiString& portableMapPath, Int maxLength );
+
+// The options string's map field and back.  The field is the portable path's folders,
+// "maps/twilight flame"; a user map's folder goes alone, "rmg_v17_7_8p_672c", since every one sits
+// under userdata/maps and the eight seats' names need those 14 bytes.  A field with folders in it
+// reads back as it always did.
+AsciiString GameInfoMapField( const AsciiString& portableMapPath );
+AsciiString GameInfoMapPathFromField( const AsciiString& field );
+
 // An AI seat's personality is an optional sixth field on its slot entry, C<rung>,color,tmpl,start,team[,persona].
 // AIPersonaSlotField is what goes after the team: nothing for Normal, so every Normal options string,
 // replay header and Skirmish.ini stays the one it was, and ",<n>" otherwise.  AIPersonaFromSlotField

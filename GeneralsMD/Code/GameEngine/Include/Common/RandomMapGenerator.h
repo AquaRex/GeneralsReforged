@@ -127,6 +127,14 @@ extern void generatedMapPaths( std::vector<AsciiString>& pathsOut );
 	for the name the map list shows. FALSE for a plain generated map or any other path. */
 extern Bool generatedMapTemplate( const AsciiString& path, AsciiString& templatePathOut );
 
+/** A generated map's folder name as the lobby's options string carries it, and back. The string
+	has 400 bytes for eight seats, so the numbers go in base 36 and "_t<CRC>_<template folder>" as
+	"~" and four base-36 letters of the folder's name; the template's CRC stays home, since the map's
+	own CRC beside it already tells a machine whose template differs. FALSE for any other folder, or
+	a wire name no shipped map here answers. */
+extern Bool generatedMapWireName( const AsciiString& folder, AsciiString& wireOut );
+extern Bool generatedMapFromWireName( const AsciiString& wire, AsciiString& folderOut );
+
 /** A ChunkInputStream over a block of memory, so a generated map can be handed
 	to the same readers that parse maps off disk. */
 class MemoryChunkInputStream : public ChunkInputStream

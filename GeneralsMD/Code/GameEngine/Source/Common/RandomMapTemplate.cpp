@@ -78,7 +78,7 @@ const Real COPY_FADE = 10.0f;			// cells over which a copied pad or crossing fad
 const Real PAD_MARGIN = 12.0f;			// a pad's reach past the exemplar's base plateau
 const Real PAD_MOST = 90.0f;			// the furthest a base plateau reaches from its start in the exemplar
 const Real PAD_OPEN = 24.0f;			// the base's reach on open ground
-const Real PAD_FILL = 0.75f;			// of a start's ground within PAD_MOST, the share a level plateau holding more is open ground
+const Real PAD_CLIFF = 0.25f;			// of a base plateau's rim, the share that must fall away for it to be a plateau
 const Real PAD_SPACING = 0.45f;			// of the nearest two starts' distance, the most a pad's radius may be
 const Real PAD_SCALE_LEAST = 0.5f;
 const Real PAD_SHORE = 4.0f;			// cells a pad stays off the exemplar's water
@@ -1816,6 +1816,7 @@ struct Copy
 	Real spinCos, spinSin;
 	Real scale;					///< target cells a source cell
 	Real radius;				///< target cells round the target anchor a pad reaches; 0 for a crossing
+	Real core;					///< target cells round the target anchor the large features keep off; 0 for a crossing
 	Real lift;					///< bytes from a source height to the target's
 	const Field *region;		///< a pad's share of each source cell, the exemplar's size
 	Int regionW, regionH;
@@ -1847,6 +1848,13 @@ struct Copy
 		spin = a;
 		spinCos = Cos( a );
 		spinSin = Sin( a );
+	}
+
+	/// The copy's turn to the nearest quarter, 0 to 3, plus 4 when it is mirrored: what a blend's corners follow.
+	UnsignedByte quarterTurn() const
+	{
+		Int quarters = turn + roundi( spin / ( 0.5f * PI_R ) );
+		return (UnsignedByte)( ( quarters & 3 ) | ( mirror ? 4 : 0 ) );
 	}
 
 	/// An angle on the source map (radians, x towards y) as it lies on the target.
@@ -1915,6 +1923,7 @@ struct Plan
 	std::vector<Stamp> stamps;
 	std::vector<Copy> copies;
 	std::vector<Int> fixedSource;	///< the exemplar cell a copy put here, -1 for none
+	std::vector<UnsignedByte> fixedTurn;	///< how that copy turned the exemplar, Copy::quarterTurn
 	Field fixedWeight;				///< how much of the cell's height is the copy's
 	std::vector<UnsignedByte> townDone;	///< the exemplar's towns a crossing already brought
 	std::vector<PlannedTech> tech;
@@ -1929,6 +1938,7 @@ struct Plan
 		wet.assign( cells, 0 );
 		level.assign( cells, -1.0f );
 		fixedSource.assign( cells, -1 );
+		fixedTurn.assign( cells, 0 );
 		fixedWeight.assign( cells, 0.0f );
 		hasMesa = FALSE;
 		mesaY = mesaX = 0;
@@ -2000,18 +2010,20 @@ struct Frame
 				guard[y * W + x] = std::max( guard[y * W + x], fade( ( r + 10.0f - hypotr( y - p.y, x - p.x ) ) / 10.0f ) );
 	}
 
-	/// Of 32 bearings turned by the seed, the line through the middle (moved offset to its side) furthest from every site.
+	/// Of 32 bearings turned by the seed, the line through the middle (moved offset to its side) furthest
+	/// from every site, a start's pad counted as wide as it is.
 	Real axis( Int seed, Int salt, Real offset ) const
 	{
 		Real turn = hashUnit( seed, salt, 1 );
-		Real bestClear = -1.0f, bestAngle = 0.0f;
+		Real bestClear = -1.0e9f, bestAngle = 0.0f;
 		for( Int q = 0; q < 32; q++ )
 		{
 			Real angle = PI_R * ( q + turn ) / 32.0f;
 			Real cosine = Cos( angle ), sine = Sin( angle );
 			Real clear = 1.0e9f;
 			for( size_t i = 0; i < sites.size(); i++ )
-				clear = std::min( clear, fabsf( ( sites[i].y - cy ) * cosine - ( sites[i].x - cx ) * sine - offset ) );
+				clear = std::min( clear, fabsf( ( sites[i].y - cy ) * cosine - ( sites[i].x - cx ) * sine - offset )
+					- ( i < starts.size() ? padRadius : SITE_OUTER ) );
 			if( clear > bestClear )
 			{
 				bestClear = clear;
@@ -2070,8 +2082,12 @@ struct Composer
 	Composer( const Exemplar& exemplar, const SynthMap& skeletonMap, const Levels& skeletonLevels, Int s, const std::vector<Copy>& basePads ) :
 		src( exemplar ), skm( skeletonMap ), skel( skeletonLevels ), seed( s ), pads( basePads )
 	{
-		// the features keep off a pad short of its fade, the frame's guard fading over the same cells
-		f.init( skm, skel, pads.empty() ? 0.0f : pads[0].radius - COPY_FADE * pads[0].scale );
+		// the features keep off a pad's core, the frame's guard fading over the cells past it; a canyon
+		// may cut a raised pad's cliffs, as it runs between the bases on the exemplar
+		Real core = 0.0f;
+		for( size_t p = 0; p < pads.size(); p++ )
+			core = std::max( core, pads[p].core );
+		f.init( skm, skel, core );
 		W = skm.W;
 		H = skm.H;
 		findCrossing();
@@ -2165,13 +2181,18 @@ struct Composer
 			for( Int x = area[1]; x <= area[3]; x++ )
 			{
 				Real w = copy.weight( y, x, COPY_FADE );
-				if( w <= 0.0f ) continue;
+				Int i = y * W + x;
+				// where two copies meet, the one that holds the cell harder keeps it
+				if( w <= 0.0f || w <= plan.fixedWeight[i] ) continue;
 				YX s = copy.toSource( (Real)y, (Real)x );
 				Int o = clampi( roundi( s.y ), 0, SH - 1 ) * SW + clampi( roundi( s.x ), 0, SW - 1 );
-				Int i = y * W + x;
 				h[i] = w * ( src.lv.h[o] + copy.lift ) + ( 1.0f - w ) * h[i];
 				plan.fixedWeight[i] = std::max( plan.fixedWeight[i], w );
-				if( w >= 0.5f ) plan.fixedSource[i] = o;
+				if( w >= 0.5f )
+				{
+					plan.fixedSource[i] = o;
+					plan.fixedTurn[i] = copy.quarterTurn();
+				}
 			}
 		}
 		plan.copies.push_back( copy );
@@ -2347,6 +2368,46 @@ struct Composer
 		for( Int i = 0; i < W * H; i++ )
 			if( shaped[i] > 0.05f && shaped[i] < 0.95f ) plan.gentle[i] = 1;
 		h.swap( out );
+	}
+
+	/** A canyon off the middle as the exemplar's: its width, floor and winding along a line as far from
+		the middle as it lay, to the edges where it reached them, kept off every pad, dock and derrick. */
+	void carveCanyonAside( Field& h, Plan& plan, const InvCanyon& canyon, Int number ) const
+	{
+		const Int salt = 160 + 7 * number;
+		const Real sign = ( synthHash( seed, salt, 5 ) & 1 ) ? 1.0f : -1.0f;
+		const Real side = sign * std::min( canyon.centreShare, 0.8f ) * f.half;
+		const Real angle = f.axis( seed, salt, side );
+		const YX middle = Frame::point( angle, f.cy, f.cx, 0.0f, side );
+		const Along al( angle, middle.y, middle.x );
+		const Real reachS = canyon.reachesEdge ? hypotr( (Real)H, (Real)W ) : 0.5f * canyon.length * f.k;
+		const Real half = std::max( 0.45f * canyon.width * f.k, 3.0f );
+		const Real amp = 1.4f * canyon.winding;
+		const Real wave = std::max( 0.5f * canyon.length, 120.0f );
+		const Real phase = hashUnit( seed, salt, 3 ) * 2.0f * PI_R;
+		const Real band = half + WALL_CELLS + amp + 1.0f;
+		for( Int y = 0; y < H; y++ )
+		{
+			for( Int x = 0; x < W; x++ )
+			{
+				const Real s = al.s( y, x ), c = al.c( y, x );
+				if( fabsf( s ) > reachS || fabsf( c ) > band ) continue;
+				const Int i = y * W + x;
+				const Real wander = amp * Sin( 2.0f * PI_R * s / wave + phase );
+				Real cut = fade( ( half + WALL_CELLS - fabsf( c - wander ) ) / WALL_CELLS );
+				if( !canyon.reachesEdge )
+					cut *= fade( ( reachS - fabsf( s ) ) / ( END_CELLS * f.k ) );
+				cut *= 1.0f - f.guard[i];
+				if( cut <= 0.0f ) continue;
+				const Real floor = std::min( skel.bowl + canyon.floorDz + 0.3f * ( h[i] - skel.bowl ), h[i] );
+				h[i] = ( 1.0f - cut ) * h[i] + cut * floor;
+				if( cut > 0.05f && cut < 0.95f )
+				{
+					plan.keepout[i] = 1;
+					plan.gentle[i] = 1;
+				}
+			}
+		}
 	}
 
 	void disc( Field& h, YX p, Real r, Real value ) const
@@ -2753,7 +2814,7 @@ struct Composer
 		best.target = Frame::point( line.angle, line.my, line.mx, s, 0.0f );
 		best.source = cross.centre;
 		best.scale = 1.0f;
-		best.radius = 0.0f;
+		best.radius = best.core = 0.0f;
 		best.lift = 0.0f;
 		best.region = NULL;
 		best.regionW = best.regionH = 0;
@@ -3088,7 +3149,8 @@ struct Composer
 		for( Int st = 0; st < 9; st++ )
 		{
 			Real share = river.centreShare + theSteps[st];
-			if( share < 0.0f || share > 0.9f ) continue;
+			if( share < -0.01f || share > 0.9f ) continue;
+			share = std::max( share, 0.0f );
 			for( Int sg = 0; sg < 2; sg++ )
 			{
 				Real sign = sg == 0 ? first : -first;
@@ -3103,13 +3165,14 @@ struct Composer
 					Real clear;
 					Bool split;
 					judge( out, trial, &clear, &split );
-					// a line through a pad leaves the river dry where the pad keeps its ground
+					// a line through a pad leaves the river dry where the pad keeps its ground; past a dock
+					// it only narrows to a ford
 					Bool blocked = FALSE;
 					for( Real v = line.sLo; v < line.sHi && !blocked; v += 4.0f )
 					{
 						YX p = Frame::point( line.angle, line.my, line.mx, v, 0.0f );
-						Int y = roundi( p.y ), x = roundi( p.x );
-						blocked = y >= 0 && x >= 0 && y < H && x < W && f.guard[y * W + x] > 0.5f;
+						for( size_t s = 0; s < f.starts.size() && !blocked; s++ )
+							blocked = hypotr( p.y - f.starts[s].y, p.x - f.starts[s].x ) < f.padRadius + 0.5f * COPY_FADE;
 					}
 					Ranked r;
 					r.score.blocked = blocked;
@@ -3737,12 +3800,13 @@ struct Composer
 
 		const InvCanyon *canyon = NULL;
 		const InvMesa *mesa = NULL;
+		std::vector<const InvCanyon *> aside;
 		for( size_t k = 0; k < inv.canyons.size(); k++ )
 		{
 			if( !canyon && inv.canyons[k].length >= 0.5f * shortest && inv.canyons[k].centreShare < 0.3f )
 				canyon = &inv.canyons[k];
 			else
-				plan.note( "canyon %d long off the middle", (Int)inv.canyons[k].length );
+				aside.push_back( &inv.canyons[k] );
 		}
 		// the mesa nearest the middle is the island; a smaller one off it is a ledge of the same canyon
 		for( size_t k = 0; k < inv.mesas.size(); k++ )
@@ -3750,6 +3814,8 @@ struct Composer
 				mesa = &inv.mesas[k];
 		if( canyon || mesa )
 			carveMiddle( h, plan, canyon, mesa );
+		for( size_t k = 0; k < aside.size(); k++ )
+			carveCanyonAside( h, plan, *aside[k], (Int)k );
 
 		// the sea first, as the rivers run into it, then the rivers longest first and their branches, then the lakes
 		std::vector<UnsignedByte> built( inv.water.size(), 0 );
@@ -4221,13 +4287,86 @@ void movedObject( const SynthMap& from, Int thing, RawMap& raw, Real cy, Real cx
 	out.push_back( c );
 }
 
+/* A blend's six flag bytes (horizontal, vertical, right diagonal, left diagonal, inverted, long
+	diagonal) say which corners of its cell the blended texture covers, the corners numbered as the
+	terrain draws them: 0 (x, y), 1 (x + 1, y), 2 (x + 1, y + 1), 3 (x, y + 1). A copy turned or
+	mirrored moves the corners, and the flags are those of the corners where they land. */
+enum { BLEND_HORIZONTAL, BLEND_VERTICAL, BLEND_RIGHT, BLEND_LEFT, BLEND_INVERTED, BLEND_LONG };
+const char BLEND_INVERTED_BIT = 0x1;
+
+static Int blendCorners( const char flags[6] )
+{
+	const Bool inverted = ( flags[BLEND_INVERTED] & BLEND_INVERTED_BIT ) != 0;
+	const Bool longOne = flags[BLEND_LONG] != 0;
+	if( flags[BLEND_HORIZONTAL] ) return inverted ? 0x9 : 0x6;
+	if( flags[BLEND_VERTICAL] ) return inverted ? 0x3 : 0xC;
+	if( flags[BLEND_RIGHT] ) return inverted ? ( longOne ? 0x7 : 0x2 ) : ( longOne ? 0xE : 0x4 );
+	if( flags[BLEND_LEFT] ) return inverted ? ( longOne ? 0xB : 0x1 ) : ( longOne ? 0xD : 0x8 );
+	return 0;
+}
+
+static void blendFlagsFor( Int corners, char flags[6] )
+{
+	struct Shape { Int corners; Int kind; Bool inverted, longOne; };
+	static const Shape theShapes[] = {
+		{ 0x6, BLEND_HORIZONTAL, FALSE, FALSE }, { 0x9, BLEND_HORIZONTAL, TRUE, FALSE },
+		{ 0xC, BLEND_VERTICAL, FALSE, FALSE }, { 0x3, BLEND_VERTICAL, TRUE, FALSE },
+		{ 0x4, BLEND_RIGHT, FALSE, FALSE }, { 0x2, BLEND_RIGHT, TRUE, FALSE },
+		{ 0xE, BLEND_RIGHT, FALSE, TRUE }, { 0x7, BLEND_RIGHT, TRUE, TRUE },
+		{ 0x8, BLEND_LEFT, FALSE, FALSE }, { 0x1, BLEND_LEFT, TRUE, FALSE },
+		{ 0xD, BLEND_LEFT, FALSE, TRUE }, { 0xB, BLEND_LEFT, TRUE, TRUE },
+	};
+	for( size_t k = 0; k < sizeof(theShapes) / sizeof(theShapes[0]); k++ )
+	{
+		if( theShapes[k].corners != corners ) continue;
+		const char forcedFlip = flags[BLEND_INVERTED] & ~BLEND_INVERTED_BIT;
+		memset( flags, 0, BLEND_LONG );
+		flags[theShapes[k].kind] = 1;
+		flags[BLEND_INVERTED] = forcedFlip | ( theShapes[k].inverted ? BLEND_INVERTED_BIT : 0 );
+		flags[BLEND_LONG] = theShapes[k].longOne ? 1 : 0;
+		return;
+	}
+}
+
+/// The corners a blend covers after Copy::quarterTurn: mirrored across x first, then turned.
+static Int turnedCorners( Int corners, Int quarterTurn )
+{
+	Int out = 0;
+	for( Int c = 0; c < 4; c++ )
+	{
+		if( !( corners & ( 1 << c ) ) ) continue;
+		Int to = ( quarterTurn & 4 ) ? c ^ 1 : c;
+		out |= 1 << ( ( to + quarterTurn ) & 3 );
+	}
+	return out;
+}
+
 /// BlendTileData version 8: every cell's class and blends from its source cell, the tiles worked out
-/// again for where the cell landed, the exemplar's texture table and the cliff bits (synthmap.blend_chunk).
+/// again for where the cell landed, the blends turned as the copy that brought them, the exemplar's
+/// texture table and the cliff bits (synthmap.blend_chunk).
 Bool blendChunk( const Exemplar& src, Int W, Int H, const std::vector<Int>& syMap, const std::vector<Int>& sxMap,
-	const Mask& cliff, std::vector<char>& out )
+	const std::vector<UnsignedByte>& turns, const Mask& cliff, std::vector<char>& out )
 {
 	const Int SW = src.m.W;
-	const Int nShapes = std::max( (Int)src.shapes.size(), 1 );
+	// the exemplar's shapes, then each turned one the copies need, in the order the cells ask for them
+	std::vector< std::pair< std::string, Int > > shapes = src.shapes;
+	std::map< std::pair<Int, Int>, Int > turned;
+	auto shapeTurned = [&]( Int shape, Int quarterTurn ) -> Int
+	{
+		if( quarterTurn == 0 ) return shape;
+		std::pair<Int, Int> key( shape, quarterTurn );
+		std::map< std::pair<Int, Int>, Int >::const_iterator it = turned.find( key );
+		if( it != turned.end() ) return it->second;
+		char flags[6];
+		memcpy( flags, shapes[shape].first.data(), 6 );
+		blendFlagsFor( turnedCorners( blendCorners( flags ), quarterTurn ), flags );
+		std::pair< std::string, Int > wanted( std::string( flags, 6 ), shapes[shape].second );
+		Int index = (Int)( std::find( shapes.begin(), shapes.end(), wanted ) - shapes.begin() );
+		if( index == (Int)shapes.size() ) shapes.push_back( wanted );
+		turned[key] = index;
+		return index;
+	};
+	const Int nShapes = 8 * std::max( (Int)src.shapes.size(), 1 );
 	std::vector<Short> layer0( W * H );
 	std::vector<Int> keys[2];
 	for( Int l = 0; l < 2; l++ ) keys[l].resize( W * H );
@@ -4243,7 +4382,7 @@ Bool blendChunk( const Exemplar& src, Int W, Int H, const std::vector<Int>& syMa
 				Int e = entry[l];
 				if( e <= 0 || e >= (Int)src.entries.size() ) { keys[l][i] = 0; continue; }
 				Int tile = src.tileFor( src.blendClass[e], y, x );
-				keys[l][i] = tile * nShapes + src.blendShape[e] + 1;
+				keys[l][i] = tile * nShapes + shapeTurned( src.blendShape[e], turns[i] ) + 1;
 			}
 		}
 	}
@@ -4283,8 +4422,8 @@ Bool blendChunk( const Exemplar& src, Int W, Int H, const std::vector<Int>& syMa
 	{
 		Int tile = ( table[k] - 1 ) / nShapes, shape = ( table[k] - 1 ) % nShapes;
 		putInt( out, tile );
-		putBytes( out, src.shapes[shape].first.data(), 6 );
-		putInt( out, src.shapes[shape].second );
+		putBytes( out, shapes[shape].first.data(), 6 );
+		putInt( out, shapes[shape].second );
 		putInt( out, 0x7ADA0000 );
 	}
 	return TRUE;
@@ -4458,8 +4597,10 @@ void cliffOf( const std::vector<Int>& h, Int W, Int H, Mask& out )
 	is nearer it than any other start and no further than PAD_MOST, PAD_MARGIN past that for the cliffs
 	and the feet of the ramps, fading out over COPY_FADE, never within PAD_SHORE of the water. The
 	reach is the furthest cell from the start the base holds half of; the edge is the height of the
-	ground the base fades into, which the copy sets on the new map's ground. */
-void baseRegions( const Exemplar& src, std::vector<Field>& regions, std::vector<Real>& reaches, std::vector<Real>& edges )
+	ground the base fades into, which the copy sets on the new map's ground: on a plateau the ground
+	its cliffs fall to, so the copy stands as high over the new map as the base stood over its own. */
+void baseRegions( const Exemplar& src, std::vector<Field>& regions, std::vector<Real>& reaches, std::vector<Real>& edges,
+	std::vector<UnsignedByte>& raised )
 {
 	const Int SW = src.m.W, SH = src.m.H;
 	const std::vector<Int>& ys = src.lv.startY;
@@ -4469,36 +4610,40 @@ void baseRegions( const Exemplar& src, std::vector<Field>& regions, std::vector<
 	maskGrow( wet, SW, SH, (Int)PAD_SHORE, shore );
 	const Int out = (Int)( PAD_MARGIN + COPY_FADE );
 	std::vector<Int> queue, steps( SW * SH );
-	std::vector<Real> ring;
+	std::vector<Real> ring, below;
 	for( size_t t = 0; t < ys.size(); t++ )
 	{
 		const Real level = src.lv.h[ys[t] * SW + xs[t]];
-		// the level ground first, then outward eight ways a cell a step; a plateau that fills most of
-		// the start's ground within PAD_MOST is open ground, and the base on it no more than PAD_OPEN across
-		Int eligible = 0;
-		for( Int y = std::max( ys[t] - (Int)PAD_MOST, 0 ); y <= std::min( ys[t] + (Int)PAD_MOST, SH - 1 ); y++ )
-			for( Int x = std::max( xs[t] - (Int)PAD_MOST, 0 ); x <= std::min( xs[t] + (Int)PAD_MOST, SW - 1 ); x++ )
-			{
-				Real mine = hypotr( (Real)( y - ys[t] ), (Real)( x - xs[t] ) );
-				Bool nearest = mine <= PAD_MOST && !shore[y * SW + x];
-				for( size_t o = 0; o < ys.size() && nearest; o++ )
-					nearest = o == t || mine <= hypotr( (Real)( y - ys[o] ), (Real)( x - xs[o] ) );
-				eligible += nearest;
-			}
+		// the level ground first, then outward eight ways a cell a step; level ground that seldom falls
+		// away at its rim is open ground or a hollow, and the base on it no more than PAD_OPEN across
 		Real most = PAD_MOST;
+		Bool plateau = FALSE;
 		for( Int attempt = 0; attempt < 2; attempt++ )
 		{
 			std::fill( steps.begin(), steps.end(), -1 );
 			queue.clear();
 			queue.push_back( ys[t] * SW + xs[t] );
 			steps[queue[0]] = 0;
-			Int flooded = 1;
+			Int fallingRim = 0, otherRim = 0;
 			for( Int pass = 0; pass < 2; pass++ )
 			{
 				if( pass == 1 )
 				{
 					queue.clear();
-					for( Int i = 0; i < SW * SH; i++ ) if( steps[i] == 0 ) queue.push_back( i );
+					for( Int i = 0; i < SW * SH; i++ )
+					{
+						if( steps[i] != 0 ) continue;
+						queue.push_back( i );
+						const Int y = i / SW, x = i % SW;
+						const Int n[4] = { x + 1 < SW ? i + 1 : -1, x > 0 ? i - 1 : -1, y + 1 < SH ? i + SW : -1, y > 0 ? i - SW : -1 };
+						for( Int j = 0; j < 4; j++ )
+						{
+							if( n[j] < 0 || steps[n[j]] == 0 || shore[n[j]] ) continue;
+							if( src.lv.h[n[j]] < level - PLATEAU_TOLERANCE ) fallingRim++;
+							else otherRim++;
+						}
+					}
+					plateau = most == PAD_MOST && fallingRim >= PAD_CLIFF * ( fallingRim + otherRim );
 				}
 				for( size_t head = 0; head < queue.size(); head++ )
 				{
@@ -4518,7 +4663,6 @@ void baseRegions( const Exemplar& src, std::vector<Field>& regions, std::vector<
 									nearest = o == t || mine <= hypotr( (Real)( ny - ys[o] ), (Real)( nx - xs[o] ) );
 								if( !nearest ) continue;
 								steps[n] = 0;
-								flooded++;
 							}
 							else
 								steps[n] = steps[i] + 1;
@@ -4526,23 +4670,29 @@ void baseRegions( const Exemplar& src, std::vector<Field>& regions, std::vector<
 						}
 				}
 			}
-			if( flooded <= PAD_FILL * eligible || most == PAD_OPEN ) break;
+			if( plateau || most == PAD_OPEN ) break;
 			most = PAD_OPEN;
 		}
 		Field region( SW * SH, 0.0f );
 		Real reach = 0.0f;
 		ring.clear();
+		below.clear();
 		for( Int i = 0; i < SW * SH; i++ )
 		{
 			if( steps[i] < 0 ) continue;
 			region[i] = fade( ( out - steps[i] ) / COPY_FADE );
 			if( region[i] >= 0.5f )
 				reach = std::max( reach, hypotr( (Real)( i / SW - ys[t] ), (Real)( i % SW - xs[t] ) ) );
-			if( steps[i] >= out - 2 ) ring.push_back( src.lv.h[i] );
+			if( steps[i] < out - 2 ) continue;
+			ring.push_back( src.lv.h[i] );
+			if( src.lv.h[i] < level - PLATEAU_TOLERANCE ) below.push_back( src.lv.h[i] );
 		}
+		// a plateau stands over the ground its cliffs fall to; one walled in all round sits on its rim
+		const Bool high = plateau && below.size() * 4 >= ring.size();
 		regions.push_back( region );
 		reaches.push_back( reach );
-		edges.push_back( medianOf( ring ) );
+		edges.push_back( high ? medianOf( below ) : medianOf( ring ) );
+		raised.push_back( high );
 	}
 }
 
@@ -4550,8 +4700,11 @@ void baseRegions( const Exemplar& src, std::vector<Field>& regions, std::vector<
 	the one that faces the middle as the start does, scaled down where the starts stand closer than
 	the bases are wide. */
 void planPads( const Exemplar& src, const Levels& skel, Int seed, const std::vector<Field>& regions,
-	const std::vector<Real>& reaches, const std::vector<Real>& edges, std::vector<Copy>& pads )
+	const std::vector<Real>& reaches, const std::vector<Real>& edges, const std::vector<UnsignedByte>& raised,
+	std::vector<Copy>& pads )
 {
+	// a map whose bases stand on plateaus copies a plateau round every start
+	const Bool anyRaised = std::find( raised.begin(), raised.end(), 1 ) != raised.end();
 	// the usual base sets the scale; a larger one reaches into its neighbour's fade
 	std::vector<Real> sorted( reaches );
 	Real reachCells = medianOf( sorted );
@@ -4570,6 +4723,7 @@ void planPads( const Exemplar& src, const Levels& skel, Int seed, const std::vec
 		UnsignedInt bestTie = 0;
 		for( size_t t = 0; t < src.lv.startY.size(); t++ )
 		{
+			if( anyRaised && !raised[t] ) continue;
 			Real from = ATan2( src.lv.startY[t] - src.lv.cy, src.lv.startX[t] - src.lv.cx );
 			for( Int d = 0; d < 8; d++ )
 			{
@@ -4585,6 +4739,7 @@ void planPads( const Exemplar& src, const Levels& skel, Int seed, const std::vec
 				best.source = yx( (Real)src.lv.startY[t], (Real)src.lv.startX[t] );
 				best.region = &regions[t];
 				best.radius = ( reaches[t] + COPY_FADE ) * scale + 1.0f;
+				best.core = ( reaches[t] - ( raised[t] ? PAD_MARGIN : 0.0f ) ) * scale + 1.0f;
 				best.lift = skel.bowl - edges[t];
 				bestError = error;
 				bestTie = tie;
@@ -4798,9 +4953,10 @@ Bool rmgSynthesise( const RandomMapSettings& clamped, const std::vector<char>& e
 	// the exemplar's base round every start, with its docks and derricks in place of the skeleton's
 	std::vector<Field> regions;
 	std::vector<Real> reaches, edges;
-	baseRegions( src, regions, reaches, edges );
+	std::vector<UnsignedByte> raised;
+	baseRegions( src, regions, reaches, edges, raised );
 	std::vector<Copy> basePads;
-	planPads( src, skel, seed, regions, reaches, edges, basePads );
+	planPads( src, skel, seed, regions, reaches, edges, raised, basePads );
 	carryMoney( src, basePads, skm );
 
 	// the exemplar's large features first, then what of the skeleton keeps its own height
@@ -5308,7 +5464,7 @@ Bool rmgSynthesise( const RandomMapSettings& clamped, const std::vector<char>& e
 	cliffOf( heights, W, H, cliff );
 	Chunk *blend = out.chunk( "BlendTileData" );
 	std::vector<char> blendBody;
-	if( !blendChunk( src, W, H, syMap, sxMap, cliff, blendBody ) )
+	if( !blendChunk( src, W, H, syMap, sxMap, plan.fixedTurn, cliff, blendBody ) )
 	{
 		DEBUG_LOG(( "random map: '%s' needs more blends than the renderer holds\n", clamped.m_template.str() ));
 		restoreFPMode( callersFPMode );

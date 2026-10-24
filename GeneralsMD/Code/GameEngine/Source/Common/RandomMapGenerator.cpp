@@ -7711,6 +7711,15 @@ static void generatedMapPathsFor( const RandomMapSettings& clamped, AsciiString&
 	previewPath.toLower();
 }
 
+/// "_t<8 hex>_<name>", what follows the size in a template map's name.
+static Bool isTemplateTail( const char *rest )
+{
+	Bool isTemplate = rest[0] == '_' && rest[1] == 't' && strlen( rest ) > 11 && rest[10] == '_';
+	for( Int i = 2; isTemplate && i < 10; i++ )
+		isTemplate = isxdigit( (UnsignedByte)rest[i] ) != 0;
+	return isTemplate;
+}
+
 /** Read the settings back out of a generated map's file name. FALSE for anything else, including a
 	name written by another generator version - those bytes cannot be rebuilt here. */
 static Bool settingsFromGeneratedPath( const AsciiString& path, RandomMapSettings& settingsOut )
@@ -7735,10 +7744,7 @@ static Bool settingsFromGeneratedPath( const AsciiString& path, RandomMapSetting
 	AsciiString templatePath;
 	UnsignedInt templateCRC = 0;
 	const char *rest = leaf.str() + read;
-	Bool isTemplate = rest[0] == '_' && rest[1] == 't' && strlen( rest ) > 11 && rest[10] == '_';
-	for( Int i = 2; isTemplate && i < 10; i++ )
-		isTemplate = isxdigit( (UnsignedByte)rest[i] ) != 0;
-	if( isTemplate )
+	if( isTemplateTail( rest ) )
 	{
 		templateCRC = (UnsignedInt)strtoul( rest + 2, NULL, 16 );
 		AsciiString token = rest + 11;
@@ -7793,6 +7799,86 @@ Bool generatedMapTemplate( const AsciiString& path, AsciiString& templatePathOut
 		return FALSE;
 	templatePathOut = settings.m_template;
 	return TRUE;
+}
+
+/* On the wire "rmg_v17_2147483647_8p_672c_t1a2b3c4d_bombardment beach" is
+	"~17_zik0zj_8_io~143e": the numbers in base 36 and the template as four base-36 letters of its
+	folder's name. A plain or styled map keeps its tail, "~17_zik0zj_8_io_twilight". */
+static const char WIRE_MARK = '~';
+enum { WIRE_TEMPLATE_LETTERS = 4, WIRE_NUMBER_LETTERS = 15 };
+
+static AsciiString base36( UnsignedInt value, Int width )
+{
+	static const char digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+	char letters[WIRE_NUMBER_LETTERS + 1];
+	Int at = WIRE_NUMBER_LETTERS;
+	letters[at] = 0;
+	do
+	{
+		letters[--at] = digits[value % 36];
+		value /= 36;
+	}
+	while( value != 0 || WIRE_NUMBER_LETTERS - at < width );
+	return AsciiString( letters + at );
+}
+
+/// Four base-36 letters of a template folder's name: 1.7 million values for the sixty-odd shipped maps.
+static AsciiString wireTemplateLetters( const AsciiString& token )
+{
+	CRC crc;
+	crc.computeCRC( token.str(), token.getLength() );
+	return base36( crc.get() % ( 36u * 36u * 36u * 36u ), WIRE_TEMPLATE_LETTERS );
+}
+
+Bool generatedMapWireName( const AsciiString& folder, AsciiString& wireOut )
+{
+	Int version = 0, seed = 0, players = 0, cells = 0, read = 0;
+	if( sscanf( folder.str(), "rmg_v%d_%d_%dp_%dc%n", &version, &seed, &players, &cells, &read ) != 4 )
+		return FALSE;
+	const char *rest = folder.str() + read;
+	AsciiString tail = rest;
+	if( isTemplateTail( rest ) )
+		tail.format( "%c%s", WIRE_MARK, wireTemplateLetters( AsciiString( rest + 11 ) ).str() );
+	wireOut.format( "%c%d_%s_%d_%s%s", WIRE_MARK, version, base36( (UnsignedInt)seed, 1 ).str(), players,
+		base36( (UnsignedInt)cells, 1 ).str(), tail.str() );
+	return TRUE;
+}
+
+Bool generatedMapFromWireName( const AsciiString& wire, AsciiString& folderOut )
+{
+	Int version = 0, players = 0, read = 0;
+	char seedText[WIRE_NUMBER_LETTERS + 1], cellText[WIRE_NUMBER_LETTERS + 1];
+	if( wire.getCharAt( 0 ) != WIRE_MARK
+		|| sscanf( wire.str() + 1, "%d_%15[0-9a-z]_%d_%15[0-9a-z]%n", &version, seedText, &players, cellText, &read ) != 4 )
+		return FALSE;
+	AsciiString head;
+	head.format( "rmg_v%d_%u_%dp_%uc", version, (UnsignedInt)strtoul( seedText, NULL, 36 ), players,
+		(UnsignedInt)strtoul( cellText, NULL, 36 ) );
+	const char *rest = wire.str() + 1 + read;
+	if( *rest != WIRE_MARK )
+	{
+		folderOut.format( "%s%s", head.str(), rest );
+		return TRUE;
+	}
+
+	// ponytail: the first shipped map whose letters match wins, so two folders sharing four letters
+	// leave the later one out of LAN games; a fifth letter when that ever happens
+	FilenameList maps;
+	TheFileSystem->getFileListInDirectory( AsciiString( "Maps\\" ), AsciiString( "*.map" ), maps, TRUE );
+	AsciiString token;
+	for( FilenameListIter it = maps.begin(); it != maps.end(); ++it )
+	{
+		AsciiString path = *it;
+		path.toLower();
+		UnsignedInt crc = 0;
+		if( rmgTemplateToken( path, token ) && wireTemplateLetters( token ) == AsciiString( rest + 1 )
+			&& rmgTemplateCRC( path, &crc ) )
+		{
+			folderOut.format( "%s_t%08x_%s", head.str(), crc, token.str() );
+			return TRUE;
+		}
+	}
+	return FALSE;
 }
 
 /** The falling snow is not map data: SnowManager draws it when the Weather block says
