@@ -87,6 +87,14 @@ static void set_m_ambientVolume( Int value )
 	if (TheAudio)
 		TheAudio->setVolume( value / 100.0f, (AudioAffect)(AudioAffect_Ambient | AudioAffect_SystemSetting) );
 }
+static Int get_m_masterVolume( void ) { return TheGlobalData->m_masterVolume; }
+static void set_m_masterVolume( Int value )
+{
+	TheWritableGlobalData->m_masterVolume = value;
+	if (TheAudio)
+		TheAudio->setVolume( value / 100.0f, (AudioAffect)(AudioAffect_Master | AudioAffect_SystemSetting) );
+}
+OPTION_BOOL_ACCESSORS( m_dynamicMusic )
 // The catalog loads before there is a game; the menu's Accept during a mission changes its speed
 // on the spot, which only the pacing reads.
 static Int get_m_turboMode( void ) { return TheGlobalData->m_turboMode ? 1 : 0; }
@@ -325,6 +333,19 @@ const OptionDef TheOptionCatalog[] =
 	{ "AmbientVolume",						OPT_WND( "SliderAmbientVolume" ), "GUI:AmbientVolume",
 		OPTION_INT, APPLY_LIVE, 0, 100,
 		get_m_ambientVolume, set_m_ambientVolume },
+
+	// One slider over the other four: music, effects, voices and ambience are each multiplied by it,
+	// a unit's reply with its boost included.  Movies follow it through the voice volume.
+	{ "MasterVolume",							OPT_WND( "SliderMasterVolume" ), "GUI:MasterVolume",
+		OPTION_INT, APPLY_LIVE, 0, 100,
+		get_m_masterVolume, set_m_masterVolume },
+
+	// A skirmish or multiplayer match's music answers the fight: a calmer track of the side's own
+	// playlist while nothing happens, a harder one when guns fire near the camera or at your forces
+	// (MusicManager::update).  Off leaves the music to the map's scripts, as retail had it.
+	{ "DynamicMusic",							OPT_WND( "CheckDynamicMusic" ), "GUI:DynamicMusic",
+		OPTION_BOOL, APPLY_LIVE, 0, 1,
+		get_m_dynamicMusic, set_m_dynamicMusic },
 
 	// With the move, attack move or guard key armed, a left drag over the ground spreads the
 	// selection along the line drawn instead of sending everyone to one point.  On by default, and

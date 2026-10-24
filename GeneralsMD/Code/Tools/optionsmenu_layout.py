@@ -207,6 +207,9 @@ NEW_CONTROLS = [
     (CHECK,  "CheckChromaLighting",    "GUI:ChromaLighting"),
     (LABEL,  "LabelAmbientVolume",     "GUI:AmbientVolume"),
     (SLIDER, "SliderAmbientVolume",    None),
+    (LABEL,  "LabelMasterVolume",      "GUI:MasterVolume"),
+    (SLIDER, "SliderMasterVolume",     None),
+    (CHECK,  "CheckDynamicMusic",      "GUI:DynamicMusic"),
     (LABEL,  "LabelZoomSpeed",         "GUI:ZoomSpeed"),
     (SLIDER, "SliderZoomSpeed",        None),
     (LABEL,  "LabelShadowQuality",     "GUI:ShadowQuality"),
@@ -246,6 +249,7 @@ READOUTS = [
     "ValueGamma", "ValueTextureResolution", "ValueParticleCap", "ValueAnisotropy",
     "ValueMusicVolume", "ValueSFXVolume", "ValueVoiceVolume", "ValueScrollSpeed",
     "ValueDragTolerance", "ValueAmbientVolume", "ValueZoomSpeed", "ValueMenuTransitionSpeed",
+    "ValueMasterVolume",
 ]
 
 # Lines of small grey text under a control that say what its current choice does, written by
@@ -270,7 +274,7 @@ NOTE_COLOR = ("ENABLED:  164 170 190 255, ENABLEDBORDER:  0 0 0 255, "
 # catalog row's own bounds
 SLIDER_RANGES = [("SliderAnisotropy", 0, 16), ("SliderDragTolerance", 2, 50),
                  ("SliderAmbientVolume", 0, 100), ("SliderZoomSpeed", 25, 300),
-                 ("SliderMenuTransitionSpeed", 25, 400)]
+                 ("SliderMenuTransitionSpeed", 25, 400), ("SliderMasterVolume", 0, 100)]
 
 # EA's captions that do not fit the page: two popup headings written in capitals, and a check box
 # caption that ran 20 pixels past the panel's right edge once it stood in a 268 pixel column.
@@ -372,10 +376,13 @@ GROUP_LAYOUT = [
 
     ("PageAudio", [
         ("GUI:OptionsGroupVolume", [
-            setting("MusicVolumeLabel", "SliderMusicVolume", "ValueMusicVolume"),
+            setting("LabelMasterVolume", "SliderMasterVolume", "ValueMasterVolume"),
             setting("SFXVolumeLabel", "SliderSFXVolume", "ValueSFXVolume"),
             setting("VoiceVolumeLabel", "SliderVoiceVolume", "ValueVoiceVolume"),
-            setting("LabelAmbientVolume", "SliderAmbientVolume", "ValueAmbientVolume")])]),
+            setting("LabelAmbientVolume", "SliderAmbientVolume", "ValueAmbientVolume")]),
+        ("GUI:OptionsGroupMusic", [
+            setting("MusicVolumeLabel", "SliderMusicVolume", "ValueMusicVolume"),
+            ("check", "CheckDynamicMusic")])]),
 
     ("PageControls", [
         ("GUI:OptionsGroupCamera", [

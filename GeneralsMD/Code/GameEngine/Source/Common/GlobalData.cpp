@@ -1447,6 +1447,8 @@ GlobalData::GlobalData()
 	// Half the effects slider's 80: birds, wind and water used to play at the battle's volume and
 	// covered the replies and the guns.
 	m_ambientVolume = 40;
+	m_masterVolume = 100;
+	m_dynamicMusic = TRUE;
   m_3DSoundPref = false;
 
 	m_keyboardDefaultScrollFactor = m_keyboardScrollFactor = 0.5f;

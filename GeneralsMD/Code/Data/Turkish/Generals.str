@@ -15093,6 +15093,26 @@ TOOLTIP:AmbientVolume
 "Kuşlar, rüzgâr, su ve kasabanın uğultusu. Efekt Sesi artık bunları değiştirmez; çatışma yüksek kalırken çevresi sessiz kalabilir."
 END
 
+GUI:MasterVolume
+"Genel Ses"
+END
+
+TOOLTIP:MasterVolume
+"Oyunun tamamını açar ya da kısar: müzik, efektler, konuşmalar, ortam ve videolar. Öteki sürgüler karışımı ayarlar, bu sürgü karışımın ne kadar yüksek çalacağını."
+END
+
+GUI:OptionsGroupMusic
+"Müzik"
+END
+
+GUI:DynamicMusic
+"Müzik Çatışmayı İzlesin"
+END
+
+TOOLTIP:DynamicMusic
+"Çatışma ya da çevrim içi maçta müzik savaşa göre değişir: ortalık sakinken tarafının sakin parçalarından biri, kameranın yakınında ya da birliklerine ateş açılınca daha sert bir parça çalar, çarpışma bittikten birkaç saniye sonra sakin müziğe döner. Kapalıyken müzik özgün oyundaki gibi çalar."
+END
+
 GUI:IsometricCamera
 "İzometrik Kamera"
 END

@@ -52,6 +52,8 @@
 #include "Common/GameAudio.h"
 #include "Common/GameMemory.h"
 
+#include <map>
+
 
 //----------------------------------------------------------------------------
 //           Forward References
@@ -100,6 +102,19 @@ public:
 
 };
 
+/** Plays and stops the music the request list is handed, and, in a skirmish or multiplayer match
+	* with DynamicMusic on, makes it follow the fight.
+	*
+	* The fight is measured from the sounds the game asks for (noteSound): a weapon firing, a unit
+	* reaching a worse damage state or crying out under fire, weighted by how near the camera it is,
+	* or by half when it is the local player's own unit wherever it stands.  Those add to an intensity
+	* that halves about every three and a half seconds, so it reads roughly as weighted shots a second.
+	* Above a threshold the music moves from calm to tense to battle, each a crossfade to a track of
+	* the side's own playlist chosen by a hand table (TheDynamicTracks), and comes back down once the
+	* fight has been over for a few seconds and the track has had its minimum time.  While tense or
+	* battle music plays, the skirmish scripts' own track changes are held; back at calm, they choose
+	* when the music changes again and a calm track of the side plays whichever they named.  Nothing
+	* here is read by the logic, so nothing in it reaches a CRC. */
 class MusicManager
 {
 	public:
@@ -113,6 +128,40 @@ class MusicManager
 		virtual void removeAudioEvent( AudioHandle eventToRemove );
 
 		void setVolume( Real m_volume );
+
+		/// once each audio update: the intensity's decay, the mood it asks for and the crossfade
+		void update( void );
+		/// every sound the game asks for, before the options or the shroud can drop it
+		void noteSound( const AudioEventRTS *event );
+
+		enum Mood { MOOD_CALM, MOOD_TENSE, MOOD_BATTLE, MOOD_COUNT };
+
+	private:
+		Bool engaged( void ) const;
+		void startMatch( void );
+		void releaseHeldStop( void );
+		AsciiString pickTrack( Mood mood );
+		void changeTrack( Mood mood );
+		void buildCombatSounds( void );
+
+		std::map<const AudioEventInfo *, Real> m_combatWeight;	///< weapon fire, damage and fear sounds, built once
+		Real m_intensity;
+		UnsignedInt m_lastFrame;
+		Mood m_mood;									///< what plays now; calm also while the scripts have the music
+		UnsignedInt m_moodSince;			///< frame the music last changed
+		UnsignedInt m_lowerSince;			///< frame the intensity first asked for less than m_mood, 0 while it does not
+		Bool m_inControl;							///< tense or battle music of ours plays and the scripts' changes are held
+		Bool m_issuing;								///< our own stop and play are going through
+		Bool m_stopHeld;
+		AudioHandle m_heldStop;				///< a script's stop, kept until the play after it says whose track it was
+		AsciiString m_side;						///< "USA", "CHI" or "GLA": whose playlist
+		AsciiString m_track;					///< the track we last started
+		AudioEventRTS *m_fadeEvent;		///< the device's own copy of the track fading in, NULL when none
+		AudioHandle m_fadeHandle;			///< its handle: the copy is only touched while the device still has it
+		UnsignedInt m_fadeStart;
+		Real m_fadeTarget;
+		Int m_pick[MOOD_COUNT];				///< steps through each mood's tracks in turn
+		UnsignedInt m_lastLogFrame;
 };
 
 #endif // __COMMON_GAMEMUSIC_H_

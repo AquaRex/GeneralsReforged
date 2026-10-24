@@ -604,6 +604,26 @@ TOOLTIP:AmbientVolume
 "Birds, wind, water and the hum of a town. Sound FX no longer moves these, so the battle can stay loud while the world around it stays quiet."
 END
 
+GUI:MasterVolume
+"Master Volume"
+END
+
+TOOLTIP:MasterVolume
+"Turns the whole game up or down: music, effects, voices, ambience and movies. The other sliders keep the mix, this one sets how loud the mix is."
+END
+
+GUI:OptionsGroupMusic
+"Music"
+END
+
+GUI:DynamicMusic
+"Music Follows the Fight"
+END
+
+TOOLTIP:DynamicMusic
+"In a skirmish or online match the music answers the battle: one of your side's calmer tracks while nothing happens, a harder one once guns fire near the camera or at your forces, and back to calm a few seconds after the fight ends. Off leaves the music as the original game played it."
+END
+
 GUI:IsometricCamera
 "Isometric Camera"
 END

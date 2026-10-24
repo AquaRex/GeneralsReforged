@@ -18,6 +18,13 @@ found and fixed â€” EA's own, not port damage.**
 - In a LAN or online room the other players do not download anything: the map's name carries its recipe, and their own game builds the same map from it and checks it against yours. A room that records stats keeps to the official list.
 - Random maps used to be reachable only by a hidden command-line switch that added five rows to the skirmish list.
 
+## Music that follows the fight
+
+- In a skirmish or an online match the music now answers the battle. While nothing happens one of your side's calmer tracks plays; once guns open up near the camera or on your own forces it crossfades to a harder one, and to the hardest when the fight is big. Six Crusaders against six Scorpions and four Technicals: the first shots brought in a tense track, the battle track followed four seconds later, and twelve seconds after the shooting died down a calm one was back. Two Rangers against three Rebels only gets the middle one.
+- The tracks are the game's own: each side's ten or eleven skirmish pieces were measured for loudness and pace and sorted three calm, three or four tense and four for battle. One track plays at a time, a change is a three-second crossfade, and a track keeps the floor for at least twenty seconds, so a skirmish that flares and dies does not make the music lurch.
+- Music Follows the Fight is on by default and sits under Music Volume on the Audio page. Off, the music plays as the original game had it.
+- A Master Volume slider heads the Audio page and turns the whole game down at once: music, effects, voices, ambience and movies. At half it put the music exactly 6.0 decibels lower. Unit replies keep their lift over the battle and are turned down with everything else, and at full volume the loudest moment of a tank fight still stops at the limiter's ceiling.
+
 ## Sound that travels
 
 - Sound takes time to cross the battlefield now. An explosion at the edge of the screen is heard about a quarter of a second after it is seen, one at the far end of a long view half a second after, at the speed of sound on the scale the units are drawn at. The wait never runs past a second. A sound also ends as late as it started: a missile's roar carries on until its boom arrives, instead of cutting out at the visible impact and leaving a hole seven decibels deep before the boom. Unit replies, the interface, music, speech and every sound a mission script waits on still play the moment they are asked for.

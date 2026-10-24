@@ -201,6 +201,7 @@ AudioManager::AudioManager() :
 	m_systemSoundVolume   = 0.0f; 
 	m_systemSpeechVolume  = 0.0f;
 	m_systemAmbientVolume = 0.0f;
+	m_systemMasterVolume = 1.0f;
 	m_zoomVolume = 1.0f;
 	m_volumeHasChanged			= FALSE;
 	//
@@ -300,16 +301,14 @@ void AudioManager::init()
 	m_systemSound3DVolume = getAudioSettings() ? getAudioSettings()->m_preferred3DSoundVolume: 0.75f;
 	m_systemSpeechVolume = getAudioSettings() ? getAudioSettings()->m_preferredSpeechVolume : 0.55f;
 	m_systemAmbientVolume = TheGlobalData->m_ambientVolume / 100.0f;	// the catalog loaded it from Options.ini
+	m_systemMasterVolume = TheGlobalData->m_masterVolume / 100.0f;
 
 	m_scriptMusicVolume = 1.0f;
 	m_scriptSoundVolume = 1.0f;
 	m_scriptSound3DVolume = 1.0f;
 	m_scriptSpeechVolume = 1.0f;
-	
-	m_musicVolume = m_systemMusicVolume;
-	m_soundVolume = m_systemSoundVolume;
-	m_sound3DVolume = m_systemSound3DVolume;
-	m_speechVolume = m_systemSpeechVolume;
+
+	recomputeVolumes();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -342,11 +341,7 @@ void AudioManager::reset()
 	m_scriptSound3DVolume = 1.0f;
 	m_scriptSpeechVolume = 1.0f;
 
-	// restore the final values to the 
-	m_musicVolume = m_systemMusicVolume;
-	m_soundVolume = m_systemSoundVolume;
-	m_sound3DVolume = m_systemSound3DVolume;
-	m_speechVolume = m_systemSpeechVolume;
+	recomputeVolumes();
 
 	m_disallowSpeech = FALSE;
 	m_handlesQueuedFromTick.clear();
@@ -436,6 +431,7 @@ void AudioManager::update()
 
 	set3DVolumeAdjustment( m_zoomVolume );
 
+	m_music->update();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -542,6 +538,9 @@ AudioHandle AudioManager::addAudioEventNow(const AudioEventRTS *eventToAdd, Audi
 			return AHSV_Error;
 		}
 	}
+
+	// the fight the music listens to is heard even with the effects switched off
+	m_music->noteSound(eventToAdd);
 
 	switch (eventToAdd->getAudioEventInfo()->m_soundType)
 	{
@@ -865,8 +864,6 @@ void AudioManager::setVolume( Real volume, AudioAffect whichToAffect )
 		} else {
 			m_scriptMusicVolume = volume;
 		}
-
-		m_musicVolume = m_scriptMusicVolume * m_systemMusicVolume;
 	}
 
 	if (whichToAffect & AudioAffect_Sound) {
@@ -875,8 +872,6 @@ void AudioManager::setVolume( Real volume, AudioAffect whichToAffect )
 		} else {
 			m_scriptSoundVolume = volume;
 		}
-
-		m_soundVolume = m_scriptSoundVolume * m_systemSoundVolume;
 	}
 
 	if (whichToAffect & AudioAffect_Sound3D) {
@@ -885,7 +880,6 @@ void AudioManager::setVolume( Real volume, AudioAffect whichToAffect )
 		} else {
 			m_scriptSound3DVolume = volume;
 		}
-		m_sound3DVolume = m_scriptSound3DVolume * m_systemSound3DVolume;
 	}
 
 	if (whichToAffect & AudioAffect_Speech) {
@@ -894,7 +888,6 @@ void AudioManager::setVolume( Real volume, AudioAffect whichToAffect )
 		} else {
 			m_scriptSpeechVolume = volume;
 		}
-		m_speechVolume = m_scriptSpeechVolume * m_systemSpeechVolume;
 	}
 
 	// No script volume of its own: a script that turns the effects down turns ambience down with them,
@@ -903,7 +896,30 @@ void AudioManager::setVolume( Real volume, AudioAffect whichToAffect )
 		m_systemAmbientVolume = volume;
 	}
 
-	m_volumeHasChanged = true;
+	if ((whichToAffect & AudioAffect_Master) && (whichToAffect & AudioAffect_SystemSetting)) {
+		m_systemMasterVolume = volume;
+	}
+
+	recomputeVolumes();
+}
+
+//-------------------------------------------------------------------------------------------------
+/** What the device reads: script times slider for each kind, the camera's zoom on 3D sound, and the
+	* Master slider on all of it.  Nothing reaches a sample without passing one of these four or
+	* getAmbientVolume, so a unit's reply, whose boost is taken on top of the louder of the effects and
+	* voice volumes and clamped to full scale, is turned down by Master like the rest. */
+void AudioManager::recomputeVolumes( void )
+{
+	m_musicVolume = m_scriptMusicVolume * m_systemMusicVolume * m_systemMasterVolume;
+	m_soundVolume = m_scriptSoundVolume * m_systemSoundVolume * m_systemMasterVolume;
+	m_sound3DVolume = MIN( 1.0f, MAX( 0.0f, m_zoomVolume * m_scriptSound3DVolume * m_systemSound3DVolume * m_systemMasterVolume ) );
+	m_speechVolume = m_scriptSpeechVolume * m_systemSpeechVolume * m_systemMasterVolume;
+
+	// Flagged every frame, changed or not: MilesAudioManager::getEffectiveVolume folds the listener's
+	// distance into a 3D sound's volume, so a playing sound needs it recomputed as the camera moves.
+	// EA skipped this while any speech stream played, against a hang inside the Miles DLL that the
+	// XAudio2 implementation does not have, and 3D volumes froze for as long as an EVA line lasted.
+	m_volumeHasChanged = TRUE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -939,27 +955,14 @@ Real AudioManager::getAmbientVolume( Bool positional ) const
 {
 	const Real volume = positional ? m_zoomVolume * m_scriptSound3DVolume * m_systemAmbientVolume
 		: m_scriptSoundVolume * m_systemAmbientVolume;
-	return MIN( 1.0f, MAX( 0.0f, volume ) );
+	return MIN( 1.0f, MAX( 0.0f, volume * m_systemMasterVolume ) );
 }
 
 //-------------------------------------------------------------------------------------------------
 void AudioManager::set3DVolumeAdjustment( Real volumeAdjustment )
 {
 	m_zoomVolume = volumeAdjustment;
-	m_sound3DVolume = volumeAdjustment * m_scriptSound3DVolume * m_systemSound3DVolume;
-	
-	// clamp
-	if (m_sound3DVolume < 0.0f) 
-		m_sound3DVolume = 0.0f;
-
-	if (m_sound3DVolume > 1.0f)
-		m_sound3DVolume = 1.0f;
-
-	// Flagged every frame, changed or not: MilesAudioManager::getEffectiveVolume folds the listener's
-	// distance into a 3D sound's volume, so a playing sound needs it recomputed as the camera moves.
-	// EA skipped this while any speech stream played, against a hang inside the Miles DLL that the
-	// XAudio2 implementation does not have, and 3D volumes froze for as long as an EVA line lasted.
-	m_volumeHasChanged = TRUE;
+	recomputeVolumes();
 }
 
 //-------------------------------------------------------------------------------------------------

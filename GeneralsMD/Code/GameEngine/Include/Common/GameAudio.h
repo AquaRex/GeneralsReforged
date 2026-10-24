@@ -350,6 +350,9 @@ class AudioManager : public SubsystemInterface
 		/// a handle a tick minted for a sound still waiting for the end of the tick counts as playing
 		Bool isQueuedFromTick( AudioHandle handle ) const;
 
+		/// m_musicVolume and the other three products from the script, system and Master volumes
+		void recomputeVolumes( void );
+
 	protected:
 		AudioSettings *m_audioSettings;
 		MiscAudio *m_miscAudio;
@@ -381,6 +384,7 @@ class AudioManager : public SubsystemInterface
 		Real m_systemSound3DVolume;
 		Real m_systemSpeechVolume;
 		Real m_systemAmbientVolume;
+		Real m_systemMasterVolume;	///< the Master slider, folded into the four products by recomputeVolumes
 		Real m_zoomVolume;
 
 
