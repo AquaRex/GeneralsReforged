@@ -511,7 +511,11 @@ NetCommandRef * Connection::processAck(UnsignedShort commandID, UnsignedByte ori
 	// Karn's rule: an ack for a command that went out more than once cannot be timed, because
 	// there is no way to tell which of the sends it is acking.  Timing it against the last send
 	// reads far too short and would drag the timeout down exactly when the link is losing packets.
-	if (temp->getNumTimesSent() <= 1) {
+	// Nor can a load-complete ack: it comes back when the other copy has finished loading and pumps
+	// its network again, seconds later, so it times the other machine's load and not the link.  Two
+	// seats that are not the packet router send each other nothing else before the match, so that
+	// one sample was the whole estimate and pinned their link at the 2000ms ceiling.
+	if ((temp->getNumTimesSent() <= 1) && (temp->getCommand()->getNetCommandType() != NETCOMMANDTYPE_LOADCOMPLETE)) {
 		Connection_updateRetryTimeout(lat, m_smoothedLatency, m_latencyVariance, m_retryTime);
 	}
 

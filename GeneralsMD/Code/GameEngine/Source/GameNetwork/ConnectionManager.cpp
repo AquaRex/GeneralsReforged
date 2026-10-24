@@ -1772,10 +1772,22 @@ Bool ConnectionManager::allCommandsReady(UnsignedInt frame, Bool justTesting /* 
 			retryTimeoutMS = direct->getRetryTimeMS();
 		}
 
+		/* Ask everyone the frame is still missing from, not only the first.  The loop above stops at
+			 the first player that is not ready, so with three or more seats a frame lost from two of
+			 them was asked for one seat at a time, the second only after the first had answered and a
+			 whole new wait had run out: 1.5 to 3 seconds frozen on frame 60 at the start of every lossy
+			 three-player match.  The players before notReadyPlayer were ready, or the loop would have
+			 stopped on them. */
 		if (shouldRequestFrameResend(stalledMS, sinceLastRequestMS, retryTimeoutMS)) {
-			DEBUG_LOG(("ConnectionManager::allCommandsReady - frame %d still missing from player %d after %d ms, asking again (retry timeout %d ms)\n",
-				frame, notReadyPlayer, stalledMS, retryTimeoutMS));
-			requestFrameDataResend(notReadyPlayer, frame);
+			for (i = notReadyPlayer; i < MAX_SLOTS; ++i) {
+				if ((m_frameData[i] == NULL) || m_frameData[i]->getIsQuitting() ||
+						(m_frameData[i]->getFrameCommandCount(frame) == m_frameData[i]->getCommandCount(frame))) {
+					continue;
+				}
+				DEBUG_LOG(("ConnectionManager::allCommandsReady - frame %d still missing from player %d after %d ms, asking again (retry timeout %d ms)\n",
+					frame, i, stalledMS, retryTimeoutMS));
+				requestFrameDataResend(i, frame);
+			}
 			m_resendLastRequest = now;
 		}
 	}
