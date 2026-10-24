@@ -81,6 +81,8 @@ const Real PAD_OPEN = 24.0f;			// the base's reach on open ground
 const Real PAD_CLIFF = 0.25f;			// of a base plateau's rim, the share that must fall away for it to be a plateau
 const Real PAD_SPACING = 0.45f;			// of the nearest two starts' distance, the most a pad's radius may be
 const Real PAD_SCALE_LEAST = 0.5f;
+const Int PAD_CORRIDOR = 28;				// cells between two plateau bases, Twilight Flame's narrowest way from one to the next
+const Real PAD_SCALE_STEP = 0.05f;		// how much smaller each try at a plateau base's size gets
 const Real PAD_SHORE = 4.0f;			// cells a pad stays off the exemplar's water
 const Real RAMP_STEEP = 8.0f;			// bytes a cell, the steepest a cut ramp climbs
 const Int WIDE_RAMP_HALF = 12;			// cells either side of its walk, a scaled plateau's ramp: Twilight Flame's 22 and the cliffs' growth
@@ -4732,10 +4734,56 @@ void baseRegions( const Exemplar& src, std::vector<Field>& regions, std::vector<
 	}
 }
 
+/// Whether every pad's plateau, the cells it holds that stand above halfway up its cliffs, keeps
+/// PAD_CORRIDOR from every other pad's.
+Bool plateausApart( const Exemplar& src, const std::vector<Copy>& pads, Int W, Int H )
+{
+	const Int SW = src.m.W, SH = src.m.H, reach = PAD_CORRIDOR / 2;
+	std::vector<Int> owner( W * H, -1 ), steps( W * H, 0 ), queue;
+	for( size_t p = 0; p < pads.size(); p++ )
+	{
+		const Copy& c = pads[p];
+		const Real top = src.lv.h[clampi( roundi( c.source.y ), 0, SH - 1 ) * SW + clampi( roundi( c.source.x ), 0, SW - 1 )];
+		const Real half = 0.5f * ( top + c.pivot );
+		Int area[4];
+		c.bounds( W, H, area );
+		for( Int y = area[0]; y <= area[2]; y++ )
+			for( Int x = area[1]; x <= area[3]; x++ )
+			{
+				if( c.weight( y, x, COPY_FADE ) < 0.5f ) continue;
+				YX s = c.toSource( (Real)y, (Real)x );
+				if( src.lv.h[clampi( roundi( s.y ), 0, SH - 1 ) * SW + clampi( roundi( s.x ), 0, SW - 1 )] < half ) continue;
+				Int i = y * W + x;
+				if( owner[i] >= 0 && owner[i] != (Int)p ) return FALSE;
+				if( owner[i] < 0 ) { owner[i] = (Int)p; queue.push_back( i ); }
+			}
+	}
+	// out from every plateau at once; two fronts meeting within reach of both is a way too narrow
+	for( size_t head = 0; head < queue.size(); head++ )
+	{
+		Int i = queue[head], x = i % W, y = i / W;
+		if( steps[i] >= reach ) continue;
+		const Int n[4] = { x + 1 < W ? i + 1 : -1, x > 0 ? i - 1 : -1, y + 1 < H ? i + W : -1, y > 0 ? i - W : -1 };
+		for( Int j = 0; j < 4; j++ )
+		{
+			if( n[j] < 0 ) continue;
+			if( owner[n[j]] >= 0 )
+			{
+				if( owner[n[j]] != owner[i] ) return FALSE;
+				continue;
+			}
+			owner[n[j]] = owner[i];
+			steps[n[j]] = steps[i] + 1;
+			queue.push_back( n[j] );
+		}
+	}
+	return TRUE;
+}
+
 /** The exemplar's base round every start: of its starts and the eight ways a square turns over,
 	the one that faces the middle as the start does, scaled down where the starts stand closer than
 	the bases are wide. */
-void planPads( const Exemplar& src, const Levels& skel, Int seed, const std::vector<Field>& regions,
+void planPads( const Exemplar& src, const Levels& skel, Int W, Int H, Int seed, const std::vector<Field>& regions,
 	const std::vector<Real>& reaches, const std::vector<Real>& edges, const std::vector<UnsignedByte>& raised,
 	std::vector<Copy>& pads )
 {
@@ -4792,6 +4840,28 @@ void planPads( const Exemplar& src, const Levels& skel, Int seed, const std::vec
 		memset( best.box, 0, sizeof(best.box) );
 		pads.push_back( best );
 	}
+	// a plateau base is copied at the exemplar's size, or as near it as still leaves PAD_CORRIDOR
+	// between two plateaus; the spacing rule above is the floor
+	if( !anyRaised )
+		return;
+	auto sizeTo = [&]( Real s )
+	{
+		for( size_t p = 0; p < pads.size(); p++ )
+		{
+			const size_t t = pads[p].region - &regions[0];
+			pads[p].scale = s;
+			pads[p].radius = ( reaches[t] + COPY_FADE ) * s + 1.0f;
+			pads[p].core = ( reaches[t] - PAD_MARGIN ) * s + 1.0f;
+			pads[p].heightScale = s;
+		}
+	};
+	for( Real s = 1.0f; s > scale; s -= PAD_SCALE_STEP )
+	{
+		sizeTo( s );
+		if( plateausApart( src, pads, W, H ) )
+			return;
+	}
+	sizeTo( scale );
 }
 
 /// The docks and derricks: the skeleton's off the pads, the exemplar's the pads carry.
@@ -5105,7 +5175,7 @@ Bool rmgSynthesise( const RandomMapSettings& clamped, const std::vector<char>& e
 	std::vector<UnsignedByte> raised;
 	baseRegions( src, regions, reaches, edges, raised );
 	std::vector<Copy> basePads;
-	planPads( src, skel, seed, regions, reaches, edges, raised, basePads );
+	planPads( src, skel, W, H, seed, regions, reaches, edges, raised, basePads );
 	carryMoney( src, basePads, skm );
 
 	// the exemplar's large features first, then what of the skeleton keeps its own height
