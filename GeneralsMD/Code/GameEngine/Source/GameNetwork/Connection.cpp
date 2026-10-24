@@ -275,8 +275,12 @@ void Connection::sendNetCommandMsg(NetCommandMsg *msg, UnsignedByte relay) {
 				NetCommandList *list = tempPacket->getCommandList();
 				NetCommandRef *ref1 = list->getFirstMessage();
 				while (ref1 != NULL) {
+					// NULL when the queue already holds a command with this author and id: a relayed
+					// command is wrapped under our own id counter (NetPacket.cpp), which can match one.
 					NetCommandRef *ref2 = m_netCommandList->addMessage(ref1->getCommand());
-					ref2->setRelay(relay);
+					if (ref2 != NULL) {
+						ref2->setRelay(relay);
+					}
 
 					ref1 = ref1->getNext();
 				}
