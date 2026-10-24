@@ -809,6 +809,7 @@ Real RankLadder::aura( Int grade, RankAura aura ) const
 	{ "NetworkPlayerSilenceTime", INI::parseInt, NULL, offsetof(GlobalData, m_networkPlayerSilenceTime) },
 	{ "NetworkStallCeilingTime", INI::parseInt, NULL, offsetof(GlobalData, m_networkStallCeilingTime) },
 	{ "NetworkPlayerTimeoutTime", INI::parseInt, NULL, offsetof(GlobalData, m_networkPlayerTimeoutTime) },
+	{ "NetworkSilentPlayerDropTime", INI::parseInt, NULL, offsetof(GlobalData, m_networkSilentPlayerDropTime) },
 	{ "NetworkDisconnectScreenNotifyTime", INI::parseInt, NULL, offsetof(GlobalData, m_networkDisconnectScreenNotifyTime) },
 	
 	{ "KeyboardCameraRotateSpeed", INI::parseReal, NULL, offsetof( GlobalData, m_keyboardCameraRotateSpeed ) },
@@ -1390,6 +1391,10 @@ GlobalData::GlobalData()
 	m_networkPlayerSilenceTime = 12000;
 	m_networkStallCeilingTime = 20000;
 	m_networkPlayerTimeoutTime = 60000;
+	/* Retail GameData.ini sets the timeout above to 60s, and the disconnect screen counted it from
+		 the moment the screen opened, so a crashed player held everyone else for 72s.  The drop now
+		 counts from the player's last packet and waits this long; retail sets no such key. */
+	m_networkSilentPlayerDropTime = 30000;
 	m_networkDisconnectScreenNotifyTime = 15000;
 
 	m_isBreakableMovie = FALSE;

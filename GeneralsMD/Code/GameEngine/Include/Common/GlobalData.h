@@ -799,6 +799,7 @@ public:
 	UnsignedInt m_networkPlayerSilenceTime;		      	///< The number of milliseconds we can go without hearing anything at all from a player before a stall is treated as a disconnect rather than a slow game.
 	UnsignedInt m_networkStallCeilingTime;		      	///< The number of milliseconds a stall can last with everyone still talking before we bring up the disconnect screen anyway.
 	UnsignedInt m_networkPlayerTimeoutTime;		      	///< The number of milliseconds between when a player's last keep alive command was recieved and when they are considered disconnected from the game.
+	UnsignedInt m_networkSilentPlayerDropTime;	      	///< The number of milliseconds a player can go without sending anything before the disconnect screen drops them; replaces m_networkPlayerTimeoutTime there.
 	UnsignedInt	m_networkDisconnectScreenNotifyTime;  ///< The number of milliseconds between when the disconnect screen comes up and when the other players are notified that we are on the disconnect screen.
 	
 	Real				m_keyboardCameraRotateSpeed;    ///< How fast the camera rotates when rotated via keyboard controls.
