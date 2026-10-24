@@ -4938,9 +4938,10 @@ void carryMoney( const Exemplar& src, const std::vector<Copy>& pads, SynthMap& s
 }
 
 /** A plateau copied smaller keeps its ramps' climb but not their width, and an army queues at the
-	narrow mouth. Every way down off a scaled plateau is widened to WIDE_RAMP_HALF either side of
-	its walk, each cell beside it at the height of the walk where it passes: the ramp's own climb,
-	as wide as the exemplar's. The ways down are the first cells a walk from the start reaches halfway
+	narrow mouth; one copied at full size keeps only the ramps inside its region, where the exemplar's
+	base opens onto the basin along far more. Every way down off a plateau is widened to
+	WIDE_RAMP_HALF either side of its walk, each cell beside it at the height of the walk where it
+	passes: the ramp's own climb, as wide as the exemplar's. The ways down are the first cells a walk from the start reaches halfway
 	down, a ramp's width apart; each walk runs on from there to the ground. */
 void widenRamps( std::vector<Int>& heights, Int W, Int H, Int border, const Plan& plan, const std::vector<Copy>& pads, Real ground )
 {
@@ -4952,7 +4953,6 @@ void widenRamps( std::vector<Int>& heights, Int W, Int H, Int border, const Plan
 	Field want( W * H ), weight( W * H );
 	for( size_t p = 0; p < pads.size(); p++ )
 	{
-		if( pads[p].heightScale >= 1.0f ) continue;
 		const Int start = clampi( roundi( pads[p].target.y ), 0, H - 1 ) * W + clampi( roundi( pads[p].target.x ), 0, W - 1 );
 		const Real top = (Real)heights[start];
 		const Real half = 0.5f * ( top + ground ), foot = ground + 0.1f * ( top - ground );

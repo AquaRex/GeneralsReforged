@@ -11199,8 +11199,12 @@ TEST(a_template_map_gives_each_player_the_ground_a_seat_has_on_the_template)
 	const Int TEMPLATE_X = 486, TEMPLATE_Y = 469, TEMPLATE_SEATS = 8;
 
 	CHECK_EQ( RandomMapGenerator::cellsForTemplate( RANDOM_MAP_SIZE_NORMAL, 8, TEMPLATE_X, TEMPLATE_Y, TEMPLATE_SEATS ), 477 );
-	CHECK_EQ( RandomMapGenerator::cellsForTemplate( RANDOM_MAP_SIZE_NORMAL, 4, TEMPLATE_X, TEMPLATE_Y, TEMPLATE_SEATS ), 337 );
+	CHECK_EQ( RandomMapGenerator::cellsForTemplate( RANDOM_MAP_SIZE_NORMAL, 4, TEMPLATE_X, TEMPLATE_Y, TEMPLATE_SEATS ), 477 );
+	CHECK_EQ( RandomMapGenerator::cellsForTemplate( RANDOM_MAP_SIZE_NORMAL, 2, TEMPLATE_X, TEMPLATE_Y, TEMPLATE_SEATS ), 477 );
 	CHECK_EQ( RandomMapGenerator::cellsForTemplate( RANDOM_MAP_SIZE_HUGE, 8, TEMPLATE_X, TEMPLATE_Y, TEMPLATE_SEATS ), 708 );
+	// past the template's seats each player adds a seat's ground
+	CHECK( RandomMapGenerator::cellsForTemplate( RANDOM_MAP_SIZE_NORMAL, 6, TEMPLATE_X, TEMPLATE_Y, 4 ) >
+		RandomMapGenerator::cellsForTemplate( RANDOM_MAP_SIZE_NORMAL, 4, TEMPLATE_X, TEMPLATE_Y, 4 ) );
 	for( Int size = 0; size + 1 < RANDOM_MAP_SIZE_COUNT; size++ )
 		for( Int players = RandomMapGenerator::MIN_PLAYERS; players <= RandomMapGenerator::MAX_PLAYERS; players++ )
 			CHECK( RandomMapGenerator::cellsForTemplate( (RandomMapSize)size, players, TEMPLATE_X, TEMPLATE_Y, TEMPLATE_SEATS ) <
@@ -11917,7 +11921,7 @@ TEST(a_template_map_comes_out_the_same_twice_and_every_start_walks_to_every_othe
 	RandomMapGenerator::generate( exemplarSettings, exemplar );
 
 	// the bytes themselves, pinned like the generator's: a change here is a change to every template map's name
-	static const UnsignedInt theTemplateFingerprints[2] = { 0xF9D5107Cu, 0xEE6AC80Cu };
+	static const UnsignedInt theTemplateFingerprints[2] = { 0xF9D5107Cu, 0x4035FBF7u };
 	for( Int players = 2; players <= 8; players += 6 )
 	{
 		RandomMapSettings settings;

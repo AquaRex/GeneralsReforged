@@ -7355,7 +7355,10 @@ Int RandomMapGenerator::cellsForTemplate( RandomMapSize size, Int numPlayers, In
 
 	if( numPlayers < MIN_PLAYERS ) numPlayers = MIN_PLAYERS;
 	if( numPlayers > MAX_PLAYERS ) numPlayers = MAX_PLAYERS;
-	double area = (double)cellsX * cellsY * numPlayers * AREA_PERCENT[size] / ( (double)seats * PERCENT );
+	// Medium is the template's own ground for as many players as it seats, the room they have on it;
+	// only players past its seats add a seat's share each
+	const Int seatsFilled = std::max( numPlayers, seats );
+	double area = (double)cellsX * cellsY * seatsFilled * AREA_PERCENT[size] / ( (double)seats * PERCENT );
 	Int cells = (Int)sqrt( area );
 	if( cells < MIN_CELLS ) cells = MIN_CELLS;
 	if( cells > MAX_CELLS ) cells = MAX_CELLS;
