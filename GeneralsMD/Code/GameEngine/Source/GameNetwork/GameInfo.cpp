@@ -480,7 +480,8 @@ Int GameInfo::getMaxPlayers( void ) const
 	if (it == TheMapCache->end())
 		return -1;
 	MapMetaData data = it->second;
-	return data.m_numPlayers;
+	// a generated map is made again for however many sit down, so the room is never full of it
+	return isGeneratedMapPath(m_mapName) ? MAX_SLOTS : data.m_numPlayers;
 }
 
 void GameInfo::enterGame( void )
@@ -920,8 +921,8 @@ void GameInfo::adjustSlotsForMap()
 	const MapMetaData *md = TheMapCache->findMap(m_mapName);
 	if (md != NULL)
 	{
-		// get the number of players allowed from the map.
-		Int numPlayers = md->m_numPlayers;
+		// get the number of players allowed from the map; a generated one follows the room
+		Int numPlayers = isGeneratedMapPath(m_mapName) ? MAX_SLOTS : md->m_numPlayers;
 		Int numPlayerSlots = 0;
 
 		// first get the number of occupied slots.

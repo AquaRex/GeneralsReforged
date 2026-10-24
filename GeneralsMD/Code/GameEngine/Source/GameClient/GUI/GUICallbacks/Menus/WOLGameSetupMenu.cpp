@@ -988,6 +988,19 @@ static void handleSuperweaponSelection()
 }
 
 
+/// The host's generated map made again for the seats taken, sent the way the map picker's Accept sends one.
+static Bool fitRandomMapToRoom(GameSpyStagingRoom *game)
+{
+	if (!game->amIHost() || !FitRandomMapToRoom(game))
+		return FALSE;
+	game->resetAccepted();
+	TheGameSpyInfo->setGameOptions();
+	WOLDisplaySlotList();
+	WOLDisplayGameOptions();
+	WOLPositionStartSpots();
+	return TRUE;
+}
+
 static void StartPressed(void)
 {
 	Bool isReady = TRUE;
@@ -996,6 +1009,9 @@ static void StartPressed(void)
 	Int humanCount = 0;
 	GameSpyStagingRoom *myGame = TheGameSpyInfo->getCurrentStagingRoom();
 	if (!myGame)
+		return;
+	// a seat changed since the last frame: everyone accepts the new map first
+	if (fitRandomMapToRoom(myGame))
 		return;
 
 	// see if everyone's accepted and count the number of players in the game
@@ -1868,6 +1884,10 @@ void WOLGameSetupMenuUpdate( WindowLayout * layout, void *userData)
 		RaiseGSMessageBox();
 		raiseMessageBoxes = false;
 	}
+
+	GameSpyStagingRoom *room = TheGameSpyInfo->getCurrentStagingRoom();
+	if (room && !room->isGameInProgress())
+		fitRandomMapToRoom(room);
 
 	if (TheShell->isAnimFinished() && !buttonPushed && TheGameSpyPeerMessageQueue)
 	{

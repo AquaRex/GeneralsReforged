@@ -11835,6 +11835,43 @@ TEST(a_generated_map_is_served_out_of_memory_and_written_nowhere)
 }
 
 //-------------------------------------------------------------------------------------------------
+/** The room makes its generated map again whenever a seat fills or empties: the seed and the size
+	stay, the player count and the cells that size gives it change, and going back gives the first
+	name again. */
+//-------------------------------------------------------------------------------------------------
+TEST(a_generated_map_restaged_for_another_seat_count_keeps_seed_and_size)
+{
+	CHECK( bootOnce() );
+
+	GlobalData *saved = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+
+	RandomMapSettings settings;
+	settings.m_seed = 7171;
+	settings.m_numPlayers = 2;
+	settings.m_playableCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_LARGE, 2 );
+	AsciiString twoPlayers;
+	CHECK( stageRandomMap( settings, twoPlayers ) );
+
+	AsciiString fivePlayers;
+	CHECK( restageRandomMap( twoPlayers, 5, fivePlayers ) );
+	AsciiString expected;
+	expected.format( "_7171_5p_%dc.map", RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_LARGE, 5 ) );
+	CHECK( fivePlayers.endsWithNoCase( expected.str() ) );
+	CHECK( TheFileSystem->doesFileExist( fivePlayers.str() ) );
+
+	AsciiString back;
+	CHECK( restageRandomMap( fivePlayers, 2, back ) );
+	CHECK( back.compareNoCase( twoPlayers ) == 0 );
+
+	AsciiString none;
+	CHECK( !restageRandomMap( AsciiString( "Maps\\Tournament Desert\\Tournament Desert.map" ), 4, none ) );
+
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = saved;
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Not a check: with RMG_DUMP set to "<dir> <seed>,<players>,<cells>,<style> ..." it writes each
 	map and its preview into dir, for mapscore.py and mapstyle.py to read. Nothing else writes a
 	generated map anywhere. Run as test_gameengine.exe write_the_maps_RMG_DUMP_names. */

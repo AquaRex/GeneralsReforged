@@ -3333,7 +3333,3 @@ END
 GUI:RandomMapSizeHuge
 "Extra Large"
 END
-
-GUI:RandomMapReroll
-"New Map"
-END

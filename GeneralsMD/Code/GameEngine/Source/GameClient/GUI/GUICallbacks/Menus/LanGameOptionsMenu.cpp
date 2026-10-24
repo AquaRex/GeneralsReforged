@@ -272,6 +272,12 @@ void StartPressed(void)
 	{
 		return;
 	}
+	// a seat changed since the last frame: the new map goes out and everyone accepts it again
+	if (TheLAN->AmIHost() && FitRandomMapToRoom(myGame))
+	{
+		PostToLanGameOptions(SEND_GAME_OPTS);
+		return;
+	}
 	myGame->getLANSlot(0)->setAccept(); // cause we are, of course!
 
 	int i;
@@ -1324,6 +1330,8 @@ void LanGameOptionsMenuUpdate( WindowLayout * layout, void *userData)
 {
 	if(LANisShuttingDown && TheShell->isAnimFinished() && TheTransitionHandler->isFinished())
 		shutdownComplete(layout);
+	else if (!LANisShuttingDown && TheLAN->AmIHost() && FitRandomMapToRoom(TheLAN->GetMyGame()))
+		PostToLanGameOptions(SEND_GAME_OPTS);
 	//TheLAN->update(); // this is handled in the lobby
 }// void LanGameOptionsMenuUpdate( WindowLayout * layout, void *userData)
 

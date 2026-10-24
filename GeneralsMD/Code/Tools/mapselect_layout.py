@@ -13,8 +13,9 @@ The geometry is read from the tracked room layouts, so a room laid out again by 
 only needs this script run after it. Every control keeps its name and EA's art; only rectangles
 move, plus the panel's colours. The Official / Unofficial radio buttons are drawn as UIStyle tabs by
 the menu code (DrawMapListTab in GUIUtil.cpp). A third tab, Random, is cloned in from them, with
-the panel it opens in the list's place: a map type list, a size row, a player row and New Map
-(RandomMapTab in GUIUtil.cpp).
+the panel it opens in the list's place: a map type list and a size row (RandomMapTab in
+GUIUtil.cpp). There is no player row, the map takes its player count from the room, and no New Map
+button, since every Accept rolls a fresh seed.
 
     python mapselect_layout.py <retail Menus dir> <Menus dir out>
 
@@ -45,16 +46,12 @@ PICKERS = {
     "LanMapSelectMenu": "LanGameOptionsMenu",
     "WOLMapSelectMenu": "GameSpyGameOptionsMenu",
 }
-# The Random tab: a map type list, a size row and a player row, the rows being radio buttons drawn as
-# tabs (the menu code gives them DrawMapListTab). RandomMapTab in GUIUtil.cpp reads these names.
+# The Random tab: a map type list and a size row, the row being radio buttons drawn as tabs (the menu
+# code gives them DrawMapListTab). RandomMapTab in GUIUtil.cpp reads these names.
 RANDOM_TAB = "RadioButtonRandomMaps"
 RANDOM_SIZES = ["Tiny", "Small", "Medium", "Large", "Huge"]
-RANDOM_PLAYERS = range(2, room.SEAT_COUNT + 1)
 RANDOM_PANEL = (["StaticTextRandomTemplate", "ListboxRandomTemplate", "StaticTextRandomSize"]
-                + ["RadioButtonRandomSize%d" % size for size in range(len(RANDOM_SIZES))]
-                + ["StaticTextRandomPlayers"]
-                + ["RadioButtonRandomPlayers%d" % count for count in RANDOM_PLAYERS]
-                + ["ButtonRandomReroll"])
+                + ["RadioButtonRandomSize%d" % size for size in range(len(RANDOM_SIZES))])
 
 NAMED = ["ButtonOK", "ButtonBack", "ListboxMap", "RadioButtonSystemMaps", "RadioButtonUserMaps",
          "WinMapPreview", "WinGadgetBorder", RANDOM_TAB] + RANDOM_PANEL + [
@@ -124,22 +121,16 @@ def add_random_tab(layout):
     tab = clone(room.need(layout, "RadioButtonUserMaps"), named(RANDOM_TAB))
     tab.set_prop("TEXT", '"GUI:Random"')
     templates = hidden(clone(room.need(layout, "ListboxMap"), named("ListboxRandomTemplate")))
-    reroll = hidden(clone(room.need(layout, "ButtonBack"), named("ButtonRandomReroll")))
-    reroll.set_prop("TEXT", '"GUI:RandomMapReroll"')
     windows = ([tab, label("StaticTextRandomTemplate", "GUI:RandomMapTemplate"), templates,
                 label("StaticTextRandomSize", "GUI:RandomMapSize")]
                + [radio("RadioButtonRandomSize%d" % size, "GUI:RandomMapSize%s" % name, 2)
-                  for size, name in enumerate(RANDOM_SIZES)]
-               + [label("StaticTextRandomPlayers", "GUI:Players")]
-               # the menu code writes the counts; a label here would be one string per digit
-               + [radio("RadioButtonRandomPlayers%d" % count, "", 3) for count in RANDOM_PLAYERS]
-               + [reroll])
+                  for size, name in enumerate(RANDOM_SIZES)])
     layout.root.children.extend(windows)
 
 
 def place_random_panel(layout, area):
-    """The map type list down the left half of the list's rectangle; size, players and New Map down
-    the right half."""
+    """The map type list down the left half of the list's rectangle; the size row at the top of the
+    right half."""
     left, top, width, height = area
     column = (width - 2 * room.GAP) // 2
     right = left + width - column
@@ -152,14 +143,6 @@ def place_random_panel(layout, area):
     find("StaticTextRandomSize").place(right - room.TEXT_NUDGE, top, column, LABEL_HEIGHT)
     place_row([find("RadioButtonRandomSize%d" % size) for size in range(len(RANDOM_SIZES))],
               right, list_top, column, TAB_HEIGHT)
-    players_top = list_top + TAB_HEIGHT + 2 * room.GAP
-    find("StaticTextRandomPlayers").place(right - room.TEXT_NUDGE, players_top, column, LABEL_HEIGHT)
-    place_row([find("RadioButtonRandomPlayers%d" % count) for count in RANDOM_PLAYERS],
-              right, players_top + LABEL_HEIGHT + room.GAP, column, TAB_HEIGHT)
-
-    back = find("ButtonBack")
-    button_width, button_height = box(back)[2:]
-    find("ButtonRandomReroll").place(right, top + height - button_height, button_width, button_height)
 
 
 def build(layout, room_layout):

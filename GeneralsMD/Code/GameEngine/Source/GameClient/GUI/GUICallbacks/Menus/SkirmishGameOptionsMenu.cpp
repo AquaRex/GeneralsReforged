@@ -215,6 +215,7 @@ static Bool justEntered = FALSE;
 static Bool buttonPushed = FALSE;
 static Bool stillNeedsToSetOptions = FALSE;
 void skirmishUpdateSlotList( void );
+void skirmishPositionStartSpots( void );
 static void populateSkirmishBattleHonors( void );
 // The turbo mode box, the only speed a skirmish has besides normal.  It is the fork's control, so a
 // stock or modded SkirmishGameOptionsMenu.wnd that wins over Run/Window has none and plays at normal
@@ -557,6 +558,11 @@ void CheckForCDAtGameStart( gameStartCallback callback )
 Bool sandboxOk = FALSE;
 static void startPressed(void)
 {
+	if (FitRandomMapToRoom(TheSkirmishGameInfo))
+	{
+		skirmishPositionStartSpots();
+		skirmishUpdateSlotList();
+	}
 
 	Bool isReady = FALSE;
 	Int playerCount = TheSkirmishGameInfo->getNumPlayers();
@@ -1698,6 +1704,12 @@ void SkirmishGameOptionsMenuUpdate( WindowLayout * layout, void *userData)
 	{
 		TheTransitionHandler->setGroup("SkirmishGameOptionsMenuFade");
 		stillNeedsToSetOptions = FALSE;
+	}
+
+	if (FitRandomMapToRoom(TheSkirmishGameInfo))
+	{
+		skirmishPositionStartSpots();
+		skirmishUpdateSlotList();
 	}
 
 	if(TheShell->isAnimFinished() && TheTransitionHandler->isFinished())

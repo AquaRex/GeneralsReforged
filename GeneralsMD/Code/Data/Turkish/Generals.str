@@ -17622,7 +17622,3 @@ END
 GUI:RandomMapSizeHuge
 "Çok Büyük"
 END
-
-GUI:RandomMapReroll
-"Yeni Harita"
-END

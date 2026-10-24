@@ -113,6 +113,11 @@ public:
 	map. On success mapPathOut is what -map wants. */
 extern Bool stageRandomMap( const RandomMapSettings& settings, AsciiString& mapPathOut );
 
+/** The generated map at this path made again for another number of players and staged: the same
+	seed, template or style and size, the size read back from the cells the name carries. A room
+	calls it when its seat count changes. FALSE when the path is not a generated map. */
+extern Bool restageRandomMap( const AsciiString& path, Int numPlayers, AsciiString& mapPathOut );
+
 /** Is this the path of a generated map or its preview, or the map.ini beside a
 	map that snows? The settings are in the name, which is what lets a replay, a
 	save or a joining machine rebuild the same bytes from the name alone. A name

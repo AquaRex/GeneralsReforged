@@ -8109,6 +8109,28 @@ Bool stageRandomMap( const RandomMapSettings& settings, AsciiString& mapPathOut 
 	return TRUE;
 }
 
+Bool restageRandomMap( const AsciiString& path, Int numPlayers, AsciiString& mapPathOut )
+{
+	RandomMapSettings settings;
+	if( !settingsFromGeneratedPath( path, settings ) )
+		return FALSE;
+
+	// the size is the one that gives the name's cells at the name's count; a style's map, or cells
+	// no size gives, take whatever the new count needs
+	const Int cells = settings.m_playableCells;
+	settings.m_playableCells = 0;
+	for( Int size = 0; size < RANDOM_MAP_SIZE_COUNT && settings.m_style == 0; size++ )
+	{
+		if( RandomMapGenerator::cellsFor( (RandomMapSize)size, settings.m_numPlayers, settings.m_template ) == cells )
+		{
+			settings.m_playableCells = RandomMapGenerator::cellsFor( (RandomMapSize)size, numPlayers, settings.m_template );
+			break;
+		}
+	}
+	settings.m_numPlayers = numPlayers;
+	return stageRandomMap( settings, mapPathOut );
+}
+
 Bool generatedMapBytes( const AsciiString& path, const char **bytesOut, Int *sizeOut )
 {
 	Int rulesSize = 0;
