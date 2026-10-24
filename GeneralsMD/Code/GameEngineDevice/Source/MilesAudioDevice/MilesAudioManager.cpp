@@ -46,6 +46,7 @@
 #include "Lib/Clock.h"
 #include "Lib/BaseType.h"
 #include "MilesAudioDevice/MilesAudioManager.h"
+#include "MilesAudioDevice/AudioMixPolicy.h"
 
 #include "Common/AudioAffect.h"
 #include "Common/AudioHandleSpecialValues.h"
@@ -142,11 +143,18 @@ MilesAudioManager::MilesAudioManager() :
 	m_clockFrame(0),
 	m_clockElapsedMs(MSEC_PER_LOGICFRAME_REAL),
 	m_clockMovedAt(0),
+	m_lastReplyAtMs(0),
+	m_mixLoggedAt(0),
+	m_occlusionCursor(0),
+	m_blockerColumns(0),
+	m_blockerRows(0),
+	m_blockersBuiltAt(0),
 	m_binkHandle(NULL),
 	m_pref3DProvider(AsciiString::TheEmptyString),
 	m_prefSpeaker(AsciiString::TheEmptyString)
 {
 	m_audioCache = NEW AudioFileCache;
+	memset(&m_mixCounts, 0, sizeof(m_mixCounts));
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -523,6 +531,10 @@ void MilesAudioManager::reset()
 	AudioManager::reset();
 	stopAllAudioImmediately();
   removeAllAudioRequests();
+	m_recentShots.clear();
+	m_replyAtMs.clear();
+	m_blockers.clear();
+	m_blockersBuiltAt = 0;
   // This must come after stopAllAudioImmediately() and removeAllAudioRequests(), to ensure that
   // sounds pointing to the temporary AudioEventInfo handles are deleted before their info is deleted
   removeLevelSpecificAudioEventInfos();
@@ -606,10 +618,15 @@ void MilesAudioManager::update()
 		m_roomMap = TheGlobalData->m_mapName;
 		setRoomFromMap();
 	}
+	if (TheGameLogic->isInGame() && !TheGameLogic->isLoadingMap())
+	{
+		buildBlockers();
+	}
 	setDeviceListenerPosition();
 	processRequestList();
 	processPlayingList();
 	processFadingList();
+	logMix();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -793,6 +810,10 @@ void MilesAudioManager::playAudioEvent( AudioEventRTS *event, Bool requestStop, 
 		delete event;			// nothing downstream will take it now
 		return;
 	}
+	if (!event->getIsLogicalAudio() && refuseReply(event)) {
+		delete event;
+		return;
+	}
 
 	std::list<PlayingAudio *>::iterator it;
 	PlayingAudio *playing = NULL;
@@ -941,8 +962,9 @@ void MilesAudioManager::playAudioEvent( AudioEventRTS *event, Bool requestStop, 
 				}
 
 				if (sample3D) {
-					audio->m_file = playSample3D(event, sample3D);
+					audio->m_file = playSample3D(audio);
 					m_sound->notifyOf3DSampleStart();
+					++m_mixCounts.started3D;
 					if (audio->m_file && !nextLoop) {
 						duckForBlast(event, sample3D);
 					}
@@ -1543,7 +1565,7 @@ void MilesAudioManager::adjustPlayingVolume( PlayingAudio *audio )
 		AIL_set_sample_volume_pan(audio->m_sample, getVoiceMixedVolume(audio->m_audioEventRTS, m_soundVolume), pan);
 
 	} else if (audio->m_type == PAT_3DSample) {
-		AIL_set_3D_sample_volume(audio->m_3DSample, getVoiceMixedVolume(audio->m_audioEventRTS, m_sound3DVolume));
+		applyOcclusion(audio);
 
 	} else if (audio->m_type == PAT_Stream) {
 		AIL_stream_volume_pan(audio->m_stream, NULL, &pan);
@@ -1606,11 +1628,10 @@ void MilesAudioManager::initFilters( HSAMPLE sample, const AudioEventRTS *event 
 }
 
 //-------------------------------------------------------------------------------------------------
-void MilesAudioManager::initFilters3D( H3DSAMPLE sample, const AudioEventRTS *event, const Coord3D *pos )
+void MilesAudioManager::initFilters3D( PlayingAudio *audio, const Coord3D *pos )
 {
-	// set the sample volume
-	Real volume = getVoiceMixedVolume(event, m_sound3DVolume);
-	AIL_set_3D_sample_volume(sample, volume);
+	H3DSAMPLE sample = audio->m_3DSample;
+	const AudioEventRTS *event = audio->m_audioEventRTS;
 
 	// pitch shift
 	Real pitchShift = event->getPitchShift();
@@ -1621,10 +1642,15 @@ void MilesAudioManager::initFilters3D( H3DSAMPLE sample, const AudioEventRTS *ev
 	}
 	
 	// Low pass filter: a real one now, a ceiling on the cutoff air already lowers with distance
-	// (MSS.h's AIL_ex_3D_cutoff), where it used to be a cut in volume
-	if (event->getAudioEventInfo()->m_lowPassFreq > 0 && !isOnScreen(pos) ) {
-		AIL_set_3D_sample_occlusion(sample, 1.0f - event->getAudioEventInfo()->m_lowPassFreq);
+	// (MSS.h's AIL_ex_3D_cutoff), where it used to be a cut in volume.  Every pass of the sound asks
+	// again, and a hill in the way muffles it further (updateOcclusion); applyOcclusion sets both, and
+	// the volume, since a new file on the handle has put its occlusion back to none.
+	audio->m_offscreenOcclusion = (event->getAudioEventInfo()->m_lowPassFreq > 0 && !isOnScreen(pos))
+		? 1.0f - event->getAudioEventInfo()->m_lowPassFreq : 0.0f;
+	if (!audio->m_tracked) {
+		updateOcclusion(audio, pos, TRUE);	// the first pass hears its hill from the start
 	}
+	applyOcclusion(audio);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1960,7 +1986,7 @@ void MilesAudioManager::notifyOfAudioCompletion( UnsignedIntPtr audioCompleted, 
 				return;
 			}
 		} else if (playing->m_type == PAT_3DSample) {
-			playing->m_file = playSample3D(playing->m_audioEventRTS, playing->m_3DSample);
+			playing->m_file = playSample3D(playing);
 
 			// If we don't have a file now, then we should drop to the stopped status so that 
 			// We correctly close this handle.
@@ -2245,7 +2271,266 @@ UnsignedInt MilesAudioManager::getNumStreams( void ) const
 }
 
 //-------------------------------------------------------------------------------------------------
+/** Every sound effect is asked this before it is queued (SoundManager::canPlayNow), and again before
+	* it plays when it waited for its distance (checkForSample).  Around EA's per-sound Limit sits the
+	* battle mix: a shot folded into an identical one before it, a battle sound over the budget after
+	* it.  A sound logic asked for, and waits on, is left exactly as EA had it.  Replies are held back
+	* where they start (playAudioEvent), since a unit's second line skips this question altogether. */
 Bool MilesAudioManager::doesViolateLimit( AudioEventRTS *event ) const
+{
+	const Bool mixed = !event->getIsLogicalAudio();
+	if (mixed && coalesceShot(event)) {
+		return true;
+	}
+	if (doesViolateEventLimit(event)) {
+		return true;
+	}
+	if (mixed && refuseOverBudget(event)) {
+		return true;
+	}
+	if (mixed) {
+		noteShot(event);
+	}
+	return false;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A unit's line in the commander's ear (a 2D voice with a speaker), asked as it is about to start.
+	* Clicking through a crowd, a factory emptying, a dozen units promoted in one fight each asked for
+	* one, and they stacked: a unit already talking skips canPlayNow's limits altogether when its line
+	* interrupts, and then played over itself.  The same unit is quiet for ReplyUnitCooldown after it
+	* spoke; another waits ReplyGap after the last line began, and no more than ReplyMaxVoices sound at
+	* once.  A line held back is dropped, not delayed: by then it answers nothing. */
+Bool MilesAudioManager::refuseReply( AudioEventRTS *event ) const
+{
+	const AudioEventInfo *info = event->getAudioEventInfo();
+	const UnsignedInt objectID = event->getObjectID();
+	if (!BitTest(info->m_type, ST_VOICE) || event->isPositionalAudio() || objectID == 0
+			|| info->m_soundType != AT_SoundEffect) {
+		return false;
+	}
+
+	const AudioSettings *settings = m_audioSettings;
+	const UnsignedInt now = Clock_Milliseconds();
+	std::map<UnsignedInt, UnsignedInt>::const_iterator spoke = m_replyAtMs.find(objectID);
+	Bool refuse = spoke != m_replyAtMs.end() && settings->m_replyUnitCooldown > 0.0f
+		&& (Real)(now - spoke->second) < settings->m_replyUnitCooldown;
+
+	Int lines = 0;
+	std::list<PlayingAudio *>::const_iterator it;
+	for (it = m_playingSounds.begin(); it != m_playingSounds.end(); ++it) {
+		AudioEventRTS *other = (*it)->m_audioEventRTS;
+		if ((*it)->isPlaying() && other->getObjectID() != 0 && other->getAudioEventInfo()
+				&& BitTest(other->getAudioEventInfo()->m_type, ST_VOICE)) {
+			++lines;
+		}
+	}
+	if (settings->m_replyMaxVoices > 0 && lines >= settings->m_replyMaxVoices) {
+		refuse = true;
+	}
+	if (lines > 0 && settings->m_replyGap > 0.0f && (Real)(now - m_lastReplyAtMs) < settings->m_replyGap) {
+		refuse = true;
+	}
+
+	if (refuse) {
+		++m_mixCounts.repliesHeld;
+		return true;
+	}
+	m_replyAtMs[objectID] = now;
+	m_lastReplyAtMs = now;
+	++m_mixCounts.repliesLet;
+	return false;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The loudness a sound reaches the microphone at, 0 to 1, with the slider taken back out: what the
+	* budget compares when it picks the sound that matters least. */
+Real MilesAudioManager::getLoudness( AudioEventRTS *event ) const
+{
+	const Real slider = isAmbientSound( event->getAudioEventInfo() ) ? getAmbientVolume( TRUE ) : m_sound3DVolume;
+	return getEffectiveVolume(event) / (slider > 0.0f ? slider : 1.0f);
+}
+
+//-------------------------------------------------------------------------------------------------
+/** What the battle mix may fold or take the place of: a one-shot world sound that is not a voice,
+	* not heard map-wide, not critical and not ambience. */
+static Bool isBattleShot( const AudioEventRTS *event )
+{
+	const AudioEventInfo *info = event->getAudioEventInfo();
+	return info != NULL && info->m_soundType == AT_SoundEffect && event->isPositionalAudio()
+		&& !BitTest(info->m_type, ST_VOICE | ST_GLOBAL) && info->m_priority != AP_CRITICAL
+		&& !BitTest(info->m_control, AC_LOOP) && !AudioManager::isAmbientSound(info);
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Twenty Rangers firing on one frame asked for twenty identical cracks from one patch of ground, and
+	* the voices ran out on the first volley.  A one-shot sound asked for within CoalesceFrames logic
+	* frames and CoalesceRadius units of the same sound let through just before folds into that one,
+	* which plays CoalesceGainStep louder for each, at most CoalesceMaxGain.  The one let through is
+	* found queued (its travel delay) or playing; once it is neither, the next one takes its place. */
+Bool MilesAudioManager::coalesceShot( AudioEventRTS *event ) const
+{
+	const AudioSettings *settings = m_audioSettings;
+	if (settings->m_coalesceRadius <= 0.0f || !isBattleShot(event)) {
+		return false;
+	}
+	const Coord3D *pos = event->getCurrentPosition();
+	if (pos == NULL) {
+		return false;
+	}
+
+	const UnsignedInt frame = TheGameLogic->getFrame();
+	std::vector<RecentShot>::iterator shot;
+	for (shot = m_recentShots.begin(); shot != m_recentShots.end(); ++shot) {
+		if (shot->handle == event->getPlayingHandle()) {
+			return false;	// one let through, asked again on its way to play
+		}
+	}
+	for (shot = m_recentShots.begin(); shot != m_recentShots.end(); ++shot) {
+		if (frame - shot->frame > (UnsignedInt)settings->m_coalesceFrames || shot->name != event->getEventName()) {
+			continue;
+		}
+		Coord3D apart = *pos;
+		apart.sub(&shot->position);
+		if (apart.length() > settings->m_coalesceRadius) {
+			continue;
+		}
+
+		// the survivor, queued or playing
+		AudioEventRTS *survivor = NULL;
+		PlayingAudio *survivorPlaying = NULL;
+		std::list<AudioRequest *>::const_iterator ait;
+		for (ait = m_audioRequests.begin(); ait != m_audioRequests.end() && !survivor; ++ait) {
+			if ((*ait)->m_usePendingEvent && (*ait)->m_pendingEvent->getPlayingHandle() == shot->handle) {
+				survivor = (*ait)->m_pendingEvent;
+			}
+		}
+		std::list<PlayingAudio *>::const_iterator it;
+		for (it = m_playing3DSounds.begin(); it != m_playing3DSounds.end() && !survivor; ++it) {
+			if ((*it)->isPlaying() && (*it)->m_audioEventRTS->getPlayingHandle() == shot->handle) {
+				survivorPlaying = *it;
+				survivor = survivorPlaying->m_audioEventRTS;
+			}
+		}
+		if (!survivor) {
+			continue;
+		}
+
+		++shot->merged;
+		++m_mixCounts.merged;
+		survivor->setVolume(shot->volume * AudioMixPolicy::coalescedGain(shot->merged, settings->m_coalesceGainStep,
+			settings->m_coalesceMaxGain));
+		if (survivorPlaying) {
+			const_cast<MilesAudioManager *>(this)->applyOcclusion(survivorPlaying);
+		}
+		return true;
+	}
+	return false;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A shot let through, for the identical ones asked for after it to fold into; the list keeps only
+	* the last CoalesceFrames' worth. */
+void MilesAudioManager::noteShot( AudioEventRTS *event ) const
+{
+	const AudioSettings *settings = m_audioSettings;
+	if (settings->m_coalesceRadius <= 0.0f || !isBattleShot(event) || event->getCurrentPosition() == NULL) {
+		return;
+	}
+	const UnsignedInt frame = TheGameLogic->getFrame();
+	std::vector<RecentShot>::iterator shot;
+	for (shot = m_recentShots.begin(); shot != m_recentShots.end(); ) {
+		if (shot->handle == event->getPlayingHandle()) {
+			return;
+		}
+		if (frame - shot->frame > (UnsignedInt)settings->m_coalesceFrames || frame < shot->frame) {
+			shot = m_recentShots.erase(shot);
+			continue;
+		}
+		++shot;
+	}
+	RecentShot recent;
+	recent.name = event->getEventName();
+	recent.position = *event->getCurrentPosition();
+	recent.frame = frame;
+	recent.handle = event->getPlayingHandle();
+	recent.merged = 0;
+	recent.volume = event->getVolume();
+	m_recentShots.push_back(recent);
+}
+
+//-------------------------------------------------------------------------------------------------
+/** BattleVoiceBudget one-shot battle sounds at a time.  Past it, a new one takes the place of the one
+	* that matters least (AudioMixPolicy::importance: priority, then loudness at the microphone, so the
+	* quietest and farthest go first) through EA's own handle-to-kill, or is not played when it matters
+	* less than every one of them.  Asked only when the sound is about to play: a sound still waiting
+	* for its distance is let into the queue, since what plays by the time it arrives is not known yet.
+	* Voices, ambience, loops and the 2D sounds of the interface are outside the budget, so battle noise
+	* never takes their voices. */
+Bool MilesAudioManager::refuseOverBudget( AudioEventRTS *event ) const
+{
+	const Int budget = m_audioSettings->m_battleVoiceBudget;
+	if (budget <= 0 || !isBattleShot(event) || event->getDelay() >= MSEC_PER_LOGICFRAME_REAL) {
+		return false;
+	}
+
+	Int count = 0;
+	AudioEventRTS *victim = NULL;
+	Real victimImportance = 0.0f;
+	std::list<PlayingAudio *>::const_iterator it;
+	for (it = m_playing3DSounds.begin(); it != m_playing3DSounds.end(); ++it) {
+		AudioEventRTS *other = (*it)->m_audioEventRTS;
+		if (!(*it)->isPlaying() || !isBattleShot(other)) {
+			continue;
+		}
+		++count;
+		const Real otherImportance = AudioMixPolicy::importance(other->getAudioEventInfo()->m_priority, getLoudness(other));
+		if (!victim || otherImportance < victimImportance) {
+			victim = other;
+			victimImportance = otherImportance;
+		}
+	}
+	if (count < budget) {
+		return false;
+	}
+
+	// EA's limit may already have picked one of the same sound to make room; that keeps the count.
+	if (event->getHandleToKill() != 0) {
+		return false;
+	}
+	if (AudioMixPolicy::importance(event->getAudioEventInfo()->m_priority, getLoudness(event)) <= victimImportance) {
+		++m_mixCounts.overBudget;
+		return true;
+	}
+	event->setHandleToKill(victim->getPlayingHandle());
+	++m_mixCounts.stolen;
+	return false;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Once a second of logic time in a match: what the battle mix did, for the -wav measurements. */
+void MilesAudioManager::logMix( void )
+{
+	if (!TheGameLogic->isInGame() || TheGameLogic->isInShellGame()) {
+		return;
+	}
+	const UnsignedInt frame = TheGameLogic->getFrame();
+	if (frame < m_mixLoggedAt + LOGICFRAMES_PER_SECOND && frame >= m_mixLoggedAt) {
+		return;
+	}
+	m_mixLoggedAt = frame;
+	if (m_mixCounts.started3D == 0 && m_mixCounts.repliesLet == 0 && m_mixCounts.repliesHeld == 0 && m_mixCounts.peak3D == 0) {
+		return;
+	}
+	DEBUG_LOG(("AUDIO MIX frame %u: %d 3D starts, peak %u voices (%u battle), %d folded, %d taken, %d over budget, "
+		"%d replies let %d held, %d looks, most muffled %.2f\n", frame, m_mixCounts.started3D, m_mixCounts.peak3D,
+		m_mixCounts.peakBattle, m_mixCounts.merged, m_mixCounts.stolen, m_mixCounts.overBudget, m_mixCounts.repliesLet,
+		m_mixCounts.repliesHeld, m_mixCounts.looks, m_mixCounts.occludedPeak));
+	memset(&m_mixCounts, 0, sizeof(m_mixCounts));
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool MilesAudioManager::doesViolateEventLimit( AudioEventRTS *event ) const
 {
 	Int limit = event->getAudioEventInfo()->m_limit;
 	if (limit == 0) {
@@ -2699,9 +2984,14 @@ void MilesAudioManager::processPlayingList( void )
 		}
 	}
 
+	// Occlusion looks along a few lines a pass, taking the playing sounds in turn (updateOcclusion).
+	const UnsignedInt count3D = (UnsignedInt)m_playing3DSounds.size();
+	const UnsignedInt looksThisPass = (UnsignedInt)max(m_audioSettings->m_occlusionRays, 0);
+	UnsignedInt index3D = 0;
 	for (it = m_playing3DSounds.begin(); it != m_playing3DSounds.end(); ++it)
 	{
 		playing = (*it);
+		const Bool lookAgain = (index3D++ + count3D - m_occlusionCursor % count3D) % count3D < looksThisPass;
 		if (!playing)
 			continue;
 
@@ -2769,6 +3059,7 @@ void MilesAudioManager::processPlayingList( void )
 					}
 					else
 					{
+						updateOcclusion( playing, pos, lookAgain );
 						trackVelocity( playing, pos );
 						Real x = pos->x;
 						Real y = pos->y;
@@ -2785,6 +3076,25 @@ void MilesAudioManager::processPlayingList( void )
 			}
 		}
 	}
+
+	m_occlusionCursor += looksThisPass;
+
+	// what the AUDIO MIX line reports: the most 3D voices at once, and how many of them were battle
+	UnsignedInt playing3D = 0;
+	UnsignedInt playingBattle = 0;
+	for (it = m_playing3DSounds.begin(); it != m_playing3DSounds.end(); ++it) {
+		playing = (*it);
+		if (playing && playing->isPlaying()) {
+			++playing3D;
+			const AudioEventInfo *info = playing->m_audioEventRTS->getAudioEventInfo();
+			if (info && !BitTest(info->m_type, ST_VOICE | ST_GLOBAL) && !isAmbientSound(info)) {
+				++playingBattle;
+			}
+			m_mixCounts.occludedPeak = max(m_mixCounts.occludedPeak, playing->m_occlusion);
+		}
+	}
+	m_mixCounts.peak3D = max(m_mixCounts.peak3D, playing3D);
+	m_mixCounts.peakBattle = max(m_mixCounts.peakBattle, playingBattle);
 
 	for (it = m_playingStreams.begin(); it != m_playingStreams.end(); ++it) {
 		playing = (*it);
@@ -2986,6 +3296,143 @@ void MilesAudioManager::trackVelocity( PlayingAudio *playing, const Coord3D *pos
 }
 
 //-------------------------------------------------------------------------------------------------
+/** A world sound behind a hill or a building is muffled: the line from the microphone to it is looked
+	* along (lookForOcclusion), and the deeper ground or a roof stands in it, the lower the backend's low
+	* pass closes (the occlusion it already takes for EA's off-screen sounds, AIL_ex_3D_cutoff) and the
+	* quieter it plays.  A sound's first pass is looked at as it starts; after that OcclusionRaysPerFrame
+	* playing sounds are looked at again a pass, in turn, and the muffle moves towards what they saw over
+	* OcclusionTime of logic time, so a unit walking out from behind a ridge opens up rather than
+	* jumping.  Voices and sounds heard map-wide are never muffled.  Only the client's view of the
+	* ground and the drawables is read. */
+void MilesAudioManager::updateOcclusion( PlayingAudio *playing, const Coord3D *pos, Bool look )
+{
+	const AudioEventInfo *info = playing->m_audioEventRTS->getAudioEventInfo();
+	if (m_audioSettings->m_occlusionStrength <= 0.0f || info == NULL || BitTest(info->m_type, ST_VOICE | ST_GLOBAL)) {
+		return;
+	}
+	if (look) {
+		playing->m_occlusionTarget = lookForOcclusion(pos);
+	}
+	const Real before = playing->m_occlusion;
+	playing->m_occlusion = playing->m_tracked
+		? AudioMixPolicy::approach(before, playing->m_occlusionTarget, m_clockElapsedMs, m_audioSettings->m_occlusionTime)
+		: playing->m_occlusionTarget;
+	if (playing->m_occlusion != before) {
+		applyOcclusion(playing);
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The low pass and the volume of a 3D sound: EA's off-screen low pass or the muffle, whichever is
+	* the closer, and the sliders' volume taken down by the muffle. */
+void MilesAudioManager::applyOcclusion( PlayingAudio *playing )
+{
+	const AudioSettings *settings = m_audioSettings;
+	const Real muffle = playing->m_occlusion * settings->m_occlusionStrength;
+	AIL_set_3D_sample_occlusion(playing->m_3DSample, max(playing->m_offscreenOcclusion, muffle));
+	const Real gain = 1.0f - (1.0f - settings->m_occlusionVolume) * playing->m_occlusion;
+	AIL_set_3D_sample_volume(playing->m_3DSample, getVoiceMixedVolume(playing->m_audioEventRTS, m_sound3DVolume) * gain);
+}
+
+//-------------------------------------------------------------------------------------------------
+/** How much of the full muffle the line from the microphone to pos earns, 0 to 1. */
+Real MilesAudioManager::lookForOcclusion( const Coord3D *pos ) const
+{
+	const Real LIFT = 10.0f;		// a sound comes off a unit, not out of the ground under it
+	const Real STEP = 20.0f;		// a sample of the line every cell of the blockers' grid
+	const Real MARGIN = 25.0f;	// the ground under either end is not a hill between them
+	const Int MAX_SAMPLES = 48;
+	++m_mixCounts.looks;
+	// A sound from a building, or a microphone over one, starts on its roof: its own roof is not in the way.
+	const Real sourceZ = max(pos->z, getBlockerHeight(pos->x, pos->y)) + LIFT;
+	const Real listenerZ = max(m_listenerPosition.z, getBlockerHeight(m_listenerPosition.x, m_listenerPosition.y) + LIFT);
+	const Real depth = AudioMixPolicy::rayObstruction(m_listenerPosition.x, m_listenerPosition.y, listenerZ,
+		pos->x, pos->y, sourceZ, STEP, MARGIN, MAX_SAMPLES,
+		[this]( Real x, Real y ) { return getBlockerHeight( x, y ); });
+	return AudioMixPolicy::occlusionAmount(depth, m_audioSettings->m_occlusionDepth);
+}
+
+//-------------------------------------------------------------------------------------------------
+static const Real BLOCKER_CELL = 20.0f;
+static const Real NO_ROOF = -100000.0f;
+
+/** The ground, or the roof over it where a building stands. */
+Real MilesAudioManager::getBlockerHeight( Real x, Real y ) const
+{
+	const Real ground = TheTerrainLogic->getGroundHeight( x, y );
+	if (m_blockers.empty()) {
+		return ground;
+	}
+	Region3D extent;
+	TheTerrainLogic->getExtent(&extent);
+	const Int column = (Int)floorf((x - extent.lo.x) / BLOCKER_CELL);
+	const Int row = (Int)floorf((y - extent.lo.y) / BLOCKER_CELL);
+	if (column < 0 || row < 0 || column >= m_blockerColumns || row >= m_blockerRows) {
+		return ground;
+	}
+	return max(ground, m_blockers[row * m_blockerColumns + column]);
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The roofs, once a second of logic time: every structure the client draws, over the cells its
+	* footprint covers, at its top.  Bridges are left out (a sound under one is not behind it), and so is
+	* a building the local player has never seen, whose muffle would give it away. */
+void MilesAudioManager::buildBlockers( void )
+{
+	const UnsignedInt frame = TheGameLogic->getFrame();
+	if (m_audioSettings->m_occlusionStrength <= 0.0f
+			|| (!m_blockers.empty() && frame >= m_blockersBuiltAt && frame < m_blockersBuiltAt + LOGICFRAMES_PER_SECOND)) {
+		return;
+	}
+	m_blockersBuiltAt = frame;
+
+	Region3D extent;
+	TheTerrainLogic->getExtent(&extent);
+	m_blockerColumns = (Int)ceilf(extent.width() / BLOCKER_CELL);
+	m_blockerRows = (Int)ceilf(extent.height() / BLOCKER_CELL);
+	m_blockers.assign((size_t)(m_blockerColumns * m_blockerRows), NO_ROOF);
+
+	const Int playerIndex = TheObserverCamera.getShroudPlayerIndex();
+	for (Drawable *draw = TheGameClient->firstDrawable(); draw; draw = draw->getNextDrawable())
+	{
+		const ThingTemplate *thing = draw->getTemplate();
+		if (!thing->isKindOf(KINDOF_STRUCTURE) || thing->isKindOf(KINDOF_BRIDGE) || thing->isKindOf(KINDOF_BRIDGE_TOWER)) {
+			continue;
+		}
+		const Coord3D *pos = draw->getPosition();
+		if (ThePartitionManager->getShroudStatusForPlayer(playerIndex, pos) == CELLSHROUD_SHROUDED) {
+			continue;
+		}
+		const GeometryInfo &geometry = thing->getTemplateGeometryInfo();
+		const Real roof = pos->z + geometry.getMaxHeightAbovePosition();
+		const Real reach = geometry.getBoundingCircleRadius();
+		const Real angle = draw->getOrientation();
+		const Real c = cosf(angle);
+		const Real s = sinf(angle);
+		const Int firstColumn = max(0, (Int)floorf((pos->x - reach - extent.lo.x) / BLOCKER_CELL));
+		const Int lastColumn = min(m_blockerColumns - 1, (Int)floorf((pos->x + reach - extent.lo.x) / BLOCKER_CELL));
+		const Int firstRow = max(0, (Int)floorf((pos->y - reach - extent.lo.y) / BLOCKER_CELL));
+		const Int lastRow = min(m_blockerRows - 1, (Int)floorf((pos->y + reach - extent.lo.y) / BLOCKER_CELL));
+		for (Int row = firstRow; row <= lastRow; ++row)
+		{
+			for (Int column = firstColumn; column <= lastColumn; ++column)
+			{
+				// the cell's centre, in the building's own frame
+				const Real dx = extent.lo.x + (column + 0.5f) * BLOCKER_CELL - pos->x;
+				const Real dy = extent.lo.y + (row + 0.5f) * BLOCKER_CELL - pos->y;
+				const Bool inside = geometry.getGeomType() == GEOMETRY_BOX
+					? fabsf(dx * c + dy * s) <= geometry.getMajorRadius() && fabsf(-dx * s + dy * c) <= geometry.getMinorRadius()
+					: dx * dx + dy * dy <= geometry.getMajorRadius() * geometry.getMajorRadius();
+				Real &cell = m_blockers[row * m_blockerColumns + column];
+				if (inside && roof > cell) {
+					cell = roof;
+				}
+			}
+		}
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
 /** The room the map's world sounds send into (AIL_ex_set_reverb), from the map itself: how much of
 	* its playable ground the placed structures cover.  Supply docks are left out, being on every map at
 	* a third to a full percent of it.  The shipped maps measured that way run from about 0.1% (Twilight
@@ -3093,8 +3540,15 @@ Bool MilesAudioManager::checkForSample( AudioRequest *req )
     // Fill in event info
     getInfoForAudioEvent( req->m_pendingEvent );
   }
-  
-	if (req->m_pendingEvent->getAudioEventInfo()->m_type != AT_SoundEffect) 
+
+	// A battle shot that waited out its distance meets the voice budget as it lands: when it was asked
+	// for, the voices it would join were still to come.  EA's test below compares the ST_ bits with an
+	// AudioType, so most delayed sounds skip canPlayNow here and never reached the budget at all.
+	if (refuseOverBudget(req->m_pendingEvent)) {
+		return false;
+	}
+
+	if (req->m_pendingEvent->getAudioEventInfo()->m_type != AT_SoundEffect)
   {
 		return true;
 	}
@@ -3183,38 +3637,31 @@ Real MilesAudioManager::getFileLengthMS( AsciiString strToLoad ) const
 }
 
 //-------------------------------------------------------------------------------------------------
+/** The cache is throwing a file away to make room, so whatever plays it stops now: its sample is
+	* ended and handed back, and it forgets the file, which is freed when this returns.  It stays on its
+	* list, stopped, for processPlayingList's sweep to free.
+	*
+	* It used to be freed here, and this runs from inside the cache's openFile, which is reached from
+	* the middle of playAudioEvent, startNextLoop and notifyOfAudioCompletion, while stopAudioEvent or
+	* processPlayingList are walking the 3D list and holding one of its sounds.  Crash 1275 (v3.2.0, a
+	* NULL event read in stopAudioEvent's walk of the 3D list) fits that: in v3.2.0 a sound whose stop
+	* was being processed opened its decay portion still naming the file it had just closed, an eviction
+	* could find it by that file and free it and its list node, and the walk went on through freed
+	* memory.  1bb1e81b made that sound forget its file first; this makes an eviction free nothing under
+	* any caller. */
 void MilesAudioManager::closeAnySamplesUsingFile( const void *fileToClose )
 {
-	std::list<PlayingAudio *>::iterator it;
-	PlayingAudio *playing;
-	
-	for (it = m_playingSounds.begin(); it != m_playingSounds.end(); ) {
-		playing = *it;
-		if (!playing) {
-			continue;
+	std::list<PlayingAudio *> *lists[] = { &m_playingSounds, &m_playing3DSounds };
+	for (Int i = 0; i < 2; ++i) {
+		std::list<PlayingAudio *>::iterator it;
+		for (it = lists[i]->begin(); it != lists[i]->end(); ++it) {
+			PlayingAudio *playing = *it;
+			if (playing->m_file == fileToClose) {
+				stopPlayingAudio(playing);
+				playing->m_file = NULL;	// freed by the cache, not to be closed again by the sweep
+			}
 		}
-
-		if (playing->m_file == fileToClose) {
-			stopPlayingAudio(playing);
-		}
-		++it;
 	}
-
-	for (it = m_playing3DSounds.begin(); it != m_playing3DSounds.end(); ) {
-		playing = *it;
-		if (!playing) {
-			++it;
-			continue;
-		}
-
-		if (playing->m_file == fileToClose) {
-			stopPlayingAudio(playing);
-		}
-		++it;
-	}
-
-	releasePlayingAudioInListIfStopped(m_playingSounds, m_playingSoundsCS);
-	releasePlayingAudioInListIfStopped(m_playing3DSounds, m_playing3DSoundsCS);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3323,18 +3770,19 @@ Bool MilesAudioManager::startNextLoop( PlayingAudio *looping )
 		looping->m_audioEventRTS->generateFilename();
 		
 		if (looping->m_audioEventRTS->getDelay() > MSEC_PER_LOGICFRAME_REAL) {
-			// fake it out so that this sound appears done, but also so that it will not
-			// delete the sound on completion (which would suck)
-			looping->m_cleanupAudioEventRTS = false;
+			// This pass is done, and the next waits on the request list for its delay with a copy of
+			// the event.  EA handed over the event itself and kept pointing at it until the sweep, so a
+			// stop that dropped the request in the same update freed it under this entry, and the next
+			// walk of the list (stopAudioEvent, the sweep's stopPlayingAudio) read freed memory.
 #if defined(_WIN32)
 			InterlockedCompareExchange( (volatile long *)&looping->m_status, PS_Stopping, PS_Playing );
 #else
 			playingStatusCompareExchange( &looping->m_status, PS_Stopping, PS_Playing );
 #endif
-			
-			
+
+
 			AudioRequest *req = allocateAudioRequest(true);
-			req->m_pendingEvent = looping->m_audioEventRTS;
+			req->m_pendingEvent = MSGNEW("AudioEventRTS") AudioEventRTS(*looping->m_audioEventRTS);
 			req->m_requiresCheckForSample = true;
 			req->m_nextLoop = true;
 			appendAudioRequest(req);
@@ -3342,7 +3790,7 @@ Bool MilesAudioManager::startNextLoop( PlayingAudio *looping )
 		}
 
 		if (looping->m_type == PAT_3DSample) {
-			looping->m_file = playSample3D(looping->m_audioEventRTS, looping->m_3DSample);
+			looping->m_file = playSample3D(looping);
 		} else {
 			looping->m_file = playSample(looping->m_audioEventRTS, looping->m_sample);
 		}
@@ -3392,8 +3840,10 @@ void *MilesAudioManager::playSample( AudioEventRTS *event, HSAMPLE sample )
 }
 
 //-------------------------------------------------------------------------------------------------
-void *MilesAudioManager::playSample3D( AudioEventRTS *event, H3DSAMPLE sample3D )
+void *MilesAudioManager::playSample3D( PlayingAudio *audio )
 {
+	AudioEventRTS *event = audio->m_audioEventRTS;
+	H3DSAMPLE sample3D = audio->m_3DSample;
 	const Coord3D *pos = getCurrentPositionFromEvent(event);
 	if (pos) {
 		// Load the file in
@@ -3420,7 +3870,7 @@ void *MilesAudioManager::playSample3D( AudioEventRTS *event, H3DSAMPLE sample3D 
 			Real y = pos->y;
 			Real z = pos->z;
 			AIL_set_3D_position( sample3D, x, y, z );
-			initFilters3D(sample3D, event, pos);
+			initFilters3D(audio, pos);
 			
 			// Start playback
 			noteAudioStarted((UnsignedIntPtr) sample3D);

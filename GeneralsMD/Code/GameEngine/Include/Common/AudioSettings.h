@@ -52,7 +52,20 @@ struct AudioSettings
 		m_airAbsorptionDistance( 300.0f ),
 		m_reverbLevel( 1.0f ),
 		m_duckVolume( 0.15f ),
-		m_duckTime( 4000.0f )
+		m_duckTime( 4000.0f ),
+		m_replyUnitCooldown( 1500.0f ),
+		m_replyGap( 400.0f ),
+		m_replyMaxVoices( 2 ),
+		m_battleVoiceBudget( 16 ),
+		m_coalesceRadius( 80.0f ),
+		m_coalesceFrames( 2 ),
+		m_coalesceGainStep( 0.12f ),
+		m_coalesceMaxGain( 1.5f ),
+		m_occlusionStrength( 0.75f ),
+		m_occlusionVolume( 0.6f ),
+		m_occlusionDepth( 20.0f ),
+		m_occlusionTime( 250.0f ),
+		m_occlusionRays( 16 )
 	{
 		m_duckSounds.push_back( "ExplosionNeutron" );
 		m_duckSounds.push_back( "ExplosionDaisyCutter" );
@@ -110,6 +123,41 @@ struct AudioSettings
 	Real m_duckVolume;
 	Real m_duckTime;
 	std::vector<AsciiString> m_duckSounds;
+
+	/** The battle mix (MilesAudioManager), none of which the shipped file carries either.
+		*
+		* A unit's reply in the commander's ear: the same unit says nothing again for
+		* `ReplyUnitCooldown` milliseconds, another unit's line waits `ReplyGap` milliseconds after the
+		* last one started, and no more than `ReplyMaxVoices` lines sound at once.  Zero switches each off.
+		* EVA and the interface are never held back, and nothing in the battle takes their voices.
+		*
+		* `BattleVoiceBudget`: how many one-shot battle sounds play at once.  Past it a new one takes the
+		* place of the least important (lowest priority, then the quietest, which is mostly the farthest),
+		* or is not played if it matters less than all of them.  Loops are counted but never taken.  Zero
+		* is no budget.
+		*
+		* `CoalesceRadius` (game units) and `CoalesceFrames` (logic frames): the same one-shot sound asked
+		* for that soon after and that close to another is folded into it, which plays `CoalesceGainStep`
+		* louder for each one folded in, at most `CoalesceMaxGain` times.  A zero radius folds nothing.
+		*
+		* Occlusion: ground or a building in the line from the microphone muffles a world sound, the low
+		* pass at `OcclusionStrength` of the backend's occlusion and the volume down to `OcclusionVolume`
+		* once `OcclusionDepth` units of hill stand in the line, moving over `OcclusionTime` milliseconds;
+		* `OcclusionRaysPerFrame` playing sounds are looked at again each pass.  A zero strength is no
+		* occlusion. */
+	Real m_replyUnitCooldown;
+	Real m_replyGap;
+	Int m_replyMaxVoices;
+	Int m_battleVoiceBudget;
+	Real m_coalesceRadius;
+	Int m_coalesceFrames;
+	Real m_coalesceGainStep;
+	Real m_coalesceMaxGain;
+	Real m_occlusionStrength;
+	Real m_occlusionVolume;
+	Real m_occlusionDepth;
+	Real m_occlusionTime;
+	Int m_occlusionRays;
 
 	Int m_drawableAmbientFrames;
 	Int m_fadeAudioFrames;

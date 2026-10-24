@@ -1701,6 +1701,7 @@ GameEngine/Source/GameNetwork/WOLBrowser/WebBrowserPosix.cpp
 GameEngine/Source/GameNetwork/udp.cpp
 GameEngine/Source/Precompiled/PreRTS.cpp
 GameEngineDevice/GameEngineDevice.dsp
+GameEngineDevice/Include/MilesAudioDevice/AudioMixPolicy.h
 GameEngineDevice/Include/MilesAudioDevice/MilesAudioManager.h
 GameEngineDevice/Include/PosixDevice/Common/PosixFileResolutionDump.h
 GameEngineDevice/Include/PosixDevice/Common/PosixGameEngine.h
@@ -3116,6 +3117,7 @@ Tests/shader_cases.h
 Tests/terrain_golden.txt
 Tests/terrain_grid.h
 Tests/terrain_oracle.cpp
+Tests/test_audio_mix_policy.cpp
 Tests/test_bigfilesystem.cpp
 Tests/test_bigfilesystem_stubs.cpp
 Tests/test_binkvideo.cpp

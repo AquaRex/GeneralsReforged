@@ -94,6 +94,12 @@ struct PlayingAudio
 	/// logic milliseconds still to wait, and m_stopHeld stays set once it has gone through.
 	Bool m_stopHeld;
 	Real m_stopInMs;
+	/// A world sound behind a hill or a building (MilesAudioManager::updateOcclusion): how muffled it
+	/// is now, 0 to 1, what the last look along the line said it should be, and EA's off-screen low pass
+	/// it was started with, which the muffle never goes under.
+	Real m_occlusion;
+	Real m_occlusionTarget;
+	Real m_offscreenOcclusion;
 
 	PlayingAudio() :
 		m_type(PAT_INVALID),
@@ -108,7 +114,10 @@ struct PlayingAudio
 		m_framesFaded(0),
 		m_tracked(false),
 		m_stopHeld(false),
-		m_stopInMs(0.0f)
+		m_stopInMs(0.0f),
+		m_occlusion(0.0f),
+		m_occlusionTarget(0.0f),
+		m_offscreenOcclusion(0.0f)
 	{
 		m_lastPosition.zero();
 		m_velocity.zero();
@@ -247,6 +256,24 @@ class MilesAudioManager : public AudioManager
 		Bool killLowestPrioritySoundImmediately( AudioEventRTS *event );
 		AudioEventRTS* findLowestPrioritySound( AudioEventRTS *event );
 
+		// The battle mix: replies held back as they start (playAudioEvent), identical shots folded
+		// together and a budget for battle voices through doesViolateLimit, the question every sound is
+		// asked before it plays.  None of them touches a sound logic asked for (getIsLogicalAudio).
+		Bool doesViolateEventLimit( AudioEventRTS *event ) const;
+		Bool refuseReply( AudioEventRTS *event ) const;
+		Bool coalesceShot( AudioEventRTS *event ) const;
+		void noteShot( AudioEventRTS *event ) const;
+		Bool refuseOverBudget( AudioEventRTS *event ) const;
+		Real getLoudness( AudioEventRTS *event ) const;
+		void logMix( void );
+
+		// Occlusion: the line from the microphone to a world sound, through the ground and the buildings.
+		Real lookForOcclusion( const Coord3D *pos ) const;
+		void updateOcclusion( PlayingAudio *playing, const Coord3D *pos, Bool look );
+		void applyOcclusion( PlayingAudio *playing );
+		void buildBlockers( void );
+		Real getBlockerHeight( Real x, Real y ) const;
+
 		virtual void adjustVolumeOfPlayingAudio(AsciiString eventName, Real newVolume);
 
 		virtual void removePlayingAudio( AsciiString eventName );
@@ -289,7 +316,7 @@ class MilesAudioManager : public AudioManager
 		void playStream( AudioEventRTS *event, HSTREAM stream );
 		// Returns the file handle for attachment to the PlayingAudio structure
 		void *playSample( AudioEventRTS *event, HSAMPLE sample );
-		void *playSample3D( AudioEventRTS *event, H3DSAMPLE sample3D );
+		void *playSample3D( PlayingAudio *audio );
 
 	protected:
 		void buildProviderList( void );
@@ -328,7 +355,7 @@ class MilesAudioManager : public AudioManager
 		
 	protected:
 		void initFilters( HSAMPLE sample, const AudioEventRTS *eventInfo );
-		void initFilters3D( H3DSAMPLE sample, const AudioEventRTS *eventInfo, const Coord3D *pos );
+		void initFilters3D( PlayingAudio *audio, const Coord3D *pos );
 
 	protected:
 		ProviderInfo m_provider3D[MAXPROVIDERS];
@@ -408,6 +435,35 @@ class MilesAudioManager : public AudioManager
 		std::list<CompletedAudio> m_completedAudio;
 		std::map<UnsignedIntPtr, UnsignedInt> m_audioStarts;
 		CriticalSectionClass m_completedAudioCS;
+
+		/// A one-shot battle sound let through, for the ones asked for right after it to fold into.
+		struct RecentShot
+		{
+			AsciiString name;
+			Coord3D position;
+			UnsignedInt frame;
+			AudioHandle handle;
+			Int merged;
+			Real volume;	///< the volume it was asked at, before anything was folded into it
+		};
+		mutable std::vector<RecentShot> m_recentShots;
+		mutable std::map<UnsignedInt, UnsignedInt> m_replyAtMs;	///< object -> Clock_Milliseconds of its last reply
+		mutable UnsignedInt m_lastReplyAtMs;
+		/// What the mix did since the last AUDIO MIX line, and the most 3D voices heard at once.
+		struct MixCounts
+		{
+			Int started3D, merged, stolen, overBudget, repliesLet, repliesHeld, looks;
+			UnsignedInt peak3D, peakBattle;
+			Real occludedPeak;
+		};
+		mutable MixCounts m_mixCounts;
+		UnsignedInt m_mixLoggedAt;
+		UnsignedInt m_occlusionCursor;
+		/// The tallest roof over each cell, for occlusion, rebuilt now and then from the drawables.
+		std::vector<Real> m_blockers;
+		Int m_blockerColumns;
+		Int m_blockerRows;
+		UnsignedInt m_blockersBuiltAt;
 
 		AudioFileCache *m_audioCache;
 		PlayingAudio *m_binkHandle;
