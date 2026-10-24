@@ -487,6 +487,7 @@ static unsigned long long s_smoothPasses = 0;
 W3DDisplay::~W3DDisplay()
 {
 	W3DParticleSystemManager::releaseCloudResources();
+	W3DParticleSystemManager::releaseGpuResources();
 	// R1: how each captured model was treated per tick, for the snap rules' tuning.
 	{
 		const unsigned long long *counts = SmoothMotion_Counts();

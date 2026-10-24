@@ -1239,6 +1239,9 @@ GlobalData::GlobalData()
 	m_particleGroundBounce = FALSE;
 	m_smokeThickness = 0.0f;
 	m_particleCapOverride = 0;
+	m_gpuParticleCapacity = 1 << 20;
+	m_gpuParticleCapacityOverride = -1;
+	m_gpuParticleCheck = FALSE;
 	m_noDynamicLODOverride = FALSE;
 	m_maxFieldParticleCount = 30;
 	

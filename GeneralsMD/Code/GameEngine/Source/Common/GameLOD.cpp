@@ -65,6 +65,7 @@ static const FieldParse TheStaticGameLODFieldParseTable[] =
 	{ "SampleCount3D",					INI::parseInt,					NULL,	offsetof( StaticGameLODInfo, m_sampleCount3D ) },
 	{ "StreamCount",					INI::parseInt,					NULL,	offsetof( StaticGameLODInfo, m_streamCount ) },
 	{ "MaxParticleCount",				INI::parseInt,					NULL,	offsetof( StaticGameLODInfo, m_maxParticleCount ) },
+	{ "GpuParticleCapacity",			INI::parseInt,					NULL,	offsetof( StaticGameLODInfo, m_gpuParticleCapacity ) },
 	{ "UseShadowVolumes",				INI::parseBool,					NULL,	offsetof( StaticGameLODInfo, m_useShadowVolumes ) },
 	{ "UseShadowDecals",				INI::parseBool,					NULL,	offsetof( StaticGameLODInfo, m_useShadowDecals ) },
 	{ "UseCloudMap",					INI::parseBool,					NULL,	offsetof( StaticGameLODInfo, m_useCloudMap ) },
@@ -90,6 +91,11 @@ static const char *StaticGameLODNames[]=
 	"Custom"
 };
 
+// The Direct3D 11 particle ring each level asks for, Low to Ultra.  Ultra's is the million slots the
+// ring was measured at (GPU-PARTICLES.md) and each level below halves it.  The shipped GameLOD.ini
+// has no GpuParticleCapacity line, so these stand unless a modder's copy names one.
+static const Int TheGpuParticleCapacities[STATIC_GAME_LOD_CUSTOM] = { 1 << 17, 1 << 18, 1 << 19, 1 << 20 };
+
 StaticGameLODInfo::StaticGameLODInfo(void)
 {
 	m_minFPS=0;
@@ -98,6 +104,7 @@ StaticGameLODInfo::StaticGameLODInfo(void)
 	m_sampleCount3D=24;
 	m_streamCount=2;
 	m_maxParticleCount=2500;
+	m_gpuParticleCapacity=TheGpuParticleCapacities[STATIC_GAME_LOD_HIGH];
 
 	m_useShadowVolumes=TRUE;
 	m_useShadowDecals=TRUE;
@@ -239,7 +246,10 @@ GameLODManager::GameLODManager(void)
 	m_reallyLowMHz = 400;
 	
 	for (Int i=0; i<STATIC_GAME_LOD_CUSTOM; i++)
+	{
 		m_numLevelPresets[i]=0;
+		m_staticGameLODInfo[i].m_gpuParticleCapacity=TheGpuParticleCapacities[i];	//before GameLOD.ini, which may name its own
+	}
 };
 
 GameLODManager::~GameLODManager()
@@ -382,6 +392,7 @@ void GameLODManager::refreshCustomStaticLODLevel(void)
 	StaticGameLODInfo *lodInfo=&m_staticGameLODInfo[STATIC_GAME_LOD_CUSTOM];
 
 	lodInfo->m_maxParticleCount=TheGlobalData->m_maxParticleCount;
+	lodInfo->m_gpuParticleCapacity=TheGlobalData->m_gpuParticleCapacity;
 	lodInfo->m_useShadowVolumes=TheGlobalData->m_useShadowVolumes;
 	lodInfo->m_useShadowDecals=TheGlobalData->m_useShadowDecals;
 	lodInfo->m_useCloudMap=TheGlobalData->m_useCloudMap;
@@ -561,6 +572,7 @@ void GameLODManager::applyStaticLODLevel(StaticGameLODLevel level)
 	if (TheGlobalData)
 	{
 		TheWritableGlobalData->m_maxParticleCount=lodInfo->m_maxParticleCount;
+		TheWritableGlobalData->m_gpuParticleCapacity=lodInfo->m_gpuParticleCapacity;
 		TheWritableGlobalData->m_useShadowVolumes=lodInfo->m_useShadowVolumes;
 		TheWritableGlobalData->m_useShadowDecals=lodInfo->m_useShadowDecals;
 
@@ -729,6 +741,7 @@ StaticGameLODInfo makeUltraStaticGameLOD( const StaticGameLODInfo &high )
 {
 	StaticGameLODInfo ultra = high;
 	ultra.m_maxParticleCount = ULTRA_MAX_PARTICLE_COUNT;
+	ultra.m_gpuParticleCapacity = TheGpuParticleCapacities[STATIC_GAME_LOD_ULTRA];
 	ultra.m_useShadowVolumes = TRUE;
 	ultra.m_useShadowDecals = TRUE;
 	ultra.m_useCloudMap = TRUE;

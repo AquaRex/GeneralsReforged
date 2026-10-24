@@ -335,6 +335,9 @@ Data/Scenarios/overlordlong.txt
 Data/Scenarios/overlordrush.txt
 Data/Scenarios/parade.txt
 Data/Scenarios/particles100k.txt
+Data/Scenarios/particles1m.txt
+Data/Scenarios/particles1m_mixed.txt
+Data/Scenarios/particles1m_smoke.txt
 Data/Scenarios/rankaura.txt
 Data/Scenarios/rankauramaresal.txt
 Data/Scenarios/rankauranight.txt
@@ -694,6 +697,7 @@ GameEngine/Include/GameClient/Module/SwayClientUpdate.h
 GameEngine/Include/GameClient/Mouse.h
 GameEngine/Include/GameClient/ObserverCamera.h
 GameEngine/Include/GameClient/ParabolicEase.h
+GameEngine/Include/GameClient/ParticleClosedForm.h
 GameEngine/Include/GameClient/ParticleSys.h
 GameEngine/Include/GameClient/PlaceEventTranslator.h
 GameEngine/Include/GameClient/PlayerColorScheme.h
@@ -1718,6 +1722,7 @@ GameEngineDevice/Include/W3DDevice/Common/W3DRadar.h
 GameEngineDevice/Include/W3DDevice/Common/W3DThingFactory.h
 GameEngineDevice/Include/W3DDevice/GameClient/BaseHeightMap.h
 GameEngineDevice/Include/W3DDevice/GameClient/FlatHeightMap.h
+GameEngineDevice/Include/W3DDevice/GameClient/GpuParticles.h
 GameEngineDevice/Include/W3DDevice/GameClient/HeightMap.h
 GameEngineDevice/Include/W3DDevice/GameClient/Module/W3DDebrisDraw.h
 GameEngineDevice/Include/W3DDevice/GameClient/Module/W3DDefaultDraw.h
@@ -1866,6 +1871,7 @@ GameEngineDevice/Source/W3DDevice/Common/Thing/W3DModuleFactory.cpp
 GameEngineDevice/Source/W3DDevice/Common/Thing/W3DThingFactory.cpp
 GameEngineDevice/Source/W3DDevice/Common/W3DConvert.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/BaseHeightMap.cpp
+GameEngineDevice/Source/W3DDevice/GameClient/DX11GpuParticles.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/DX11HazardCloud.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DDebrisDraw.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DDefaultDraw.cpp
@@ -1904,6 +1910,7 @@ GameEngineDevice/Source/W3DDevice/GameClient/GUI/Gadget/W3DVerticalSlider.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/GUI/W3DGameFont.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/GUI/W3DGameWindow.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/GUI/W3DGameWindowManager.cpp
+GameEngineDevice/Source/W3DDevice/GameClient/GpuParticlesUnsupported.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/HazardCloud.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudCore.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudFlow.cpp

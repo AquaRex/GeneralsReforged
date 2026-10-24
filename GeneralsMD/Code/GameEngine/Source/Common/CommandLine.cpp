@@ -966,6 +966,38 @@ Int parseParticleCap(char *args[], int num)
 	return 2;
 }
 
+/* -gpuparticles [slots]: how many spawn records the Direct3D 11 particle ring holds this run, over the
+	 detail preset's (Ultra 1 << 20 down to Low 1 << 17).  The preset is applied after the command line,
+	 so this is a field of its own, read through getEffectiveGpuParticleCapacity, as -particlecap is.
+	 Bare is Ultra's 1 << 20; 0 keeps every particle on the CPU path with its cap.  The number is
+	 optional, so only a word that starts with a digit is taken.  -d3d9, Classic and the SDL3 builds
+	 never draw on the GPU whatever this says.  GPU-PARTICLES.md. */
+Int parseGpuParticles(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+	{
+		if (num > 1 && args[1] && args[1][0] >= '0' && args[1][0] <= '9')
+		{
+			TheWritableGlobalData->m_gpuParticleCapacityOverride = atoi(args[1]);
+			return 2;
+		}
+		TheWritableGlobalData->m_gpuParticleCapacityOverride = 1 << 20;
+	}
+	return 1;
+}
+
+/* -gpuparticlecheck: every GPU-eligible particle also runs the CPU update, and the log carries the
+	 largest difference between the closed form and the real Particle state.  For proving the shader's
+	 maths, not for playing: it costs both paths at once. */
+Int parseGpuParticleCheck(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_gpuParticleCheck = TRUE;
+	}
+	return 1;
+}
+
 /* The sun's shadow map is how this game draws shadows, and there is no switch for it.  It fills
 	 every frame and the stencil volumes stand down behind it; a machine with no Direct3D 11 device
 	 fills no map and keeps the volumes on its own, which is the whole of the fallback.  What is
@@ -2808,6 +2840,8 @@ static CommandLineParam params[] =
 	{ "-particlebounce", parseParticleBounce },
 	{ "-smoke", parseSmoke },
 	{ "-particlecap", parseParticleCap },
+	{ "-gpuparticles", parseGpuParticles },
+	{ "-gpuparticlecheck", parseGpuParticleCheck },
 	{ "-noDynamicLOD", parseNoDynamicLOD },
 	{ "-nochroma", parseNoChroma },
 	{ "-shadowmapreport", parseShadowMapReport },

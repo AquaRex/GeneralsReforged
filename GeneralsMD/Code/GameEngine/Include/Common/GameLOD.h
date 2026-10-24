@@ -105,6 +105,7 @@ struct StaticGameLODInfo
 	Int m_sampleCount3D; ///<How many 3-D (World) samples should we allow simultaneously (Note: Hardware may support less than the desired number)
 	Int m_streamCount; ///<How many streaming audio things should we allow simultaneously (Note: Hardware may support less than the desired number)
 	Int m_maxParticleCount; ///<maximum number of particles that can exist
+	Int m_gpuParticleCapacity; ///<Direct3D 11 particle ring slots for what goes past m_maxParticleCount, 0 for none
 	Bool m_useShadowVolumes;	///<use volumetric shadows if available.
 	Bool m_useShadowDecals;	///<use 2D Decal shadows.
 	Bool m_useCloudMap;	///<use cloud shadows scrolling over terrain.

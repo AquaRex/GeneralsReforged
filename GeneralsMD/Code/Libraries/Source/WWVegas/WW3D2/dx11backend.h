@@ -119,6 +119,9 @@ public:
 	// Copy the scene's depth for the soft particles if anything wrote it since the last copy.  The
 	// sorting pool calls it at the top of each flush, before any particle run resolves its program.
 	void Take_Scene_Depth();
+	// The copy Take_Scene_Depth keeps, for a pass drawn behind the backend's back that fades where
+	// it meets the world (the GPU particles).  Null before the first copy and under Classic.
+	ID3D11ShaderResourceView * Scene_Depth_Copy() const { return SceneDepthCopyView; }
 	// How many depth copies Take_Scene_Depth made since the last call.  Taking it resets it.
 	unsigned Take_Frame_Depth_Copies();
 	// Off under the Classic graphics setting, whose picture is -d3d9's: no draw fades, no copy.
@@ -129,6 +132,7 @@ public:
 			PipelineChanged = true;
 		}
 	}
+	bool Soft_Particles_Allowed() const { return SoftParticlesAllowed; }
 
 	// The engine bound a texture at this stage that has no D3D11 copy - a render target it drew
 	// into, most often.  Sampling white there paints a full screen quad over the frame, so a draw

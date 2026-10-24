@@ -3149,6 +3149,454 @@ TEST(particle_already_leaving_the_surface_is_only_lifted_clear)
 }
 
 //////////////////////////////////////////////////////////////////////////////
+// Particle closed form
+//
+// ParticleClosedForm.h says where Particle::update leaves a particle after k
+// updates without running them.  A real Particle needs a live system and the
+// manager, so the replica below is Particle::update's arithmetic copied line
+// for line (no wind, no ground, no upTowardsEmitter).  A change to that
+// function has to be made here as well.
+//////////////////////////////////////////////////////////////////////////////
+
+#include "GameClient/ParticleClosedForm.h"
+
+struct ParticleReplica
+{
+	Coord3D pos, vel, accel;
+	Real velDamping, angleZ, angularRateZ, angularDamping, size, sizeRate, sizeRateDamping;
+	Keyframe alphaKey[ MAX_KEYFRAMES ];
+	RGBColorKeyframe colorKey[ MAX_KEYFRAMES ];
+	Real alpha, alphaRate;
+	Int alphaTargetKey;
+	RGBColor color, colorRate;
+	Int colorTargetKey;
+	Real colorScale;
+	UnsignedInt lifetime, lifetimeLeft, createTimestamp;
+
+	void computeAlphaRate()
+	{
+		if (alphaKey[ alphaTargetKey ].frame == 0)
+		{
+			alphaRate = 0.0f;
+			return;
+		}
+		Real delta = alphaKey[ alphaTargetKey ].value - alphaKey[ alphaTargetKey - 1 ].value;
+		UnsignedInt time = alphaKey[ alphaTargetKey ].frame - alphaKey[ alphaTargetKey - 1 ].frame;
+		alphaRate = delta / time;
+	}
+
+	void computeColorRate()
+	{
+		if (colorKey[ colorTargetKey ].frame == 0)
+		{
+			colorRate.red = colorRate.green = colorRate.blue = 0.0f;
+			return;
+		}
+		UnsignedInt time = colorKey[ colorTargetKey ].frame - colorKey[ colorTargetKey - 1 ].frame;
+		colorRate.red = ( colorKey[ colorTargetKey ].color.red - colorKey[ colorTargetKey - 1 ].color.red ) / time;
+		colorRate.green = ( colorKey[ colorTargetKey ].color.green - colorKey[ colorTargetKey - 1 ].color.green ) / time;
+		colorRate.blue = ( colorKey[ colorTargetKey ].color.blue - colorKey[ colorTargetKey - 1 ].color.blue ) / time;
+	}
+
+	Bool isInvisible( const ParticleUpdateContext &context )
+	{
+		switch (context.shaderType)
+		{
+			case ParticleSystemInfo::ADDITIVE:
+				if (colorTargetKey >= MAX_KEYFRAMES || colorKey[ colorTargetKey ].frame == 0)
+					return ( color.red + color.green + color.blue ) <= 0.06f;
+				return false;
+			case ParticleSystemInfo::ALPHA:
+				if (alphaTargetKey >= MAX_KEYFRAMES || alphaKey[ alphaTargetKey ].frame == 0)
+					return alpha < 0.02f;
+				return false;
+			default:
+				return false;
+		}
+	}
+
+	Bool update( const ParticleUpdateContext &context )
+	{
+		if (context.gravity != 0.0f)
+			accel.z += context.gravity;
+		vel.x += accel.x;
+		vel.y += accel.y;
+		vel.z += accel.z;
+		vel.x *= velDamping;
+		vel.y *= velDamping;
+		vel.z *= velDamping;
+		pos.x += vel.x + context.driftVelocity.x;
+		pos.y += vel.y + context.driftVelocity.y;
+		pos.z += vel.z + context.driftVelocity.z;
+
+		angleZ += angularRateZ;
+		angularRateZ *= angularDamping;
+		size += sizeRate;
+		sizeRate *= sizeRateDamping;
+
+		if (context.shaderType != ParticleSystemInfo::ADDITIVE)
+		{
+			alpha += alphaRate;
+			if (alphaTargetKey < MAX_KEYFRAMES && alphaKey[ alphaTargetKey ].frame)
+			{
+				if (context.clientFrame - createTimestamp >= alphaKey[ alphaTargetKey ].frame)
+				{
+					alpha = alphaKey[ alphaTargetKey ].value;
+					alphaTargetKey++;
+					computeAlphaRate();
+				}
+			}
+			else
+				alphaRate = 0.0f;
+			alpha = particleClosedFormClamp01( alpha );
+		}
+
+		color.red += colorRate.red;
+		color.green += colorRate.green;
+		color.blue += colorRate.blue;
+		if (colorTargetKey < MAX_KEYFRAMES && colorKey[ colorTargetKey ].frame)
+		{
+			if (context.clientFrame - createTimestamp >= colorKey[ colorTargetKey ].frame)
+			{
+				colorTargetKey++;
+				computeColorRate();
+			}
+		}
+		else
+			colorRate.red = colorRate.green = colorRate.blue = 0.0f;
+		color.red = particleClosedFormClamp01( color.red + colorScale );
+		color.green = particleClosedFormClamp01( color.green + colorScale );
+		color.blue = particleClosedFormClamp01( color.blue + colorScale );
+
+		accel.z = accel.y = accel.x = 0.0f;
+
+		if (lifetimeLeft)
+		{
+			if (--lifetimeLeft == 0)
+				return false;
+			UnsignedInt fadeFrames = lifetime / PARTICLE_CLOSED_FORM_FADE_LIFETIME_DIVISOR;
+			if (fadeFrames > PARTICLE_CLOSED_FORM_FADE_MAX_FRAMES)
+				fadeFrames = PARTICLE_CLOSED_FORM_FADE_MAX_FRAMES;
+			else if (fadeFrames == 0)
+				fadeFrames = 1;
+			if (lifetimeLeft <= fadeFrames)
+			{
+				const Real envelope = (Real)( lifetimeLeft - 1 ) / (Real)fadeFrames;
+				if (context.shaderType == ParticleSystemInfo::ALPHA && alpha > envelope)
+					alpha = envelope;
+				if (context.shaderType == ParticleSystemInfo::ADDITIVE)
+				{
+					Real brightest = color.red > color.green ? color.red : color.green;
+					brightest = brightest > color.blue ? brightest : color.blue;
+					if (brightest > envelope)
+					{
+						const Real scale = envelope / brightest;
+						color.red *= scale;
+						color.green *= scale;
+						color.blue *= scale;
+					}
+				}
+			}
+		}
+		return !isInvisible( context );
+	}
+};
+
+/// a system and a particle of it the closed-form tests start from; keys all off
+static void closedFormSetup( ParticleSystemInfo *system, ParticleInfo *info,
+														 ParticleSystemInfo::ParticleShaderType shader, UnsignedInt lifetime )
+{
+	system->m_shaderType = shader;
+	system->m_driftVelocity.set( 0.25f, -0.5f, 0.125f );
+	system->m_gravity = -0.05f;
+	for( Int i = 0; i < MAX_KEYFRAMES; ++i )
+	{
+		system->m_alphaKey[ i ].frame = 0;
+		system->m_colorKey[ i ].frame = 0;
+		system->m_colorKey[ i ].color.red = system->m_colorKey[ i ].color.green = system->m_colorKey[ i ].color.blue = 0.0f;
+		info->m_alphaKey[ i ].value = 0.0f;
+	}
+	info->m_pos.set( 10.0f, 20.0f, 30.0f );
+	info->m_vel.set( 1.5f, -0.75f, 2.0f );
+	info->m_velDamping = 0.95f;
+	info->m_angleZ = 0.3f;
+	info->m_angularRateZ = 0.05f;
+	info->m_angularDamping = 0.9f;
+	info->m_size = 2.0f;
+	info->m_sizeRate = 0.4f;
+	info->m_sizeRateDamping = 0.98f;
+	info->m_colorScale = 0.0f;
+	info->m_lifetime = lifetime;
+}
+
+static void closedFormColorKey( ParticleSystemInfo *system, Int key, Real red, Real green, Real blue, UnsignedInt frame )
+{
+	system->m_colorKey[ key ].color.red = red;
+	system->m_colorKey[ key ].color.green = green;
+	system->m_colorKey[ key ].color.blue = blue;
+	system->m_colorKey[ key ].frame = frame;
+}
+
+static void closedFormAlphaKey( ParticleSystemInfo *system, ParticleInfo *info, Int key, Real value, UnsignedInt frame )
+{
+	system->m_alphaKey[ key ].frame = frame;
+	info->m_alphaKey[ key ].value = value;
+}
+
+struct ClosedFormRun
+{
+	Real				kinematic;			///< worst relative error over position, velocity, size and angle
+	Real				alpha;					///< worst alpha error before the fade window
+	Real				color;					///< worst colour error before the fade window
+	Real				overEnvelope;		///< how far above the envelope the closed form sat inside the window
+	Int					deathMismatches;
+	UnsignedInt	diedAt;					///< the update the replica returned false on
+};
+
+static Real closedFormRelative( Real a, Real b )
+{
+	return fabsf( a - b ) / ( 1.0f + fabsf( b ) );
+}
+
+static void closedFormWorst( Real *worst, Real error )
+{
+	if (!( error <= *worst ))
+		*worst = error;
+}
+
+static ClosedFormRun closedFormAgainstUpdate( const ParticleSystemInfo &system, ParticleInfo info )
+{
+	for( Int i = 0; i < MAX_KEYFRAMES; ++i )
+	{
+		info.m_alphaKey[ i ].frame = system.m_alphaKey[ i ].frame;
+		info.m_colorKey[ i ] = system.m_colorKey[ i ];
+	}
+
+	const UnsignedInt birth = 1000;
+	ParticleGpuSpawn spawn;
+	ParticleGpuSystemEntry entry;
+	particleGpuSpawnPack( info, birth, 3, 7, &spawn );
+	particleGpuSystemEntryBuild( system, &entry );
+
+	// the replica takes the alpha values the spawn record kept, so quantising is not counted as error
+	ParticleReplica p;
+	p.pos = info.m_pos;
+	p.vel = info.m_vel;
+	p.accel.zero();
+	p.velDamping = info.m_velDamping;
+	p.angleZ = info.m_angleZ;
+	p.angularRateZ = info.m_angularRateZ;
+	p.angularDamping = info.m_angularDamping;
+	p.size = info.m_size;
+	p.sizeRate = info.m_sizeRate;
+	p.sizeRateDamping = info.m_sizeRateDamping;
+	for( Int i = 0; i < MAX_KEYFRAMES; ++i )
+	{
+		p.alphaKey[ i ].value = particleGpuSpawnAlphaKey( spawn, i );
+		p.alphaKey[ i ].frame = info.m_alphaKey[ i ].frame;
+		p.colorKey[ i ] = info.m_colorKey[ i ];
+	}
+	p.alpha = p.alphaKey[ 0 ].value;
+	p.alphaTargetKey = 1;
+	p.computeAlphaRate();
+	p.color = p.colorKey[ 0 ].color;
+	p.colorTargetKey = 1;
+	p.computeColorRate();
+	p.colorScale = info.m_colorScale;
+	p.lifetime = p.lifetimeLeft = info.m_lifetime;
+	p.createTimestamp = birth;
+
+	ParticleUpdateContext context;
+	context.driftVelocity = system.m_driftVelocity;
+	context.gravity = system.m_gravity;
+	context.shaderType = system.m_shaderType;
+	context.windMotion = ParticleSystemInfo::WIND_MOTION_NOT_USED;
+	context.groundCollision = FALSE;
+	context.groundBounce = 0.0f;
+	context.groundFriction = 0.0f;
+
+	UnsignedInt fadeFrames = info.m_lifetime / PARTICLE_CLOSED_FORM_FADE_LIFETIME_DIVISOR;
+	if (fadeFrames > PARTICLE_CLOSED_FORM_FADE_MAX_FRAMES)
+		fadeFrames = PARTICLE_CLOSED_FORM_FADE_MAX_FRAMES;
+	else if (fadeFrames == 0)
+		fadeFrames = 1;
+
+	ClosedFormRun run = {};
+	for( UnsignedInt k = 1; k <= info.m_lifetime; ++k )
+	{
+		context.clientFrame = birth + k - 1;
+		const Bool alive = p.update( context );
+
+		ParticleClosedFormState s;
+		particleClosedFormEvaluate( spawn, entry, (Real)k, &s );
+		if (s.m_dead == alive)
+			++run.deathMismatches;
+		if (!alive)
+		{
+			run.diedAt = k;
+			break;
+		}
+
+		closedFormWorst( &run.kinematic, closedFormRelative( s.m_pos.x, p.pos.x ) );
+		closedFormWorst( &run.kinematic, closedFormRelative( s.m_pos.y, p.pos.y ) );
+		closedFormWorst( &run.kinematic, closedFormRelative( s.m_pos.z, p.pos.z ) );
+		closedFormWorst( &run.kinematic, closedFormRelative( s.m_vel.x, p.vel.x ) );
+		closedFormWorst( &run.kinematic, closedFormRelative( s.m_vel.y, p.vel.y ) );
+		closedFormWorst( &run.kinematic, closedFormRelative( s.m_vel.z, p.vel.z ) );
+		closedFormWorst( &run.kinematic, closedFormRelative( s.m_size, p.size ) );
+		closedFormWorst( &run.kinematic, closedFormRelative( s.m_angleZ, p.angleZ ) );
+
+		const UnsignedInt left = info.m_lifetime - k;
+		if (left > fadeFrames)
+		{
+			closedFormWorst( &run.alpha, fabsf( s.m_alpha - p.alpha ) );
+			closedFormWorst( &run.color, fabsf( s.m_color.red - p.color.red ) );
+			closedFormWorst( &run.color, fabsf( s.m_color.green - p.color.green ) );
+			closedFormWorst( &run.color, fabsf( s.m_color.blue - p.color.blue ) );
+		}
+		else
+		{
+			const Real envelope = (Real)( left - 1 ) / (Real)fadeFrames;
+			Real strength = s.m_alpha;
+			if (system.m_shaderType == ParticleSystemInfo::ADDITIVE)
+			{
+				strength = s.m_color.red > s.m_color.green ? s.m_color.red : s.m_color.green;
+				strength = strength > s.m_color.blue ? strength : s.m_color.blue;
+			}
+			closedFormWorst( &run.overEnvelope, strength - envelope );
+		}
+	}
+	return run;
+}
+
+static void closedFormCheckRun( const ClosedFormRun &run, UnsignedInt diedAt )
+{
+	CHECK( run.kinematic < 5e-4f );
+	CHECK( run.alpha < 1e-4f );
+	CHECK( run.color < 1e-4f );
+	CHECK( run.overEnvelope < 1e-5f );
+	CHECK_EQ( run.deathMismatches, 0 );
+	CHECK_EQ( run.diedAt, diedAt );
+}
+
+// VelocityDamping 0 is in the shipped data (jet exhaust): the velocity is gone after the first
+// update and only the drift moves it.  Alpha snaps to 0 at its last key and isInvisible kills it.
+TEST(particle_closed_form_follows_update_with_zero_damping)
+{
+	ParticleSystemInfo system;
+	ParticleInfo info;
+	closedFormSetup( &system, &info, ParticleSystemInfo::ALPHA, 90 );
+	info.m_velDamping = 0.0f;
+	info.m_angularDamping = 0.0f;
+	info.m_sizeRateDamping = 0.0f;
+	closedFormAlphaKey( &system, &info, 0, 0.25f, 0 );
+	closedFormAlphaKey( &system, &info, 1, 1.0f, 20 );
+	closedFormAlphaKey( &system, &info, 2, 0.0f, 60 );
+	closedFormColorKey( &system, 0, 1.0f, 0.5f, 0.0f, 0 );
+	closedFormColorKey( &system, 1, 0.0f, 0.5f, 1.0f, 40 );
+
+	closedFormCheckRun( closedFormAgainstUpdate( system, info ), 61 );
+}
+
+// d = 1 takes the series branch, which is exact there.  ADDITIVE leaves alpha at key 0 whatever
+// the alpha keys say; the colour overshoots each key by one rate and dies black past the last.
+TEST(particle_closed_form_follows_update_with_unit_damping)
+{
+	ParticleSystemInfo system;
+	ParticleInfo info;
+	closedFormSetup( &system, &info, ParticleSystemInfo::ADDITIVE, 200 );
+	info.m_velDamping = 1.0f;
+	info.m_angularDamping = 1.0f;
+	info.m_sizeRateDamping = 1.0f;
+	closedFormAlphaKey( &system, &info, 0, 0.6f, 0 );
+	closedFormAlphaKey( &system, &info, 1, 0.1f, 10 );
+	closedFormColorKey( &system, 0, 1.0f, 1.0f, 1.0f, 0 );
+	closedFormColorKey( &system, 1, 1.0f, 0.5f, 0.25f, 30 );
+	closedFormColorKey( &system, 2, 0.0f, 0.0f, 0.0f, 50 );
+
+	closedFormCheckRun( closedFormAgainstUpdate( system, info ), 51 );
+
+	// a constant colour is capped by the envelope and goes black on the last update before its age
+	closedFormSetup( &system, &info, ParticleSystemInfo::ADDITIVE, 60 );
+	closedFormColorKey( &system, 0, 0.8f, 0.4f, 0.2f, 0 );
+	closedFormCheckRun( closedFormAgainstUpdate( system, info ), 59 );
+}
+
+// The usual case.  colorScale pushes red into the clamp at 1 before its key and the next segment
+// brings it down from there, not from where an unclamped sum would have been.
+TEST(particle_closed_form_follows_update_with_damping_and_clamps)
+{
+	ParticleSystemInfo system;
+	ParticleInfo info;
+	closedFormSetup( &system, &info, ParticleSystemInfo::ALPHA, 300 );
+	info.m_colorScale = 0.01f;
+	closedFormAlphaKey( &system, &info, 0, 0.0f, 0 );
+	closedFormAlphaKey( &system, &info, 1, 0.8f, 30 );
+	closedFormAlphaKey( &system, &info, 2, 0.8f, 200 );
+	closedFormColorKey( &system, 0, 0.5f, 0.5f, 0.5f, 0 );
+	closedFormColorKey( &system, 1, 1.0f, 0.2f, 0.9f, 40 );
+	closedFormColorKey( &system, 2, 0.1f, 0.9f, 0.0f, 100 );
+
+	closedFormCheckRun( closedFormAgainstUpdate( system, info ), 299 );
+
+	info.m_colorScale = -0.02f;
+	closedFormCheckRun( closedFormAgainstUpdate( system, info ), 299 );
+}
+
+// Dampings a hair either side of 1 over a long life: the velocity's (1 - d) k stays in the series
+// branch, the angle's crosses into the quotient branch, and the size grows by d > 1.
+TEST(particle_closed_form_follows_update_with_damping_near_one)
+{
+	ParticleSystemInfo system;
+	ParticleInfo info;
+	closedFormSetup( &system, &info, ParticleSystemInfo::ALPHA, 1200 );
+	info.m_velDamping = 0.99995f;
+	info.m_angularDamping = 0.9999f;
+	info.m_sizeRateDamping = 1.00002f;
+	info.m_colorScale = -0.0005f;
+	closedFormAlphaKey( &system, &info, 0, 0.5f, 0 );
+	closedFormColorKey( &system, 0, 0.9f, 0.6f, 0.3f, 0 );
+
+	closedFormCheckRun( closedFormAgainstUpdate( system, info ), 1199 );
+}
+
+// A key earlier than the one before it is taken on the very next update, its rate divided by an
+// unsigned difference that wrapped.  A key with frame 0 ends the table.
+TEST(particle_closed_form_takes_keys_out_of_order_one_update_each)
+{
+	ParticleSystemInfo system;
+	ParticleInfo info;
+	closedFormSetup( &system, &info, ParticleSystemInfo::ALPHA, 120 );
+	closedFormAlphaKey( &system, &info, 0, 0.0f, 0 );
+	closedFormAlphaKey( &system, &info, 1, 1.0f, 20 );
+	closedFormAlphaKey( &system, &info, 2, 0.2f, 8 );
+	closedFormAlphaKey( &system, &info, 3, 0.6f, 40 );
+	closedFormColorKey( &system, 0, 0.0f, 0.0f, 0.0f, 0 );
+	closedFormColorKey( &system, 1, 1.0f, 0.5f, 0.0f, 16 );
+	closedFormColorKey( &system, 2, 0.0f, 1.0f, 0.5f, 4 );
+	closedFormColorKey( &system, 3, 0.5f, 0.5f, 1.0f, 30 );
+
+	ParticleGpuSystemEntry entry;
+	particleGpuSystemEntryBuild( system, &entry );
+	CHECK_EQ( entry.m_alphaSegmentCount, 3u );
+	CHECK_EQ( entry.m_alphaSegment[ 0 ].m_end, 21u );
+	CHECK_EQ( entry.m_alphaSegment[ 1 ].m_end, 22u );
+	CHECK_EQ( entry.m_alphaSegment[ 2 ].m_end, 41u );
+	CHECK( entry.m_alphaSegment[ 1 ].m_time > 4.0e9f );
+	CHECK_EQ( entry.m_colorSegmentCount, 3u );
+	CHECK_EQ( entry.m_colorSegment[ 0 ].m_end, 17u );
+	CHECK_EQ( entry.m_colorSegment[ 1 ].m_end, 18u );
+	CHECK_EQ( entry.m_colorSegment[ 2 ].m_end, 31u );
+
+	closedFormCheckRun( closedFormAgainstUpdate( system, info ), 119 );
+
+	closedFormAlphaKey( &system, &info, 2, 0.2f, 0 );
+	particleGpuSystemEntryBuild( system, &entry );
+	CHECK_EQ( entry.m_alphaSegmentCount, 1u );
+	closedFormCheckRun( closedFormAgainstUpdate( system, info ), 119 );
+}
+
+//////////////////////////////////////////////////////////////////////////////
 // The ground blob under a particle system
 //
 // particleShadowBlob* is the whole of the decision: which systems earn a soft
@@ -18608,6 +19056,37 @@ TEST(particle_cap_in_force_is_the_switch_else_the_slider)
 	scratch->m_particleCapOverride = 20000;
 	CHECK_EQ( scratch->getEffectiveParticleCap(), 20000 );
 	delete scratch;
+	TheWritableGlobalData = saved;
+}
+
+/* The GPU particle ring is the detail preset's, a million slots on Ultra halving down to Low, and
+	 -gpuparticles beats it, 0 (off) included; Custom keeps whatever ring was in force. */
+TEST(gpu_particle_ring_in_force_is_the_switch_else_the_preset)
+{
+	GlobalData *saved = TheWritableGlobalData;
+	GlobalData *scratch = NEW GlobalData;
+	TheWritableGlobalData = scratch;
+	{
+		GameLODManager lod;
+		CHECK( lod.setStaticLODLevel( STATIC_GAME_LOD_ULTRA ) );
+		CHECK_EQ( scratch->getEffectiveGpuParticleCapacity(), 1 << 20 );
+		CHECK( lod.setStaticLODLevel( STATIC_GAME_LOD_HIGH ) );
+		CHECK_EQ( scratch->getEffectiveGpuParticleCapacity(), 1 << 19 );
+		CHECK( lod.setStaticLODLevel( STATIC_GAME_LOD_MEDIUM ) );
+		CHECK_EQ( scratch->getEffectiveGpuParticleCapacity(), 1 << 18 );
+		CHECK( lod.setStaticLODLevel( STATIC_GAME_LOD_LOW ) );
+		CHECK_EQ( scratch->getEffectiveGpuParticleCapacity(), 1 << 17 );
+		CHECK( lod.setStaticLODLevel( STATIC_GAME_LOD_CUSTOM ) );
+		CHECK_EQ( scratch->getEffectiveGpuParticleCapacity(), 1 << 17 );
+
+		scratch->m_gpuParticleCapacityOverride = 4096;
+		CHECK( lod.setStaticLODLevel( STATIC_GAME_LOD_ULTRA ) );
+		CHECK_EQ( scratch->m_gpuParticleCapacity, 1 << 20 );
+		CHECK_EQ( scratch->getEffectiveGpuParticleCapacity(), 4096 );
+		scratch->m_gpuParticleCapacityOverride = 0;
+		CHECK_EQ( scratch->getEffectiveGpuParticleCapacity(), 0 );
+	}
+	delete scratch;					// while it is the current one: ~GlobalData reads TheWritableGlobalData
 	TheWritableGlobalData = saved;
 }
 

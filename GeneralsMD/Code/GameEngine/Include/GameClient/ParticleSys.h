@@ -642,6 +642,11 @@ public:
 
 	UnsignedInt getFlipbookGridLog2( void ) const { return m_flipbookGridLog2; }
 	Real getFlipbookRate( void ) const { return m_flipbookRate; }
+
+	/// Whether the GPU path's closed form can draw this template's particles (ParticleSys.cpp says why
+	/// each test is there); the manager still has to accept GPU particles at all.
+	Bool isGpuEligible( void ) const;
+	const AsciiString &getParticleTypeName( void ) const { return m_particleTypeName; }
 	Bool isFlipbookRandomStart( void ) const { return m_flipbookRandomStart; }
 
 	// This function was made const because of update modules' module data being all const.
@@ -845,6 +850,29 @@ public:
 	/// How much of this system the local player sees, for the stealth of what it is attached to.
 	Real getStealthFade( void ) const;
 
+	/** The GPU particle path (docs/plans/GPU-PARTICLES.md).  An eligible system hands each spawn to
+		* the manager's spawnGpuParticle, which keeps it as a spawn record the vertex shader ages in
+		* closed form; no Particle is made and nothing on the CPU touches it again.  The system keeps
+		* the last few spawns so the client can still estimate what the cloud does (ground blob, fire
+		* light) without reading the device's ring back. */
+	struct GpuSpawnSample
+	{
+		ParticleInfo	m_info;					///< the spawn exactly as spawnGpuParticle was handed it
+		UnsignedInt		m_birthFrame;		///< ParticleSystemManager::getParticleFrame() at the spawn
+	};
+	enum { GPU_SPAWN_SAMPLES = 16 };
+
+	Bool isGpuEligible( void ) const { return m_gpuEligible; }								///< decided once, in the constructor
+	UnsignedInt getGpuSpawnTotal( void ) const { return m_gpuSpawnTotal; }				///< spawns the GPU took, ever; 0 for a CPU-only system
+	UnsignedInt getGpuLastDeathFrame( void ) const { return m_gpuLastDeathFrame; }	///< the update its last GPU particle to go dies in, as a CPU twin would
+	UnsignedInt getGpuLifetimeLeft( void ) const;									///< frames until the last GPU particle dies, as Particle::getLifetimeLeft counts; 0 when none is alive
+	UnsignedInt getGpuSampleCount( void ) const { return m_gpuSpawnTotal < (UnsignedInt)GPU_SPAWN_SAMPLES ? m_gpuSpawnTotal : (UnsignedInt)GPU_SPAWN_SAMPLES; }
+	/// 0 is the newest spawn, getGpuSampleCount() - 1 the oldest kept
+	const GpuSpawnSample &getGpuSample( UnsignedInt newestFirst ) const { return m_gpuSamples[ ( m_gpuSpawnTotal - 1 - newestFirst ) % GPU_SPAWN_SAMPLES ]; }
+	/// The template asked for terrain collision (its INI, or -particlebounce and the ParticleBounce
+	/// option forcing it): the device rests GPU particles on the terrain, without the bounce.
+	Bool isGpuGroundClamped( void ) const { return m_template->m_groundCollision; }
+
 protected:
 
 	// snapshot methods
@@ -869,6 +897,8 @@ protected:
 
 	void makeUpdateContext( ParticleUpdateContext *context ) const;
 	Bool finishUpdate( const ParticleShadowBlob *blob );	///< the ground blob and the lifetime, after the particles
+	void addGpuSamplesToShadowBlob( ParticleShadowBlob *blob ) const;	///< the GPU particles' share of the ground blob, from the samples
+	Bool spawnOnGpu( const ParticleInfo *info );	///< hand one spawn to the manager's GPU path; TRUE if it took it
 
 	ParticleShadowBlob	m_pendingShadowBlob;				///< the survivors' footprint, gathered by updateParticlesMark
 	Bool								m_pendingCastsGroundShadow;	///< decided by updateEmission, where update() always decided it
@@ -930,6 +960,11 @@ protected:
   Bool              m_skipParentXfrm;                     ///< true if this system is already in world space.
 	Bool							m_isShell;														///< made inside a tick and not yet built (buildClientPart)
 	Bool							m_initialDelaySet;										///< setInitialDelay was called, so the build keeps it over the template's
+
+	Bool							m_gpuEligible;												///< spawns go to the manager's GPU path; client-only, never xfered
+	UnsignedInt				m_gpuSpawnTotal;											///< spawns the GPU took; indexes m_gpuSamples
+	UnsignedInt				m_gpuLastDeathFrame;									///< the latest frame a GPU spawn of this system dies in
+	std::vector<GpuSpawnSample>	m_gpuSamples;								///< ring of the last GPU_SPAWN_SAMPLES spawns, sized on the first
 
 
 	// the actual particle system data is inherited from ParticleSystemInfo
@@ -1015,7 +1050,21 @@ public:
 	
 	virtual void doParticles(RenderInfoClass &rinfo) = 0;
 	virtual void queueParticleRender() = 0;
-	
+
+	/** The GPU particle path (docs/plans/GPU-PARTICLES.md); a device that has one overrides all three.
+		* acceptsGpuParticles is asked once per system, in its constructor.  spawnGpuParticle takes one
+		* spawn of an eligible system whole or answers FALSE, and the system then makes a CPU Particle.
+		* releaseGpuSystem is called from every eligible system's destructor; one destroyed by the
+		* manager's own destructor reaches this base no-op, the device's part being gone already. */
+	virtual Bool acceptsGpuParticles( void ) const { return FALSE; }
+	virtual Bool spawnGpuParticle( ParticleSystem *system, const ParticleInfo *info ) { return FALSE; }
+	virtual void releaseGpuSystem( ParticleSystem *system ) {}
+
+	/// The GPU particles' clock: one tick for each update() that runs the systems, which is exactly
+	/// how often a CPU Particle ages, where the logic frame runs two or three ahead in a catch-up
+	/// pass.  Spawn records stamp their birthFrame from it and age against it.
+	static UnsignedInt getParticleFrame( void );
+
 	virtual void preloadAssets( TimeOfDay timeOfDay );
 
 	// these are only for use by partcle systems to link and unlink themselves
@@ -1048,6 +1097,7 @@ protected:
 	UnsignedInt m_particleSystemCount;
 	Int m_onScreenParticleCount;                ///< number of particles displayed on screen per frame
 	UnsignedInt m_lastLogicFrameUpdate;
+	UnsignedInt m_particleFrame;		///< getParticleFrame; client-only, never xfered
 	Int m_localPlayerIndex;	///<used to tell particle systems which particles can be skipped due to player shroud status
 	std::vector<ParticleSystem *> m_independentUpdates;	///< this update's systems whose particles go to the job pool; kept so it does not reallocate
 	std::vector<ParticleSystem *> m_shells;							///< made inside this tick, built after it; reset() deletes any a cleared game left

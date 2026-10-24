@@ -1518,6 +1518,8 @@ if(ZH_PLATFORM_POSIX)
   # POSIX factory below; the no-backend factory is compiled only without it, and
   # the Direct3D 11 backend only on Windows.
   list(FILTER W3DDEVICE_SOURCES EXCLUDE REGEX "/(HazardCloudUnsupported|DX11HazardCloud)\\.cpp$")
+  # The GPU particles have only a Direct3D 11 backend; GpuParticlesUnsupported answers for SDL3.
+  list(FILTER W3DDEVICE_SOURCES EXCLUDE REGEX "/DX11GpuParticles\\.cpp$")
 
   # ---- the movies (V1): Windows' Bink player and its Bink API on FFmpeg, the same two files -------------
   # FFmpeg is built from the tarball Tools/vendor.sh keeps, into the build tree, with the Bink demuxer
@@ -1693,6 +1695,8 @@ list(FILTER GAMEENGINEDEVICE_SOURCES EXCLUDE REGEX "/Source/SdlDevice/")
 # The hazard clouds' backend here is Direct3D 11's (DX11HazardCloud.cpp); the no-backend entry points
 # are for the tests that link no device.
 list(FILTER GAMEENGINEDEVICE_SOURCES EXCLUDE REGEX "/HazardCloudUnsupported\\.cpp$")
+# The same for the GPU particles (DX11GpuParticles.cpp here, GpuParticlesUnsupported.cpp elsewhere).
+list(FILTER GAMEENGINEDEVICE_SOURCES EXCLUDE REGEX "/GpuParticlesUnsupported\\.cpp$")
 # Sound and video are the game's own.  Miles and Bink were binary-only, and the DLLs the retail
 # game ships are 32-bit, so there is nothing for a 64-bit exe to bind to: what it links instead is
 # those two APIs written over XAudio2 and FFmpeg.  FFmpeg decodes binkvideo and binkaudio natively,

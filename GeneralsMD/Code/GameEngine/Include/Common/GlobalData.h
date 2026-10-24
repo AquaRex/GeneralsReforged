@@ -252,6 +252,8 @@ public:
 	Bool isDynamicLODEnabled() const { return m_enableDynamicLOD && !m_noDynamicLODOverride; }
 	/// The particle ceiling in force: -particlecap's, or the options slider's MaxParticleCount.
 	Int getEffectiveParticleCap() const { return (m_particleCapOverride > 0) ? m_particleCapOverride : m_maxParticleCount; }
+	/// The Direct3D 11 particle ring in force: -gpuparticles' (0 included, which is off), or the detail preset's.
+	Int getEffectiveGpuParticleCapacity() const { return (m_gpuParticleCapacityOverride >= 0) ? m_gpuParticleCapacityOverride : m_gpuParticleCapacity; }
 
 	static void parseGameDataDefinition( INI* ini );
 	static void parseVeterancyDefinition( INI* ini );	///< the Veterancy block, m_veterancy*
@@ -339,6 +341,9 @@ public:
 	Bool m_particleGroundBounce;	// "-particlebounce": terrain collision on for every particle system
 	Real m_smokeThickness;				// "-smoke": how much longer and thicker every smoke system runs, 0 for shipped behaviour
 	Int  m_particleCapOverride;		// "-particlecap": stand in for the options slider's MaxParticleCount, 0 to use it
+	Int  m_gpuParticleCapacity;		// spawn-record slots in the Direct3D 11 particle ring, the detail preset's GpuParticleCapacity; 0 keeps every particle on the CPU
+	Int  m_gpuParticleCapacityOverride;	// "-gpuparticles": stand in for the preset's ring for one run, -1 to use it
+	Bool m_gpuParticleCheck;			// "-gpuparticlecheck": run the CPU path beside the GPU one and log the closed form's largest error
 	Int  m_textureReductionFactor;	//how much to cut texture resolution: 2 is half, 3 is quarter, etc.
 	Bool m_enableBehindBuildingMarkers;
 	Real m_waterPositionX;

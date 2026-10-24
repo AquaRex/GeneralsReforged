@@ -8041,8 +8041,10 @@ void InGameUI::updateSignalMarks( void )
 			continue;
 		}
 
+		// puffs the GPU took have no Particle, and their system says how long the last of them lives
 		const Particle *youngest = smoke->getLastParticle();
-		const UnsignedInt left = smoke->getSystemLifetimeLeft() + ( youngest ? youngest->getLifetimeLeft() : 0 );
+		const UnsignedInt puffLeft = max( youngest ? youngest->getLifetimeLeft() : 0, smoke->getGpuLifetimeLeft() );
+		const UnsignedInt left = smoke->getSystemLifetimeLeft() + puffLeft;
 		const UnsignedInt opacity = min( (UnsignedInt)SIGNAL_MARK_OPACITY, left * SIGNAL_MARK_OPACITY / SIGNAL_MARK_FADE_OUT_FRAMES );
 		mark.decal->setOpacity( shown ? (Int)opacity : 0 );
 		index++;
