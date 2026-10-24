@@ -300,6 +300,8 @@ unsigned int decodeAdpcm(const WaveImage &wave, std::vector<short> *out)
 // XAudio2 source voice with an output matrix did.
 // ---------------------------------------------------------------------------------------------
 
+const float LOW_PASS_DENORMAL_GUARD = 1e-18f;	// a filter left ringing on silence decays into the denormals
+
 struct VoiceMix
 {
 	VoiceMix() : resamplerReady(false), channels(0), gainLeft(0.0f), gainRight(0.0f), lowPass(1.0f), lowPassState(0.0f),
@@ -407,7 +409,7 @@ bool mixVoice(VoiceMix *mix, SourceRead read, void *source, float *output, unsig
 			for (unsigned channel = 0; channel < mix->channels; ++channel) {
 				sum += resampled[frame * mix->channels + channel];
 			}
-			mix->lowPassState += mix->lowPass * (sum - mix->lowPassState);
+			mix->lowPassState += mix->lowPass * (sum - mix->lowPassState) + LOW_PASS_DENORMAL_GUARD;
 			sum = mix->lowPassState;
 			output[(done + frame) * OUTPUT_CHANNELS + 0] += left * sum;
 			output[(done + frame) * OUTPUT_CHANNELS + 1] += right * sum;
@@ -452,12 +454,13 @@ struct Sample
 
 	// What the mix sees, under mixLock.  `running` is the voice started, `queued` its one buffer
 	// still in it, `cursor` the next source frame.  `unducked`: it started a duck, which leaves it
-	// alone until the duck is over.
+	// alone until the duck is over or the sample stops.
 	bool running;
 	bool queued;
 	unsigned int cursor;
 	bool sourceDry;
 	bool unducked;
+	bool dry;	// AIL_ex_set_3D_sample_dry
 	VoiceMix mix;
 };
 
@@ -771,6 +774,12 @@ Spatial computeSpatial(const Sample &sample)
 	Spatial spatial;
 	spatial.volume = clampUnit(sample.volume) * attenuation;
 	spatial.pan = pan;
+	if (sample.dry) {
+		spatial.cutoff = AIL_ex_3D_cutoff(distance, 0.0f, sample.occlusion);
+		spatial.send = 0.0f;
+		spatial.doppler = 1.0f;
+		return spatial;
+	}
 	spatial.cutoff = AIL_ex_3D_cutoff(distance, g_absorptionDistance.load(), sample.occlusion);
 	spatial.send = AIL_ex_3D_send(clampUnit(sample.volume), attenuation, g_roomSend.load());
 	spatial.doppler = AIL_ex_doppler_ratio(dx, dy, dz, sample.velocityX, sample.velocityY, sample.velocityZ, g_speedOfSound.load());
@@ -1276,8 +1285,9 @@ void dataCallback(ma_device *, void *output, const void *, ma_uint32 frameCount)
 	for (size_t i = 0; i < g_engine.pcmVoices.size(); ++i) {
 		PcmVoice *voice = g_engine.pcmVoices[i];
 		// Dry is only until the owner queues more, so it is asked afresh each pass, as a stream's is.
+		// A movie is not ducked, as XAudio2's movie voice is not: -wav has to sound like the game.
 		voice->sourceDry = false;
-		mixVoice(&voice->mix, readPcmSource, voice, out, frameCount, &voice->sourceDry, duck, NULL);
+		mixVoice(&voice->mix, readPcmSource, voice, out, frameCount, &voice->sourceDry, 1.0f, NULL);
 	}
 	if (g_engine.room.ready) {
 		processRoom(&g_engine.room, room, out, frameCount);
@@ -1691,6 +1701,7 @@ HSAMPLE AILCALL AIL_allocate_sample_handle(HDIGDRIVER dig)
 	sample->cursor = 0;
 	sample->sourceDry = false;
 	sample->unducked = false;
+	sample->dry = false;
 
 	std::lock_guard<std::recursive_mutex> guard(g_engine.lock);
 	std::lock_guard<std::mutex> mixGuard(g_engine.mixLock);
@@ -1940,6 +1951,9 @@ void AILCALL AIL_start_3D_sample(H3DSAMPLE handle)
 void AILCALL AIL_stop_3D_sample(H3DSAMPLE handle)
 {
 	AIL_stop_sample((HSAMPLE)handle);
+	// the manager stops every handle it takes back, and the next sound on it ducks like the rest
+	std::lock_guard<std::mutex> mixGuard(g_engine.mixLock);
+	((Sample *)handle)->unducked = false;
 }
 
 void AILCALL AIL_resume_3D_sample(H3DSAMPLE handle)
@@ -2015,6 +2029,13 @@ void AILCALL AIL_ex_duck(H3DSAMPLE trigger, F32 gain, F32 seconds)
 	g_engine.duckFrames = 0;
 	g_engine.duckGain = gain;
 	g_engine.duckSeconds = seconds;
+}
+
+void AILCALL AIL_ex_set_3D_sample_dry(H3DSAMPLE handle, S32 dry)
+{
+	std::lock_guard<std::recursive_mutex> guard(g_engine.lock);
+	((Sample *)handle)->dry = dry != 0;
+	refreshSampleOutput((Sample *)handle);
 }
 
 void AILCALL AIL_set_3D_sample_occlusion(H3DSAMPLE handle, F32 occlusion)

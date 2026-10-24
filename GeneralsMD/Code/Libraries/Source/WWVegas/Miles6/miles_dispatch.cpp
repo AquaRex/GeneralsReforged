@@ -84,6 +84,7 @@
 	MSS_API(void, AIL_ex_set_3D_air, (F32 speed_of_sound, F32 absorption_distance), (speed_of_sound, absorption_distance)) \
 	MSS_API(void, AIL_ex_set_reverb, (F32 wet, F32 decay, F32 damping, F32 echo), (wet, decay, damping, echo)) \
 	MSS_API(void, AIL_ex_duck, (H3DSAMPLE trigger, F32 gain, F32 seconds), (trigger, gain, seconds)) \
+	MSS_API(void, AIL_ex_set_3D_sample_dry, (H3DSAMPLE handle, S32 dry), (handle, dry)) \
 	MSS_API(S32, AIL_WAV_info, (const void *data, AILSOUNDINFO *info), (data, info)) \
 	MSS_API(S32, AIL_decompress_ADPCM, (const AILSOUNDINFO *info, void **outdata, U32 *outsize), (info, outdata, outsize)) \
 	MSS_API(void, AIL_mem_free_lock, (void *ptr), (ptr))

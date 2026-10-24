@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <atomic>
 #include <deque>
 #include <vector>
 
@@ -296,7 +297,8 @@ struct Sample
 	float minDistance, maxDistance;
 	float occlusion;
 	float velocityX, velocityY, velocityZ;	// units a second, AIL_set_3D_velocity_vector
-	bool unducked;	// started a duck, so the duck leaves it alone until it is over
+	bool unducked;	// started a duck, so the duck leaves it alone until it is over or the sample stops
+	bool dry;	// AIL_ex_set_3D_sample_dry
 };
 
 struct StreamBuffer
@@ -363,9 +365,10 @@ struct Engine
 
 Engine g_engine;
 S32 g_linearFalloff;	// AIL_ex_set_3D_linear_falloff
-float g_speedOfSound;	// AIL_ex_set_3D_air
-float g_absorptionDistance;
-float g_roomSend;	// AIL_ex_set_reverb's wet
+// written by the game's thread with no lock, read by the service thread under it
+std::atomic<float> g_speedOfSound(0.0f);	// AIL_ex_set_3D_air
+std::atomic<float> g_absorptionDistance(0.0f);
+std::atomic<float> g_roomSend(0.0f);	// AIL_ex_set_reverb's wet
 
 // AIL_ex_duck, under the lock.  duckNow is the gain the service thread worked out last.
 struct Duck
@@ -466,9 +469,15 @@ Spatial computeSpatial(const Sample &sample)
 	Spatial spatial;
 	spatial.volume = clampUnit(sample.volume) * attenuation;
 	spatial.pan = pan;
-	spatial.cutoff = AIL_ex_3D_cutoff(distance, g_absorptionDistance, sample.occlusion);
-	spatial.send = AIL_ex_3D_send(clampUnit(sample.volume), attenuation, g_roomSend);
-	spatial.doppler = AIL_ex_doppler_ratio(dx, dy, dz, sample.velocityX, sample.velocityY, sample.velocityZ, g_speedOfSound);
+	if (sample.dry) {
+		spatial.cutoff = AIL_ex_3D_cutoff(distance, 0.0f, sample.occlusion);
+		spatial.send = 0.0f;
+		spatial.doppler = 1.0f;
+		return spatial;
+	}
+	spatial.cutoff = AIL_ex_3D_cutoff(distance, g_absorptionDistance.load(), sample.occlusion);
+	spatial.send = AIL_ex_3D_send(clampUnit(sample.volume), attenuation, g_roomSend.load());
+	spatial.doppler = AIL_ex_doppler_ratio(dx, dy, dz, sample.velocityX, sample.velocityY, sample.velocityZ, g_speedOfSound.load());
 	return spatial;
 }
 
@@ -1623,6 +1632,10 @@ void AILCALL AIL_start_3D_sample(H3DSAMPLE handle)
 void AILCALL AIL_stop_3D_sample(H3DSAMPLE handle)
 {
 	AIL_stop_sample((HSAMPLE)handle);
+	// the manager stops every handle it takes back, and the next sound on it ducks like the rest
+	EnterCriticalSection(&g_engine.lock);
+	((Sample *)handle)->unducked = false;
+	LeaveCriticalSection(&g_engine.lock);
 }
 
 void AILCALL AIL_resume_3D_sample(H3DSAMPLE handle)
@@ -1682,13 +1695,13 @@ void AILCALL AIL_ex_set_3D_linear_falloff(S32 linear)
 void AILCALL AIL_ex_set_3D_air(F32 speed_of_sound, F32 absorption_distance)
 {
 	// No lock, as AIL_ex_set_3D_linear_falloff
-	g_speedOfSound = speed_of_sound;
-	g_absorptionDistance = absorption_distance;
+	g_speedOfSound.store(speed_of_sound);
+	g_absorptionDistance.store(absorption_distance);
 }
 
 void AILCALL AIL_ex_set_reverb(F32 wet, F32 decay, F32 damping, F32 echo)
 {
-	g_roomSend = wet;
+	g_roomSend.store(wet);
 	if (g_engine.room == NULL) {
 		return;
 	}
@@ -1720,6 +1733,13 @@ void AILCALL AIL_ex_duck(H3DSAMPLE trigger, F32 gain, F32 seconds)
 	g_duck.gain = gain;
 	g_duck.seconds = seconds;
 	refreshSampleOutput((Sample *)trigger);
+	LeaveCriticalSection(&g_engine.lock);
+}
+
+void AILCALL AIL_ex_set_3D_sample_dry(H3DSAMPLE handle, S32 dry)
+{
+	EnterCriticalSection(&g_engine.lock);
+	((Sample *)handle)->dry = dry != 0;
 	LeaveCriticalSection(&g_engine.lock);
 }
 
@@ -1882,7 +1902,7 @@ void AILCALL AIL_start_stream(HSTREAM handle)
 	stream->playing = true;
 	stream->paused = false;
 	stream->exhausted = false;
-	stream->voice->SetVolume(clampUnit(stream->volume));
+	stream->voice->SetVolume(clampUnit(stream->volume) * g_duck.duckNow);
 	applyPan(stream->voice, stream->voiceFormat.nChannels, stream->pan);
 	stream->voice->Start(0);
 	LeaveCriticalSection(&g_engine.lock);
@@ -1931,7 +1951,8 @@ void AILCALL AIL_set_stream_volume_pan(HSTREAM handle, F32 volume, F32 pan)
 	stream->volume = volume;
 	stream->pan = pan;
 	if (stream->voice != NULL) {
-		stream->voice->SetVolume(clampUnit(volume));
+		// a fade writes this every pass, so it carries the duck the service thread last set
+		stream->voice->SetVolume(clampUnit(volume) * g_duck.duckNow);
 		applyPan(stream->voice, stream->voiceFormat.nChannels, pan);
 	}
 	LeaveCriticalSection(&g_engine.lock);

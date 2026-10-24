@@ -258,6 +258,34 @@ TEST(the_room_rings_on_after_the_sound_has_stopped)
 	CHECK(rms(echoCapture, 0.095, 0.12) > 0.002);
 }
 
+TEST(a_dry_sample_takes_no_air_and_no_room)
+{
+	startAudio();
+	// A unit's reply: 1600 out with air at 400 keeps its 8 kHz, and a room at half send adds no tail.
+	AIL_ex_set_3D_air(0.0f, 400.0f);
+	AIL_ex_set_reverb(0.5f, 1.5f, 0.3f, 0.0f);
+	std::vector<unsigned char> bright = makeTone(8000.0, 500);
+	std::vector<H3DSAMPLE> farReply(1, place(bright, -1600.0f, 0.0f, 1.0f));
+	AIL_ex_set_3D_sample_dry(farReply[0], 1);
+	const double farLevel = rms(listen(farReply, 0.6), 0.1, 0.4) / (10.0 / 1600.0);
+	std::vector<H3DSAMPLE> nearReply(1, place(bright, -20.0f, 0.0f, 1.0f));
+	AIL_ex_set_3D_sample_dry(nearReply[0], 1);
+	const double nearLevel = rms(listen(nearReply, 0.6), 0.1, 0.4) / (10.0 / 20.0);
+	runSeconds(4.0);
+	std::vector<unsigned char> blip = makeTone(440.0, 100);
+	std::vector<H3DSAMPLE> reply(1, place(blip, -20.0f, 0.0f, 1.0f));
+	AIL_ex_set_3D_sample_dry(reply[0], 1);
+	const Capture replyCapture = listen(reply, 1.0);
+	AIL_ex_set_3D_air(0.0f, 0.0f);
+	AIL_ex_set_reverb(0.0f, 1.0f, 0.0f, 0.0f);
+	runSeconds(3.0);
+
+	CHECK(nearLevel > 0.05);
+	CHECK(fabs(farLevel / nearLevel - 1.0) < 0.05);
+	CHECK(rms(replyCapture, 0.0, 0.1) > 0.02);
+	CHECK(rms(replyCapture, 0.3, 0.6) < 0.0002);
+}
+
 TEST(a_duck_dips_the_rest_and_spares_the_blast)
 {
 	startAudio();

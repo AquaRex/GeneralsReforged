@@ -293,7 +293,7 @@ class MilesAudioManager : public AudioManager
 		void initSamplePools( void );
 		void processRequest( AudioRequest *req );
 
-		void playAudioEvent( AudioEventRTS *event, Bool requestStop );
+		void playAudioEvent( AudioEventRTS *event, Bool requestStop, Bool nextLoop );
 		void stopAudioEvent( AudioHandle handle );
 		void pauseAudioEvent( AudioHandle handle );
 

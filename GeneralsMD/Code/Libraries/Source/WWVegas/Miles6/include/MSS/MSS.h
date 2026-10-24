@@ -299,10 +299,15 @@ void      AILCALL AIL_ex_set_3D_linear_falloff(S32 linear);
  *
  * AIL_ex_duck: everything but the trigger, and any earlier trigger still sounding, dips to gain and
  * comes back over seconds, AIL_ex_duck_gain's shape.  miniaudio counts that time in frames mixed, so
- * a -wav run ducks on the picture's clock; XAudio2 counts it on the wall clock it plays on. */
+ * a -wav run ducks on the picture's clock; XAudio2 counts it on the wall clock it plays on.  The
+ * movies' voice (mss_ex_pcm.h) is never ducked.
+ *
+ * AIL_ex_set_3D_sample_dry: a 3D sample that takes no air, no doppler and no room, only its distance
+ * gain, pan and occlusion; a unit's reply stays clean.  Set on each play; a fresh handle is wet. */
 void      AILCALL AIL_ex_set_3D_air(F32 speed_of_sound, F32 absorption_distance);
 void      AILCALL AIL_ex_set_reverb(F32 wet, F32 decay, F32 damping, F32 echo);
 void      AILCALL AIL_ex_duck(H3DSAMPLE trigger, F32 gain, F32 seconds);
+void      AILCALL AIL_ex_set_3D_sample_dry(H3DSAMPLE handle, S32 dry);
 
 /* ---- file format helpers ---------------------------------------------- */
 S32       AILCALL AIL_WAV_info(const void *data, AILSOUNDINFO *info);

@@ -778,7 +778,7 @@ void MilesAudioManager::pauseAmbient( Bool shouldPause )
 }
 
 //-------------------------------------------------------------------------------------------------
-void MilesAudioManager::playAudioEvent( AudioEventRTS *event, Bool requestStop )
+void MilesAudioManager::playAudioEvent( AudioEventRTS *event, Bool requestStop, Bool nextLoop )
 {
 #ifdef INTENSIVE_AUDIO_DEBUG
 	DEBUG_LOG(("MILES (%d) - Processing play request: %d (%s)", TheGameLogic->getFrame(), event->getPlayingHandle(), event->getEventName().str()));
@@ -942,7 +942,7 @@ void MilesAudioManager::playAudioEvent( AudioEventRTS *event, Bool requestStop )
 				if (sample3D) {
 					audio->m_file = playSample3D(event, sample3D);
 					m_sound->notifyOf3DSampleStart();
-					if (audio->m_file) {
+					if (audio->m_file && !nextLoop) {
 						duckForBlast(event, sample3D);
 					}
 				}
@@ -1081,15 +1081,17 @@ void MilesAudioManager::stopAudioEvent( AudioHandle handle )
 	//
 	// A sound between loops that have a delay is not on any playing list: startNextLoop handed its
 	// event back to the request list.  Stopping it there is the only way to stop it at all, or the
-	// loop outlives the thing that asked for it.  A sound effect still plays the one pass it was
-	// waiting for, the same as one caught mid-play below.
+	// loop outlives the thing that asked for it.  A one-shot sound effect still plays the one pass
+	// it was waiting for, the same as one caught mid-play below; a loop is dropped, as one playing
+	// below ends its pass, which matters since the distance delay holds nearly every world loop here.
 	//
 	std::list<AudioRequest*>::iterator ait;
 	for ( ait = m_audioRequests.begin(); ait != m_audioRequests.end(); ++ait ) {
 		AudioRequest *req = (*ait);
 		if (req && req->m_usePendingEvent && req->m_pendingEvent
 				&& req->m_pendingEvent->getPlayingHandle() == handle) {
-			if (audioIsType(req->m_pendingEvent, AT_SoundEffect)) {
+			if (audioIsType(req->m_pendingEvent, AT_SoundEffect)
+					&& !(req->m_pendingEvent->getAudioEventInfo()->m_control & AC_LOOP)) {
 				req->m_requestStop = true;
 			} else {
 				req->deleteInstance();
@@ -2885,9 +2887,11 @@ void MilesAudioManager::adjustRequest( AudioRequest *req )
 		return;
 	}
 
-	// Logic time, not a frame's worth a pass: at 120 fps that ran every delay twice as fast as the
-	// picture, and a sound held back by its distance has to land with what is seen.
-	req->m_pendingEvent->decrementDelay(m_clockElapsedMs);
+	// A world sound counts logic time, not a frame's worth a pass: at 120 fps that ran every delay
+	// twice as fast as the picture, and a sound held back by its distance has to land with what is
+	// seen.  Everything else keeps a frame a pass, so the pause menu's sounds still play while the
+	// logic clock stands.
+	req->m_pendingEvent->decrementDelay(req->m_pendingEvent->isPositionalAudio() ? m_clockElapsedMs : MSEC_PER_LOGICFRAME_REAL);
 	req->m_requiresCheckForSample = true;
 }
 
@@ -2917,7 +2921,15 @@ void MilesAudioManager::advanceAudioClock( void )
 void MilesAudioManager::trackVelocity( PlayingAudio *playing, const Coord3D *pos )
 {
 	if (m_clockElapsedMs <= 0.0f)
+	{
+		// a pass between two logic frames keeps the velocity; a paused game stands still, pitch too
+		if (playing->m_tracked && TheGameLogic->isGamePaused())
+		{
+			playing->m_velocity.zero();
+			AIL_set_3D_velocity_vector( playing->m_3DSample, 0.0f, 0.0f, 0.0f );
+		}
 		return;
+	}
 
 	if (playing->m_tracked)
 	{
@@ -3255,6 +3267,7 @@ Bool MilesAudioManager::startNextLoop( PlayingAudio *looping )
 			AudioRequest *req = allocateAudioRequest(true);
 			req->m_pendingEvent = looping->m_audioEventRTS;
 			req->m_requiresCheckForSample = true;
+			req->m_nextLoop = true;
 			appendAudioRequest(req);
 			return true;
 		}
@@ -3318,6 +3331,8 @@ void *MilesAudioManager::playSample3D( AudioEventRTS *event, H3DSAMPLE sample3D 
 		void *fileBuffer = loadFileForRead(event);
 		if (fileBuffer) {
 			AIL_set_3D_sample_file(sample3D, fileBuffer);
+			// a unit's reply is the radio in the commander's ear: no air, no doppler, no room
+			AIL_ex_set_3D_sample_dry(sample3D, BitTest(event->getAudioEventInfo()->m_type, ST_VOICE));
 
 			// Prep any sort of filtering, etc, here
 			AIL_register_3D_EOS_callback(sample3D, set3DSampleCompleted);
@@ -3442,7 +3457,8 @@ void MilesAudioManager::processRequest( AudioRequest *req )
 			// hand the event over: from here it belongs to the playing list, or to playAudioEvent
 			// to free if it cannot be played
 			const Bool requestStop = req->m_requestStop;
-			playAudioEvent(req->releasePendingEvent(), requestStop);
+			const Bool nextLoop = req->m_nextLoop;
+			playAudioEvent(req->releasePendingEvent(), requestStop, nextLoop);
 			break;
 		}
 		case AR_Pause:

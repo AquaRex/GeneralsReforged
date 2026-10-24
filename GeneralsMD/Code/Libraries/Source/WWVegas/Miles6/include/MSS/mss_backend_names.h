@@ -86,6 +86,7 @@
 #define AIL_ex_set_3D_air                    MSS_BACKEND_NAME(AIL_ex_set_3D_air)
 #define AIL_ex_set_reverb                    MSS_BACKEND_NAME(AIL_ex_set_reverb)
 #define AIL_ex_duck                          MSS_BACKEND_NAME(AIL_ex_duck)
+#define AIL_ex_set_3D_sample_dry             MSS_BACKEND_NAME(AIL_ex_set_3D_sample_dry)
 #define AIL_WAV_info                         MSS_BACKEND_NAME(AIL_WAV_info)
 #define AIL_decompress_ADPCM                 MSS_BACKEND_NAME(AIL_decompress_ADPCM)
 #define AIL_mem_free_lock                    MSS_BACKEND_NAME(AIL_mem_free_lock)
