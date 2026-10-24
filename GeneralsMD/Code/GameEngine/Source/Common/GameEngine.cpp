@@ -56,6 +56,7 @@
 #include "Common/GameEngine.h"
 #include "Common/INI.h"
 #include "Common/INIException.h"
+#include "Common/MatchHistory.h"
 #include "Common/MessageStream.h"
 #include "Common/ThingFactory.h"
 #include "Common/ThingTemplate.h"
@@ -2861,6 +2862,36 @@ static void updateHeadlessRun( void )
 		DEBUG_LOG(("HEADLESS BANK %d: %d in the bank\n", i, p->getMoney()->countMoney()));
 		if (p->isSkirmishAIPlayer())
 			p->logAIPersonaSummary();
+	}
+
+	/* The score screen's graphs as numbers, for whatever reads a match afterwards (the Bot Cup's
+		 overlays): every sample, every player's build order and every event, one line each, the
+		 player being the list index the PLAYER lines use.  The display name runs to the line's end. */
+	static const char *const MATCH_EVENT_WORDS[ MATCH_EVENT_TYPE_COUNT ] = { "built", "fired", "power", "rank" };
+	for( Int i = 0; i < MAX_PLAYER_COUNT; ++i )
+	{
+		if (!TheMatchHistory.wasSampled( i ))
+			continue;
+		for( Int sample = 0; sample < TheMatchHistory.getSampleCount(); ++sample )
+			DEBUG_LOG(("HEADLESS HISTORY SAMPLE %d %u %d %d %d %d %d %d\n", i, TheMatchHistory.getSampleFrame( sample ),
+								 TheMatchHistory.getValue( sample, i, MATCH_SERIES_EARNED ), TheMatchHistory.getValue( sample, i, MATCH_SERIES_BANK ),
+								 TheMatchHistory.getValue( sample, i, MATCH_SERIES_ARMY ), TheMatchHistory.getValue( sample, i, MATCH_SERIES_BUILDINGS ),
+								 TheMatchHistory.getValue( sample, i, MATCH_SERIES_POWER ), TheMatchHistory.getValue( sample, i, MATCH_SERIES_LOST )));
+		const std::vector< MatchBuild > &builds = TheMatchHistory.getBuilds( i );
+		for( size_t build = 0; build < builds.size(); ++build )
+		{
+			AsciiString shown;
+			shown.translate( builds[ build ].thing->getDisplayName() );
+			DEBUG_LOG(("HEADLESS HISTORY BUILD %d %u %s %s\n", i, builds[ build ].frame, builds[ build ].thing->getName().str(), shown.str()));
+		}
+	}
+	const std::vector< MatchEvent > &events = TheMatchHistory.getEvents();
+	for( size_t event = 0; event < events.size(); ++event )
+	{
+		const MatchEvent &e = events[ event ];
+		if (TheMatchHistory.wasSampled( e.player ))
+			DEBUG_LOG(("HEADLESS HISTORY EVENT %d %u %s %s %d\n", e.player, e.frame, MATCH_EVENT_WORDS[ e.type ],
+								 e.thing ? e.thing->getName().str() : "-", e.rank));
 	}
 
 	if (scouting)

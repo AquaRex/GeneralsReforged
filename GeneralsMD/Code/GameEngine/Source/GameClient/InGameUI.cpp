@@ -2686,15 +2686,15 @@ void InGameUI::update( void )
 	// a watcher's camera is driven for him while it is not in his own hands (ObserverCamera.h)
 	if( TheGameLogic->isInGame() && localPlayerWatching() )
 	{
-		// -directorrecord: the director has the camera all match, nothing but the radar is over the
+		// -directorrecord: the director has the camera all match, no interface and no radar is over the
 		// picture, and the glide runs on the logic clock, which is what each recorded picture is
 		UnsignedInt observerNowMs = cameraNowMs;
 		if( TheGlobalData->m_directorRecord && !TheGameLogic->isInShellGame() )
 		{
 			if( TheObserverCamera.getMode() != OBSERVER_CAMERA_DIRECTOR )
 				TheObserverCamera.setMode( OBSERVER_CAMERA_DIRECTOR );
-			if( !CinemaDirector_showsMap() )
-				CinemaDirector_setHudHidden( TRUE, TRUE );
+			if( !CinemaDirector_isHudHidden() )
+				CinemaDirector_setHudHidden( TRUE, FALSE );
 			TheMouse->setVisibility( FALSE );
 			// the picture's own time, a share of a frame before the logic frame for a -recordfps
 			// picture between two of them
