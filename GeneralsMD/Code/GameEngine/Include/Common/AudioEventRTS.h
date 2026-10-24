@@ -97,6 +97,7 @@ public:
 	Real getDelay( void ) const;
 
 	void decrementDelay( Real timeToDecrement );
+	void setDelay( Real delay ) { m_delay = delay; }	///< milliseconds, as the INI's Delay
 
 	PortionToPlay getNextPlayPortion( void ) const;
 	void advanceNextPlayPortion( void );

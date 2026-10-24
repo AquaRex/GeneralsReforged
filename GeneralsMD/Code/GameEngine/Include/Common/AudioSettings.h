@@ -34,6 +34,8 @@
 
 #include "Common/AsciiString.h"
 
+#include <vector>
+
 enum { MAX_HW_PROVIDERS = 4 };
 
 struct AudioSettings
@@ -41,7 +43,22 @@ struct AudioSettings
 	// Every field below is filled in by AudioSettings.ini and nothing gives them a value before
 	// that, so a key the shipped file does not carry arrives as whatever was on the heap. New
 	// fields get their default here.
-	AudioSettings() : m_rangeVolumeFade( FALSE ) {}
+	AudioSettings() :
+		m_rangeVolumeFade( FALSE ),
+		m_speedOfSound( 1700.0f ),
+		m_maxSoundDelay( 1000.0f ),
+		m_dopplerScale( 1.0f ),
+		m_airAbsorptionDistance( 400.0f ),
+		m_reverbLevel( 1.0f ),
+		m_duckVolume( 0.35f ),
+		m_duckTime( 2500.0f )
+	{
+		m_duckSounds.push_back( "ExplosionNeutron" );
+		m_duckSounds.push_back( "ExplosionDaisyCutter" );
+		m_duckSounds.push_back( "ExplosionMOAB" );
+		m_duckSounds.push_back( "ExplosionMiniNuke" );
+		m_duckSounds.push_back( "ParticleUplinkCannon_GroundAnnihilationSoundLoop" );
+	}
 
 	AsciiString m_audioRoot;
 	AsciiString m_soundsFolder;
@@ -66,6 +83,28 @@ struct AudioSettings
 		* commented out next to it, which reaches zero exactly where the cut is.
 		* `RangeVolumeFade` in AudioSettings.ini. */
 	Bool m_rangeVolumeFade;
+
+	/** Sound in air, none of which the shipped file carries, so the defaults below are what plays.
+		*
+		* `SpeedOfSound`, game units a second: a world sound starts late by its distance to the
+		* microphone over it, never more than `MaxSoundDelay` milliseconds, and a moving one is pitched
+		* by doppler. The ground is drawn at about 0.2 m a unit (a Ranger stands 13 units, a Crusader
+		* is 30 long), so 343 m/s is 1700. Zero is neither. `DopplerScale` multiplies the speed doppler
+		* hears, zero switching doppler alone off.
+		* `AirAbsorptionDistance`, game units: where air has taken the top end down from 20 kHz to 10,
+		* falling with the square of the distance past it. Zero is no air.
+		* `ReverbLevel`: the room's send, as a share of what the map asks for. Zero is no room.
+		* `DuckVolume` and `DuckTime` (milliseconds): when one of `DuckSounds` starts within earshot,
+		* everything else dips to that volume and comes back over that time. 100% is no duck. */
+	Real m_speedOfSound;
+	Real m_maxSoundDelay;
+	Real m_dopplerScale;
+	Real m_airAbsorptionDistance;
+	Real m_reverbLevel;
+	Real m_duckVolume;
+	Real m_duckTime;
+	std::vector<AsciiString> m_duckSounds;
+
 	Int m_drawableAmbientFrames;
 	Int m_fadeAudioFrames;
 	UnsignedInt m_maxCacheSize;

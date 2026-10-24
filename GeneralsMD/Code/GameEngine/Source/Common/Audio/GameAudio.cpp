@@ -130,6 +130,14 @@ static const FieldParse audioSettingsFieldParseTable[] =
 
 	{ "MinSampleVolume",			INI::parsePercentToReal,						NULL,							offsetof( AudioSettings, m_minVolume) },
 	{ "RangeVolumeFade",			INI::parseBool,											NULL,							offsetof( AudioSettings, m_rangeVolumeFade) },
+	{ "SpeedOfSound",					INI::parseReal,											NULL,							offsetof( AudioSettings, m_speedOfSound) },
+	{ "MaxSoundDelay",				INI::parseReal,											NULL,							offsetof( AudioSettings, m_maxSoundDelay) },
+	{ "DopplerScale",					INI::parseReal,											NULL,							offsetof( AudioSettings, m_dopplerScale) },
+	{ "AirAbsorptionDistance",	INI::parseReal,										NULL,							offsetof( AudioSettings, m_airAbsorptionDistance) },
+	{ "ReverbLevel",					INI::parsePercentToReal,						NULL,							offsetof( AudioSettings, m_reverbLevel) },
+	{ "DuckVolume",						INI::parsePercentToReal,						NULL,							offsetof( AudioSettings, m_duckVolume) },
+	{ "DuckTime",							INI::parseReal,											NULL,							offsetof( AudioSettings, m_duckTime) },
+	{ "DuckSounds",						INI::parseAsciiStringVector,				NULL,							offsetof( AudioSettings, m_duckSounds) },
 	{ "GlobalMinRange",				INI::parseInt,											NULL,							offsetof( AudioSettings, m_globalMinRange) },
 	{ "GlobalMaxRange",				INI::parseInt,											NULL,							offsetof( AudioSettings, m_globalMaxRange) },
 	{ "TimeBetweenDrawableSounds", INI::parseDurationUnsignedInt, NULL,							offsetof( AudioSettings, m_drawableAmbientFrames) },
@@ -556,6 +564,22 @@ AudioHandle AudioManager::addAudioEventNow(const AudioEventRTS *eventToAdd, Audi
 	audioEvent->generateFilename();	// which file are we actually going to play?
 	((AudioEventRTS*)eventToAdd)->setPlayingAudioIndex( audioEvent->getPlayingAudioIndex() );
 	audioEvent->generatePlayInfo();	// generate pitch shift and volume shift now as well
+
+	// Sound takes time to arrive: a world sound starts late by its distance to the microphone over
+	// SpeedOfSound, at most MaxSoundDelay, on top of the delay its INI gives it.  Not a unit's voice,
+	// which answers the player, and not a script's sound, which logic waits on in the same frame.  The
+	// request list counts the delay down in logic time (MilesAudioManager::processRequestList).
+	const AudioEventInfo *info = eventToAdd->getAudioEventInfo();
+	const Real speedOfSound = getAudioSettings()->m_speedOfSound;
+	if (info->m_soundType == AT_SoundEffect && audioEvent->isPositionalAudio() && !eventToAdd->getIsLogicalAudio()
+			&& !BitTest(info->m_type, ST_VOICE) && speedOfSound > 0.0f)
+	{
+		Coord3D toMicrophone = *audioEvent->getCurrentPosition();
+		toMicrophone.sub(&m_listenerPosition);
+		const Real travelMs = toMicrophone.length() / speedOfSound * MSEC_PER_SECOND;
+		const Real maxMs = getAudioSettings()->m_maxSoundDelay;
+		audioEvent->setDelay(audioEvent->getDelay() + (travelMs < maxMs ? travelMs : maxMs));
+	}
 
 	std::list<std::pair<AsciiString, Real> >::iterator it;
 	for (it = m_adjustedVolumes.begin(); it != m_adjustedVolumes.end(); ++it) {

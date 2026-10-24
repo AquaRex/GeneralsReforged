@@ -32,7 +32,10 @@
  *   HSTREAM / HAUDIO     -> a file decoded by miniaudio through the game's own file callbacks, into
  *                           ~200ms chunks the service thread keeps four ahead of the mixer.
  *   3D positioning       -> the same distance attenuation and stereo pan miles_xaudio2 computes,
- *                           not miniaudio's spatializer.
+ *                           not miniaudio's spatializer.  The air, room and duck of MSS.h too, by the
+ *                           same helpers: a one-pole low-pass where XAudio2 sets the voice's filter,
+ *                           the resampler's rate for doppler, and a small reverb of its own (Room
+ *                           below) where XAudio2 has a submix running its built-in one.
  *   the mix              -> done here, in miniaudio's device callback, so that the output matrix is
  *                           exactly XAudio2's: every source channel summed into left and right at
  *                           the pan's two gains.
@@ -299,13 +302,19 @@ unsigned int decodeAdpcm(const WaveImage &wave, std::vector<short> *out)
 
 struct VoiceMix
 {
-	VoiceMix() : resamplerReady(false), channels(0), gainLeft(0.0f), gainRight(0.0f), passThrough(false), pending(0), pendingAt(0) {}
+	VoiceMix() : resamplerReady(false), channels(0), gainLeft(0.0f), gainRight(0.0f), lowPass(1.0f), lowPassState(0.0f),
+		roomSend(0.0f), passThrough(false), pending(0), pendingAt(0) {}
 
 	ma_resampler resampler;
 	bool resamplerReady;
 	unsigned channels;
 	float gainLeft;
 	float gainRight;
+	// A 3D sample's air and occlusion, XAudio2's LowPassOnePoleFilter on the resampled sum: y += a(x - y),
+	// a = 1 passing it untouched.  And its share into the room.
+	float lowPass;
+	float lowPassState;
+	float roomSend;
 	// An XAudio2 voice with the default matrix rather than a panned Miles one: left to left and right
 	// to right (a mono source to both), each at its gain.  The movies' voice (mss_ex_pcm.h).
 	bool passThrough;
@@ -350,15 +359,21 @@ void resetResampler(VoiceMix *mix)
 	}
 	mix->pending = 0;
 	mix->pendingAt = 0;
+	mix->lowPassState = 0.0f;
 }
 
 // Fills up to maxFrames of float source frames.  Returns how many it gave; 0 means the source is dry.
 typedef unsigned (*SourceRead)(void *source, float *out, unsigned maxFrames);
 
-// Mixes up to `frames` output frames of one voice into `output`.  Returns true once the source is
-// dry and nothing is left in flight, which is XAudio2's BuffersQueued == 0.
-bool mixVoice(VoiceMix *mix, SourceRead read, void *source, float *output, unsigned frames, bool *sourceDry)
+// Mixes up to `frames` output frames of one voice into `output`, at `duck` (AIL_ex_duck) on top of its
+// gains, and its send into `room` when there is one.  Returns true once the source is dry and nothing
+// is left in flight, which is XAudio2's BuffersQueued == 0.
+bool mixVoice(VoiceMix *mix, SourceRead read, void *source, float *output, unsigned frames, bool *sourceDry,
+	float duck, float *room)
 {
+	const float left = mix->gainLeft * duck;
+	const float right = mix->gainRight * duck;
+	const float send = mix->roomSend * duck;
 	float resampled[MIX_CHUNK_FRAMES * 2];
 	unsigned done = 0;
 
@@ -380,19 +395,25 @@ bool mixVoice(VoiceMix *mix, SourceRead read, void *source, float *output, unsig
 			&inFrames, resampled, &outFrames);
 
 		for (ma_uint64 frame = 0; mix->passThrough && frame < outFrames; ++frame) {
-			const float left = resampled[frame * mix->channels];
-			const float right = mix->channels >= 2 ? resampled[frame * mix->channels + 1] : left;
-			output[(done + frame) * OUTPUT_CHANNELS + 0] += mix->gainLeft * left;
-			output[(done + frame) * OUTPUT_CHANNELS + 1] += mix->gainRight * right;
+			const float sourceLeft = resampled[frame * mix->channels];
+			const float sourceRight = mix->channels >= 2 ? resampled[frame * mix->channels + 1] : sourceLeft;
+			output[(done + frame) * OUTPUT_CHANNELS + 0] += left * sourceLeft;
+			output[(done + frame) * OUTPUT_CHANNELS + 1] += right * sourceRight;
 		}
 		for (ma_uint64 frame = 0; !mix->passThrough && frame < outFrames; ++frame) {
 			// XAudio2's matrix row for each output speaker has every source channel at the same gain.
+			// The filter is linear, so filtering the sum is filtering each channel and summing.
 			float sum = 0.0f;
 			for (unsigned channel = 0; channel < mix->channels; ++channel) {
 				sum += resampled[frame * mix->channels + channel];
 			}
-			output[(done + frame) * OUTPUT_CHANNELS + 0] += mix->gainLeft * sum;
-			output[(done + frame) * OUTPUT_CHANNELS + 1] += mix->gainRight * sum;
+			mix->lowPassState += mix->lowPass * (sum - mix->lowPassState);
+			sum = mix->lowPassState;
+			output[(done + frame) * OUTPUT_CHANNELS + 0] += left * sum;
+			output[(done + frame) * OUTPUT_CHANNELS + 1] += right * sum;
+			if (room != NULL) {
+				room[done + frame] += send * sum;
+			}
 		}
 
 		mix->pendingAt += (unsigned)inFrames;
@@ -427,13 +448,16 @@ struct Sample
 	float positionX, positionY, positionZ;
 	float minDistance, maxDistance;
 	float occlusion;
+	float velocityX, velocityY, velocityZ;	// units a second, AIL_set_3D_velocity_vector
 
 	// What the mix sees, under mixLock.  `running` is the voice started, `queued` its one buffer
-	// still in it, `cursor` the next source frame.
+	// still in it, `cursor` the next source frame.  `unducked`: it started a duck, which leaves it
+	// alone until the duck is over.
 	bool running;
 	bool queued;
 	unsigned int cursor;
 	bool sourceDry;
+	bool unducked;
 	VoiceMix mix;
 };
 
@@ -504,10 +528,125 @@ struct Capture
 	unsigned int sizesWrittenAt;
 };
 
+// ---------------------------------------------------------------------------------------------
+// The room (AIL_ex_set_reverb): the reverb every 3D sample sends to.  XAudio2 has one built in and
+// miniaudio has none, so this is a small one of Freeverb's shape, cut to four combs and two
+// all-passes a side.  The send goes through the echo first, a delay that is also heard once on its
+// own (a street of buildings answering), then into the combs, damped in their feedback, and out
+// through the all-passes that smear them.  Mono in; the right side's lines are 23 samples longer than
+// the left's, Freeverb's spread, for width.  Under mixLock.
+// ---------------------------------------------------------------------------------------------
+
+const unsigned ROOM_COMBS = 4;
+const unsigned ROOM_ALLPASSES = 2;
+const unsigned ROOM_COMB_LENGTHS[ROOM_COMBS] = { 1116, 1188, 1277, 1356 };	// Freeverb's, at 44.1 kHz
+const unsigned ROOM_ALLPASS_LENGTHS[ROOM_ALLPASSES] = { 556, 441 };
+const unsigned ROOM_STEREO_SPREAD = 23;
+const float ROOM_TUNING_RATE = 44100.0f;
+const float ROOM_ALLPASS_FEEDBACK = 0.5f;
+const float ROOM_INPUT_GAIN = 0.25f;		// four combs at a second-long decay answer at about the send's level
+const float ROOM_ECHO_GAIN = 0.35f;
+const float ROOM_MAX_DAMPING = 0.7f;
+const float ROOM_MAX_ECHO_SECONDS = 0.3f;	// I3DL2's ReflectionsDelay limit, where miles_xaudio2 puts the echo
+const float ROOM_DENORMAL_GUARD = 1e-18f;	// keeps a dying tail out of the denormals, which x64 does slowly
+
+struct DelayLine
+{
+	DelayLine() : at(0), feedback(0.0f), store(0.0f) {}
+
+	std::vector<float> line;
+	size_t at;
+	float feedback;
+	float store;	// a comb's damping filter
+};
+
+struct Room
+{
+	Room() : ready(false), rate(0), damping(0.0f), echoLength(0) {}
+
+	bool ready;
+	unsigned rate;
+	float damping;
+	DelayLine echo;
+	size_t echoLength;
+	DelayLine combs[2][ROOM_COMBS];
+	DelayLine allpasses[2][ROOM_ALLPASSES];
+};
+
+void initRoom(Room *room, unsigned rate)
+{
+	const float scale = (float)rate / ROOM_TUNING_RATE;
+	for (unsigned side = 0; side < 2; ++side) {
+		for (unsigned i = 0; i < ROOM_COMBS; ++i) {
+			room->combs[side][i].line.assign((size_t)((ROOM_COMB_LENGTHS[i] + side * ROOM_STEREO_SPREAD) * scale), 0.0f);
+		}
+		for (unsigned i = 0; i < ROOM_ALLPASSES; ++i) {
+			room->allpasses[side][i].line.assign((size_t)((ROOM_ALLPASS_LENGTHS[i] + side * ROOM_STEREO_SPREAD) * scale), 0.0f);
+		}
+	}
+	room->echo.line.assign((size_t)(ROOM_MAX_ECHO_SECONDS * rate) + 1, 0.0f);
+	room->rate = rate;
+	room->ready = true;
+}
+
+void setRoom(Room *room, float decay, float damping, float echo)
+{
+	if (!room->ready) {
+		return;
+	}
+	// each comb loses 60 dB in `decay` seconds: a gain per trip of 0.001 to the power of trips that long
+	for (unsigned side = 0; side < 2; ++side) {
+		for (unsigned i = 0; i < ROOM_COMBS; ++i) {
+			DelayLine &comb = room->combs[side][i];
+			comb.feedback = powf(0.001f, (float)comb.line.size() / (decay * (float)room->rate));
+		}
+	}
+	room->damping = damping * ROOM_MAX_DAMPING;
+	const size_t echoLength = echo > 0.0f ? (size_t)(echo * (float)room->rate) : 0;
+	room->echoLength = echoLength < room->echo.line.size() ? echoLength : room->echo.line.size() - 1;
+	room->echo.at = room->echoLength > 0 ? room->echo.at % room->echoLength : 0;
+}
+
+// Adds the room's answer to `input` (mono, the sends of one mix pass) into the stereo `output`.
+void processRoom(Room *room, const float *input, float *output, unsigned frames)
+{
+	for (unsigned frame = 0; frame < frames; ++frame) {
+		float in = input[frame];
+		float echoed = 0.0f;
+		if (room->echoLength > 0) {
+			DelayLine &echo = room->echo;
+			echoed = echo.line[echo.at];
+			echo.line[echo.at] = in;
+			echo.at = (echo.at + 1) % room->echoLength;
+			in = echoed;
+		}
+		for (unsigned side = 0; side < 2; ++side) {
+			float sum = 0.0f;
+			for (unsigned i = 0; i < ROOM_COMBS; ++i) {
+				DelayLine &comb = room->combs[side][i];
+				const float out = comb.line[comb.at];
+				comb.store = out + room->damping * (comb.store - out);
+				comb.line[comb.at] = in * ROOM_INPUT_GAIN + comb.store * comb.feedback + ROOM_DENORMAL_GUARD;
+				comb.at = (comb.at + 1) % comb.line.size();
+				sum += out;
+			}
+			for (unsigned i = 0; i < ROOM_ALLPASSES; ++i) {
+				DelayLine &pass = room->allpasses[side][i];
+				const float held = pass.line[pass.at];
+				pass.line[pass.at] = sum + held * ROOM_ALLPASS_FEEDBACK;
+				pass.at = (pass.at + 1) % pass.line.size();
+				sum = held - sum;
+			}
+			output[frame * OUTPUT_CHANNELS + side] += sum + echoed * ROOM_ECHO_GAIN;
+		}
+	}
+}
+
 struct Engine
 {
 	Engine() : contextReady(false), deviceReady(false), serviceRunning(false), started(false), deviceRate(0),
-		capture(NULL), offline(false), mixAnchored(false), mixedFrames(0), capturedFrames(0), capturedRate(0) {}
+		capture(NULL), duckActive(false), duckFrames(0), duckGain(1.0f), duckSeconds(0.0f), offline(false),
+		mixAnchored(false), mixedFrames(0), capturedFrames(0), capturedRate(0) {}
 
 	// A process can end without AIL_shutdown - a test, or a game that exits in a hurry - and a
 	// std::thread still joinable at destruction calls std::terminate.  The Windows build's service
@@ -544,6 +683,15 @@ struct Engine
 	unsigned deviceRate;
 	Capture *capture;
 
+	// Under mixLock: the room and one mix pass's sends into it, and AIL_ex_duck, timed in frames
+	// mixed so that a -wav run ducks on the logic clock.
+	Room room;
+	std::vector<float> roomInput;
+	bool duckActive;
+	long long duckFrames;
+	float duckGain;
+	float duckSeconds;
+
 	// AIL_ex_offline_mix: the device is opened on the null backend and never started, and the mix
 	// moves only through AIL_ex_mix_to_frame.  mixedFrames is where the logic clock has it, in output
 	// frames from logic frame zero.  Game thread only.
@@ -557,6 +705,9 @@ struct Engine
 
 Engine g_engine;
 std::atomic<S32> g_linearFalloff(0);	// AIL_ex_set_3D_linear_falloff
+std::atomic<float> g_speedOfSound(0.0f);	// AIL_ex_set_3D_air
+std::atomic<float> g_absorptionDistance(0.0f);
+std::atomic<float> g_roomSend(0.0f);	// AIL_ex_set_reverb's wet
 
 AILFILEOPENCB g_fileOpen;
 AILFILECLOSECB g_fileClose;
@@ -585,7 +736,16 @@ void setGains(VoiceMix *mix, float volume, float pan)
 	mix->gainRight = voiceVolume * (float)sqrt(clampUnit(pan));
 }
 
-void computeSpatialGain(const Sample &sample, float *volumeOut, float *panOut)
+struct Spatial
+{
+	float volume;
+	float pan;
+	float cutoff;	// Hz, AIL_ex_3D_cutoff
+	float send;		// into the room, AIL_ex_3D_send
+	float doppler;	// pitch ratio, AIL_ex_doppler_ratio
+};
+
+Spatial computeSpatial(const Sample &sample)
 {
 	const Listener &listener = g_engine.listener;
 	const float dx = sample.positionX - listener.positionX;
@@ -593,8 +753,7 @@ void computeSpatialGain(const Sample &sample, float *volumeOut, float *panOut)
 	const float dz = sample.positionZ - listener.positionZ;
 	const float distance = (float)sqrt(dx * dx + dy * dy + dz * dz);
 
-	float attenuation = AIL_ex_3D_distance_gain(distance, sample.minDistance, sample.maxDistance, g_linearFalloff);
-	attenuation *= clampUnit(1.0f - sample.occlusion);
+	const float attenuation = AIL_ex_3D_distance_gain(distance, sample.minDistance, sample.maxDistance, g_linearFalloff);
 
 	float pan = DEFAULT_PAN;
 	if (distance > 0.0001f) {
@@ -609,8 +768,13 @@ void computeSpatialGain(const Sample &sample, float *volumeOut, float *panOut)
 		}
 	}
 
-	*volumeOut = clampUnit(sample.volume) * attenuation;
-	*panOut = pan;
+	Spatial spatial;
+	spatial.volume = clampUnit(sample.volume) * attenuation;
+	spatial.pan = pan;
+	spatial.cutoff = AIL_ex_3D_cutoff(distance, g_absorptionDistance.load(), sample.occlusion);
+	spatial.send = AIL_ex_3D_send(clampUnit(sample.volume), attenuation, g_roomSend.load());
+	spatial.doppler = AIL_ex_doppler_ratio(dx, dy, dz, sample.velocityX, sample.velocityY, sample.velocityZ, g_speedOfSound.load());
+	return spatial;
 }
 
 // Called with the engine lock held; takes mixLock for what the mix reads.
@@ -622,19 +786,29 @@ void refreshSampleOutput(Sample *sample)
 
 	float volume = sample->volume;
 	float pan = sample->pan;
+	float doppler = 1.0f;
+	float lowPass = 1.0f;
+	float send = 0.0f;
 	if (sample->is3D) {
-		computeSpatialGain(*sample, &volume, &pan);
+		const Spatial spatial = computeSpatial(*sample);
+		volume = spatial.volume;
+		pan = spatial.pan;
+		doppler = spatial.doppler;
+		lowPass = AIL_ex_one_pole_coefficient(spatial.cutoff, (float)g_engine.deviceRate);
+		send = spatial.send;
 	}
 
 	float ratio = 1.0f;
 	if (sample->baseRate != 0) {
-		ratio = (float)sample->rate / (float)sample->baseRate;
+		ratio = (float)sample->rate / (float)sample->baseRate * doppler;
 		if (ratio < MIN_FREQ_RATIO) ratio = MIN_FREQ_RATIO;
 		if (ratio > MAX_FREQ_RATIO) ratio = MAX_FREQ_RATIO;
 	}
 
 	std::lock_guard<std::mutex> mixGuard(g_engine.mixLock);
 	setGains(&sample->mix, volume, pan);
+	sample->mix.lowPass = lowPass;
+	sample->mix.roomSend = send;
 	setResampleRate(&sample->mix, (float)sample->baseRate * ratio, g_engine.deviceRate);
 }
 
@@ -1059,12 +1233,34 @@ void dataCallback(ma_device *, void *output, const void *, ma_uint32 frameCount)
 	memset(out, 0, (size_t)frameCount * OUTPUT_CHANNELS * sizeof(float));
 
 	std::lock_guard<std::mutex> mixGuard(g_engine.mixLock);
+
+	// One gain for the whole pass: a pass is ~10 ms and the duck moves over seconds.
+	float duck = 1.0f;
+	if (g_engine.duckActive) {
+		const float elapsed = (float)g_engine.duckFrames / (float)g_engine.deviceRate;
+		duck = AIL_ex_duck_gain(elapsed, g_engine.duckGain, g_engine.duckSeconds);
+		g_engine.duckFrames += frameCount;
+		if (elapsed >= g_engine.duckSeconds) {
+			g_engine.duckActive = false;
+			for (size_t i = 0; i < g_engine.samples.size(); ++i) {
+				g_engine.samples[i]->unducked = false;
+			}
+		}
+	}
+
+	if (g_engine.roomInput.size() < frameCount) {
+		g_engine.roomInput.resize(frameCount);
+	}
+	float *room = &g_engine.roomInput[0];
+	memset(room, 0, (size_t)frameCount * sizeof(float));
+
 	for (size_t i = 0; i < g_engine.samples.size(); ++i) {
 		Sample *sample = g_engine.samples[i];
 		if (!sample->running || !sample->queued || !sample->mix.resamplerReady) {
 			continue;
 		}
-		if (mixVoice(&sample->mix, readSampleSource, sample, out, frameCount, &sample->sourceDry)) {
+		if (mixVoice(&sample->mix, readSampleSource, sample, out, frameCount, &sample->sourceDry,
+				sample->unducked ? 1.0f : duck, sample->is3D ? room : NULL)) {
 			sample->queued = false;
 		}
 	}
@@ -1075,13 +1271,16 @@ void dataCallback(ma_device *, void *output, const void *, ma_uint32 frameCount)
 			continue;
 		}
 		stream->sourceDry = false;
-		mixVoice(&stream->mix, readStreamSource, stream, out, frameCount, &stream->sourceDry);
+		mixVoice(&stream->mix, readStreamSource, stream, out, frameCount, &stream->sourceDry, duck, NULL);
 	}
 	for (size_t i = 0; i < g_engine.pcmVoices.size(); ++i) {
 		PcmVoice *voice = g_engine.pcmVoices[i];
 		// Dry is only until the owner queues more, so it is asked afresh each pass, as a stream's is.
 		voice->sourceDry = false;
-		mixVoice(&voice->mix, readPcmSource, voice, out, frameCount, &voice->sourceDry);
+		mixVoice(&voice->mix, readPcmSource, voice, out, frameCount, &voice->sourceDry, duck, NULL);
+	}
+	if (g_engine.room.ready) {
+		processRoom(&g_engine.room, room, out, frameCount);
 	}
 
 	if (g_engine.capture != NULL) {
@@ -1146,6 +1345,7 @@ S32 AILCALL AIL_quick_startup(S32 use_digital, S32, U32, S32, S32)
 		return 0;
 	}
 	g_engine.deviceRate = g_engine.device.sampleRate;
+	initRoom(&g_engine.room, g_engine.deviceRate);
 	g_engine.deviceReady = true;
 	if (!g_engine.offline && ma_device_start(&g_engine.device) != MA_SUCCESS) {
 		ma_device_uninit(&g_engine.device);
@@ -1485,10 +1685,12 @@ HSAMPLE AILCALL AIL_allocate_sample_handle(HDIGDRIVER dig)
 	sample->minDistance = 0.0f;
 	sample->maxDistance = 1.0f;
 	sample->occlusion = 0.0f;
+	sample->velocityX = sample->velocityY = sample->velocityZ = 0.0f;
 	sample->running = false;
 	sample->queued = false;
 	sample->cursor = 0;
 	sample->sourceDry = false;
+	sample->unducked = false;
 
 	std::lock_guard<std::recursive_mutex> guard(g_engine.lock);
 	std::lock_guard<std::mutex> mixGuard(g_engine.mixLock);
@@ -1725,6 +1927,7 @@ S32 AILCALL AIL_set_3D_sample_file(H3DSAMPLE handle, const void *file_image)
 	Sample *sample = (Sample *)handle;
 	if (sample != NULL) {
 		sample->occlusion = 0.0f;
+		sample->velocityX = sample->velocityY = sample->velocityZ = 0.0f;
 	}
 	return AIL_set_sample_file((HSAMPLE)handle, file_image, 0);
 }
@@ -1788,6 +1991,30 @@ void AILCALL AIL_ex_set_3D_linear_falloff(S32 linear)
 {
 	// A playing sample takes it at its next position update.
 	g_linearFalloff.store(linear);
+}
+
+void AILCALL AIL_ex_set_3D_air(F32 speed_of_sound, F32 absorption_distance)
+{
+	g_speedOfSound.store(speed_of_sound);
+	g_absorptionDistance.store(absorption_distance);
+}
+
+void AILCALL AIL_ex_set_reverb(F32 wet, F32 decay, F32 damping, F32 echo)
+{
+	g_roomSend.store(wet);
+	std::lock_guard<std::mutex> mixGuard(g_engine.mixLock);
+	setRoom(&g_engine.room, decay, damping, echo);
+}
+
+void AILCALL AIL_ex_duck(H3DSAMPLE trigger, F32 gain, F32 seconds)
+{
+	std::lock_guard<std::recursive_mutex> guard(g_engine.lock);
+	std::lock_guard<std::mutex> mixGuard(g_engine.mixLock);
+	((Sample *)trigger)->unducked = true;
+	g_engine.duckActive = true;
+	g_engine.duckFrames = 0;
+	g_engine.duckGain = gain;
+	g_engine.duckSeconds = seconds;
 }
 
 void AILCALL AIL_set_3D_sample_occlusion(H3DSAMPLE handle, F32 occlusion)
@@ -1873,9 +2100,18 @@ void AILCALL AIL_set_3D_orientation(H3DPOBJECT obj, F32 X_face, F32 Y_face, F32 
 	g_engine.listener.upZ = Z_up;
 }
 
-void AILCALL AIL_set_3D_velocity_vector(H3DPOBJECT, F32, F32, F32)
+void AILCALL AIL_set_3D_velocity_vector(H3DPOBJECT obj, F32 dX, F32 dY, F32 dZ)
 {
-	// No doppler: Miles' was off in this game's settings too.
+	// As miles_xaudio2's: units a second, heard at the next refresh, the listener's not kept.
+	if (obj == NULL || obj == LISTENER_OBJECT) {
+		return;
+	}
+
+	std::lock_guard<std::recursive_mutex> guard(g_engine.lock);
+	Sample *sample = (Sample *)obj;
+	sample->velocityX = dX;
+	sample->velocityY = dY;
+	sample->velocityZ = dZ;
 }
 
 // =================================================================================================

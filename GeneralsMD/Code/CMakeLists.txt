@@ -2465,6 +2465,16 @@ target_link_libraries(miles_smoke PRIVATE milesaudio)
 # From Run/, where the FFmpeg DLLs the backend decodes with are.
 add_test(NAME miles_smoke COMMAND miles_smoke
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../Run)
+
+# The air, room and duck of the miniaudio backend, in the offline mix a -wav run records.  The
+# backend is compiled in on its own: milesaudio here carries the XAudio2 half and the FFmpeg DLLs
+# that only Run/ has.  The source keeps its MA_ prefix (the property above is the directory's), so
+# the test calls it by the same names.
+add_executable(test_miles_effects ${TESTS}/test_miles_effects.cpp ${WW}/Miles6/miniaudio/miles_miniaudio.cpp)
+set_source_files_properties(${TESTS}/test_miles_effects.cpp PROPERTIES COMPILE_DEFINITIONS MSS_BACKEND_PREFIX=MA_)
+target_include_directories(test_miles_effects PRIVATE ${WW}/Miles6/include ${WW}/WWLib)
+target_link_libraries(test_miles_effects PRIVATE test_harness miniaudio)
+add_test(NAME test_miles_effects COMMAND test_miles_effects)
 endif()  # ZH_PLATFORM_WINDOWS - device and codec smoke tests
 
 if(ZH_PLATFORM_POSIX)
@@ -2492,6 +2502,11 @@ if(ZH_GAME_DATA)
 else()
   set_tests_properties(test_miles_miniaudio PROPERTIES ENVIRONMENT "ZH_AUDIO_BACKEND=null")
 endif()
+# The same file Windows runs: the air, room and duck in the offline mix.
+add_executable(test_miles_effects ${TESTS}/test_miles_effects.cpp)
+target_include_directories(test_miles_effects PRIVATE ${WW}/Miles6/include)
+target_link_libraries(test_miles_effects PRIVATE test_harness milesaudio)
+add_test(NAME test_miles_effects COMMAND test_miles_effects)
 
 # For human ears, not ctest: plays one sound from a .big archive (or a loose file) on the real
 # device, through the same API, at a chosen volume and pan.

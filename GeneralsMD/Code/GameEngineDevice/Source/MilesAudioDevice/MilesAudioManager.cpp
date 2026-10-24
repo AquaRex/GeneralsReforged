@@ -59,6 +59,8 @@
 #include "Common/CRCDebug.h"
 #include "Common/GlobalData.h"
 #include "Common/LogicThread.h"
+#include "Common/MapObject.h"
+#include "Common/ThingTemplate.h"
 #include "Common/ScopedMutex.h"
 
 #include <algorithm>
@@ -137,6 +139,8 @@ MilesAudioManager::MilesAudioManager() :
 	m_num3DSamples(0),
 	m_numStreams(0),
 	m_delayFilter(NULL),
+	m_clockFrame(0),
+	m_clockElapsedMs(MSEC_PER_LOGICFRAME_REAL),
 	m_binkHandle(NULL),
 	m_pref3DProvider(AsciiString::TheEmptyString),
 	m_prefSpeaker(AsciiString::TheEmptyString)
@@ -595,6 +599,12 @@ void MilesAudioManager::update()
 	AudioManager::update();
 	processCompletedAudio();
 	updateSoundCapture();
+	advanceAudioClock();
+	if (TheGameLogic->isInGame() && !TheGameLogic->isLoadingMap() && m_roomMap != TheGlobalData->m_mapName)
+	{
+		m_roomMap = TheGlobalData->m_mapName;
+		setRoomFromMap();
+	}
 	setDeviceListenerPosition();
 	processRequestList();
 	processPlayingList();
@@ -932,6 +942,9 @@ void MilesAudioManager::playAudioEvent( AudioEventRTS *event, Bool requestStop )
 				if (sample3D) {
 					audio->m_file = playSample3D(event, sample3D);
 					m_sound->notifyOf3DSampleStart();
+					if (audio->m_file) {
+						duckForBlast(event, sample3D);
+					}
 				}
 
 				if( !audio->m_file ) 
@@ -1586,7 +1599,8 @@ void MilesAudioManager::initFilters3D( H3DSAMPLE sample, const AudioEventRTS *ev
 		AIL_set_3D_sample_playback_rate(sample, REAL_TO_INT(AIL_3D_sample_playback_rate(sample) * pitchShift));
 	}
 	
-	// Low pass filter
+	// Low pass filter: a real one now, a ceiling on the cutoff air already lowers with distance
+	// (MSS.h's AIL_ex_3D_cutoff), where it used to be a cut in volume
 	if (event->getAudioEventInfo()->m_lowPassFreq > 0 && !isOnScreen(pos) ) {
 		AIL_set_3D_sample_occlusion(sample, 1.0f - event->getAudioEventInfo()->m_lowPassFreq);
 	}
@@ -1726,6 +1740,7 @@ void MilesAudioManager::openDevice( void )
 	// AIL_quick_startup should be replaced later with a call to actually pick which device to use, etc
 	const AudioSettings *audioSettings = getAudioSettings();
 	AIL_ex_set_3D_linear_falloff(audioSettings->m_rangeVolumeFade);
+	AIL_ex_set_3D_air(audioSettings->m_speedOfSound, audioSettings->m_airAbsorptionDistance);
 	m_selectedSpeakerType = TheAudio->translateSpeakerTypeToUnsignedInt(m_prefSpeaker);
 
 	retval = AIL_quick_startup(audioSettings->m_useDigital, audioSettings->m_useMidi, audioSettings->m_outputRate, audioSettings->m_outputBits, audioSettings->m_outputChannels);
@@ -2720,8 +2735,9 @@ void MilesAudioManager::processPlayingList( void )
 						stopPlayingAudio( playing );
 						continue;
 					}
-					else 
+					else
 					{
+						trackVelocity( playing, pos );
 						Real x = pos->x;
 						Real y = pos->y;
 						Real z = pos->z;
@@ -2869,8 +2885,119 @@ void MilesAudioManager::adjustRequest( AudioRequest *req )
 		return;
 	}
 
-	req->m_pendingEvent->decrementDelay(MSEC_PER_LOGICFRAME_REAL);
+	// Logic time, not a frame's worth a pass: at 120 fps that ran every delay twice as fast as the
+	// picture, and a sound held back by its distance has to land with what is seen.
+	req->m_pendingEvent->decrementDelay(m_clockElapsedMs);
 	req->m_requiresCheckForSample = true;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** m_clockElapsedMs: the logic time since the last update, which is nothing on a pass drawn between
+	* two logic frames and several frames' worth on a pass that caught up.  Out of a game the logic
+	* clock stands still, and a pass counts as one frame, as every pass used to. */
+void MilesAudioManager::advanceAudioClock( void )
+{
+	if (!TheGameLogic->isInGame())
+	{
+		m_clockElapsedMs = MSEC_PER_LOGICFRAME_REAL;
+		return;
+	}
+
+	// a new match starts its clock at nought again, and the first pass of it counts nothing
+	const UnsignedInt frame = TheGameLogic->getFrame();
+	m_clockElapsedMs = frame > m_clockFrame ? (Real)(frame - m_clockFrame) * MSEC_PER_LOGICFRAME_REAL : 0.0f;
+	m_clockFrame = frame;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Doppler's velocity: how far the source moved over the logic time since the last pass the clock
+	* moved on.  A drawable's position is the smoothed one, read at whatever point between two logic
+	* frames the pass fell, so each reading only takes the velocity half way there, which keeps a flyby's
+	* pitch from warbling.  The backend takes the speed towards the microphone (AIL_ex_doppler_ratio). */
+void MilesAudioManager::trackVelocity( PlayingAudio *playing, const Coord3D *pos )
+{
+	if (m_clockElapsedMs <= 0.0f)
+		return;
+
+	if (playing->m_tracked)
+	{
+		const Real perSecond = MSEC_PER_SECOND / m_clockElapsedMs;
+		playing->m_velocity.x += 0.5f * ((pos->x - playing->m_lastPosition.x) * perSecond - playing->m_velocity.x);
+		playing->m_velocity.y += 0.5f * ((pos->y - playing->m_lastPosition.y) * perSecond - playing->m_velocity.y);
+		playing->m_velocity.z += 0.5f * ((pos->z - playing->m_lastPosition.z) * perSecond - playing->m_velocity.z);
+		const Real scale = m_audioSettings->m_dopplerScale;
+		AIL_set_3D_velocity_vector( playing->m_3DSample, playing->m_velocity.x * scale, playing->m_velocity.y * scale,
+			playing->m_velocity.z * scale );
+	}
+	playing->m_lastPosition = *pos;
+	playing->m_tracked = TRUE;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The room the map's world sounds send into (AIL_ex_set_reverb), from the map itself: how much of
+	* its playable ground the placed structures cover.  Supply docks are left out, being on every map at
+	* a third to a full percent of it.  The shipped maps measured that way run from about 0.1% (Twilight
+	* Flame, Tournament Tundra) to near 3% (Tournament Urban, El Scorcho), and the room goes from open
+	* ground at 0.3%, a faint, short, dark tail, to a town at 1.9%, a longer and brighter one with an
+	* echo off the walls.  Snow takes half the room away and most of its top end.  The object list is
+	* the map file's, which the terrain keeps until the next map, so nothing in logic is asked. */
+void MilesAudioManager::setRoomFromMap( void )
+{
+	Real built = 0.0f;
+	for (MapObject *mapObject = MapObject::getFirstMapObject(); mapObject; mapObject = mapObject->getNext())
+	{
+		const ThingTemplate *thing = mapObject->getThingTemplate();
+		// waypoints, lights and other markers have no template
+		if (thing && thing->isKindOf(KINDOF_STRUCTURE) && !thing->isKindOf(KINDOF_SUPPLY_SOURCE))
+			built += thing->getTemplateGeometryInfo().getFootprintArea();
+	}
+	Region3D extent;
+	TheTerrainLogic->getExtent(&extent);
+	const Real cover = built / (extent.width() * extent.height());
+
+	const Real OPEN_COVER = 0.003f;
+	const Real TOWN_COVER = 0.019f;
+	Real town = (cover - OPEN_COVER) / (TOWN_COVER - OPEN_COVER);
+	town = town < 0.0f ? 0.0f : (town > 1.0f ? 1.0f : town);
+
+	Real wet = 0.06f + 0.24f * town;
+	Real decay = 0.7f + 1.1f * town;
+	Real damping = 0.6f - 0.3f * town;
+	const Real echo = town >= 0.3f ? 0.04f + 0.05f * town : 0.0f;
+	if (TheGlobalData->m_weather == WEATHER_SNOWY)
+	{
+		wet *= 0.5f;
+		decay *= 0.7f;
+		damping = damping > 0.85f ? damping : 0.85f;
+	}
+	AIL_ex_set_reverb(wet * m_audioSettings->m_reverbLevel, decay, damping, echo);
+	DEBUG_LOG(("AUDIO: room for %s: %.2f%% built over, town %.2f%s, send %.2f, decay %.2f s, damping %.2f, echo %d ms\n",
+		m_roomMap.str(), cover * 100.0f, town, TheGlobalData->m_weather == WEATHER_SNOWY ? " in snow" : "",
+		wet * m_audioSettings->m_reverbLevel, decay, damping, (Int)(echo * 1000.0f)));
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A big blast (DuckSounds) dips everything else for DuckTime, down to DuckVolume, as far as the blast
+	* is loud at the microphone: by the square root of its distance gain, so a nuke across the map
+	* still leans on the mix and one out of its range does nothing.  Asked when the blast starts, so a
+	* far one ducks when it is heard rather than when it is seen; a loop that ducks does so once. */
+void MilesAudioManager::duckForBlast( AudioEventRTS *event, H3DSAMPLE sample3D )
+{
+	const AudioSettings *settings = m_audioSettings;
+	if (settings->m_duckVolume >= 1.0f
+			|| std::find(settings->m_duckSounds.begin(), settings->m_duckSounds.end(), event->getEventName()) == settings->m_duckSounds.end())
+		return;
+
+	const AudioEventInfo *info = event->getAudioEventInfo();
+	const Bool global = BitTest(info->m_type, ST_GLOBAL);
+	Coord3D toMicrophone = *getCurrentPositionFromEvent(event);
+	toMicrophone.sub(&m_listenerPosition);
+	const Real nearness = sqrtf(AIL_ex_3D_distance_gain(toMicrophone.length(),
+		global ? (Real)settings->m_globalMinRange : info->m_minDistance,
+		global ? (Real)settings->m_globalMaxRange : info->m_maxDistance, settings->m_rangeVolumeFade));
+	if (nearness <= 0.0f)
+		return;
+	AIL_ex_duck(sample3D, 1.0f - (1.0f - settings->m_duckVolume) * nearness, settings->m_duckTime / MSEC_PER_SECOND);
 }
 
 //-------------------------------------------------------------------------------------------------

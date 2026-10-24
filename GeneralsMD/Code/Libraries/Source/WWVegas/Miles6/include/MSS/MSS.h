@@ -29,6 +29,8 @@
 #include "mss_backend_names.h"
 #endif
 
+#include <math.h>	/* the inline helpers at the end */
+
 /* The real Mss.H pulls in the Windows multimedia headers; WWAudio relies on
  * that for LPWAVEFORMAT in its Miles-facing signatures. */
 #if defined(_WIN32)
@@ -284,6 +286,24 @@ void      AILCALL AIL_ex_capture_length(S32 *frames, S32 *rate);
    RangeVolumeFade, so what plays and what getEffectiveVolume culls follow one curve. */
 void      AILCALL AIL_ex_set_3D_linear_falloff(S32 linear);
 
+/* ---- air, room and duck ------------------------------------------------ */
+/* Not Miles.  What MilesAudioManager hands down from AudioSettings.ini and the map.
+ *
+ * AIL_ex_set_3D_air: the speed of sound in game units a second, for doppler on the velocity
+ * AIL_set_3D_velocity_vector gives a 3D sample (units a second as well), and the distance
+ * AIL_ex_3D_cutoff takes for air absorption.  Zero switches either off; both start off.
+ *
+ * AIL_ex_set_reverb: the one room every 3D sample sends to.  wet is the send of a sample at full
+ * volume (zero takes the room away), decay the seconds its tail takes to fall 60 dB, damping (0 to 1)
+ * how much sooner the top end dies, echo the seconds before the first reflection comes back.
+ *
+ * AIL_ex_duck: everything but the trigger, and any earlier trigger still sounding, dips to gain and
+ * comes back over seconds, AIL_ex_duck_gain's shape.  miniaudio counts that time in frames mixed, so
+ * a -wav run ducks on the picture's clock; XAudio2 counts it on the wall clock it plays on. */
+void      AILCALL AIL_ex_set_3D_air(F32 speed_of_sound, F32 absorption_distance);
+void      AILCALL AIL_ex_set_reverb(F32 wet, F32 decay, F32 damping, F32 echo);
+void      AILCALL AIL_ex_duck(H3DSAMPLE trigger, F32 gain, F32 seconds);
+
 /* ---- file format helpers ---------------------------------------------- */
 S32       AILCALL AIL_WAV_info(const void *data, AILSOUNDINFO *info);
 S32       AILCALL AIL_decompress_ADPCM(const AILSOUNDINFO *info, void **outdata, U32 *outsize);
@@ -306,6 +326,76 @@ static inline F32 AIL_ex_3D_distance_gain(F32 distance, F32 min_dist, F32 max_di
 	if (linear && max_dist > min_dist)
 		return 1.0f - (distance - min_dist) / (max_dist - min_dist);
 	return min_dist / distance;
+}
+
+/* Not Miles, and like the distance curve kept here so the two backends cannot drift: the rest of a
+   3D sample's sound.  Both play the low-pass below as a one-pole filter after the voice's resampler,
+   at the output rate, which is where XAudio2 runs a source voice's filter. */
+#define AIL_EX_OPEN_CUTOFF 20000.0f
+
+/* The cutoff in Hz.  Air takes the top off with distance: 20 kHz close, half that at
+   absorption_distance and falling with the square of the distance past it, so a blast across the map
+   is a rumble.  Occlusion is EA's LowPassCutoff, which MilesAudioManager hands down as 1 - cutoff for
+   a sound off screen; it used to be a cut in volume and is a ceiling now, 20 kHz times (1 - occlusion)
+   squared: 5 kHz for the shipped 50%. */
+static inline F32 AIL_ex_3D_cutoff(F32 distance, F32 absorption_distance, F32 occlusion)
+{
+	F32 cutoff = AIL_EX_OPEN_CUTOFF;
+	if (absorption_distance > 0.0f) {
+		const F32 ratio = distance / absorption_distance;
+		cutoff /= 1.0f + ratio * ratio;
+	}
+	const F32 open = 1.0f - occlusion;
+	const F32 ceiling = AIL_EX_OPEN_CUTOFF * open * open;
+	return cutoff < ceiling ? cutoff : ceiling;
+}
+
+/* y += a * (x - y) for a cutoff at a rate: XAudio2CutoffFrequencyToOnePoleCoefficient, held at 1 (no
+   filter at all) for an open cutoff and from half the rate up, where that helper turns round and
+   closes again. */
+static inline F32 AIL_ex_one_pole_coefficient(F32 cutoff, F32 rate)
+{
+	if (cutoff >= AIL_EX_OPEN_CUTOFF || cutoff * 2.0f >= rate)
+		return 1.0f;
+	const F32 k = 1.0f - 2.0f * cutoff / rate;
+	return 1.0f - k * k;
+}
+
+/* The pitch ratio of a source moving at (vx, vy, vz), (dx, dy, dz) from the listener.  The listener
+   counts as standing still: it is the camera, and a scroll would bend every sound on the map at once.
+   The speed towards the listener is held to half the speed of sound either way, a ratio of 2/3 to 2. */
+static inline F32 AIL_ex_doppler_ratio(F32 dx, F32 dy, F32 dz, F32 vx, F32 vy, F32 vz, F32 speed_of_sound)
+{
+	const F32 distance = sqrtf(dx * dx + dy * dy + dz * dz);
+	if (speed_of_sound <= 0.0f || distance < 0.0001f)
+		return 1.0f;
+	F32 approach = -(vx * dx + vy * dy + vz * dz) / distance;
+	const F32 limit = 0.5f * speed_of_sound;
+	if (approach > limit) approach = limit;
+	if (approach < -limit) approach = -limit;
+	return speed_of_sound / (speed_of_sound - approach);
+}
+
+/* The send into the room: the dry sound falls with the distance gain, the room's share only with its
+   square root, so a far sound is mostly room, and nothing reaches it past the maximum distance. */
+static inline F32 AIL_ex_3D_send(F32 volume, F32 attenuation, F32 wet)
+{
+	return volume * wet * sqrtf(attenuation);
+}
+
+/* The duck's gain `elapsed` seconds after it began: down to `gain` over 50 ms, held for a quarter of
+   `seconds`, then a straight line back to full by `seconds`. */
+static inline F32 AIL_ex_duck_gain(F32 elapsed, F32 gain, F32 seconds)
+{
+	const F32 attack = 0.05f;
+	const F32 hold = 0.25f * seconds > attack ? 0.25f * seconds : attack;
+	if (elapsed < 0.0f || elapsed >= seconds)
+		return 1.0f;
+	if (elapsed < attack)
+		return 1.0f - (1.0f - gain) * elapsed / attack;
+	if (elapsed < hold)
+		return gain;
+	return gain + (1.0f - gain) * (elapsed - hold) / (seconds - hold);
 }
 
 #endif /* MSS_H */

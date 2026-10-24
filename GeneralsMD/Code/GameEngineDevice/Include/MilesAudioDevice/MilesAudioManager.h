@@ -85,6 +85,11 @@ struct PlayingAudio
 	/// happens in processPlayingList holding both locks rather than wherever the fade is asked for.
 	Bool m_fade;
 	Int m_framesFaded;
+	/// Doppler's velocity for a 3D sound, units a second, and where the source was the last time the
+	/// logic clock had moved (MilesAudioManager::trackVelocity).
+	Bool m_tracked;
+	Coord3D m_lastPosition;
+	Coord3D m_velocity;
 
 	PlayingAudio() :
 		m_type(PAT_INVALID),
@@ -96,8 +101,12 @@ struct PlayingAudio
 		m_sample(0),
 		m_3DSample(0),
 		m_stream(0),
-		m_framesFaded(0)
-	{ }
+		m_framesFaded(0),
+		m_tracked(false)
+	{
+		m_lastPosition.zero();
+		m_velocity.zero();
+	}
 
 	/// An entry past PS_Playing is waiting for the sweep that frees it: its Miles handle may already
 	/// be back in the pool, so it must not be counted, touched or picked as a victim.
@@ -243,6 +252,10 @@ class MilesAudioManager : public AudioManager
 
 		Bool shouldProcessRequestThisFrame( AudioRequest *req ) const;
 		void adjustRequest( AudioRequest *req );
+		void advanceAudioClock( void );
+		void trackVelocity( PlayingAudio *playing, const Coord3D *pos );
+		void setRoomFromMap( void );
+		void duckForBlast( AudioEventRTS *event, H3DSAMPLE sample3D );
 		Bool checkForSample( AudioRequest *req );
 
 		virtual void setHardwareAccelerated(Bool accel);
@@ -324,6 +337,13 @@ class MilesAudioManager : public AudioManager
 		HDIGDRIVER m_digitalHandle;
 		H3DPOBJECT m_listener;
 		HPROVIDER m_delayFilter;
+
+		/// The logic clock as update() last read it, and the milliseconds of logic time since the read
+		/// before: the request list's delays and doppler's velocity run on it, so both keep to the
+		/// picture at any render rate and in a -wav run.  Out of a game a pass counts as one frame.
+		UnsignedInt m_clockFrame;
+		Real m_clockElapsedMs;
+		AsciiString m_roomMap;	///< the map setRoomFromMap last set the room for
 
 		// LOGIC-THREAD.md M7: what the tick asks, as captureForLogic found it at the sync point
 		std::vector<AudioHandle> m_playingAtSync;											///< every handle isCurrentlyPlaying said yes to, sorted
