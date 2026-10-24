@@ -63,6 +63,7 @@ Data/Cinema/geproto_glow.txt
 Data/Cinema/geproto_hazemove.txt
 Data/Cinema/geproto_oasis.txt
 Data/Cinema/geproto_wake.txt
+Data/Cinema/gpu1m_battle.txt
 Data/Cinema/gunfx.txt
 Data/Cinema/headlights.txt
 Data/Cinema/hero_loop.txt
@@ -267,6 +268,7 @@ Data/Scenarios/givemoney.txt
 Data/Scenarios/glowbase.txt
 Data/Scenarios/glowfight.txt
 Data/Scenarios/glowmicrowave.txt
+Data/Scenarios/gpu1m_battle.txt
 Data/Scenarios/guardradius.txt
 Data/Scenarios/gunfx.txt
 Data/Scenarios/headlights.txt
@@ -2122,6 +2124,7 @@ Libraries/Source/WWVegas/Miles6/.gitignore
 Libraries/Source/WWVegas/Miles6/include/MSS/MSS.h
 Libraries/Source/WWVegas/Miles6/include/MSS/mss_backend_names.h
 Libraries/Source/WWVegas/Miles6/include/MSS/mss_ex_pcm.h
+Libraries/Source/WWVegas/Miles6/include/MSS/mss_ex_room.h
 Libraries/Source/WWVegas/Miles6/include/Mss.h
 Libraries/Source/WWVegas/Miles6/miles_dispatch.cpp
 Libraries/Source/WWVegas/Miles6/miniaudio/miles_miniaudio.cpp
