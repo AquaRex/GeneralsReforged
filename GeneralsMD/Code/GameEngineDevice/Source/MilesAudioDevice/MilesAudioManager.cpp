@@ -141,6 +141,7 @@ MilesAudioManager::MilesAudioManager() :
 	m_delayFilter(NULL),
 	m_clockFrame(0),
 	m_clockElapsedMs(MSEC_PER_LOGICFRAME_REAL),
+	m_clockMovedAt(0),
 	m_binkHandle(NULL),
 	m_pref3DProvider(AsciiString::TheEmptyString),
 	m_prefSpeaker(AsciiString::TheEmptyString)
@@ -1084,14 +1085,19 @@ void MilesAudioManager::stopAudioEvent( AudioHandle handle )
 	// loop outlives the thing that asked for it.  A one-shot sound effect still plays the one pass
 	// it was waiting for, the same as one caught mid-play below; a loop is dropped, as one playing
 	// below ends its pass, which matters since the distance delay holds nearly every world loop here.
+	// A loop already heard and waiting between passes plays its decay now, as a playing one would.
 	//
 	std::list<AudioRequest*>::iterator ait;
 	for ( ait = m_audioRequests.begin(); ait != m_audioRequests.end(); ++ait ) {
 		AudioRequest *req = (*ait);
 		if (req && req->m_usePendingEvent && req->m_pendingEvent
 				&& req->m_pendingEvent->getPlayingHandle() == handle) {
-			if (audioIsType(req->m_pendingEvent, AT_SoundEffect)
-					&& !(req->m_pendingEvent->getAudioEventInfo()->m_control & AC_LOOP)) {
+			const Bool loop = (req->m_pendingEvent->getAudioEventInfo()->m_control & AC_LOOP) != 0;
+			if (audioIsType(req->m_pendingEvent, AT_SoundEffect) && !loop) {
+				req->m_requestStop = true;
+			} else if (loop && req->m_nextLoop && req->m_pendingEvent->getDecayFilename().isNotEmpty()) {
+				req->m_pendingEvent->setNextPlayPortion(PP_Decay);
+				req->m_pendingEvent->setDelay(0.0f);
 				req->m_requestStop = true;
 			} else {
 				req->deleteInstance();
@@ -1298,7 +1304,7 @@ void MilesAudioManager::releaseMilesHandles( PlayingAudio *release )
 		{
 			if (release->m_3DSample) {
 				AIL_register_3D_EOS_callback(release->m_3DSample, NULL);
-				AIL_stop_3D_sample(release->m_3DSample);
+				AIL_end_3D_sample(release->m_3DSample);	// an end, not a stop: the handle is done with
 				m_available3DSamples.push_back(release->m_3DSample);
 				release->m_3DSample = 0;
 			}
@@ -2904,6 +2910,7 @@ void MilesAudioManager::advanceAudioClock( void )
 	if (!TheGameLogic->isInGame())
 	{
 		m_clockElapsedMs = MSEC_PER_LOGICFRAME_REAL;
+		m_clockMovedAt = Clock_Milliseconds();
 		return;
 	}
 
@@ -2911,6 +2918,8 @@ void MilesAudioManager::advanceAudioClock( void )
 	const UnsignedInt frame = TheGameLogic->getFrame();
 	m_clockElapsedMs = frame > m_clockFrame ? (Real)(frame - m_clockFrame) * MSEC_PER_LOGICFRAME_REAL : 0.0f;
 	m_clockFrame = frame;
+	if (m_clockElapsedMs > 0.0f)
+		m_clockMovedAt = Clock_Milliseconds();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2922,8 +2931,10 @@ void MilesAudioManager::trackVelocity( PlayingAudio *playing, const Coord3D *pos
 {
 	if (m_clockElapsedMs <= 0.0f)
 	{
-		// a pass between two logic frames keeps the velocity; a paused game stands still, pitch too
-		if (playing->m_tracked && TheGameLogic->isGamePaused())
+		// A pass between two logic frames keeps the velocity.  A clock standing longer than a few frames
+		// is a pause or a network stall, where nothing moves and no pitch may hang.
+		const UnsignedInt CLOCK_STALL_MS = 100;
+		if (playing->m_tracked && Clock_Milliseconds() - m_clockMovedAt > CLOCK_STALL_MS)
 		{
 			playing->m_velocity.zero();
 			AIL_set_3D_velocity_vector( playing->m_3DSample, 0.0f, 0.0f, 0.0f );
@@ -2950,9 +2961,10 @@ void MilesAudioManager::trackVelocity( PlayingAudio *playing, const Coord3D *pos
 	* its playable ground the placed structures cover.  Supply docks are left out, being on every map at
 	* a third to a full percent of it.  The shipped maps measured that way run from about 0.1% (Twilight
 	* Flame, Tournament Tundra) to near 3% (Tournament Urban, El Scorcho), and the room goes from open
-	* ground at 0.3%, a faint, short, dark tail, to a town at 1.9%, a longer and brighter one with an
-	* echo off the walls.  Snow takes half the room away and most of its top end.  The object list is
-	* the map file's, which the terrain keeps until the next map, so nothing in logic is asked. */
+	* ground at 0.3%, a loud late slap and a long thin tail, to a town at 1.9%, a strong early echo off
+	* the walls and a brighter tail.  Snow leaves a third of the send, no echo, a short dead tail and
+	* air that takes the top end off sooner.  The object list is the map file's, which the terrain
+	* keeps until the next map, so nothing in logic is asked. */
 void MilesAudioManager::setRoomFromMap( void )
 {
 	Real built = 0.0f;
@@ -2972,20 +2984,33 @@ void MilesAudioManager::setRoomFromMap( void )
 	Real town = (cover - OPEN_COVER) / (TOWN_COVER - OPEN_COVER);
 	town = town < 0.0f ? 0.0f : (town > 1.0f ? 1.0f : town);
 
-	Real wet = 0.06f + 0.24f * town;
-	Real decay = 0.7f + 1.1f * town;
-	Real damping = 0.6f - 0.3f * town;
-	const Real echo = town >= 0.3f ? 0.04f + 0.05f * town : 0.0f;
-	if (TheGlobalData->m_weather == WEATHER_SNOWY)
+	// Open ground answers late and thin: a ridge's slap a quarter second on, then a long dark tail.  A
+	// town answers at once off the walls across the street, brighter and stronger.
+	Real wet = 0.14f + 0.16f * town;
+	Real decay = 2.6f - 0.8f * town;
+	Real damping = 0.8f - 0.5f * town;
+	Real echo = 0.26f - 0.17f * town;
+	Real slap = 1.2f - 0.85f * town;
+	Real absorption = m_audioSettings->m_airAbsorptionDistance;
+	const Bool snowy = TheGlobalData->m_weather == WEATHER_SNOWY;
+	if (snowy)
 	{
-		wet *= 0.5f;
-		decay *= 0.7f;
-		damping = damping > 0.85f ? damping : 0.85f;
+		// snow swallows the echo and the top end, of the sound itself as well as the room's
+		const Real SNOW_SEND_SHARE = 0.35f;
+		const Real SNOW_DECAY_SECONDS = 0.4f;
+		const Real SNOW_AIR_SHARE = 0.6f;
+		wet *= SNOW_SEND_SHARE;
+		decay = SNOW_DECAY_SECONDS;
+		damping = 1.0f;
+		echo = 0.0f;
+		slap = 0.0f;
+		absorption *= SNOW_AIR_SHARE;
 	}
-	AIL_ex_set_reverb(wet * m_audioSettings->m_reverbLevel, decay, damping, echo);
-	DEBUG_LOG(("AUDIO: room for %s: %.2f%% built over, town %.2f%s, send %.2f, decay %.2f s, damping %.2f, echo %d ms\n",
-		m_roomMap.str(), cover * 100.0f, town, TheGlobalData->m_weather == WEATHER_SNOWY ? " in snow" : "",
-		wet * m_audioSettings->m_reverbLevel, decay, damping, (Int)(echo * 1000.0f)));
+	AIL_ex_set_3D_air(m_audioSettings->m_speedOfSound, absorption);
+	AIL_ex_set_reverb(wet * m_audioSettings->m_reverbLevel, decay, damping, echo, slap);
+	DEBUG_LOG(("AUDIO: room for %s: %.2f%% built over, town %.2f%s, send %.2f, decay %.2f s, damping %.2f, "
+		"echo %d ms at %.2f, air %.0f\n", m_roomMap.str(), cover * 100.0f, town, snowy ? " in snow" : "",
+		wet * m_audioSettings->m_reverbLevel, decay, damping, (Int)(echo * 1000.0f), slap, absorption));
 }
 
 //-------------------------------------------------------------------------------------------------

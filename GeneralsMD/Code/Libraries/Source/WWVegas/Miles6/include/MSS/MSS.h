@@ -295,17 +295,22 @@ void      AILCALL AIL_ex_set_3D_linear_falloff(S32 linear);
  *
  * AIL_ex_set_reverb: the one room every 3D sample sends to.  wet is the send of a sample at full
  * volume (zero takes the room away), decay the seconds its tail takes to fall 60 dB, damping (0 to 1)
- * how much sooner the top end dies, echo the seconds before the first reflection comes back.
+ * how much sooner the top end dies, echo the seconds before the first reflection comes back, and
+ * slap that reflection's level against the send: the wall across a street, or a ridge far off.
  *
  * AIL_ex_duck: everything but the trigger, and any earlier trigger still sounding, dips to gain and
- * comes back over seconds, AIL_ex_duck_gain's shape.  miniaudio counts that time in frames mixed, so
- * a -wav run ducks on the picture's clock; XAudio2 counts it on the wall clock it plays on.  The
- * movies' voice (mss_ex_pcm.h) is never ducked.
+ * comes back over seconds, AIL_ex_duck_gain's shape, and the other 3D samples are muffled with it
+ * (AIL_ex_duck_cutoff).  miniaudio counts that time in frames mixed, so a -wav run ducks on the
+ * picture's clock; XAudio2 counts it on the wall clock it plays on.  The movies' voice
+ * (mss_ex_pcm.h) is never ducked.
+ *
+ * Both backends hold the mix under AIL_EX_LIMITER_CEILING with the same limiter (AIL_ex_limit), so
+ * nothing they play or record clips.
  *
  * AIL_ex_set_3D_sample_dry: a 3D sample that takes no air, no doppler and no room, only its distance
  * gain, pan and occlusion; a unit's reply stays clean.  Set on each play; a fresh handle is wet. */
 void      AILCALL AIL_ex_set_3D_air(F32 speed_of_sound, F32 absorption_distance);
-void      AILCALL AIL_ex_set_reverb(F32 wet, F32 decay, F32 damping, F32 echo);
+void      AILCALL AIL_ex_set_reverb(F32 wet, F32 decay, F32 damping, F32 echo, F32 slap);
 void      AILCALL AIL_ex_duck(H3DSAMPLE trigger, F32 gain, F32 seconds);
 void      AILCALL AIL_ex_set_3D_sample_dry(H3DSAMPLE handle, S32 dry);
 
@@ -342,7 +347,8 @@ static inline F32 AIL_ex_3D_distance_gain(F32 distance, F32 min_dist, F32 max_di
    absorption_distance and falling with the square of the distance past it, so a blast across the map
    is a rumble.  Occlusion is EA's LowPassCutoff, which MilesAudioManager hands down as 1 - cutoff for
    a sound off screen; it used to be a cut in volume and is a ceiling now, 20 kHz times (1 - occlusion)
-   squared: 5 kHz for the shipped 50%. */
+   squared: 5 kHz for the shipped 50%.  Both backends run the cutoff through two one-pole stages, 12 dB
+   an octave, steep enough to take the crack off a blast that is mostly bass. */
 static inline F32 AIL_ex_3D_cutoff(F32 distance, F32 absorption_distance, F32 occlusion)
 {
 	F32 cutoff = AIL_EX_OPEN_CUTOFF;
@@ -401,6 +407,82 @@ static inline F32 AIL_ex_duck_gain(F32 elapsed, F32 gain, F32 seconds)
 	if (elapsed < hold)
 		return gain;
 	return gain + (1.0f - gain) * (elapsed - hold) / (seconds - hold);
+}
+
+/* The muffle a duck puts on the other 3D samples, a cutoff falling with the square of the duck's
+   gain: a duck to 15% is a 450 Hz ceiling, one to 70% still 10 kHz, and the duck's end opens it. */
+static inline F32 AIL_ex_duck_cutoff(F32 duck)
+{
+	return AIL_EX_OPEN_CUTOFF * duck * duck;
+}
+
+/* The master limiter both backends run last.  A frame comes out AIL_EX_LIMITER_LOOKAHEAD - 1 frames
+   late, at a gain already down to what the loudest frame of the window needs, so no sample passes the
+   ceiling and none is cut flat.  The gain falls along the average of the window's floors, a fade of
+   two milliseconds rather than a step, and comes back over AIL_EX_LIMITER_RELEASE_SECONDS. */
+#define AIL_EX_LIMITER_LOOKAHEAD 96
+#define AIL_EX_LIMITER_MAX_CHANNELS 16
+#define AIL_EX_LIMITER_CEILING 0.89f	/* -1 dBFS */
+#define AIL_EX_LIMITER_RELEASE_SECONDS 0.3f
+
+typedef struct
+{
+	F32 delayed[AIL_EX_LIMITER_LOOKAHEAD * AIL_EX_LIMITER_MAX_CHANNELS];
+	F32 needs[AIL_EX_LIMITER_LOOKAHEAD];	/* the gain each frame of the window asks for */
+	F32 floors[AIL_EX_LIMITER_LOOKAHEAD];	/* the least of the window's needs, as it stood at each frame */
+	double floorSum;
+	F32 gain;
+	F32 release;
+	S32 channels;
+	S32 at;
+} AIL_EX_LIMITER;
+
+static inline void AIL_ex_limiter_init(AIL_EX_LIMITER *limiter, S32 channels, F32 rate)
+{
+	S32 i;
+	for (i = 0; i < AIL_EX_LIMITER_LOOKAHEAD * AIL_EX_LIMITER_MAX_CHANNELS; ++i)
+		limiter->delayed[i] = 0.0f;
+	for (i = 0; i < AIL_EX_LIMITER_LOOKAHEAD; ++i) {
+		limiter->needs[i] = 1.0f;
+		limiter->floors[i] = 1.0f;
+	}
+	limiter->floorSum = AIL_EX_LIMITER_LOOKAHEAD;
+	limiter->gain = 1.0f;
+	limiter->release = 1.0f - expf(-1.0f / (AIL_EX_LIMITER_RELEASE_SECONDS * rate));
+	limiter->channels = channels;
+	limiter->at = 0;
+}
+
+/* In place, `count` interleaved frames of the channel count the limiter was made for. */
+static inline void AIL_ex_limit(AIL_EX_LIMITER *limiter, F32 *frames, S32 count)
+{
+	const S32 channels = limiter->channels;
+	S32 frame, channel, i;
+	for (frame = 0; frame < count; ++frame) {
+		F32 *sample = frames + frame * channels;
+		const S32 at = limiter->at;
+		const S32 oldest = (at + 1) % AIL_EX_LIMITER_LOOKAHEAD;
+		F32 peak = 0.0f;
+		F32 floor = 1.0f;
+		F32 target;
+		for (channel = 0; channel < channels; ++channel) {
+			const F32 level = fabsf(sample[channel]);
+			if (level > peak) peak = level;
+		}
+		limiter->needs[at] = peak > AIL_EX_LIMITER_CEILING ? AIL_EX_LIMITER_CEILING / peak : 1.0f;
+		for (i = 0; i < AIL_EX_LIMITER_LOOKAHEAD; ++i) {
+			if (limiter->needs[i] < floor) floor = limiter->needs[i];
+		}
+		limiter->floorSum += floor - limiter->floors[at];
+		limiter->floors[at] = floor;
+		target = (F32)(limiter->floorSum / AIL_EX_LIMITER_LOOKAHEAD);
+		limiter->gain = target < limiter->gain ? target : limiter->gain + (target - limiter->gain) * limiter->release;
+		for (channel = 0; channel < channels; ++channel) {
+			limiter->delayed[at * channels + channel] = sample[channel];
+			sample[channel] = limiter->delayed[oldest * channels + channel] * limiter->gain;
+		}
+		limiter->at = oldest;
+	}
 }
 
 #endif /* MSS_H */

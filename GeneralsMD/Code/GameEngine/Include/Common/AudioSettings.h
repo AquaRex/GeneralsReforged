@@ -47,11 +47,11 @@ struct AudioSettings
 		m_rangeVolumeFade( FALSE ),
 		m_speedOfSound( 1700.0f ),
 		m_maxSoundDelay( 1000.0f ),
-		m_dopplerScale( 1.0f ),
-		m_airAbsorptionDistance( 400.0f ),
+		m_dopplerScale( 3.0f ),
+		m_airAbsorptionDistance( 300.0f ),
 		m_reverbLevel( 1.0f ),
-		m_duckVolume( 0.35f ),
-		m_duckTime( 2500.0f )
+		m_duckVolume( 0.15f ),
+		m_duckTime( 4000.0f )
 	{
 		m_duckSounds.push_back( "ExplosionNeutron" );
 		m_duckSounds.push_back( "ExplosionDaisyCutter" );
@@ -90,9 +90,11 @@ struct AudioSettings
 		* microphone over it, never more than `MaxSoundDelay` milliseconds, and a moving one is pitched
 		* by doppler. The ground is drawn at about 0.2 m a unit (a Ranger stands 13 units, a Crusader
 		* is 30 long), so 343 m/s is 1700. Zero is neither. `DopplerScale` multiplies the speed doppler
-		* hears, zero switching doppler alone off.
+		* hears, zero switching doppler alone off: 3, since a Raptor crosses the map at 35 m/s on that
+		* scale and a real jet's pitch bend needs it about ten times faster.
 		* `AirAbsorptionDistance`, game units: where air has taken the top end down from 20 kHz to 10,
-		* falling with the square of the distance past it. Zero is no air.
+		* falling with the square of the distance past it, through two stages. Zero is no air. A snow
+		* map takes it at 60%.
 		* `ReverbLevel`: the room's send, as a share of what the map asks for. Zero is no room.
 		* `DuckVolume` and `DuckTime` (milliseconds): when one of `DuckSounds` starts within earshot,
 		* everything else dips to that volume and comes back over that time. 100% is no duck. */

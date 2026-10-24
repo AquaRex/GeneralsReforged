@@ -343,6 +343,7 @@ class MilesAudioManager : public AudioManager
 		/// picture at any render rate and in a -wav run.  Out of a game a pass counts as one frame.
 		UnsignedInt m_clockFrame;
 		Real m_clockElapsedMs;
+		UnsignedInt m_clockMovedAt;	///< Clock_Milliseconds when the logic clock last moved on
 		AsciiString m_roomMap;	///< the map setRoomFromMap last set the room for
 
 		// LOGIC-THREAD.md M7: what the tick asks, as captureForLogic found it at the sync point
