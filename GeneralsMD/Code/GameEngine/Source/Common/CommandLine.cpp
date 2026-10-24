@@ -47,6 +47,7 @@
 #include "GameNetwork/NetworkUtil.h" // for ResolveIP, which -lanip parses its address with
 #include "Common/FileSystem.h"
 #include "Common/RandomMapGenerator.h" // for -randommap
+#include "Common/RandomMapTemplate.h" // for -randommap's template
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -460,7 +461,7 @@ Int parseMapName(char *args[], int num)
 }
 
 // parseRandomMap =============================================================
-/** -randommap <seed> [players] [cells|small|normal|large] [style]: generate a skirmish map from the seed,
+/** -randommap <seed> [players] [cells|tiny|small|normal|large|huge] [style] [template:<map>]: generate a skirmish map from the seed,
 	keep it in memory under the name
 	"RMG_v<generator version>_<seed>_<players>p_<cells>c", then point -map at it.  The version is in
 	the name because it is in the bytes: a build that generates a different map from the same seed
@@ -468,7 +469,7 @@ Int parseMapName(char *args[], int num)
 	downstream has to know: the file system serves that name out of the generator, so the map cache
 	lists it like any hand-made map and -autoskirmish starts on it.  The same seed gives the same
 	map on every machine, so both sides of a network game can be handed the same command line.
-	The size is either a cell count outright or one of the three sizes, which are counts
+	The size is either a cell count outright or one of the five sizes, which are counts
 	that grow with the number of players rather than fixed ones. A style name last ("twilight")
 	makes a map in that shipped map's style and adds "_<style>" to the name. */
 //=============================================================================
@@ -495,12 +496,16 @@ Int parseRandomMap(char *args[], int num)
 	else if (num > eaten)
 	{
 		RandomMapSize size = RANDOM_MAP_SIZE_COUNT;
-		if (strcasecmp( args[eaten], "small" ) == 0)
+		if (strcasecmp( args[eaten], "tiny" ) == 0)
+			size = RANDOM_MAP_SIZE_TINY;
+		else if (strcasecmp( args[eaten], "small" ) == 0)
 			size = RANDOM_MAP_SIZE_SMALL;
 		else if (strcasecmp( args[eaten], "normal" ) == 0)
 			size = RANDOM_MAP_SIZE_NORMAL;
 		else if (strcasecmp( args[eaten], "large" ) == 0)
 			size = RANDOM_MAP_SIZE_LARGE;
+		else if (strcasecmp( args[eaten], "huge" ) == 0 || strcasecmp( args[eaten], "xl" ) == 0)
+			size = RANDOM_MAP_SIZE_HUGE;
 
 		if (size != RANDOM_MAP_SIZE_COUNT)
 		{
@@ -511,6 +516,24 @@ Int parseRandomMap(char *args[], int num)
 
 	if (num > eaten && RandomMapGenerator::styleNamed( args[eaten] ) != 0)
 		settings.m_style = RandomMapGenerator::styleNamed( args[eaten++] );
+
+	// template:<shipped map> - underscores for its spaces, or the name quoted as the next argument
+	const char *const templatePrefix = "template:";
+	const Int templatePrefixLength = (Int)strlen( templatePrefix );
+	if (num > eaten && strncasecmp( args[eaten], templatePrefix, templatePrefixLength ) == 0)
+	{
+		AsciiString name = args[eaten++] + templatePrefixLength;
+		if (name.isEmpty() && num > eaten)
+			name = args[eaten++];
+		AsciiString token;
+		for (const char *letter = name.str(); *letter; ++letter)
+			token.concat( *letter == '_' ? ' ' : *letter );
+		rmgTemplateFromToken( token, settings.m_template );
+		RandomMapSettings checked = settings;
+		RandomMapGenerator::clampSettings( checked );
+		if (checked.m_template.isEmpty())
+			DEBUG_LOG(("-randommap: no shipped map '%s' installed, generating without a template\n", settings.m_template.str()));
+	}
 
 	AsciiString path;
 	if (!stageRandomMap( settings, path ))
@@ -2481,18 +2504,6 @@ Int parseOptionsMenu(char *args[], int num)
 	return 1;
 }
 
-/* -randommaps puts the generated maps back in the skirmish map list.  They are off by default
-   because the generator is not finished - a seed can still leave a supply dock behind a cliff, and
-   a map list is not the place to find that out.  Everything else about them works from the command
-   line, where -randommap says exactly which map is being played. */
-Int parseRandomMapsInMenus(char *args[], int num)
-{
-	if (TheWritableGlobalData)
-		TheWritableGlobalData->m_randomMapsInMenus = TRUE;
-
-	return 1;
-}
-
 Int parseNetSlot(char *args[], int num)
 {
 	if (TheWritableGlobalData && num > 1)
@@ -2891,7 +2902,6 @@ static CommandLineParam params[] =
 		 match itself is simulated - the command-line twin of the skirmish menu's game speed slider. */
 	{ "-map", parseMapName },
 	{ "-randommap", parseRandomMap },
-	{ "-randommaps", parseRandomMapsInMenus },
 	{ "-seed", parseSeed },
 	{ "-noFPSLimit", parseNoFPSLimit },
 	{ "-fps", parseFPSLimit },

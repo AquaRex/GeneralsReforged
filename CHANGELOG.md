@@ -8,6 +8,13 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
+## A Random tab in the map list
+
+- Select Map has a third tab beside Official and Unofficial. Pick a map type from the official maps (or Surprise me), a size from Tiny to Extra Large and the number of players, and a new map is made from them on the spot, in the skirmish, LAN and online rooms alike. The preview and its start positions are that map before you accept it, so there is no guessing what you will land on. New Map rolls another with the same choice, and so does every change you make. Extra Large still seats eight.
+- The player count starts at the number of seats already taken in the room. The tab, the map type and the size you used last are remembered for the next time.
+- In a LAN or online room the other players do not download anything: the map's name carries its recipe, and their own game builds the same map from it and checks it against yours. A room that records stats keeps to the official list.
+- Random maps used to be reachable only by a hidden command-line switch that added five rows to the skirmish list.
+
 ## Sound that travels
 
 - Sound takes time to cross the battlefield now. An explosion at the edge of the screen is heard about a quarter of a second after it is seen, one at the far end of a long view half a second after, at the speed of sound on the scale the units are drawn at. The wait never runs past a second. A sound also ends as late as it started: a missile's roar carries on until its boom arrives, instead of cutting out at the visible impact and leaving a hole seven decibels deep before the boom. Unit replies, the interface, music, speech and every sound a mission script waits on still play the moment they are asked for.

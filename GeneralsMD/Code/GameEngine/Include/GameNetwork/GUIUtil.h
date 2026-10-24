@@ -149,6 +149,17 @@ void LobbyStartSpotFill(Int x, Int y, Int width, Int height, Color fill);
 // The map pickers' Official / Unofficial radio buttons drawn as UIStyle tabs: the open one's label
 // ACTIVE, a disabled one's MUTED.  The pickers' init sets it as both buttons' draw function.
 void DrawMapListTab(GameWindow *window, class WinInstanceData *instData);
+// The pickers' third tab, Random: a map type, a size and a player count, and the map they make,
+// staged with a fresh seed on every change so the preview and its start spots are the map Accept
+// will take.  The picker's init calls RandomMapTabInit after filling its list (filling it moves
+// the preview), its system callback offers every message to RandomMapTabHandle first, and Accept
+// takes RandomMapTabMap() whenever that is not empty.  allowed FALSE greys the tab out (a ranked
+// online room plays official maps only).  RandomMapTabShutdown forgets the windows.
+void RandomMapTabInit(const char *layoutFilename, GameWindow *parent, GameWindow *preview,
+										GameWindow *startSpots[], const GameInfo *game, Bool allowed);
+Bool RandomMapTabHandle(UnsignedInt msg, UnsignedIntPtr mData1, UnsignedIntPtr mData2);
+AsciiString RandomMapTabMap(void);
+void RandomMapTabShutdown(void);
 
 void EnableSlotListUpdates( Bool val );
 Bool AreSlotListUpdatesEnabled( void );

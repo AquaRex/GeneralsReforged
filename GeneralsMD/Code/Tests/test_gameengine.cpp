@@ -38,6 +38,7 @@
 #include "Common/FileWriteQueue.h"
 #include "Common/MapObject.h"
 #include "Common/RandomMapGenerator.h"
+#include "Common/RandomMapTemplate.h"
 #include "Common/StackDump.h"
 #if defined(__linux__)
 #include <dlfcn.h>
@@ -10689,7 +10690,7 @@ TEST(town_streets_meet_only_at_shared_ends_so_the_renderer_builds_junctions)
 }
 
 //-------------------------------------------------------------------------------------------------
-/** A map has to hold the players it is generated for.  The three sizes are three different maps
+/** A map has to hold the players it is generated for.  The five sizes are five different maps
 	for the same game, and every one of them grows with the number of players rather than packing
 	eight bases into a duel map. */
 //-------------------------------------------------------------------------------------------------
@@ -10716,11 +10717,15 @@ TEST(map_size_is_chosen_and_then_grows_with_the_players)
 		Int smallCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_SMALL, players );
 		Int normalCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_NORMAL, players );
 		Int largeCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_LARGE, players );
+		Int tinyCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_TINY, players );
+		Int hugeCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_HUGE, players );
 
+		CHECK( tinyCells < smallCells );
 		CHECK( smallCells < normalCells );
 		CHECK( normalCells < largeCells );
-		CHECK( smallCells >= RandomMapGenerator::MIN_CELLS );
-		CHECK( largeCells <= RandomMapGenerator::MAX_CELLS );
+		CHECK( largeCells < hugeCells );
+		CHECK( tinyCells >= RandomMapGenerator::MIN_CELLS );
+		CHECK( hugeCells <= RandomMapGenerator::MAX_CELLS );
 	}
 
 	// A count nobody asked for is the normal size for that many players, and the clamp says so
@@ -11232,15 +11237,15 @@ TEST(the_generator_still_turns_a_seed_into_the_bytes_it_used_to)
 {
 	CHECK( bootOnce() );
 
-	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 16 );
+	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 17 );
 
 	struct RMGFingerprint { Int m_seed, m_players, m_cells, m_style; UnsignedInt m_crc; };
 	static const RMGFingerprint theFingerprints[] =
 	{
-		{ 0, 2, 64, 0, 0x47856463 },
-		{ 12345, 4, 96, 0, 0x2863C7E9 },
-		{ 7, 8, 128, 0, 0x317288D3 },
-		{ 7, 4, 200, 1, 0x100AD66B },
+		{ 0, 2, 64, 0, 0x47856863 },
+		{ 12345, 4, 96, 0, 0x2863C7F9 },
+		{ 7, 8, 128, 0, 0x357288D3 },
+		{ 7, 4, 200, 1, 0x100AD67B },
 	};
 	const Int numFingerprints = sizeof(theFingerprints) / sizeof(theFingerprints[0]);
 
@@ -11400,6 +11405,181 @@ TEST(write_the_maps_RMG_DUMP_names)
 		fwrite( &preview[0], 1, preview.size(), out );
 		fclose( out );
 		printf( "  wrote %s.map (%d bytes)\n", name, (Int)map.size() );
+	}
+}
+
+static std::vector<AsciiString> theTestCivilians;
+
+/// A town building, by the names RMG_TEMPLATE_CIVILIANS listed, for the tests that have no object INI.
+static Bool isListedCivilian( const char *name )
+{
+	for( size_t i = 0; i < theTestCivilians.size(); i++ )
+		if( theTestCivilians[i].compareNoCase( name ) == 0 )
+			return TRUE;
+	return FALSE;
+}
+
+static Bool readWholeFile( const char *path, std::vector<char>& bytes )
+{
+	FILE *in = fopen( path, "rb" );
+	if( in == NULL )
+		return FALSE;
+	fseek( in, 0, SEEK_END );
+	bytes.resize( ftell( in ) );
+	fseek( in, 0, SEEK_SET );
+	size_t read = bytes.empty() ? 0 : fread( &bytes[0], 1, bytes.size(), in );
+	fclose( in );
+	return read == bytes.size();
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A template map is a synthesis from another map's bytes, and it is rebuilt from its name on every
+	machine, so it has to come out the same twice and leave every start able to walk to every other.
+	The exemplar here is a generated Twilight-style map, the one exemplar a test can make without the
+	game's archives; the shipped maps are RMG_TEMPLATE_DUMP's. */
+//-------------------------------------------------------------------------------------------------
+TEST(a_template_map_comes_out_the_same_twice_and_every_start_walks_to_every_other)
+{
+	CHECK( bootOnce() );
+
+	RandomMapSettings exemplarSettings;
+	exemplarSettings.m_seed = 31;
+	exemplarSettings.m_numPlayers = 4;
+	exemplarSettings.m_style = 1;
+	RandomMapGenerator::clampSettings( exemplarSettings );
+	std::vector<char> exemplar;
+	RandomMapGenerator::generate( exemplarSettings, exemplar );
+
+	// the bytes themselves, pinned like the generator's: a change here is a change to every template map's name
+	static const UnsignedInt theTemplateFingerprints[2] = { 0x3CB57194u, 0x9E3848D7u };
+	for( Int players = 2; players <= 8; players += 6 )
+	{
+		RandomMapSettings settings;
+		settings.m_seed = 900 + players;
+		settings.m_numPlayers = players;
+		settings.m_playableCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_NORMAL, players );
+
+		std::vector<char> first, second, preview;
+		RMGTemplateReport report;
+		CHECK( rmgSynthesise( settings, exemplar, NULL, first, &preview, &report ) );
+		CHECK( rmgSynthesise( settings, exemplar, NULL, second, NULL, NULL ) );
+		CHECK( !first.empty() && first == second );
+		CHECK( first.size() > 4 && memcmp( &first[0], "CkMp", 4 ) == 0 );
+		CHECK_EQ( report.m_cutOffStarts, 0 );
+		CHECK_EQ( report.m_cutOffSites, 0 );
+		CHECK( report.m_patches > 0 );
+		CHECK_EQ( (Int)preview.size(), 18 + RandomMapGenerator::PREVIEW_PIXELS * RandomMapGenerator::PREVIEW_PIXELS * 3 );
+		CHECK_EQ( report.m_pads, players );
+		if( report.m_cutOffStarts || report.m_cutOffSites )
+			printf( "  %d players: %d starts, %d sites cut off\n%s", players, report.m_cutOffStarts, report.m_cutOffSites,
+				report.m_notes.str() );
+		CRC crc;
+		Int version = RANDOM_MAP_GENERATOR_VERSION;
+		crc.computeCRC( &version, sizeof(version) );
+		crc.computeCRC( &first[0], (Int)first.size() );
+		if( crc.get() != theTemplateFingerprints[players == 2 ? 0 : 1] )
+			printf( "  %d players: fingerprint 0x%08X\n", players, crc.get() );
+		CHECK_EQ( crc.get(), theTemplateFingerprints[players == 2 ? 0 : 1] );
+	}
+
+	// a template whose bytes end early is refused, not read past
+	{
+		RandomMapSettings settings;
+		settings.m_seed = 902;
+		settings.m_numPlayers = 2;
+		settings.m_playableCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_NORMAL, 2 );
+		std::vector<char> cut( exemplar.begin(), exemplar.begin() + exemplar.size() / 2 ), none;
+		CHECK( !rmgSynthesise( settings, cut, NULL, none, NULL, NULL ) );
+		CHECK( none.empty() );
+	}
+
+	// the template's name and its CRC ride in the generated map's name, and a template not installed is dropped
+	AsciiString token, path;
+	CHECK( rmgTemplateToken( AsciiString( "maps\\twilight flame\\twilight flame.map" ), token ) );
+	CHECK_STR( token.str(), "twilight flame" );
+	rmgTemplateFromToken( token, path );
+	CHECK_STR( path.str(), "maps\\twilight flame\\twilight flame.map" );
+	CHECK( !rmgTemplateToken( AsciiString( "maps\\twilight flame\\other.map" ), token ) );
+
+	RandomMapSettings missing;
+	missing.m_template = "maps\\no such map\\no such map.map";
+	RandomMapGenerator::clampSettings( missing );
+	CHECK( missing.m_template.isEmpty() );
+	CHECK_EQ( missing.m_templateCRC, 0u );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Not a check: with RMG_TEMPLATE_DUMP set to "<dir> <exemplar.map> <seed>,<players>,<cells> ..." it
+	synthesises each map from the exemplar (a .map taken out of the game's archive, packed or not) and
+	writes it and its preview into dir, with the report and the time it took. RMG_TEMPLATE_CIVILIANS
+	names a file of town building names, one a line, standing in for the object INI. Run as
+	test_gameengine.exe write_the_maps_RMG_TEMPLATE_DUMP_names. */
+//-------------------------------------------------------------------------------------------------
+TEST(write_the_maps_RMG_TEMPLATE_DUMP_names)
+{
+	const char *dump = getenv( "RMG_TEMPLATE_DUMP" );
+	if( dump == NULL )
+		return;
+	CHECK( bootOnce() );
+
+	const char *civilians = getenv( "RMG_TEMPLATE_CIVILIANS" );
+	if( civilians )
+	{
+		std::vector<char> list;
+		CHECK( readWholeFile( civilians, list ) );
+		std::string all( list.begin(), list.end() );
+		size_t from = 0;
+		while( from < all.size() )
+		{
+			size_t end = all.find_first_of( "\r\n", from );
+			if( end == std::string::npos ) end = all.size();
+			if( end > from )
+				theTestCivilians.push_back( AsciiString( all.substr( from, end - from ).c_str() ) );
+			from = end + 1;
+		}
+	}
+
+	char dir[MAX_PATH], source[MAX_PATH];
+	Int read = 0;
+	CHECK( sscanf( dump, "%259s %259s%n", dir, source, &read ) == 2 );
+	std::vector<char> exemplar;
+	CHECK( readWholeFile( source, exemplar ) );
+	const char *next = dump + read;
+	RandomMapSettings settings;
+	while( sscanf( next, " %d,%d,%d%n", &settings.m_seed, &settings.m_numPlayers, &settings.m_playableCells, &read ) == 3 )
+	{
+		next += read;
+		RandomMapGenerator::clampSettings( settings );
+		std::vector<char> map, preview;
+		RMGTemplateReport report;
+		LARGE_INTEGER frequency, before, after;
+		QueryPerformanceFrequency( &frequency );
+		QueryPerformanceCounter( &before );
+		Bool built = rmgSynthesise( settings, exemplar, civilians ? isListedCivilian : NULL, map, &preview, &report );
+		QueryPerformanceCounter( &after );
+		CHECK( built );
+		if( !built )
+			continue;
+
+		char name[MAX_PATH];
+		snprintf( name, sizeof(name), "%s\\synth_%d_%dp_%dc", dir, settings.m_seed, settings.m_numPlayers, settings.m_playableCells );
+		AsciiString file;
+		file.format( "%s.map", name );
+		FILE *out = fopen( file.str(), "wb" );
+		CHECK( out != NULL );
+		fwrite( &map[0], 1, map.size(), out );
+		fclose( out );
+		file.format( "%s.tga", name );
+		out = fopen( file.str(), "wb" );
+		CHECK( out != NULL );
+		fwrite( &preview[0], 1, preview.size(), out );
+		fclose( out );
+		printf( "  wrote %s.map (%d bytes) in %.2f s: %d pads, %d ramps cut, %d patches, %d bridges, %d rivers, %d towns, %d tech, %d road "
+			"segments, %d trees, %d scenery; cut off %d starts, %d sites, %d tech\n%s",
+			name, (Int)map.size(), (double)( after.QuadPart - before.QuadPart ) / (double)frequency.QuadPart,
+			report.m_pads, report.m_ramps, report.m_patches, report.m_bridges, report.m_rivers, report.m_towns, report.m_tech,
+			report.m_roads, report.m_trees, report.m_scenery, report.m_cutOffStarts, report.m_cutOffSites, report.m_cutOffTech,
+			report.m_notes.str() );
 	}
 }
 

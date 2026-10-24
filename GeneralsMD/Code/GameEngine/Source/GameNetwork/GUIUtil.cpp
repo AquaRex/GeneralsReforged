@@ -55,6 +55,12 @@
 #include "GameClient/ChallengeGenerals.h"
 #include "Common/GlobalData.h"
 #include "Lib/WideCharFns.h"
+#include "Lib/Clock.h"
+#include "Common/RandomMapGenerator.h"
+#include "Common/RandomMapTemplate.h"
+#include "Common/UserPreferences.h"
+#include "GameClient/GadgetRadioButton.h"
+#include <algorithm>
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -1098,6 +1104,294 @@ void DrawMapListTab(GameWindow *window, WinInstanceData *instData)
 	Int textWidth, textHeight;
 	text->getSize(&textWidth, &textHeight);
 	text->draw(x + (width - textWidth) / 2, y + (height - textHeight) / 2, color, UIStyle::SHADOW);
+}
+
+// The Random tab ------------------------------------------------------------------------------
+// Tools/mapselect_layout.py clones its windows into all three pickers under the same names.  The
+// settings outlive the picker: the windows go with it, the choice and the map it made do not.
+
+void positionStartSpots(AsciiString mapName, GameWindow *buttonMapStartPositions[], GameWindow *mapWindow);
+
+static const char *const theRandomMapPrefsFile = "RandomMap.ini";
+
+static const char *theRandomLayout = NULL;
+static GameWindow *theRandomParent = NULL;
+static GameWindow *theRandomTab = NULL;					// NULL while no picker is open
+static GameWindow *theListTabs[2] = { NULL, NULL };	// Official, Unofficial
+static GameWindow *theMapListWindow = NULL;
+static GameWindow *theTemplateList = NULL;
+static GameWindow *theRerollButton = NULL;
+static GameWindow *theSizeButtons[RANDOM_MAP_SIZE_COUNT];
+static GameWindow *thePlayerButtons[RandomMapGenerator::MAX_PLAYERS + 1];	// by count, 0 and 1 unused
+static std::vector<GameWindow *> theRandomPanel;		// everything the tab shows in the list's place
+static GameWindow *theRandomPreview = NULL;
+static GameWindow **theRandomStartSpots = NULL;
+
+static Bool theRandomTabOpen = FALSE;
+static AsciiString theRandomTemplate;					// a MapCache key; empty lets the generator pick
+static Int theRandomSize = RANDOM_MAP_SIZE_NORMAL;
+static Int theRandomPlayers = RandomMapGenerator::MIN_PLAYERS;
+static std::vector<AsciiString> theTemplates;			// the template list's rows; item data is the index
+static RandomMapSettings theStagedSettings;
+static AsciiString theStagedMap;							// lowercase, the way the map cache keys it
+static UnsignedInt theRolls = 0;
+
+static GameWindow *randomTabWindow(const char *name, Int index = -1)
+{
+	AsciiString fullName;
+	if (index < 0)
+		fullName.format("%s:%s", theRandomLayout, name);
+	else
+		fullName.format("%s:%s%d", theRandomLayout, name, index);
+	return TheWindowManager->winGetWindowFromId(theRandomParent, NAMEKEY(fullName));
+}
+
+static void saveRandomTab(void)
+{
+	UserPreferences pref;
+	pref.load(theRandomMapPrefsFile);
+	pref.setBool("Open", theRandomTabOpen);
+	pref.setInt("Size", theRandomSize);
+	pref.setAsciiString("Template", theRandomTemplate);
+	pref.write();
+}
+
+static void showStagedMap(void)
+{
+	theRandomPreview->winSetUserData((void *)TheMapCache->findMap(theStagedMap));
+	Image *image = getMapPreviewImage(theStagedMap);
+	if (image)
+	{
+		theRandomPreview->winSetStatus(WIN_STATUS_IMAGE);
+		theRandomPreview->winSetEnabledImage(0, image);
+	}
+	else
+		theRandomPreview->winClearStatus(WIN_STATUS_IMAGE);
+	positionStartSpots(theStagedMap, theRandomStartSpots, theRandomPreview);
+}
+
+/** A new map from the current choice.  The seed comes off the clock: this is the client choosing a
+	map, not the simulation, and the joining machines rebuild it from the name the host sends. */
+static void stageRandomTabMap(void)
+{
+	RandomMapSettings settings;
+	settings.m_seed = (Int)((Clock_Milliseconds() + 7919u * ++theRolls) & 0x7fffffff);
+	settings.m_numPlayers = theRandomPlayers;
+	settings.m_playableCells = RandomMapGenerator::cellsFor((RandomMapSize)theRandomSize, theRandomPlayers);
+	settings.m_template = theRandomTemplate;
+	stageRandomMap(settings, theStagedMap);
+	theStagedMap.toLower();
+	theStagedSettings = settings;
+	TheMapCache->updateCache();
+	showStagedMap();
+}
+
+static void showRandomTab(Bool open)
+{
+	theRandomTabOpen = open;
+	theMapListWindow->winHide(open);
+	for (size_t i = 0; i < theRandomPanel.size(); ++i)
+		theRandomPanel[i]->winHide(!open);
+	if (!open)
+		return;
+
+	// reopening the picker shows the map it made last time, unless the room changed under it
+	const Bool sameChoice = !theStagedMap.isEmpty()
+		&& theStagedSettings.m_numPlayers == theRandomPlayers
+		&& theStagedSettings.m_playableCells == RandomMapGenerator::cellsFor((RandomMapSize)theRandomSize, theRandomPlayers)
+		&& theStagedSettings.m_template == theRandomTemplate;
+	if (sameChoice)
+		showStagedMap();
+	else
+		stageRandomTabMap();
+}
+
+/** Every official multiplayer map, by its shown name, under one row that leaves the kind of map to
+	the seed.  Selecting the remembered row fires GLM_SELECTED, which changes nothing. */
+static void fillTemplateList(void)
+{
+	struct Row { UnicodeString name; AsciiString map; };
+	std::vector<Row> rows;
+	AsciiString token;
+	for (MapCache::const_iterator it = TheMapCache->begin(); it != TheMapCache->end(); ++it)
+	{
+		// only a map the generated name can carry back, "maps\<name>\<name>.map"
+		if (it->second.m_isOfficial && it->second.m_isMultiplayer && !isGeneratedMapPath(it->first)
+			&& rmgTemplateToken(it->first, token))
+		{
+			Row row = { it->second.m_displayName, it->first };
+			rows.push_back(row);
+		}
+	}
+	std::sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) { return a.name.compareNoCase(b.name) < 0; });
+
+	theTemplates.clear();
+	GadgetListBoxReset(theTemplateList);
+	const Int column = GadgetListBoxGetNumColumns(theTemplateList) - 1;
+	const Color color = GameMakeColor(255, 255, 255, 255);
+	Int selected = GadgetListBoxAddEntryText(theTemplateList, TheGameText->fetch("GUI:RandomMapAnyTemplate"), color, -1, column);
+	GadgetListBoxSetItemData(theTemplateList, (void *)(intptr_t)0, selected);
+	theTemplates.push_back(AsciiString::TheEmptyString);
+	Bool found = FALSE;
+	for (size_t i = 0; i < rows.size(); ++i)
+	{
+		Int at = GadgetListBoxAddEntryText(theTemplateList, rows[i].name, color, -1, column);
+		GadgetListBoxSetItemData(theTemplateList, (void *)(intptr_t)theTemplates.size(), at);
+		theTemplates.push_back(rows[i].map);
+		if (rows[i].map == theRandomTemplate)
+		{
+			selected = at;
+			found = TRUE;
+		}
+	}
+	if (!found)
+		theRandomTemplate.clear();	// a map the cache no longer has, or none
+	GadgetListBoxSetSelected(theTemplateList, selected);
+}
+
+void RandomMapTabInit(const char *layoutFilename, GameWindow *parent, GameWindow *preview,
+										GameWindow *startSpots[], const GameInfo *game, Bool allowed)
+{
+	theRandomLayout = layoutFilename;
+	theRandomParent = parent;
+	theRandomPreview = preview;
+	theRandomStartSpots = startSpots;
+
+	theRandomTab = randomTabWindow("RadioButtonRandomMaps");
+	theListTabs[0] = randomTabWindow("RadioButtonSystemMaps");
+	theListTabs[1] = randomTabWindow("RadioButtonUserMaps");
+	theMapListWindow = randomTabWindow("ListboxMap");
+	theTemplateList = randomTabWindow("ListboxRandomTemplate");
+	theRerollButton = randomTabWindow("ButtonRandomReroll");
+	theRandomTab->winSetDrawFunc(DrawMapListTab);
+	theRandomTab->winEnable(allowed);
+
+	theRandomPanel.clear();
+	theRandomPanel.push_back(randomTabWindow("StaticTextRandomTemplate"));
+	theRandomPanel.push_back(theTemplateList);
+	theRandomPanel.push_back(randomTabWindow("StaticTextRandomSize"));
+	theRandomPanel.push_back(randomTabWindow("StaticTextRandomPlayers"));
+	theRandomPanel.push_back(theRerollButton);
+	for (Int size = 0; size < RANDOM_MAP_SIZE_COUNT; ++size)
+	{
+		theSizeButtons[size] = randomTabWindow("RadioButtonRandomSize", size);
+		theSizeButtons[size]->winSetDrawFunc(DrawMapListTab);
+		theRandomPanel.push_back(theSizeButtons[size]);
+	}
+	for (Int count = RandomMapGenerator::MIN_PLAYERS; count <= RandomMapGenerator::MAX_PLAYERS; ++count)
+	{
+		thePlayerButtons[count] = randomTabWindow("RadioButtonRandomPlayers", count);
+		thePlayerButtons[count]->winSetDrawFunc(DrawMapListTab);
+		UnicodeString label;
+		label.format(u"%d", count);
+		GadgetRadioSetText(thePlayerButtons[count], label);
+		theRandomPanel.push_back(thePlayerButtons[count]);
+	}
+
+	UserPreferences pref;
+	pref.load(theRandomMapPrefsFile);
+	theRandomSize = pref.getInt("Size", RANDOM_MAP_SIZE_NORMAL);
+	if (theRandomSize < 0 || theRandomSize >= RANDOM_MAP_SIZE_COUNT)
+		theRandomSize = RANDOM_MAP_SIZE_NORMAL;
+	theRandomTemplate = pref.getAsciiString("Template", AsciiString::TheEmptyString);
+	// a map for everybody already seated; the host narrows it if he means to close seats
+	theRandomPlayers = game->getNumNonObserverPlayers();
+	theRandomPlayers = max((Int)RandomMapGenerator::MIN_PLAYERS, min((Int)RandomMapGenerator::MAX_PLAYERS, theRandomPlayers));
+
+	fillTemplateList();
+	GadgetRadioSetSelection(theSizeButtons[theRandomSize], FALSE);
+	GadgetRadioSetSelection(thePlayerButtons[theRandomPlayers], FALSE);
+
+	const Bool open = allowed && pref.getBool("Open", FALSE);
+	if (open)
+		GadgetRadioSetSelection(theRandomTab, FALSE);
+	showRandomTab(open);
+}
+
+Bool RandomMapTabHandle(UnsignedInt msg, UnsignedIntPtr mData1, UnsignedIntPtr mData2)
+{
+	if (theRandomTab == NULL)
+		return FALSE;
+	GameWindow *control = (GameWindow *)mData1;
+
+	if ((msg == GLM_SELECTED || msg == GLM_DOUBLE_CLICKED) && control == theTemplateList)
+	{
+		const Int row = (Int)mData2;
+		if (row < 0)
+			return TRUE;
+		const AsciiString &chosen = theTemplates[(Int)(intptr_t)GadgetListBoxGetItemData(theTemplateList, row)];
+		if (chosen != theRandomTemplate)
+		{
+			theRandomTemplate = chosen;
+			saveRandomTab();
+			stageRandomTabMap();
+		}
+		if (msg == GLM_DOUBLE_CLICKED)
+		{
+			GameWindow *ok = randomTabWindow("ButtonOK");
+			TheWindowManager->winSendSystemMsg(theRandomParent, GBM_SELECTED, (WindowMsgData)ok, ok->winGetWindowId());
+		}
+		return TRUE;
+	}
+	if (msg != GBM_SELECTED)
+		return FALSE;
+
+	if (control == theRandomTab)
+	{
+		showRandomTab(TRUE);
+		saveRandomTab();
+		return TRUE;
+	}
+	if (control == theListTabs[0] || control == theListTabs[1])
+	{
+		showRandomTab(FALSE);
+		saveRandomTab();
+		return FALSE;	// the picker fills its list
+	}
+	if (control == theRerollButton)
+	{
+		stageRandomTabMap();
+		return TRUE;
+	}
+	for (Int size = 0; size < RANDOM_MAP_SIZE_COUNT; ++size)
+	{
+		if (control == theSizeButtons[size])
+		{
+			if (size != theRandomSize)
+			{
+				theRandomSize = size;
+				saveRandomTab();
+				stageRandomTabMap();
+			}
+			return TRUE;
+		}
+	}
+	for (Int count = RandomMapGenerator::MIN_PLAYERS; count <= RandomMapGenerator::MAX_PLAYERS; ++count)
+	{
+		if (control == thePlayerButtons[count])
+		{
+			if (count != theRandomPlayers)
+			{
+				theRandomPlayers = count;
+				stageRandomTabMap();
+			}
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+AsciiString RandomMapTabMap(void)
+{
+	return theRandomTabOpen ? theStagedMap : AsciiString::TheEmptyString;
+}
+
+void RandomMapTabShutdown(void)
+{
+	theRandomTab = NULL;
+	theRandomParent = NULL;
+	theRandomPanel.clear();
+	theRandomTabOpen = FALSE;
 }
 
 void InitLobbySeatVisuals(GameWindow *parent, const char *layoutFilename)

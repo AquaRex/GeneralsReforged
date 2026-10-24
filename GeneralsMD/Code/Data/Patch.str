@@ -3281,3 +3281,39 @@ END
 GUI:SuperweaponTurkiyeKarguSwarm
 "Kargu Swarm"
 END
+
+GUI:RandomMapTemplate
+"Map type"
+END
+
+GUI:RandomMapAnyTemplate
+"Surprise me"
+END
+
+GUI:RandomMapSize
+"Map size"
+END
+
+GUI:RandomMapSizeTiny
+"Tiny"
+END
+
+GUI:RandomMapSizeSmall
+"Small"
+END
+
+GUI:RandomMapSizeMedium
+"Medium"
+END
+
+GUI:RandomMapSizeLarge
+"Large"
+END
+
+GUI:RandomMapSizeHuge
+"Extra Large"
+END
+
+GUI:RandomMapReroll
+"New Map"
+END

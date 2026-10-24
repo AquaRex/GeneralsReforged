@@ -34,14 +34,17 @@
 	rather than desyncing partway through it. The fingerprint test in
 	test_gameengine.cpp fails until the version and the recorded CRCs agree, so
 	the bump cannot be forgotten. */
-#define RANDOM_MAP_GENERATOR_VERSION 16
+#define RANDOM_MAP_GENERATOR_VERSION 17
 
-/// How much ground the map gives everybody, before the per-player share.
+/** How much ground the map gives everybody, before the per-player share. Players see them as
+	Tiny, Small, Medium, Large and Extra Large. */
 enum RandomMapSize
 {
-	RANDOM_MAP_SIZE_SMALL = 0,
+	RANDOM_MAP_SIZE_TINY = 0,
+	RANDOM_MAP_SIZE_SMALL,
 	RANDOM_MAP_SIZE_NORMAL,
 	RANDOM_MAP_SIZE_LARGE,
+	RANDOM_MAP_SIZE_HUGE,
 
 	RANDOM_MAP_SIZE_COUNT
 };
@@ -55,15 +58,20 @@ struct RandomMapSettings
 	Int m_playableCells;			///< cells per side of the playable area
 	Int m_numPlayers;				///< start positions to place
 	Int m_style;					///< 0: the seed picks the kind of map; else a shipped map's style (RandomMapGenerator::styleNamed)
+	AsciiString m_template;			///< the shipped map the layout is synthesised from, as MapCache names it ("maps\twilight flame\twilight flame.map", lowercase); empty: the generator above, untouched
+	UnsignedInt m_templateCRC;		///< CRC of that map's stored bytes; 0 until clampSettings reads it off the installed file. It is in the name, so a machine holding other bytes under the same path does not build a different map under it
 
-	RandomMapSettings() : m_seed(0), m_playableCells(0), m_numPlayers(2), m_style(0) { }
+	RandomMapSettings() : m_seed(0), m_playableCells(0), m_numPlayers(2), m_style(0), m_templateCRC(0) { }
 };
 
 class RandomMapGenerator
 {
 public:
 	enum { MIN_PLAYERS = 2, MAX_PLAYERS = 8 };
-	enum { MIN_CELLS = 64, MAX_CELLS = 512 };
+	/** 768 plus the 20-cell border each side is 808 across: past the largest shipped map (Death
+		Valley, 550 playable, 710 with its border) and inside the 1024 the shroud texture and the
+		terrain assume (DEFAULT_TERRAIN_SIZE in W3DShroud.cpp). */
+	enum { MIN_CELLS = 64, MAX_CELLS = 768 };
 	enum { PREVIEW_PIXELS = 128 };		///< what getMapPreviewImage expects of the tga
 
 	/// Build an uncompressed CkMp map image. Deterministic in the settings alone.
@@ -81,7 +89,8 @@ public:
 		duel map. */
 	static Int cellsFor( RandomMapSize size, Int numPlayers );
 
-	/// Settings clamped the way generate() clamps them, so callers can report the truth.
+	/** Settings clamped the way generate() clamps them, so callers can report the truth. A template
+		drops the style, and one that is not an installed shipped map is dropped itself. */
 	static void clampSettings( RandomMapSettings& settings );
 
 	/** The style a name such as "twilight" stands for, 0 when none does. A style is baked into the
@@ -113,6 +122,10 @@ extern Bool generatedMapBytes( const AsciiString& path, const char **bytesOut, I
 /** Every generated map the store is holding, so the map cache can carry an
 	entry for each without a directory to scan. */
 extern void generatedMapPaths( std::vector<AsciiString>& pathsOut );
+
+/** The shipped map a generated map's path was built from ("maps\twilight flame\twilight flame.map"),
+	for the name the map list shows. FALSE for a plain generated map or any other path. */
+extern Bool generatedMapTemplate( const AsciiString& path, AsciiString& templatePathOut );
 
 /** A ChunkInputStream over a block of memory, so a generated map can be handed
 	to the same readers that parse maps off disk. */

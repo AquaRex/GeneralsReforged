@@ -17570,3 +17570,39 @@ END
 GUI:SuperweaponTurkiyeKarguSwarm
 "Kargu Sürüsü"
 END
+
+GUI:RandomMapTemplate
+"Harita türü"
+END
+
+GUI:RandomMapAnyTemplate
+"Sürpriz yap"
+END
+
+GUI:RandomMapSize
+"Harita boyutu"
+END
+
+GUI:RandomMapSizeTiny
+"Minik"
+END
+
+GUI:RandomMapSizeSmall
+"Küçük"
+END
+
+GUI:RandomMapSizeMedium
+"Orta"
+END
+
+GUI:RandomMapSizeLarge
+"Büyük"
+END
+
+GUI:RandomMapSizeHuge
+"Çok Büyük"
+END
+
+GUI:RandomMapReroll
+"Yeni Harita"
+END

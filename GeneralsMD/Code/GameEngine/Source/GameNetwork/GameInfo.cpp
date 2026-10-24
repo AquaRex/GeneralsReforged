@@ -720,6 +720,8 @@ void GameInfo::setMapCRC( UnsignedInt mapCRC )
 		AsciiString lowerMap = m_mapName;
 		lowerMap.toLower();
 		//DEBUG_LOG(("GameInfo::setMapCRC - looking for map file \"%s\" in the map cache\n", lowerMap.str()));
+		// a generated map the host picked is in no cache here until findMap builds it from its name
+		TheMapCache->findMap(lowerMap);
 		std::map<AsciiString, MapMetaData>::iterator it = TheMapCache->find(lowerMap);
 		if (it == TheMapCache->end())
 		{
@@ -759,6 +761,7 @@ void GameInfo::setMapSize( UnsignedInt mapSize )
 		//TheMapCache->updateCache();
 		AsciiString lowerMap = m_mapName;
 		lowerMap.toLower();
+		TheMapCache->findMap(lowerMap);	// builds a generated map from its name, as setMapCRC does
 		std::map<AsciiString, MapMetaData>::iterator it = TheMapCache->find(lowerMap);
 		if (it == TheMapCache->end())
 		{

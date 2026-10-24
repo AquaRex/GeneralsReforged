@@ -12,7 +12,9 @@ match rules page under it stays where it is.
 The geometry is read from the tracked room layouts, so a room laid out again by lobbyroom_layout.py
 only needs this script run after it. Every control keeps its name and EA's art; only rectangles
 move, plus the panel's colours. The Official / Unofficial radio buttons are drawn as UIStyle tabs by
-the menu code (DrawMapListTab in GUIUtil.cpp).
+the menu code (DrawMapListTab in GUIUtil.cpp). A third tab, Random, is cloned in from them, with
+the panel it opens in the list's place: a map type list, a size row, a player row and New Map
+(RandomMapTab in GUIUtil.cpp).
 
     python mapselect_layout.py <retail Menus dir> <Menus dir out>
 
@@ -33,6 +35,7 @@ import sys
 
 import wndlayout
 import lobbyroom_layout as room
+from wndlayout import clone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MENUS = os.path.join(HERE, "..", "Data", "Window", "Menus")
@@ -42,13 +45,26 @@ PICKERS = {
     "LanMapSelectMenu": "LanGameOptionsMenu",
     "WOLMapSelectMenu": "GameSpyGameOptionsMenu",
 }
+# The Random tab: a map type list, a size row and a player row, the rows being radio buttons drawn as
+# tabs (the menu code gives them DrawMapListTab). RandomMapTab in GUIUtil.cpp reads these names.
+RANDOM_TAB = "RadioButtonRandomMaps"
+RANDOM_SIZES = ["Tiny", "Small", "Medium", "Large", "Huge"]
+RANDOM_PLAYERS = range(2, room.SEAT_COUNT + 1)
+RANDOM_PANEL = (["StaticTextRandomTemplate", "ListboxRandomTemplate", "StaticTextRandomSize"]
+                + ["RadioButtonRandomSize%d" % size for size in range(len(RANDOM_SIZES))]
+                + ["StaticTextRandomPlayers"]
+                + ["RadioButtonRandomPlayers%d" % count for count in RANDOM_PLAYERS]
+                + ["ButtonRandomReroll"])
+
 NAMED = ["ButtonOK", "ButtonBack", "ListboxMap", "RadioButtonSystemMaps", "RadioButtonUserMaps",
-         "WinMapPreview", "WinGadgetBorder"] + ["ButtonMapStartPosition%d" % seat for seat in range(room.SEAT_COUNT)]
+         "WinMapPreview", "WinGadgetBorder", RANDOM_TAB] + RANDOM_PANEL + [
+         "ButtonMapStartPosition%d" % seat for seat in range(room.SEAT_COUNT)]
 
 PADDING = 12
 TITLE_HEIGHT = 32
 TAB_HEIGHT = 36
 MAP_ROWS = 4096
+LABEL_HEIGHT = 32
 
 
 def box(window):
@@ -71,6 +87,79 @@ def title_of(layout):
     if len(unnamed) != 1:
         raise ValueError("expected one unnamed heading in %s, found %d" % (room.short(layout.root), len(unnamed)))
     return unnamed[0]
+
+
+def place_row(windows, left, top, width, height):
+    """Side by side across the width, GAP apart, the last flush with the right edge."""
+    each = (width - room.GAP * (len(windows) - 1)) // len(windows)
+    for at, window in enumerate(windows):
+        x = left + width - each if at == len(windows) - 1 else left + at * (each + room.GAP)
+        window.place(x, top, each, height)
+
+
+def add_random_tab(layout):
+    """Clone the Random tab and its panel from the picker's own controls, so they wear EA's art.
+    They are removed and cloned again on every run, which is what makes a run on this script's own
+    output come out byte for byte the same as one on the retail file."""
+    room.remove(layout, [RANDOM_TAB] + RANDOM_PANEL)
+    menu = layout.root.name.split(":")[0]
+    named = lambda name: "%s:%s" % (menu, name)
+
+    def hidden(window):
+        status = window.prop("STATUS").split("=", 1)[1].strip().rstrip(";")
+        window.set_prop("STATUS", status + "+HIDDEN")
+        return window
+
+    def label(name, text):
+        window = hidden(clone(title_of(layout), named(name)))
+        window.set_prop("TEXT", '"%s"' % text)
+        return window
+
+    def radio(name, text, group):
+        window = hidden(clone(room.need(layout, "RadioButtonUserMaps"), named(name)))
+        window.set_prop("TEXT", '"%s"' % text)
+        window.set_prop("RADIOBUTTONDATA", "GROUP: %d" % group)
+        return window
+
+    tab = clone(room.need(layout, "RadioButtonUserMaps"), named(RANDOM_TAB))
+    tab.set_prop("TEXT", '"GUI:Random"')
+    templates = hidden(clone(room.need(layout, "ListboxMap"), named("ListboxRandomTemplate")))
+    reroll = hidden(clone(room.need(layout, "ButtonBack"), named("ButtonRandomReroll")))
+    reroll.set_prop("TEXT", '"GUI:RandomMapReroll"')
+    windows = ([tab, label("StaticTextRandomTemplate", "GUI:RandomMapTemplate"), templates,
+                label("StaticTextRandomSize", "GUI:RandomMapSize")]
+               + [radio("RadioButtonRandomSize%d" % size, "GUI:RandomMapSize%s" % name, 2)
+                  for size, name in enumerate(RANDOM_SIZES)]
+               + [label("StaticTextRandomPlayers", "GUI:Players")]
+               # the menu code writes the counts; a label here would be one string per digit
+               + [radio("RadioButtonRandomPlayers%d" % count, "", 3) for count in RANDOM_PLAYERS]
+               + [reroll])
+    layout.root.children.extend(windows)
+
+
+def place_random_panel(layout, area):
+    """The map type list down the left half of the list's rectangle; size, players and New Map down
+    the right half."""
+    left, top, width, height = area
+    column = (width - 2 * room.GAP) // 2
+    right = left + width - column
+    find = lambda name: room.need(layout, name)
+
+    find("StaticTextRandomTemplate").place(left - room.TEXT_NUDGE, top, column, LABEL_HEIGHT)
+    list_top = top + LABEL_HEIGHT + room.GAP
+    find("ListboxRandomTemplate").place(left, list_top, column, top + height - list_top)
+
+    find("StaticTextRandomSize").place(right - room.TEXT_NUDGE, top, column, LABEL_HEIGHT)
+    place_row([find("RadioButtonRandomSize%d" % size) for size in range(len(RANDOM_SIZES))],
+              right, list_top, column, TAB_HEIGHT)
+    players_top = list_top + TAB_HEIGHT + 2 * room.GAP
+    find("StaticTextRandomPlayers").place(right - room.TEXT_NUDGE, players_top, column, LABEL_HEIGHT)
+    place_row([find("RadioButtonRandomPlayers%d" % count) for count in RANDOM_PLAYERS],
+              right, players_top + LABEL_HEIGHT + room.GAP, column, TAB_HEIGHT)
+
+    back = find("ButtonBack")
+    button_width, button_height = box(back)[2:]
+    find("ButtonRandomReroll").place(right, top + height - button_height, button_width, button_height)
 
 
 def build(layout, room_layout):
@@ -103,10 +192,6 @@ def build(layout, room_layout):
                    "DISABLEDBORDER: 64 64 64 255, HILITE: 128 128 255 255, HILITEBORDER: 0 0 128 255" % room.ACTIVE)
 
     tab_top = top + PADDING + TITLE_HEIGHT + room.GAP
-    tab_width = (inner_width - room.GAP) // 2
-    room.need(layout, "RadioButtonSystemMaps").place(inner_left, tab_top, tab_width, TAB_HEIGHT)
-    room.need(layout, "RadioButtonUserMaps").place(inner_left + inner_width - tab_width, tab_top, tab_width, TAB_HEIGHT)
-
     list_top = tab_top + TAB_HEIGHT + room.GAP
     listbox = room.need(layout, "ListboxMap")
     listbox.place(inner_left, list_top, inner_width, top + height - PADDING - list_top)
@@ -125,6 +210,12 @@ def build(layout, room_layout):
     room.need(layout, "ButtonBack").place(cancel_left, select_top, select_width, select_height)
     if cancel_left + select_width + room.GAP > select_left:
         raise ValueError("Cancel at %d does not fit beside Accept at %d" % (cancel_left, select_left))
+
+    # cloned last, from controls whose art is final by now; the Random panel takes the list's place
+    add_random_tab(layout)
+    place_row([room.need(layout, name) for name in ("RadioButtonSystemMaps", "RadioButtonUserMaps", RANDOM_TAB)],
+              inner_left, tab_top, inner_width, TAB_HEIGHT)
+    place_random_panel(layout, box(listbox))
     return layout
 
 
@@ -167,7 +258,7 @@ def selfcheck():
         if missing:
             continue
         table, preview, select = room_geometry(load_room(menu))
-        for name in ("ListboxMap", "RadioButtonSystemMaps", "RadioButtonUserMaps"):
+        for name in ["ListboxMap", "RadioButtonSystemMaps", "RadioButtonUserMaps", RANDOM_TAB] + RANDOM_PANEL:
             if not inside(box(layout.find(name)), table):
                 problems.append("%s.wnd: %s runs out of the seat table" % (menu, name))
         if box(layout.find("WinMapPreview")) != preview:

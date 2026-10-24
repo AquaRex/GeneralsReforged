@@ -1061,7 +1061,6 @@ GlobalData::GlobalData()
 	m_lanLobbyOnStart = FALSE;
 	m_skirmishLobbyOnStart = FALSE;
 	m_optionsMenuOnStart = FALSE;
-	m_randomMapsInMenus = FALSE;
 	m_mapLight = FALSE;
 	m_teamGlow = FALSE;
 	m_waterFoam = FALSE;

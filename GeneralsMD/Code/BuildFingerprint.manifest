@@ -560,6 +560,7 @@ GameEngine/Include/Common/RAMFile.h
 GameEngine/Include/Common/Radar.h
 GameEngine/Include/Common/RadarShroudCache.h
 GameEngine/Include/Common/RandomMapGenerator.h
+GameEngine/Include/Common/RandomMapTemplate.h
 GameEngine/Include/Common/RandomValue.h
 GameEngine/Include/Common/Recorder.h
 GameEngine/Include/Common/Registry.h
@@ -1138,6 +1139,7 @@ GameEngine/Source/Common/RTS/SpecialPower.cpp
 GameEngine/Source/Common/RTS/Team.cpp
 GameEngine/Source/Common/RTS/TunnelTracker.cpp
 GameEngine/Source/Common/RandomMapGenerator.cpp
+GameEngine/Source/Common/RandomMapTemplate.cpp
 GameEngine/Source/Common/RandomValue.cpp
 GameEngine/Source/Common/Recorder.cpp
 GameEngine/Source/Common/SkirmishBattleHonors.cpp
