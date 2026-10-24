@@ -1162,9 +1162,15 @@ AsciiString GameInfoMapField( const AsciiString& portableMapPath )
 		}
 	}
 
-	if (!newMapName.startsWithNoCase(USER_MAPS_FIELD_PREFIX))
-		return newMapName;
-	const AsciiString folder(newMapName.str() + strlen(USER_MAPS_FIELD_PREFIX));
+	return newMapName;
+}
+
+AsciiString GameInfoLobbyMapField( const AsciiString& portableMapPath )
+{
+	const AsciiString field = GameInfoMapField(portableMapPath);
+	if (!field.startsWithNoCase(USER_MAPS_FIELD_PREFIX))
+		return field;
+	const AsciiString folder(field.str() + strlen(USER_MAPS_FIELD_PREFIX));
 	AsciiString wire;
 	return generatedMapWireName(folder, wire) ? wire : folder;
 }
@@ -1202,6 +1208,11 @@ AsciiString GameInfoToAsciiString( const GameInfo *game )
 		TheLAN == NULL ? 0 : m_lanMaxOptionsLength);
 }
 
+AsciiString GameInfoToReplayString( const GameInfo *game )
+{
+	return GameInfoOptionsString(game, TheGameState->realMapPathToPortableMapPath(game->getMap()), 0);
+}
+
 //
 // The LAN packet has room for m_lanMaxOptionsLength bytes of this.  EA shortened each name while it
 // appended the slots, sharing what was left between the slots still to come; once the fixed fields
@@ -1211,7 +1222,9 @@ AsciiString GameInfoToAsciiString( const GameInfo *game )
 //
 AsciiString GameInfoOptionsString( const GameInfo *game, const AsciiString& portableMapPath, Int maxLength )
 {
-	const AsciiString mapField = GameInfoMapField(portableMapPath);
+	// the lobby's short field only where the string has a length to fit; a replay, a log or an
+	// online room names the map in full, which is what the launcher reads back
+	const AsciiString mapField = maxLength == 0 ? GameInfoMapField(portableMapPath) : GameInfoLobbyMapField(portableMapPath);
 	AsciiString playerNames[MAX_SLOTS];
 	Int playerNamesLength = 0;
 	for (Int i = 0; i < MAX_SLOTS; ++i)

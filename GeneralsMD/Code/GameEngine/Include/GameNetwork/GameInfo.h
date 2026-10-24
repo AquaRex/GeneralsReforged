@@ -358,16 +358,21 @@ Int         GameInfo::getSupplyPileLimit( void ) const      { return m_supplyPil
 AsciiString GameInfoToAsciiString( const GameInfo *game );
 Bool ParseAsciiStringToGameInfo( GameInfo *game, AsciiString options );
 
+// The same with no length to fit and the map named in full, for the replay header the launcher reads.
+AsciiString GameInfoToReplayString( const GameInfo *game );
+
 // GameInfoToAsciiString with the map's portable path given and the length the string has to fit
-// (0: any), shortening the human players' names to fit; empty when even one letter a name is too
-// long.  The tests build the string through this, with no TheGameState or TheLAN.
+// (0: any, and the map field in full), shortening the human players' names to fit; empty when even
+// one letter a name is too long.  The tests build the string through this, with no TheGameState or
+// TheLAN.
 AsciiString GameInfoOptionsString( const GameInfo *game, const AsciiString& portableMapPath, Int maxLength );
 
 // The options string's map field and back.  The field is the portable path's folders,
-// "maps/twilight flame"; a user map's folder goes alone, "rmg_v17_7_8p_672c", since every one sits
-// under userdata/maps and the eight seats' names need those 14 bytes.  A field with folders in it
-// reads back as it always did.
+// "maps/twilight flame", "userdata/maps/rmg_v17_7_8p_672c".  The lobby's field, which has to leave
+// the eight seats' names room in 400 bytes, gives a user map's folder alone, "my map", and a
+// generated one in its wire form (generatedMapWireName).  Every form reads back to the path.
 AsciiString GameInfoMapField( const AsciiString& portableMapPath );
+AsciiString GameInfoLobbyMapField( const AsciiString& portableMapPath );
 AsciiString GameInfoMapPathFromField( const AsciiString& field );
 
 // An AI seat's personality is an optional sixth field on its slot entry, C<rung>,color,tmpl,start,team[,persona].

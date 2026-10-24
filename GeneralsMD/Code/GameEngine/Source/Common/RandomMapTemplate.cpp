@@ -83,10 +83,15 @@ const Real PAD_SPACING = 0.45f;			// of the nearest two starts' distance, the mo
 const Real PAD_SCALE_LEAST = 0.5f;
 const Real PAD_SHORE = 4.0f;			// cells a pad stays off the exemplar's water
 const Real RAMP_STEEP = 8.0f;			// bytes a cell, the steepest a cut ramp climbs
+const Int WIDE_RAMP_HALF = 12;			// cells either side of its walk, a scaled plateau's ramp: Twilight Flame's 22 and the cliffs' growth
+const Int WIDE_RAMP_BLEND = 4;			// cells over which a widened ramp fades into the ground beside it
+const Real WIDE_RAMP_STEEP = 6.0f;		// bytes a cell along a widened ramp, so its corners stay under the cliff span across it too
 const Int CROSS_WET = 100;				// water cells in a town's box that put the town on its river
 const Int CROSS_STEP = 8;				// cells between the places tried for a crossing along its river
 const Real CALM_EASE = 20.0f;			// cells over which a river's wander comes back past a crossing
+const Real BRIDGE_DECK = 4.0f;			// cells a bridge's deck takes along its river
 const Real CROSS_GUARD = 0.3f;			// how far into a pad's fade a crossing may reach
+const Int CROSS_LEAST = 20;				// cells a side, the least of a crossing cut down to fit: a bridge and its banks
 const Int REPAIR_ROUNDS = 4;
 const Real SLOPE_REACH = 100.0f;
 const Int PILE_FLAT = 4;
@@ -1818,6 +1823,7 @@ struct Copy
 	Real radius;				///< target cells round the target anchor a pad reaches; 0 for a crossing
 	Real core;					///< target cells round the target anchor the large features keep off; 0 for a crossing
 	Real lift;					///< bytes from a source height to the target's
+	Real pivot, heightScale;	///< source heights scale about the pivot: a scaled plateau keeps its ramps' slope
 	const Field *region;		///< a pad's share of each source cell, the exemplar's size
 	Int regionW, regionH;
 	Int box[4];					///< a crossing's source cells: y0, x0, y1, x1, the last two past the end
@@ -1972,7 +1978,8 @@ struct Frame
 		W = m.W; H = m.H; border = m.border; playable = m.playable;
 		cy = lv.cy; cx = lv.cx;
 		k = clampr( m.playable / 356.0f, 0.4f, 1.0f );
-		padRadius = std::max( pads, PAD_OUTER );
+		// the base the copy brings, however small it was scaled; the skeleton's own without one
+		padRadius = pads > 0.0f ? pads : PAD_OUTER;
 		half = m.playable / 2.0f;
 		m.playMask( play );
 		seatRing = 0.0f;
@@ -2082,8 +2089,8 @@ struct Composer
 	Composer( const Exemplar& exemplar, const SynthMap& skeletonMap, const Levels& skeletonLevels, Int s, const std::vector<Copy>& basePads ) :
 		src( exemplar ), skm( skeletonMap ), skel( skeletonLevels ), seed( s ), pads( basePads )
 	{
-		// the features keep off a pad's core, the frame's guard fading over the cells past it; a canyon
-		// may cut a raised pad's cliffs, as it runs between the bases on the exemplar
+		// the features keep off a pad's core, its base less the margin, the frame's guard fading over the
+		// cells past it; a canyon may cut a raised pad's cliffs, as it runs between the bases on the exemplar
 		Real core = 0.0f;
 		for( size_t p = 0; p < pads.size(); p++ )
 			core = std::max( core, pads[p].core );
@@ -2148,18 +2155,37 @@ struct Composer
 		return inside;
 	}
 
-	/// The crossing's box cut to share of its size round the river's middle, and its reach from that
-	/// middle along the river and across it.
+	/// The crossing's box cut to share of its size round the river's middle and grown over the bridge
+	/// nearest that middle, so a small cut still carries one, and its reach from that middle along the
+	/// river and across it.
 	void cropCrossing( Real share, Int out[4], Real *along, Real *across ) const
 	{
 		for( Int a = 0; a < 2; a++ )
 		{
 			Int lo = cross.box[a], hi = cross.box[a + 2];
-			Int size = std::min( hi - lo, std::max( roundi( ( hi - lo ) * share ), TOWN_LEAST ) );
+			Int size = std::min( hi - lo, std::max( roundi( ( hi - lo ) * share ), CROSS_LEAST ) );
 			Real middle = a == 0 ? cross.centre.y : cross.centre.x;
 			Int from = clampi( roundi( middle - 0.5f * size ), lo, hi - size );
 			out[a] = from;
 			out[a + 2] = from + size;
+		}
+		Int nearest = -1;
+		Real least = 1.0e9f;
+		for( size_t k = 0; k < cross.bridges.size(); k++ )
+		{
+			if( bridgeIn( out, cross.bridges[k] ) ) { nearest = -1; break; }
+			const MapThing& one = src.m.things[cross.bridges[k]];
+			const MapThing& two = src.m.things[cross.bridges[k] + 1];
+			Real d = hypotr( 0.5f * ( one.y + two.y ) + src.m.border - cross.centre.y, 0.5f * ( one.x + two.x ) + src.m.border - cross.centre.x );
+			if( d < least ) { least = d; nearest = cross.bridges[k]; }
+		}
+		for( Int g = 0; nearest >= 0 && g < 2; g++ )
+		{
+			const MapThing& end = src.m.things[nearest + g];
+			out[0] = std::min( out[0], (Int)( end.y + src.m.border ) );
+			out[1] = std::min( out[1], (Int)( end.x + src.m.border ) );
+			out[2] = std::max( out[2], (Int)( end.y + src.m.border ) + 1 );
+			out[3] = std::max( out[3], (Int)( end.x + src.m.border ) + 1 );
 		}
 		*along = *across = 0.0f;
 		for( Int c = 0; c < 4; c++ )
@@ -2186,7 +2212,8 @@ struct Composer
 				if( w <= 0.0f || w <= plan.fixedWeight[i] ) continue;
 				YX s = copy.toSource( (Real)y, (Real)x );
 				Int o = clampi( roundi( s.y ), 0, SH - 1 ) * SW + clampi( roundi( s.x ), 0, SW - 1 );
-				h[i] = w * ( src.lv.h[o] + copy.lift ) + ( 1.0f - w ) * h[i];
+				const Real copied = copy.pivot + copy.lift + ( src.lv.h[o] - copy.pivot ) * copy.heightScale;
+				h[i] = w * copied + ( 1.0f - w ) * h[i];
 				plan.fixedWeight[i] = std::max( plan.fixedWeight[i], w );
 				if( w >= 0.5f )
 				{
@@ -2815,7 +2842,8 @@ struct Composer
 		best.source = cross.centre;
 		best.scale = 1.0f;
 		best.radius = best.core = 0.0f;
-		best.lift = 0.0f;
+		best.lift = best.pivot = 0.0f;
+		best.heightScale = 1.0f;
 		best.region = NULL;
 		best.regionW = best.regionH = 0;
 		memcpy( best.box, line.crop, sizeof(best.box) );
@@ -2826,8 +2854,8 @@ struct Composer
 	/// pad, dock and derrick and inside the map; the whole of it, or cut down to its middle.
 	Bool calmSpot( LineSpec& line ) const
 	{
-		static const Real theCrops[] = { 1.0f, 0.75f, 0.55f, 0.4f, 0.3f };
-		for( Int crop = 0; crop < 5; crop++ )
+		static const Real theCrops[] = { 1.0f, 0.75f, 0.55f, 0.4f, 0.3f, 0.2f };
+		for( Int crop = 0; crop < (Int)( sizeof(theCrops) / sizeof(theCrops[0]) ); crop++ )
 		{
 			Real along, across;
 			cropCrossing( theCrops[crop], line.crop, &along, &across );
@@ -2962,6 +2990,14 @@ struct Composer
 			Int y = clampi( roundi( p.y ), 0, H - 1 ), x = clampi( roundi( p.x ), 0, W - 1 );
 			return f.play[y * W + x] != 0;
 		};
+		// a bridge at along, square across the river there, its ends reach either side of the middle
+		auto bridgeEnds = [&]( Real at, Real reach, YX *a, YX *z )
+		{
+			Real centre = wander( at );
+			Real turn = ATan( ( wander( at + 1.0f ) - wander( at - 1.0f ) ) / 2.0f );
+			*a = Frame::point( line.angle, line.my, line.mx, at - reach * Sin( turn ), centre + reach * Cos( turn ) );
+			*z = Frame::point( line.angle, line.my, line.mx, at + reach * Sin( turn ), centre - reach * Cos( turn ) );
+		};
 
 		Real s0 = line.sLo, s1 = line.sHi;
 		Bool anyInside = FALSE;
@@ -2988,20 +3024,21 @@ struct Composer
 					Real nudge = (Real)( sign * 4 * n );
 					if( n == 0 ) nudge = 0.0f;
 					if( nudge > 48.0f ) continue;
-					YX p = Frame::point( line.angle, line.my, line.mx, even + nudge, wander( even + nudge ) );
-					Real r = 0.5f * bridges[i]->length + 8.0f;
-					Bool any = FALSE, ok = TRUE;
-					for( Int y = std::max( 0, (Int)( p.y - r ) - 1 ); y <= std::min( H - 1, (Int)( p.y + r ) + 1 ) && ok; y++ )
-						for( Int x = std::max( 0, (Int)( p.x - r ) - 1 ); x <= std::min( W - 1, (Int)( p.x + r ) + 1 ) && ok; x++ )
-						{
-							if( hypotr( y - p.y, x - p.x ) > r ) continue;
-							Int c = y * W + x;
-							any = TRUE;
-							ok = f.play[c] && f.guard[c] < 0.01f && !plan.wet[c];
-						}
+					// the deck and a ramp's length past each end on open ground, off the pads' cores
+					YX a, z;
+					bridgeEnds( even + nudge, 0.5f * bridges[i]->length + BRIDGE_DECK, &a, &z );
+					Real span = hypotr( z.y - a.y, z.x - a.x );
+					Bool ok = TRUE;
+					for( Real t = 0.0f; t <= span && ok; t += 1.0f )
+					{
+						Int y = roundi( a.y + ( z.y - a.y ) * t / span ), x = roundi( a.x + ( z.x - a.x ) * t / span );
+						Int c = y * W + x;
+						ok = y >= 0 && y < H && x >= 0 && x < W && f.play[c] && f.guard[c] < CROSS_GUARD && !plan.wet[c];
+					}
 					for( size_t s = 0; s < sites.size() && ok; s++ ) ok = fabsf( even + nudge - sites[s] ) > 30.0f;
-					ok = ok && ( !calm || fabsf( even + nudge - line.calmAt ) > line.calmReach + 10.0f );
-					if( any && ok )
+					// past the crossing's fade, where the river still runs straight out of it
+					ok = ok && ( !calm || fabsf( even + nudge - line.calmAt ) > line.calmReach - CALM_EASE + COPY_FADE + BRIDGE_DECK );
+					if( ok )
 					{
 						sites.push_back( even + nudge );
 						ours.push_back( bridges[i] );
@@ -3086,13 +3123,8 @@ struct Composer
 
 		for( size_t k = 0; k < sites.size(); k++ )
 		{
-			Real at = sites[k];
-			Real centre = wander( at );
-			Real tangent = ( wander( at + 1.0f ) - wander( at - 1.0f ) ) / 2.0f;
-			Real turn = ATan( tangent );
-			Real reachB = 0.5f * ours[k]->length;
-			YX a = Frame::point( line.angle, line.my, line.mx, at - reachB * Sin( turn ), centre + reachB * Cos( turn ) );
-			YX z = Frame::point( line.angle, line.my, line.mx, at + reachB * Sin( turn ), centre - reachB * Cos( turn ) );
+			YX a, z;
+			bridgeEnds( sites[k], 0.5f * ours[k]->length, &a, &z );
 			disc( out, a, 4.0f, bank );
 			disc( out, z, 4.0f, bank );
 			discMask( plan.gentle, a, 10.0f );
@@ -4617,7 +4649,7 @@ void baseRegions( const Exemplar& src, std::vector<Field>& regions, std::vector<
 		// the level ground first, then outward eight ways a cell a step; level ground that seldom falls
 		// away at its rim is open ground or a hollow, and the base on it no more than PAD_OPEN across
 		Real most = PAD_MOST;
-		Bool plateau = FALSE;
+		Bool plateau = FALSE, high = FALSE;
 		for( Int attempt = 0; attempt < 2; attempt++ )
 		{
 			std::fill( steps.begin(), steps.end(), -1 );
@@ -4670,25 +4702,29 @@ void baseRegions( const Exemplar& src, std::vector<Field>& regions, std::vector<
 						}
 				}
 			}
-			if( plateau || most == PAD_OPEN ) break;
+			// a plateau stands over the ground its cliffs fall to; level ground walled in all round is a
+			// hollow, and copied as open ground
+			ring.clear();
+			below.clear();
+			for( Int i = 0; i < SW * SH; i++ )
+			{
+				if( steps[i] < out - 2 ) continue;
+				ring.push_back( src.lv.h[i] );
+				if( src.lv.h[i] < level - PLATEAU_TOLERANCE ) below.push_back( src.lv.h[i] );
+			}
+			high = plateau && below.size() * 4 >= ring.size();
+			if( high || most == PAD_OPEN ) break;
 			most = PAD_OPEN;
 		}
 		Field region( SW * SH, 0.0f );
 		Real reach = 0.0f;
-		ring.clear();
-		below.clear();
 		for( Int i = 0; i < SW * SH; i++ )
 		{
 			if( steps[i] < 0 ) continue;
 			region[i] = fade( ( out - steps[i] ) / COPY_FADE );
 			if( region[i] >= 0.5f )
 				reach = std::max( reach, hypotr( (Real)( i / SW - ys[t] ), (Real)( i % SW - xs[t] ) ) );
-			if( steps[i] < out - 2 ) continue;
-			ring.push_back( src.lv.h[i] );
-			if( src.lv.h[i] < level - PLATEAU_TOLERANCE ) below.push_back( src.lv.h[i] );
 		}
-		// a plateau stands over the ground its cliffs fall to; one walled in all round sits on its rim
-		const Bool high = plateau && below.size() * 4 >= ring.size();
 		regions.push_back( region );
 		reaches.push_back( reach );
 		edges.push_back( high ? medianOf( below ) : medianOf( ring ) );
@@ -4739,8 +4775,12 @@ void planPads( const Exemplar& src, const Levels& skel, Int seed, const std::vec
 				best.source = yx( (Real)src.lv.startY[t], (Real)src.lv.startX[t] );
 				best.region = &regions[t];
 				best.radius = ( reaches[t] + COPY_FADE ) * scale + 1.0f;
-				best.core = ( reaches[t] - ( raised[t] ? PAD_MARGIN : 0.0f ) ) * scale + 1.0f;
+				best.core = ( reaches[t] - PAD_MARGIN ) * scale + 1.0f;
 				best.lift = skel.bowl - edges[t];
+				// a plateau scaled down keeps its shape: lower by as much as it is narrower, so its
+				// ramps climb no steeper than the exemplar's
+				best.pivot = edges[t];
+				best.heightScale = raised[t] ? scale : 1.0f;
 				bestError = error;
 				bestTie = tie;
 			}
@@ -4782,6 +4822,115 @@ void carryMoney( const Exemplar& src, const std::vector<Copy>& pads, SynthMap& s
 			}
 		}
 		mine[kind]->swap( kept );
+	}
+}
+
+/** A plateau copied smaller keeps its ramps' climb but not their width, and an army queues at the
+	narrow mouth. Every way down off a scaled plateau is widened to WIDE_RAMP_HALF either side of
+	its walk, each cell beside it at the height of the walk where it passes: the ramp's own climb,
+	as wide as the exemplar's. The ways down are the first cells a walk from the start reaches halfway
+	down, a ramp's width apart; each walk runs on from there to the ground. */
+void widenRamps( std::vector<Int>& heights, Int W, Int H, Int border, const Plan& plan, const std::vector<Copy>& pads, Real ground )
+{
+	const Int EXIT_APART = 4 * WIDE_RAMP_HALF, MOST_EXITS = 4;
+	Mask cliff, walk;
+	cliffOf( heights, W, H, cliff );
+	walkable( cliff, W, H, walk );
+	std::vector<Int> previous( W * H ), path, seen( W * H, 0 );
+	Field want( W * H ), weight( W * H );
+	for( size_t p = 0; p < pads.size(); p++ )
+	{
+		if( pads[p].heightScale >= 1.0f ) continue;
+		const Int start = clampi( roundi( pads[p].target.y ), 0, H - 1 ) * W + clampi( roundi( pads[p].target.x ), 0, W - 1 );
+		const Real top = (Real)heights[start];
+		const Real half = 0.5f * ( top + ground ), foot = ground + 0.1f * ( top - ground );
+		if( top - ground < 2.0f * PLATEAU_TOLERANCE ) continue;
+		// a way off over the border leads nowhere
+		auto open = [&]( Int i ) -> Bool
+		{
+			Int y = i / W, x = i % W;
+			return y >= border && y < H - border && x >= border && x < W - border && walk[i] && !( plan.wet[i] && heights[i] < plan.level[i] );
+		};
+		// from the start to the cells halfway down, the plateau's ways off it
+		std::fill( previous.begin(), previous.end(), -2 );
+		std::vector<Int> queue( 1, start ), exits;
+		previous[start] = -1;
+		for( size_t head = 0; head < queue.size(); head++ )
+		{
+			Int i = queue[head], x = i % W, y = i / W;
+			if( heights[i] < half )
+			{
+				Bool apart = TRUE;
+				for( size_t e = 0; e < exits.size() && apart; e++ )
+					apart = hypotr( (Real)( exits[e] / W - y ), (Real)( exits[e] % W - x ) ) >= EXIT_APART;
+				if( apart && (Int)exits.size() < MOST_EXITS ) exits.push_back( i );
+				continue;
+			}
+			const Int n[4] = { x + 1 < W ? i + 1 : -1, x > 0 ? i - 1 : -1, y + 1 < H ? i + W : -1, y > 0 ? i - W : -1 };
+			for( Int j = 0; j < 4; j++ )
+			{
+				if( n[j] < 0 || previous[n[j]] != -2 || !open( n[j] ) ) continue;
+				previous[n[j]] = i;
+				queue.push_back( n[j] );
+			}
+		}
+		const Real out = (Real)( WIDE_RAMP_HALF + WIDE_RAMP_BLEND );
+		std::fill( weight.begin(), weight.end(), 0.0f );
+		for( size_t e = 0; e < exits.size(); e++ )
+		{
+			// up to the start, then on down to the foot
+			path.clear();
+			for( Int i = exits[e]; i >= 0; i = previous[i] ) path.push_back( i );
+			std::reverse( path.begin(), path.end() );
+			std::vector<Int> down( 1, exits[e] ), from( 1, -1 );
+			const Int mark = (Int)( p * MOST_EXITS + e ) + 1;
+			seen[exits[e]] = mark;
+			Int end = -1;
+			for( size_t head = 0; head < down.size() && end < 0; head++ )
+			{
+				Int i = down[head], x = i % W, y = i / W;
+				if( heights[i] <= foot ) { end = (Int)head; break; }
+				const Int n[4] = { x + 1 < W ? i + 1 : -1, x > 0 ? i - 1 : -1, y + 1 < H ? i + W : -1, y > 0 ? i - W : -1 };
+				for( Int j = 0; j < 4; j++ )
+				{
+					if( n[j] < 0 || seen[n[j]] == mark || heights[n[j]] >= half || !open( n[j] ) ) continue;
+					seen[n[j]] = mark;
+					down.push_back( n[j] );
+					from.push_back( (Int)head );
+				}
+			}
+			size_t upper = path.size();
+			for( Int k = end; k > 0; k = from[k] ) path.push_back( down[k] );
+			std::reverse( path.begin() + upper, path.end() );
+			// a straight ramp from the plateau's rim to the foot, its climb no steeper than WIDE_RAMP_STEEP
+			Int lo = 0;
+			while( lo + 1 < (Int)path.size() && heights[path[lo + 1]] > top - PLATEAU_TOLERANCE ) lo++;
+			const Int rim = path[lo], base = path.back();
+			const Real high = (Real)heights[rim], low = (Real)heights[base];
+			const Real cy = 0.5f * ( rim / W + base / W ), cx = 0.5f * ( rim % W + base % W );
+			const Real span = hypotr( (Real)( base / W - rim / W ), (Real)( base % W - rim % W ) );
+			if( span < 1.0f ) continue;
+			const Real uy = ( base / W - rim / W ) / span, ux = ( base % W - rim % W ) / span;
+			const Real reach = 0.5f * std::max( span, ( high - low ) / WIDE_RAMP_STEEP );
+			const Int box = (Int)( reach + out ) + 1;
+			for( Int y = std::max( (Int)cy - box, 0 ); y <= std::min( (Int)cy + box, H - 1 ); y++ )
+				for( Int x = std::max( (Int)cx - box, 0 ); x <= std::min( (Int)cx + box, W - 1 ); x++ )
+				{
+					Real s = ( y - cy ) * uy + ( x - cx ) * ux, t = fabsf( ( x - cx ) * uy - ( y - cy ) * ux );
+					Real ends = reach + WIDE_RAMP_BLEND - fabsf( s );
+					if( t >= out || ends <= 0.0f ) continue;
+					Int i = y * W + x;
+					Real w = fade( ( out - t ) / WIDE_RAMP_BLEND ) * fade( ends / WIDE_RAMP_BLEND );
+					if( w <= weight[i] ) continue;
+					weight[i] = w;
+					want[i] = high + ( low - high ) * clampr( ( s + reach ) / ( 2.0f * reach ), 0.0f, 1.0f );
+				}
+		}
+		for( Int i = 0; i < W * H; i++ )
+		{
+			if( weight[i] <= 0.0f || ( plan.wet[i] && heights[i] < plan.level[i] ) ) continue;
+			heights[i] = clampi( roundi( weight[i] * want[i] + ( 1.0f - weight[i] ) * heights[i] ), 0, 255 );
+		}
 	}
 }
 
@@ -5075,6 +5224,7 @@ Bool rmgSynthesise( const RandomMapSettings& clamped, const std::vector<char>& e
 			value = std::max( value, plan.level[i] + 1.0f );
 		heights[i] = clampi( roundi( value ), 0, 255 );
 	}
+	widenRamps( heights, W, H, b, plan, basePads, skel.bowl );
 	Mask cliff;
 	cliffOf( heights, W, H, cliff );
 

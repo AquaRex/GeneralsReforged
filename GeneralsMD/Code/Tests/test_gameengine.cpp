@@ -17491,16 +17491,22 @@ TEST(lan_options_fit_eight_humans_on_a_generated_template_map)
 		"userdata\\maps\\rmg_v17_2147483647_8p_672c_tffffffff_bombardment beach\\rmg_v17_2147483647_8p_672c_tffffffff_bombardment beach.map",
 	};
 	for( Int i = 0; i < 4; ++i )
+	{
 		CHECK_STR( GameInfoMapPathFromField( GameInfoMapField( AsciiString( paths[i] ) ) ).str(), paths[i] );
+		CHECK_STR( GameInfoMapPathFromField( GameInfoLobbyMapField( AsciiString( paths[i] ) ) ).str(), paths[i] );
+	}
 	CHECK_STR( GameInfoMapField( AsciiString( paths[0] ) ).str(), "maps/bombardment beach" );
-	CHECK_STR( GameInfoMapField( AsciiString( paths[1] ) ).str(), "my map" );
-	CHECK_STR( GameInfoMapField( AsciiString( paths[2] ) ).str(), "~17_zik0zj_8_io" );
-	CHECK_STR( GameInfoMapField( AsciiString( paths[3] ) ).str(), "~17_5_2_3w_twilight" );
-	// a field written before user maps went alone still reads back
-	CHECK_STR( GameInfoMapPathFromField( AsciiString( "userdata/maps/my map" ) ).str(), paths[1] );
+	CHECK_STR( GameInfoLobbyMapField( AsciiString( paths[0] ) ).str(), "maps/bombardment beach" );
+	CHECK_STR( GameInfoMapField( AsciiString( paths[1] ) ).str(), "userdata/maps/my map" );
+	CHECK_STR( GameInfoLobbyMapField( AsciiString( paths[1] ) ).str(), "my map" );
+	CHECK_STR( GameInfoLobbyMapField( AsciiString( paths[2] ) ).str(), "~17_zik0zj_8_io" );
+	CHECK_STR( GameInfoLobbyMapField( AsciiString( paths[3] ) ).str(), "~17_5_2_3w_twilight" );
+	// the replay's field, which the launcher reads, names a template map in full
+	CHECK_STR( GameInfoMapField( AsciiString( paths[4] ) ).str(),
+		"userdata/maps/rmg_v17_2147483647_8p_672c_tffffffff_bombardment beach" );
 	// a template map's CRC and folder go as four letters; reading them back needs the shipped maps,
 	// which replay-check on a template map covers
-	const AsciiString wire = GameInfoMapField( AsciiString( paths[4] ) );
+	const AsciiString wire = GameInfoLobbyMapField( AsciiString( paths[4] ) );
 	CHECK( wire.startsWith( "~17_zik0zj_8_io~" ) );
 	CHECK_EQ( wire.getLength(), 20 );
 
@@ -17532,6 +17538,10 @@ TEST(lan_options_fit_eight_humans_on_a_generated_template_map)
 	CHECK( !generated.isEmpty() );
 	CHECK( generated.getLength() <= m_lanMaxOptionsLength );
 	CHECK( shortestHumanName( generated ) >= shortestHumanName( shipped ) );
+	// the replay's string keeps every name whole and the map's full name
+	const AsciiString replay = GameInfoOptionsString( &game, AsciiString( paths[4] ), 0 );
+	CHECK_EQ( shortestHumanName( replay ), 12 );
+	CHECK( strstr( replay.str(), "M=00userdata/maps/rmg_v17_2147483647_8p_672c_tffffffff_bombardment beach;" ) != NULL );
 
 	delete TheWritableGlobalData;
 	TheWritableGlobalData = saved;
