@@ -133,6 +133,7 @@ static const FieldParse audioSettingsFieldParseTable[] =
 	{ "SpeedOfSound",					INI::parseReal,											NULL,							offsetof( AudioSettings, m_speedOfSound) },
 	{ "MaxSoundDelay",				INI::parseReal,											NULL,							offsetof( AudioSettings, m_maxSoundDelay) },
 	{ "DopplerScale",					INI::parseReal,											NULL,							offsetof( AudioSettings, m_dopplerScale) },
+	{ "DopplerFastSpeed",			INI::parseReal,											NULL,							offsetof( AudioSettings, m_dopplerFastSpeed) },
 	{ "AirAbsorptionDistance",	INI::parseReal,										NULL,							offsetof( AudioSettings, m_airAbsorptionDistance) },
 	{ "ReverbLevel",					INI::parsePercentToReal,						NULL,							offsetof( AudioSettings, m_reverbLevel) },
 	{ "DuckVolume",						INI::parsePercentToReal,						NULL,							offsetof( AudioSettings, m_duckVolume) },
@@ -568,17 +569,14 @@ AudioHandle AudioManager::addAudioEventNow(const AudioEventRTS *eventToAdd, Audi
 	// Sound takes time to arrive: a world sound starts late by its distance to the microphone over
 	// SpeedOfSound, at most MaxSoundDelay, on top of the delay its INI gives it.  Not a unit's voice,
 	// which answers the player, and not a script's sound, which logic waits on in the same frame.  The
-	// request list counts the delay down in logic time (MilesAudioManager::processRequestList).
+	// request list counts the delay down in logic time (MilesAudioManager::processRequestList).  Such a
+	// sound is marked as travelling, and its stop is held back the same way (stopAudioEvent).
 	const AudioEventInfo *info = eventToAdd->getAudioEventInfo();
-	const Real speedOfSound = getAudioSettings()->m_speedOfSound;
 	if (info->m_soundType == AT_SoundEffect && audioEvent->isPositionalAudio() && !eventToAdd->getIsLogicalAudio()
-			&& !BitTest(info->m_type, ST_VOICE) && speedOfSound > 0.0f)
+			&& !BitTest(info->m_type, ST_VOICE) && getAudioSettings()->m_speedOfSound > 0.0f)
 	{
-		Coord3D toMicrophone = *audioEvent->getCurrentPosition();
-		toMicrophone.sub(&m_listenerPosition);
-		const Real travelMs = toMicrophone.length() / speedOfSound * MSEC_PER_SECOND;
-		const Real maxMs = getAudioSettings()->m_maxSoundDelay;
-		audioEvent->setDelay(audioEvent->getDelay() + (travelMs < maxMs ? travelMs : maxMs));
+		audioEvent->setDelay(audioEvent->getDelay() + getTravelMs(audioEvent->getCurrentPosition()));
+		audioEvent->setTravels(TRUE);
 	}
 
 	std::list<std::pair<AsciiString, Real> >::iterator it;
@@ -1088,6 +1086,15 @@ void AudioManager::removeLevelSpecificAudioEventInfos(void)
 const AudioSettings *AudioManager::getAudioSettings( void ) const
 {
 	return m_audioSettings;
+}
+
+//-------------------------------------------------------------------------------------------------
+Real AudioManager::getTravelMs( const Coord3D *position ) const
+{
+	Coord3D toMicrophone = *position;
+	toMicrophone.sub(&m_listenerPosition);
+	const Real travelMs = toMicrophone.length() / m_audioSettings->m_speedOfSound * MSEC_PER_SECOND;
+	return travelMs < m_audioSettings->m_maxSoundDelay ? travelMs : m_audioSettings->m_maxSoundDelay;
 }
 
 //-------------------------------------------------------------------------------------------------

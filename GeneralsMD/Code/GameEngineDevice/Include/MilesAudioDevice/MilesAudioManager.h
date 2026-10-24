@@ -90,6 +90,10 @@ struct PlayingAudio
 	Bool m_tracked;
 	Coord3D m_lastPosition;
 	Coord3D m_velocity;
+	/// A sound that started late by its distance stops late by it too: the stop is held here, in
+	/// logic milliseconds still to wait, and m_stopHeld stays set once it has gone through.
+	Bool m_stopHeld;
+	Real m_stopInMs;
 
 	PlayingAudio() :
 		m_type(PAT_INVALID),
@@ -102,7 +106,9 @@ struct PlayingAudio
 		m_3DSample(0),
 		m_stream(0),
 		m_framesFaded(0),
-		m_tracked(false)
+		m_tracked(false),
+		m_stopHeld(false),
+		m_stopInMs(0.0f)
 	{
 		m_lastPosition.zero();
 		m_velocity.zero();

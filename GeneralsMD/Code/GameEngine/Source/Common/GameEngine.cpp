@@ -1158,7 +1158,9 @@ void GameEngine::init( int argc, char *argv[] )
 		if (!TheGlobalData->m_audioOn)
 			DEBUG_LOG(("TheAudio: audio off, no device opened\n"));
 		else
-			DEBUG_LOG(("TheAudio: audio on, device handle %s\n", TheAudio->getDevice() != NULL ? "set" : "none (no device could be opened)"));
+			DEBUG_LOG(("TheAudio: audio on, %s\n", TheAudio->getDevice() == NULL ? "no device (none could be opened), nothing is heard"
+				: TheGlobalData->m_wavEndFrame > 0 ? "no output device: the -wav mix runs offline on the logic clock, into the file only"
+				: "output device open"));
 		//
 		// Missing music used to end the process here, with setQuitting and not one word anywhere: the
 		// game started, the window appeared for a moment and it closed again.  A player who deleted

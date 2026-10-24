@@ -271,6 +271,8 @@ class AudioManager : public SubsystemInterface
 
 		const AudioSettings *getAudioSettings( void ) const;
 		const MiscAudio *getMiscAudio( void ) const;
+		/// how long a sound from there takes to reach the microphone, milliseconds, at most MaxSoundDelay
+		Real getTravelMs( const Coord3D *position ) const;
 
 		// This function should only be called by AudioManager, MusicManager and SoundManager
 		virtual void releaseAudioEventRTS( AudioEventRTS *eventToRelease );

@@ -48,6 +48,7 @@ struct AudioSettings
 		m_speedOfSound( 1700.0f ),
 		m_maxSoundDelay( 1000.0f ),
 		m_dopplerScale( 3.0f ),
+		m_dopplerFastSpeed( 100.0f ),
 		m_airAbsorptionDistance( 300.0f ),
 		m_reverbLevel( 1.0f ),
 		m_duckVolume( 0.15f ),
@@ -91,7 +92,9 @@ struct AudioSettings
 		* by doppler. The ground is drawn at about 0.2 m a unit (a Ranger stands 13 units, a Crusader
 		* is 30 long), so 343 m/s is 1700. Zero is neither. `DopplerScale` multiplies the speed doppler
 		* hears, zero switching doppler alone off: 3, since a Raptor crosses the map at 35 m/s on that
-		* scale and a real jet's pitch bend needs it about ten times faster.
+		* scale and a real jet's pitch bend needs it about ten times faster. `DopplerFastSpeed`, units
+		* a second: past it the scale grows with the speed, so at 100 a Raptor at 175 is heard at 5.25
+		* times its speed and a tank at 30 at 3. Zero keeps one scale for everything.
 		* `AirAbsorptionDistance`, game units: where air has taken the top end down from 20 kHz to 10,
 		* falling with the square of the distance past it, through two stages. Zero is no air. A snow
 		* map takes it at 60%.
@@ -101,6 +104,7 @@ struct AudioSettings
 	Real m_speedOfSound;
 	Real m_maxSoundDelay;
 	Real m_dopplerScale;
+	Real m_dopplerFastSpeed;
 	Real m_airAbsorptionDistance;
 	Real m_reverbLevel;
 	Real m_duckVolume;

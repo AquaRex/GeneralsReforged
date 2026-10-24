@@ -1383,7 +1383,8 @@ S32 AILCALL AIL_quick_startup(S32 use_digital, S32, U32, S32, S32)
 
 void AILCALL AIL_quick_handles(HDIGDRIVER *pdig, HMDIDRIVER *pmdi, HDLSDEVICE *pdls)
 {
-	if (pdig != NULL) *pdig = DIGITAL_DRIVER;
+	// a driver only when AIL_quick_startup opened a device, the null one of an offline mix included
+	if (pdig != NULL) *pdig = g_engine.deviceReady ? DIGITAL_DRIVER : NULL;
 	if (pmdi != NULL) *pmdi = NULL;
 	if (pdls != NULL) *pdls = NULL;
 }

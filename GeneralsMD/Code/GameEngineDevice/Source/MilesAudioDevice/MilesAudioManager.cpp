@@ -1152,6 +1152,19 @@ void MilesAudioManager::stopAudioEvent( AudioHandle handle )
 		#ifdef INTENSIVE_AUDIO_DEBUG
 			DEBUG_LOG((" (%s)\n", audio->m_audioEventRTS->getEventName()));
 		#endif
+			// What is heard is what happened a travel time ago, so a sound that started late by its
+			// distance ends late by it too: a missile's flight loop runs on until its boom arrives,
+			// rather than going quiet the moment it is seen to hit.  processPlayingList lets it go.
+			if (audio->m_stopHeld) {
+				break;
+			}
+			const Real travelMs = audio->m_audioEventRTS->getTravels()
+				? getTravelMs(audio->m_audioEventRTS->getCurrentPosition()) : 0.0f;
+			if (travelMs > 0.0f) {
+				audio->m_stopHeld = true;
+				audio->m_stopInMs = travelMs;
+				break;
+			}
 			audio->m_requestStop = true;
 			endLoopPassNow( audio );
 			break;
@@ -2703,13 +2716,24 @@ void MilesAudioManager::processPlayingList( void )
 		}
 		else
 		{
-			if (m_volumeHasChanged) 
+			if (m_volumeHasChanged)
 			{
 				adjustPlayingVolume(playing);
 			}
 
+			// a held stop (stopAudioEvent) goes through once its travel time has passed
+			if (playing->m_stopHeld && playing->m_stopInMs > 0.0f)
+			{
+				playing->m_stopInMs -= m_clockElapsedMs;
+				if (playing->m_stopInMs <= 0.0f)
+				{
+					playing->m_requestStop = true;
+					endLoopPassNow( playing );
+				}
+			}
+
 			const Coord3D *pos = getCurrentPositionFromEvent(playing->m_audioEventRTS);
-			if (pos) 
+			if (pos)
 			{
 				if( playing->m_audioEventRTS->isDead() )
 				{
@@ -2948,7 +2972,12 @@ void MilesAudioManager::trackVelocity( PlayingAudio *playing, const Coord3D *pos
 		playing->m_velocity.x += 0.5f * ((pos->x - playing->m_lastPosition.x) * perSecond - playing->m_velocity.x);
 		playing->m_velocity.y += 0.5f * ((pos->y - playing->m_lastPosition.y) * perSecond - playing->m_velocity.y);
 		playing->m_velocity.z += 0.5f * ((pos->z - playing->m_lastPosition.z) * perSecond - playing->m_velocity.z);
-		const Real scale = m_audioSettings->m_dopplerScale;
+		// The faster a unit, the further its game speed is below the real machine's: a tank is drawn at
+		// about half its real speed, a Raptor at a tenth.  Past DopplerFastSpeed the scale grows with the
+		// speed, so a jet's pass bends as far as a helicopter's does and further.
+		const Real fastSpeed = m_audioSettings->m_dopplerFastSpeed;
+		const Real speed = playing->m_velocity.length();
+		const Real scale = m_audioSettings->m_dopplerScale * (fastSpeed > 0.0f && speed > fastSpeed ? speed / fastSpeed : 1.0f);
 		AIL_set_3D_velocity_vector( playing->m_3DSample, playing->m_velocity.x * scale, playing->m_velocity.y * scale,
 			playing->m_velocity.z * scale );
 	}
@@ -3029,12 +3058,27 @@ void MilesAudioManager::duckForBlast( AudioEventRTS *event, H3DSAMPLE sample3D )
 	const Bool global = BitTest(info->m_type, ST_GLOBAL);
 	Coord3D toMicrophone = *getCurrentPositionFromEvent(event);
 	toMicrophone.sub(&m_listenerPosition);
-	const Real nearness = sqrtf(AIL_ex_3D_distance_gain(toMicrophone.length(),
+	const Real distance = toMicrophone.length();
+	const Real nearness = sqrtf(AIL_ex_3D_distance_gain(distance,
 		global ? (Real)settings->m_globalMinRange : info->m_minDistance,
 		global ? (Real)settings->m_globalMaxRange : info->m_maxDistance, settings->m_rangeVolumeFade));
 	if (nearness <= 0.0f)
+	{
+		DEBUG_LOG(("AUDIO: duck by %s at %.0f units: out of earshot, none\n", event->getEventName().str(), distance));
 		return;
-	AIL_ex_duck(sample3D, 1.0f - (1.0f - settings->m_duckVolume) * nearness, settings->m_duckTime / MSEC_PER_SECOND);
+	}
+	const Real gain = 1.0f - (1.0f - settings->m_duckVolume) * nearness;
+	const Real seconds = settings->m_duckTime / MSEC_PER_SECOND;
+	AIL_ex_duck(sample3D, gain, seconds);
+	// AIL_ex_duck_gain's shape: down by 0.05 s, held to a quarter of the time, back to full at its end
+	const Real DUCK_ATTACK_SECONDS = 0.05f;
+	const Real heldTo = 0.25f * seconds > DUCK_ATTACK_SECONDS ? 0.25f * seconds : DUCK_ATTACK_SECONDS;
+	const Real halfway = 0.5f * (heldTo + seconds);
+	const Real halfwayGain = AIL_ex_duck_gain(halfway, gain, seconds);
+	DEBUG_LOG(("AUDIO: duck by %s at %.0f units, nearness %.2f: the rest at %.2f (%.1f dB) muffled to %.0f Hz, "
+		"held to %.2f s, at %.2f s %.2f and %.0f Hz, full at %.2f s, frame %u\n",
+		event->getEventName().str(), distance, nearness, gain, 20.0f * log10f(gain), AIL_ex_duck_cutoff(gain),
+		heldTo, halfway, halfwayGain, AIL_ex_duck_cutoff(halfwayGain), seconds, TheGameLogic->getFrame()));
 }
 
 //-------------------------------------------------------------------------------------------------
