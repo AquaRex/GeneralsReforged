@@ -451,6 +451,40 @@ Bool DumbProjectileBehavior::calcFlightPath(Bool recalcNumSegments)
 		return false;
 	}
 
+	// An artillery shell with a flight time flies a true parabola and lands that many frames after it
+	// left, near or far, the way a gunner sets the charge and the elevation for a time on target. A
+	// Bezier whose inner points sit a third of the way along the launch and landing tangents is that
+	// parabola exactly, at an even pace, so one sample a frame is where the shell is each frame. The
+	// turret raised the barrel to the same launch pitch (WeaponTemplate::getBallisticLaunchPitch), aimed
+	// at the middle of the target, and the shot lands on a point of its body a few feet off that: the
+	// peak takes up the difference, so the shell still leaves along the barrel. A barrel nowhere near
+	// the solution (one held at its lowest pitch) moves the peak a quarter at most.
+	UnsignedInt ballisticFrames = m_detonationWeaponTmpl ? m_detonationWeaponTmpl->getBallisticFlightFrames() : 0;
+	if( ballisticFrames > 0 )
+	{
+		const Real LAUNCH_RISE_TO_PEAK_HEIGHT = 0.25f;
+		const Real PEAK_HEIGHT_TO_INNER_POINT_RISE = 4.0f / 3.0f;
+		const Real PEAK_HEIGHT_SHIFT_LIMIT = 0.25f;
+		Coord3D span;
+		span.set( &controlPoints[3] );
+		span.sub( &controlPoints[0] );
+		Real peakHeight = m_detonationWeaponTmpl->getBallisticPeakHeight();
+		Real barrelPeakHeight = LAUNCH_RISE_TO_PEAK_HEIGHT * ( m_launchSlope * sqrtf( sqr( span.x ) + sqr( span.y ) ) - span.z );
+		peakHeight = clamp( peakHeight * ( 1.0f - PEAK_HEIGHT_SHIFT_LIMIT ), barrelPeakHeight, peakHeight * ( 1.0f + PEAK_HEIGHT_SHIFT_LIMIT ) );
+		Real innerRise = PEAK_HEIGHT_TO_INNER_POINT_RISE * peakHeight;
+		for( Int inner = 1; inner <= 2; ++inner )
+		{
+			Real share = inner / 3.0f;
+			controlPoints[inner].x = controlPoints[0].x + share * span.x;
+			controlPoints[inner].y = controlPoints[0].y + share * span.y;
+			controlPoints[inner].z = controlPoints[0].z + share * span.z + innerRise;
+		}
+		if( recalcNumSegments )
+			m_flightPathSegments = ballisticFrames + 1;
+		BezierSegment( controlPoints ).getSegmentPoints( m_flightPathSegments, &m_flightPath );
+		return true;
+	}
+
 	// X and Y for inner points are along the line between us, so normalize and scale a vector between us, but
 	// only use the x and y of the result
 	Vector3 targetVector;// 0 origin vector between me and him

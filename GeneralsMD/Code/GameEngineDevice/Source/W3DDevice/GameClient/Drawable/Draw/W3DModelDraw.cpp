@@ -3985,11 +3985,20 @@ Bool W3DModelDraw::getProjectileLaunchOffset(
 			// The art angle turns a launch bone, posed the way the turret's art faces, to the front. With
 			// no launch bone the matrix is the object's own, facing the front already, and turned by the
 			// art it faced backward, so the turret's pitch tipped it down: the battleship's front guns
-			// fired 12 degrees under barrels drawn 12 degrees up.
+			// fired 12 degrees under barrels drawn 12 degrees up. The bone turns about the turret's pivot,
+			// as the drawn turret does; turned about the model's origin, a turret off the centre threw it
+			// across: a technical's cannon shell left 17 in front of its gun.
 			if (tur != TURRET_INVALID && wbvec[specificBarrelToUse].m_hasProjectileLaunchBone)
 			{
-				launchPos->Pre_Rotate_Z(stateToUse->m_turrets[tur].m_turretArtAngle);
-				launchPos->Pre_Rotate_Y(-stateToUse->m_turrets[tur].m_turretArtPitch);
+				const ModelConditionInfo::TurretInfo& artTurret = stateToUse->m_turrets[tur];
+				Coord3D artPivot;
+				artPivot.zero();
+				if (artTurret.m_turretAngleNameKey != NAMEKEY_INVALID)
+					stateToUse->findPristineBonePos(artTurret.m_turretAngleNameKey, artPivot);
+				launchPos->Adjust_Translation(Vector3(-artPivot.x, -artPivot.y, 0.0f));
+				launchPos->Pre_Rotate_Z(artTurret.m_turretArtAngle);
+				launchPos->Adjust_Translation(Vector3(artPivot.x, artPivot.y, 0.0f));
+				launchPos->Pre_Rotate_Y(-artTurret.m_turretArtPitch);
 			}
 #ifdef CACHE_ATTACH_BONE
 #else

@@ -32,6 +32,10 @@
 # cruise missiles' single curve (2026-10-13): tank shell 13.7 to 1.9 and 7.2 to 0 over the line, Nuke
 # Cannon 6.5 to 3.8, Inferno 5.4 to 5.5, Scud 6.0 to 4.6, Tomahawk 6.0 to 5.5, Rocket Buggy 3.3 both.
 #
+# Since the fixed flight time (2026-10-25) the Fire Bases, the Inferno and Nuke Cannons and the
+# battleships fly a parabola set by their weapon, and the numbers above for them are history;
+# artillery.txt measures them now.
+#
 # See mobstress.txt for the line grammar.
 
 30    spawn      0  AmericaTankCrusader            1   500 500
