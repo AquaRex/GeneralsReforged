@@ -196,11 +196,12 @@ found and fixed, EA's own, not port damage.**
 - The blast and the fire spare the plane's owner and allies, and still hurt enemies and neutral buildings. A Supply Drop plane shot down over your own base used to wreck it; in a test the same crash that cost your own side 10 men and 136 health off two power plants now leaves them untouched, while the enemy beside them loses the same 10 men.
 - Bombers and cargo planes no longer vanish silently when they hit the ground. A jet destroyed while it sits parked is unchanged.
 
-## A tank shell kills the man it hits
+## A tank shell hurts the man it hits
 
-- A cannon shell did 6 damage to a soldier. A Ranger has 180 health, so thirty shells that actually hit him left him standing, a full minute of fire from a Crusader, while the same shell does 60 to another tank. It now does that 60 to him as well. Three hits kill a Ranger. Two kill a Red Guard or a Rebel.
+- A cannon shell did 6 damage to a soldier. A Ranger has 180 health, so thirty shells that actually hit him left him standing, a full minute of fire from a Crusader, while the same shell does 60 to another tank. It now does 18 to him. Ten hits kill a Ranger, seven a Red Guard or a Rebel.
+- 3.4.0 let the whole 60 through, and players were right that it went too far: an Overlord cut a Red Guard down in under a second and a tank column no longer had to care what infantry stood in front of it. Tanks keep three times the damage Zero Hour gave them and lose the rest. In staged fights for equal money, Red Guards beat every tank at Zero Hour's 6 and lost to Crusaders every time at 3.4.0's 60. Now the two split, and the side of the field each starts on decides it.
 - The gun still throws the shot wide of infantry, and the blast is small, so a shell that bursts beside a man still misses. A Gattling Tank does not throw wide, and it is still the gun that cuts a whole squad down.
-- A chemical suit still stops toxin, radiation and microwaves, and a cannon shell goes through it the same as through a bare uniform. The Infantry General's men, the Toxin Rebel, the biohazard suit and the Demolitions terrorist each had their own copy of that shrug, and a shell goes through those too. The men on a Stinger Site keep theirs: that armor belongs to the site. The Missile Defender's laser-guided missile is the same kind of round, so it does its 40 to a soldier, and he fires that one at them. An ordinary rocket still barely scratches a man.
+- A chemical suit still stops toxin, radiation and microwaves, and a cannon shell goes through it the same as through a bare uniform. The Infantry General's men, the Toxin Rebel, the biohazard suit and the Demolitions terrorist each had their own copy of that shrug, and a shell goes through those too. The men on a Stinger Site keep theirs: that armor belongs to the site. The Missile Defender's laser-guided missile is the same kind of round, so it does 12 of its 40 to a soldier, and he fires that one at them. An ordinary rocket still barely scratches a man.
 - A replay recorded before this change plays out differently.
 
 ## The battle runs at 60 steps a second

@@ -13259,8 +13259,8 @@ TEST(frames_to_kill_counts_shots_delays_and_reloads)
 	crusaderGun.m_delayFrames = 60.0f;
 	CHECK_NEAR( 480.0f, aiFramesToKill( 480.0f, crusaderGun ), 0.001f );
 
-	// the same shell through HumanArmor on a 120-health Rebel. Armor-piercing lands in full
-	// now, so two shells. At the old 10% it was 6 a shell and twenty of them.
+	// the whole shell on a 120-health Rebel: two shells. HumanArmor takes armor-piercing at 30%,
+	// so in the game it is 18 a shell and seven of them; at EA's 10% it was 6 and twenty.
 	AIShotPattern crusaderOnInfantry = crusaderGun;
 	crusaderOnInfantry.m_damagePerShot = 60.0f;
 	CHECK_NEAR( 120.0f, aiFramesToKill( 120.0f, crusaderOnInfantry ), 0.001f );
