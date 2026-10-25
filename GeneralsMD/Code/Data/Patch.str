@@ -892,7 +892,7 @@ TOOLTIP:StatArmor
 END
 
 TOOLTIP:StatArmorStronger
-"stronger"
+"stronger, less of each hit gets through"
 END
 
 TOOLTIP:StatNewWeapon
@@ -916,6 +916,35 @@ END
 TOOLTIP:Upgrades
 "UPGRADES"
 END
+// The gloss after each figure on the card: what it counts, as the card computes it.  Damage is the
+// main weapon's primary damage a shot, the weapon that does the most a second; attack speed spreads
+// a clip's reload over its shots; range is in world units, 10 to a pathfinding cell, the square the
+// placement grid draws; build time counts the player's power and how many factories make the unit.
+
+TOOLTIP:StatHealthHint
+"(damage it can take after armor)"
+END
+
+TOOLTIP:StatDamageHint
+"(main weapon, one shot, before armor)"
+END
+
+TOOLTIP:StatAttackSpeedHint
+"(shots a second, reloads counted)"
+END
+
+TOOLTIP:StatDamagePerSecondHint
+"(damage × attack speed)"
+END
+
+TOOLTIP:StatRangeHint
+"(10 is one square of the placement grid)"
+END
+
+TOOLTIP:StatTimeHint
+"(with your power and factories now)"
+END
+
 
 TOOLTIP:UpgradeChanges
 "CHANGES"
@@ -926,6 +955,14 @@ TOOLTIP:UpgradeOwned
 END
 
 // Peace time - the lobby combo box, its tooltip, the corner countdown and the three things the game
+TOOLTIP:UpgradesHint
+"(without it → with it)"
+END
+
+TOOLTIP:UpgradeChangesHint
+"(plain unit → with this)"
+END
+
 // says while the clock runs.  Tools/peacetime_layout.py selfcheck fails if any of these goes missing.
 
 GUI:PeaceTimeOff

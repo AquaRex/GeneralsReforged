@@ -15506,7 +15506,7 @@ TOOLTIP:StatArmor
 END
 
 TOOLTIP:StatArmorStronger
-"güçlenir"
+"güçlenir, her vuruşun daha azı geçer"
 END
 
 TOOLTIP:StatNewWeapon
@@ -15529,12 +15529,44 @@ TOOLTIP:Upgrades
 "GELİŞTİRMELER"
 END
 
+TOOLTIP:StatHealthHint
+"(zırhtan sonra kaldırabileceği hasar)"
+END
+
+TOOLTIP:StatDamageHint
+"(ana silah, atış başına, zırhtan önce)"
+END
+
+TOOLTIP:StatAttackSpeedHint
+"(saniyedeki atış, şarjör doldurma dahil)"
+END
+
+TOOLTIP:StatDamagePerSecondHint
+"(hasar × atış hızı)"
+END
+
+TOOLTIP:StatRangeHint
+"(10, yerleştirme ızgarasının bir karesi)"
+END
+
+TOOLTIP:StatTimeHint
+"(şu anki enerjiniz ve fabrikalarınızla)"
+END
+
 TOOLTIP:UpgradeChanges
 "ETKİLEDİKLERİ"
 END
 
 TOOLTIP:UpgradeOwned
 "alındı"
+END
+
+TOOLTIP:UpgradesHint
+"(onsuz → onunla)"
+END
+
+TOOLTIP:UpgradeChangesHint
+"(yalın birlik → bununla)"
 END
 
 GUI:HudStatArmy
