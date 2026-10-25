@@ -4,7 +4,7 @@ EA opened the source of Generals and Zero Hour, the game that is still on sale a
 Steam. This build is that source with the bugs the game shipped with fixed and everything below added.
 
 **126 changes. ~580 engine source files ported. 14 automated test suites. Around 60 original bugs
-found and fixed â€” EA's own, not port damage.**
+found and fixed, EA's own, not port damage.**
 
 ---
 
@@ -829,7 +829,7 @@ found and fixed â€” EA's own, not port damage.**
 - An ordered building stands as a see-through plan until a worker starts it.
 - A building going up lifts the fog around it the moment work starts. It used to see no further than its own walls until the last brick was in, so a base built out into the fog stood blind for the whole build and the worker on the site saw more than the site did. Until this version it still did, whatever this line said: the building worked out its new sight the moment work started and then never looked again until it was finished.
 - Click a plan, or press Stop, to cancel it and take the money back.
-- Cancelling a plan is silent â€” nothing was built, so nothing explodes.
+- Cancelling a plan is silent. Nothing was built, so nothing explodes.
 - Ground your units have walked stays buildable after they leave it.
 - Placing a building no longer shows you the enemy's base. The red cells under the building on your cursor marked every structure on the map, the ones standing in the shroud and the ones going up in the fog since you last looked included, so sweeping the cursor over the dark drew your opponent's foundations for you. The red tint and the outline under the building did the same in the fog, and the building slid flush against walls you had never seen. All of it now goes by what you have seen: a building you scouted still shows where your eyes left it, one you have not shows nothing until you find it. Put a building down on top of one you could not see and the order is turned down, as it always was.
 - The other way round too: an enemy building destroyed while you were not looking still stands in your fog, and placing over it now treats it as standing. The grid used to show bare ground under it and the building on your cursor went green there, which told you it was gone before you had seen it go. Its ground stays red, the building on your cursor will not go down on it and slides flush against it as against any other, until you look there again.
@@ -847,7 +847,7 @@ found and fixed â€” EA's own, not port damage.**
   map, or a factory already burning down, and the game used to sit there waiting for a defeat that
   never came. It ends now. The observer's counts stopped counting units that are already dying and
   plans nobody has started. Found and fixed by 600rr.
-- Your units walk straight over a plan â€” nothing solid is there until the builder starts work.
+- Your units walk straight over a plan, since nothing solid is there until the builder starts work.
 - The plan turns solid the instant the first work goes in, so no building goes up inside its own ghost.
 - The builder starts work from where it reaches the site instead of shuffling into place first.
 - Dozers and workers walk through anything still going up, so they never shut themselves in behind
@@ -1154,6 +1154,7 @@ A third pass went through the generals' powers, promotions and unit abilities.
 - The readout in the top right corner is a box of its own: the time of day, the match time and the real time beside it, the logic rate and the frame rate, the renderer and the frame number. In a network game it adds how many frames are ready out of the input delay, the room's frame rate and the traffic in and out, and under a unit limit your count against it. It is on unless you switch it off: untick Info Box on Options > Interface and the superweapon timers move up into the corner it left.
 - The steel between the build buttons, the portrait's grid and the promotion screen's cells is half as wide as it was, so the pictures take the room. The queue's tray has a thinner rim. The portrait and its upgrade icons sit under the portrait's grid, framed the same way as every other picture on the bar.
 - Point at Camo Netting's icon beside a GLA unit's portrait and its card used to say MISSING where the description belongs. EA left a second Camo Netting button in the data that no building offers, its text name mistyped, and the card read that one first. It reads the button you buy it from now.
+- The arrow between a figure and its upgraded value on a card came out as three stray characters. It is an arrow again.
 - The command bar slides up from the bottom of the screen again when a match starts. The new steel frame had been drawn at its final place from the first frame, so the buttons rose into a frame that was already standing.
 - A building that is still going up shows Cancel on S, and the seconds it has left across the top of the grid. A map building that hands out units shows that countdown there too, with the bar under it. Sell stands on N. One that sets a rally point puts that on B instead. Both used to stay where the old command panel had drawn them, off the new grid.
 - The Escape menu is Zero Hour's own again, the window, the logo, the buttons and the way it opens, along with the box that asks whether you really want to leave. The steel plate that replaced it for a while, and ControlBar Pro's version after that, are gone. Options on it opens the whole options screen. The promotion screen opens across the middle of the screen.
@@ -2224,7 +2225,7 @@ The whole HUD is on the hardware. Four colours carry it, and they mean the same 
 - Vertical sync works in a window. The option has always been in the menu, and in a window the old
   path ignored it and ran the picture as fast as it could, which is what a screen tears from. It is
   honoured now, so the picture holds to your monitor's refresh rate unless you turn it off.
-- No disc, no registry keys, no retail installer â€” a normal install works. "Please insert the first game CD" used to come up over the startup screen of an install that has no disc to put in, and pressing OK only asked again; Cancel was the one way through to the game. A disc is still read when there is one, and when there is not the game carries on without music instead of standing there asking.
+- No disc, no registry keys, no retail installer. A normal install works. "Please insert the first game CD" used to come up over the startup screen of an install that has no disc to put in, and pressing OK only asked again; Cancel was the one way through to the game. A disc is still read when there is one, and when there is not the game carries on without music instead of standing there asking.
 - The startup screen is this build's own, with the Zero Hour Reforged name on it, so you can see which one you launched before the menu loads.
 - The main menu buttons are there when the menu is. On the first visit they used to stay hidden, pointer and all, until you nudged the mouse or pressed a key, so a freshly started game looked stuck on the background battle. A match started straight from the command line no longer plays those buttons sliding in over its loading screen.
 - The zip installs itself and takes itself back off. `install.bat` asks where the game is, offering
@@ -2262,7 +2263,7 @@ The whole HUD is on the hardware. Four colours carry it, and they mean the same 
 - Its sight is yours from the first frame, and clicking any of it hands you the base itself.
 - Shift-Ctrl-T does the same to any opponent, a computer one included, and walks around the table.
 - Headless, a 23-minute skirmish plays out in 38 seconds, identically every run - and opens no window at all, so twenty of them in a row leave the desktop and the keyboard focus alone.
-- It plays itself over a network too â€” two copies, one real connection.
+- It plays itself over a network too, two copies, one real connection.
 - That found every multiplayer replay falsely accusing itself of desync since 2003.
 - Every fix was proved by putting the bug back and watching the test fail.
 - No debugger here: a crash symboliser, a sampling profiler, probes in live matches.
