@@ -1365,6 +1365,9 @@ Bool FitRandomMapToRoom(GameInfo *game)
 	map.toLower();
 	TheMapCache->updateCache();
 	const MapMetaData *md = TheMapCache->findMap(map);
+	// a template that built nothing leaves no map under the new name; the room keeps the one it has
+	if (md == NULL)
+		return FALSE;
 	game->setMap(map);
 	game->setMapCRC(md->m_CRC);
 	game->setMapSize(md->m_filesize);

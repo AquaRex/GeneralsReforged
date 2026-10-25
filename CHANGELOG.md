@@ -24,6 +24,7 @@ found and fixed, EA's own, not port damage.**
 - The player count starts at the number of seats already taken in the room. The tab, the map type and the size you used last are remembered for the next time.
 - In a LAN or online room the other players do not download anything: the map's name carries its recipe, and their own game builds the same map from it and checks it against yours. A room that records stats keeps to the official list.
 - Random maps used to be reachable only by a hidden command-line switch that added five rows to the skirmish list.
+- Leaving the skirmish room for the main menu no longer crashes the game. In 3.4.0 it did every time, whatever map was picked: the room went on refitting its random map to the seats for a moment after Back had already thrown the seats away.
 
 ## An army screen in every lobby
 

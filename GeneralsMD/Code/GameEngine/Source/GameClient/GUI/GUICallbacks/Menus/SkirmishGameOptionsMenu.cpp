@@ -1723,7 +1723,8 @@ void SkirmishGameOptionsMenuUpdate( WindowLayout * layout, void *userData)
 		stillNeedsToSetOptions = FALSE;
 	}
 
-	if (FitRandomMapToRoom(TheSkirmishGameInfo))
+	// Back deletes the room's game at once, and the screen goes on updating while it animates out
+	if (TheSkirmishGameInfo && FitRandomMapToRoom(TheSkirmishGameInfo))
 	{
 		skirmishPositionStartSpots();
 		skirmishUpdateSlotList();
