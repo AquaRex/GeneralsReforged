@@ -1522,6 +1522,13 @@ void GameEngine::init( int argc, char *argv[] )
 			RELEASE_CRASH((e.mFailureMessage));
 		else
 			RELEASE_CRASH(("Uncaught Exception during initialization."));
+	}
+	catch (decltype(INI_INVALID_DATA) code)
+	{
+		// an unnamed enum, so the ErrorCode catch above does not take it
+		AsciiString why;
+		why.format("GameEngine::init failed with INI error 0x%08x: game data (a mod's INI?) names something that is not there or cannot be used.", (UnsignedInt)code);
+		RELEASE_CRASH((why.str()));
 
 	}
 	catch (...)
@@ -3462,6 +3469,16 @@ void GameEngine::execute( void )
 					catch (ErrorCode ec)
 					{
 						snprintf( why, sizeof(why), "Uncaught ErrorCode 0x%08x in GameEngine::update", (UnsignedInt)ec );
+					}
+					// The INI_* codes are an unnamed enum, so the ErrorCode catch does not take them: a
+					// module meeting data it cannot use threw one at a mod's map load (reports 1893-1899).
+					catch (decltype(INI_INVALID_DATA) code)
+					{
+						snprintf( why, sizeof(why), "Uncaught INI error 0x%08x in GameEngine::update: game data (a mod's INI?) names something that is not there or cannot be used", (UnsignedInt)code );
+					}
+					catch (XferStatus status)
+					{
+						snprintf( why, sizeof(why), "Uncaught Xfer error %d in GameEngine::update: an object could not be saved or loaded", (Int)status );
 					}
 					catch (const std::exception &e)
 					{

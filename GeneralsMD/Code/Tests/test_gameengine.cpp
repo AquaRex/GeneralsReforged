@@ -5859,6 +5859,34 @@ TEST(crcsnapshotring_never_hands_back_a_half_written_frame)
 	CHECK_EQ( ring.getNumSnapshots(), 0 );
 }
 
+TEST(crcsnapshotring_gives_each_frame_the_commands_executed_before_it)
+{
+	CRCSnapshotRing ring;
+	fillSnapshot( ring, 30, 0x30, 1 );
+
+	// a run of one player's commands of one type on one frame folds into one entry
+	ring.addCommand( 30, 1, 7, 0xA );
+	ring.addCommand( 30, 1, 7, 0xB );
+	ring.addCommand( 30, 2, 7, 0xC );
+	fillSnapshot( ring, 31, 0x31, 1 );
+	fillSnapshot( ring, 32, 0x32, 1 );
+
+	const CRCSnapshot *first = ring.getSlot( ring.findSlotByFrame( 30 ) );
+	const CRCSnapshot *second = ring.getSlot( ring.findSlotByFrame( 31 ) );
+	const CRCSnapshot *third = ring.getSlot( ring.findSlotByFrame( 32 ) );
+	CHECK( first != NULL && second != NULL && third != NULL );
+	if( first == NULL || second == NULL || third == NULL )
+		return;
+
+	CHECK_EQ( (Int)first->m_commands.size(), 0 );
+	CHECK_EQ( (Int)second->m_commands.size(), 2 );
+	CHECK_EQ( (Int)second->m_commands[0].m_count, 2 );
+	CHECK_EQ( (Int)second->m_commands[0].m_argHash, 0xA * 33 + 0xB );
+	CHECK_EQ( second->m_commands[1].m_player, 2 );
+	CHECK_EQ( (Int)third->m_commands.size(), 0 );
+	CHECK_EQ( ring.findSlotByFrame( 33 ), -1 );
+}
+
 /* --------------------------------------------------------------------------------------------
 	 A lockstep game only stays in step if both machines feed the same numbers into it, and the
 	 join request is the last moment at which that is a refused join instead of a desynced match.

@@ -260,6 +260,9 @@ bool Direct3D11_Can_Tear();
 // True once, the first time a present was refused, with the HRESULT it was refused with.  WW3D2
 // has no logging in a shipping build, so the display asks and writes the line.
 bool Direct3D11_Take_Present_Failure(long & result);
+// After a refused present, why the device went: DXGI's removed reason (a driver reset, a hung or
+// removed card), or 0 while the device is alive.  A removed device never comes back.
+long Direct3D11_Device_Removed_Reason();
 
 // Wait for the monitor on the Direct3D 11 present.  DXGI takes the interval per Present, so this
 // does not need a device reset the way Direct3D 9's presentation interval does.

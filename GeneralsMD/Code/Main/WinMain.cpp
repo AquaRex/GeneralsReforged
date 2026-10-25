@@ -58,10 +58,12 @@
 #include "Common/Monitors.h"
 #include "Common/GameMemory.h"
 #include "Common/INIException.h"
+#include "Common/FileWriteQueue.h"
 #include "Common/SafeDisc/CdaPfn.h"
 #include "Common/StackDump.h"
 #include "Common/MessageStream.h"
 #include "Common/PlayerList.h"
+#include "Common/Recorder.h"
 #include "Common/Registry.h"
 #include "Common/Team.h"
 #include "GameClient/InGameUI.h"
@@ -447,14 +449,28 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message,
             break;
 
 			case WM_QUERYENDSESSION:
-			{
-				// guarded like the focus handlers below: these messages can arrive before the
-				// engine is up and, more often, while it is tearing down - a close or end-session
-				// that lands after TheMessageStream is gone used to fault right here.
-				if (canPostQuitMessage())
-					TheMessageStream->appendMessage(GameMessage::MSG_META_DEMO_INSTANT_QUIT);
-				return 0;	//don't allow Windows to shutdown while game is running.
-			}
+				// Windows is logging off or shutting down.  Refusing put the game on the "apps are
+				// preventing shutdown" screen, Windows killed it anyway, and the launcher read that kill
+				// as a crash.  Say yes; WM_ENDSESSION below ends the process.
+				DEBUG_LOG(("Windows session ending (WM_QUERYENDSESSION 0x%llx)\n", (unsigned long long)lParam));
+				FileWriteQueue::flushAll();
+				return TRUE;
+
+			case WM_ENDSESSION:
+				// wParam FALSE: something else refused the end, so play on.  TRUE: Windows ends the
+				// process soon after this returns, so no quit path; the replay closed with its end time
+				// and length the way a quit closes it, the log out, then leave with 0.  The pump runs on
+				// the main thread between ticks, so the recorder is not mid-write; it is NULL before the
+				// engine is up and after it is gone.
+				if (wParam)
+				{
+					DEBUG_LOG(("Windows session ended, leaving\n"));
+					if (TheRecorder != NULL && TheRecorder->getMode() == RECORDERMODETYPE_RECORD)
+						TheRecorder->stopRecording();
+					FileWriteQueue::flushAll();
+					_exit(0);
+				}
+				return 0;
 
 			// ------------------------------------------------------------------------
 			case WM_CLOSE:

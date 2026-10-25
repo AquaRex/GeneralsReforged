@@ -1067,6 +1067,14 @@ bool Direct3D11_Take_Present_Failure(long & result)
 	return true;
 }
 
+long Direct3D11_Device_Removed_Reason()
+{
+	if (!Active || SUCCEEDED(Device.Last_Present_Result())) {
+		return S_OK;
+	}
+	return Device.Device_Removed_Reason();
+}
+
 void Direct3D11_Mirror_Stream_Source(DX11BufferTwinClass * twin, unsigned stride, unsigned offset)
 {
 	if (Active) {

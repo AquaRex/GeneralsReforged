@@ -23,6 +23,7 @@
  *
  *  - DebugInit, DebugLog: Debug.cpp does not compile off Windows yet.  DebugLog prints, so a
  *    DEBUG_LOG from the memory manager is not lost.
+ *  - ReleaseCrash: the memory manager stops on a corrupt block header; here that aborts.
  *  - INI: SubsystemInterfaceList::initSubsystem loads INI files; nothing here initialises a
  *    subsystem through it.
  *  - TheFileSystem, FileSystem::openFile: RAMFile::open(const char*) opens through the whole file
@@ -47,6 +48,12 @@ extern "C" void DebugLog(const char *format, ...)
 	fputs("  [DebugLog] ", stderr);
 	vfprintf(stderr, format, args);
 	va_end(args);
+}
+
+extern "C" void ReleaseCrash(const char *reason)
+{
+	fprintf(stderr, "test_posixlocalfilesystem: ReleaseCrash: %s\n", reason);
+	abort();
 }
 
 static void unreachable(const char *what)

@@ -2785,6 +2785,41 @@ void GameLogic::processDestroyList( void )
 }
 
 //-------------------------------------------------------------------------------------------------
+/** One executed network command into the digest the next CRC snapshot carries.  Reads the message
+	* and nothing else, so logic state and the CRC are untouched.  MSG_LOGIC_CRC is left out: it orders
+	* nothing, and its argument is the very number the digest is there to explain. */
+//-------------------------------------------------------------------------------------------------
+static void digestCommand( CRCSnapshotRing &ring, UnsignedInt frame, const GameMessage *msg )
+{
+	const GameMessage::Type type = msg->getType();
+	if( type <= GameMessage::MSG_BEGIN_NETWORK_MESSAGES || type >= GameMessage::MSG_END_NETWORK_MESSAGES
+			|| type == GameMessage::MSG_LOGIC_CRC )
+		return;
+
+	// FNV-1a over each argument's own bytes, never the whole union, whose unused tail is whatever was there
+	UnsignedInt hash = 2166136261u;
+	for( Int i = 0; i < msg->getArgumentCount(); ++i )
+	{
+		const GameMessageArgumentType *arg = msg->getArgument( i );
+		size_t size = sizeof( arg->integer );
+		switch( msg->getArgumentDataType( i ) )
+		{
+			case ARGUMENTDATATYPE_BOOLEAN:			size = sizeof( arg->boolean ); break;
+			case ARGUMENTDATATYPE_LOCATION:			size = sizeof( arg->location ); break;
+			case ARGUMENTDATATYPE_PIXEL:				size = sizeof( arg->pixel ); break;
+			case ARGUMENTDATATYPE_PIXELREGION:	size = sizeof( arg->pixelRegion ); break;
+			case ARGUMENTDATATYPE_WIDECHAR:			size = sizeof( arg->wChar ); break;
+			default: break;
+		}
+		const UnsignedByte *bytes = (const UnsignedByte *)arg;
+		for( size_t b = 0; b < size; ++b )
+			hash = ( hash ^ bytes[b] ) * 16777619u;
+	}
+
+	ring.addCommand( frame, msg->getPlayerIndex(), (Int)type, hash );
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Process the command list passed to the logic from the network */
 //-------------------------------------------------------------------------------------------------
 void GameLogic::processCommandList( CommandList *list )
@@ -2794,11 +2829,16 @@ void GameLogic::processCommandList( CommandList *list )
 
 	GameMessage* msg;
 
+	// the inputs beside the CRC snapshots (CRCSnapshotRing.h); only read by writeMismatchDump
+	const Bool digestCommands = TheRecorder->isMultiplayer() && getGameMode() != GAME_SHELL && getGameMode() != GAME_NONE;
+
 	for( msg = list->getFirstMessage(); msg; msg = msg->next() )
 	{
 #ifdef _DEBUG
 		DEBUG_ASSERTCRASH(msg != NULL && msg != (GameMessage*)0xdeadbeef, ("bad msg"));
 #endif
+		if( digestCommands )
+			digestCommand( m_crcSnapshots, m_frame, msg );
 		logicMessageDispatcher( msg, NULL );
 	}
 
@@ -2809,6 +2849,7 @@ void GameLogic::processCommandList( CommandList *list )
 	if (m_shouldValidateCRCs && !TheNetwork->sawCRCMismatch())
 	{
 		Bool sawCRCMismatch = FALSE;
+		UnsignedInt mismatchFrame = 0;
 		Int numPlayers = 0;
 		DEBUG_ASSERTCRASH(TheNetwork, ("No Network!"));
 		if (TheNetwork)
@@ -2829,48 +2870,61 @@ void GameLogic::processCommandList( CommandList *list )
 				 EA handed the player index straight to isPlayerConnected().  A player index with no slot
 				 behind it (no GameInfo at all, for instance) counts as present rather than as gone: the
 				 point of this is to stop blaming people who left, not to switch the check off. */
-			Bool reported[MAX_PLAYER_COUNT];
 			Bool connected[MAX_PLAYER_COUNT];
-			UnsignedInt crcs[MAX_PLAYER_COUNT];
 			for (Int p = 0; p < MAX_PLAYER_COUNT; ++p)
 			{
-				reported[p] = FALSE;
-				crcs[p] = 0;
 				const Int slot = ThePlayerList->getSlotIndex(p);
 				connected[p] = (slot < 0) ? TRUE : TheNetwork->isPlayerConnected(slot);
 			}
-			for (std::map<Int, UnsignedInt>::const_iterator crcIt = m_cachedCRCs.begin();
-					 crcIt != m_cachedCRCs.end(); ++crcIt)
+
+			/* Only CRCs of one logic frame are held against each other.  A frame some connected player
+				 sent no CRC for on this execution frame is too few, and skipped: its CRCs landed on
+				 different execution frames (MSG_LOGIC_CRC in update()), and nobody disagreed. */
+			for (std::map<UnsignedInt, std::map<Int, UnsignedInt> >::const_iterator frameIt = m_cachedCRCs.begin();
+					 frameIt != m_cachedCRCs.end() && !sawCRCMismatch; ++frameIt)
 			{
-				if (crcIt->first >= 0 && crcIt->first < MAX_PLAYER_COUNT)
+				Bool reported[MAX_PLAYER_COUNT];
+				UnsignedInt crcs[MAX_PLAYER_COUNT];
+				for (Int p = 0; p < MAX_PLAYER_COUNT; ++p)
 				{
-					reported[crcIt->first] = TRUE;
-					crcs[crcIt->first] = crcIt->second;
+					reported[p] = FALSE;
+					crcs[p] = 0;
 				}
-			}
+				for (std::map<Int, UnsignedInt>::const_iterator crcIt = frameIt->second.begin();
+						 crcIt != frameIt->second.end(); ++crcIt)
+				{
+					if (crcIt->first >= 0 && crcIt->first < MAX_PLAYER_COUNT)
+					{
+						reported[crcIt->first] = TRUE;
+						crcs[crcIt->first] = crcIt->second;
+					}
+				}
 
-			switch (crcAgreement( reported, crcs, connected, MAX_PLAYER_COUNT, numPlayers ))
-			{
-				case CRC_AGREEMENT_TOO_FEW:
-					DEBUG_LOG(("Only %d CRCs from %d connected players on frame %d - not comparing\n",
-						m_cachedCRCs.size(), numPlayers, m_frame));
-					break;
+				switch (crcAgreement( reported, crcs, connected, MAX_PLAYER_COUNT, numPlayers ))
+				{
+					case CRC_AGREEMENT_TOO_FEW:
+						DEBUG_LOG(("Only %d CRCs of frame %d from %d connected players on frame %d - not comparing\n",
+							frameIt->second.size(), frameIt->first, numPlayers, m_frame));
+						break;
 
-				case CRC_AGREEMENT_MISMATCH:
-					DEBUG_CRASH(("CRC mismatch!"));
-					sawCRCMismatch = TRUE;
-					break;
+					case CRC_AGREEMENT_MISMATCH:
+						DEBUG_CRASH(("CRC mismatch!"));
+						sawCRCMismatch = TRUE;
+						mismatchFrame = frameIt->first;
+						break;
 
-				case CRC_AGREEMENT_AGREE:
-					break;
+					case CRC_AGREEMENT_AGREE:
+						break;
+				}
 			}
 		}
 
 		if (sawCRCMismatch)
 		{
 #ifdef DEBUG_LOGGING
-			DEBUG_LOG(("CRC Mismatch - saw %d CRCs from %d players\n", m_cachedCRCs.size(), numPlayers));
-			for (std::map<Int, UnsignedInt>::const_iterator crcIt = m_cachedCRCs.begin(); crcIt != m_cachedCRCs.end(); ++crcIt)
+			const std::map<Int, UnsignedInt> &mismatched = m_cachedCRCs[mismatchFrame];
+			DEBUG_LOG(("CRC Mismatch - saw %d CRCs of frame %d from %d players\n", mismatched.size(), mismatchFrame, numPlayers));
+			for (std::map<Int, UnsignedInt>::const_iterator crcIt = mismatched.begin(); crcIt != mismatched.end(); ++crcIt)
 			{
 				Player *player = ThePlayerList->getNthPlayer(crcIt->first);
 				DEBUG_LOG(("CRC from player %d (%s) = %X\n", crcIt->first,
@@ -2880,7 +2934,7 @@ void GameLogic::processCommandList( CommandList *list )
 			TheNetwork->setSawCRCMismatch();
 
 			// write down what the world looked like on the frame that diverged, while we still have it
-			writeMismatchDump( numPlayers );
+			writeMismatchDump( numPlayers, mismatchFrame );
 
 			/* Playing on is the worst of the options: two worlds that already disagree keep diverging
 				 for the rest of the match, every order after this point lands somewhere different on
@@ -2925,22 +2979,34 @@ static AsciiString lobbyOptionsWithoutAddresses( const AsciiString &options )
 }
 
 // ------------------------------------------------------------------------------------------------
+/** One number for a snapshot's command digest, so a line per frame says whether two dumps were
+	* given the same orders on it. */
+// ------------------------------------------------------------------------------------------------
+static UnsignedInt commandDigest( const CRCSnapshot *snap )
+{
+	UnsignedInt hash = 2166136261u;
+	for( size_t i = 0; i < snap->m_commands.size(); ++i )
+	{
+		const CRCCommandEntry &c = snap->m_commands[i];
+		const UnsignedInt fields[] = { c.m_frame, (UnsignedInt)c.m_player, (UnsignedInt)c.m_type, c.m_count, c.m_argHash };
+		for( size_t f = 0; f < sizeof( fields ) / sizeof( fields[0] ); ++f )
+			hash = ( hash ^ fields[f] ) * 16777619u;
+	}
+	return hash;
+}
+
+// ------------------------------------------------------------------------------------------------
 /** A mismatch says the worlds diverged; it does not say where.  This writes down everything we
 	* kept about the frame that diverged, so that two players' dumps can be diffed: the first object
 	* whose running CRC differs is the object whose state differs, and the fields printed next to it
 	* usually say how.  Every machine writes its own file at the same frame. */
 // ------------------------------------------------------------------------------------------------
-void GameLogic::writeMismatchDump( Int numPlayers )
+void GameLogic::writeMismatchDump( Int numPlayers, UnsignedInt crcFrame )
 {
-	/* The CRCs just compared were computed the run-ahead's worth of frames ago.  Ours is one of
-		 them, so whichever retained snapshot carries one of these values names that frame exactly. */
-	Int slot = -1;
-	for( std::map<Int, UnsignedInt>::const_iterator crcIt = m_cachedCRCs.begin();
-			 crcIt != m_cachedCRCs.end() && slot < 0; ++crcIt )
-	{
-		slot = m_crcSnapshots.findSlotByCRC( crcIt->second );
-	}
-	// a run-ahead longer than the ring (a high ping at the start of a match) leaves no compared CRC in it
+	// the CRCs just compared were computed the run-ahead's worth of frames ago, on crcFrame
+	const std::map<Int, UnsignedInt> &compared = m_cachedCRCs[ crcFrame ];
+	Int slot = m_crcSnapshots.findSlotByFrame( crcFrame );
+	// a run-ahead longer than the ring (a high ping at the start of a match) leaves that frame out of it
 	const Bool slotFromCRC = slot >= 0;
 	if( slot < 0 )
 		slot = m_crcSnapshots.getNewestSlot();
@@ -2958,7 +3024,7 @@ void GameLogic::writeMismatchDump( Int numPlayers )
 
 	fprintf( fp, "Mismatch detected on frame %d\n", m_frame );
 	fprintf( fp, "Local player is slot %d of %d connected players; %d CRCs were compared\n",
-		TheNetwork ? TheNetwork->getLocalPlayerID() : 0, numPlayers, m_cachedCRCs.size() );
+		TheNetwork ? TheNetwork->getLocalPlayerID() : 0, numPlayers, compared.size() );
 	// every player's dump carries the same two, which is how the reports from one match are paired up
 	fprintf( fp, "Map %s, seed %d\n", TheGameInfo->getMap().str(), TheGameInfo->getSeed() );
 	// what both ends agreed in the lobby and whether this machine read the map's rules file: two dumps
@@ -2980,8 +3046,9 @@ void GameLogic::writeMismatchDump( Int numPlayers )
 	fprintf( fp, "Simulation trig fingerprint 0x%8.8X\n\n",
 		SimulationMathCrc::calculateSimulationTrig() );
 
-	for( std::map<Int, UnsignedInt>::const_iterator crcIt = m_cachedCRCs.begin();
-			 crcIt != m_cachedCRCs.end(); ++crcIt )
+	fprintf( fp, "CRCs of frame %d:\n", crcFrame );
+	for( std::map<Int, UnsignedInt>::const_iterator crcIt = compared.begin();
+			 crcIt != compared.end(); ++crcIt )
 	{
 		Player *player = ThePlayerList->getNthPlayer( crcIt->first );
 		AsciiString name;
@@ -3003,7 +3070,7 @@ void GameLogic::writeMismatchDump( Int numPlayers )
 	fprintf( fp, "\nDiverging frame is %d (world CRC 0x%8.8X, logic random seed CRC 0x%8.8X, %d objects)\n",
 		snap->m_frame, snap->m_totalCRC, snap->m_randomSeed, snap->m_objects.size() );
 	if( !slotFromCRC )
-		fprintf( fp, "No retained frame carries a compared CRC, so this is the newest one; compare it with the same frame in the other dump.\n" );
+		fprintf( fp, "Frame %d is no longer retained, so this is the newest one; compare it with the same frame in the other dump.\n", crcFrame );
 
 	// the parts getCRC folds in, in its order (CRCSection): the first line that differs between two
 	// dumps is the part that diverged, and when it is not the objects the table below will agree
@@ -3031,6 +3098,19 @@ void GameLogic::writeMismatchDump( Int numPlayers )
 	}
 	fprintf( fp, "\n" );
 
+	/* What the machine was told to do between the frame before and this one (CRCSnapshot::m_commands).
+		 Same lines in both dumps and a different world: the same orders ran differently.  A line that
+		 differs: the machines were given different orders. */
+	fprintf( fp, "Commands executed since the frame before (digest 0x%8.8X):\n%7s %7s %6s %10s  %s\n",
+		commandDigest( snap ), "frame", "player", "count", "argHash", "command" );
+	for( size_t i = 0; i < snap->m_commands.size(); ++i )
+	{
+		const CRCCommandEntry &c = snap->m_commands[i];
+		fprintf( fp, "%7u %7d %6u 0x%8.8X  %s\n", c.m_frame, c.m_player, c.m_count, c.m_argHash,
+			GameMessage::getCommandTypeAsAsciiString( (GameMessage::Type)c.m_type ).str() );
+	}
+	fprintf( fp, "\n" );
+
 	fprintf( fp, "Diff this section against another player's file; the first differing running CRC is the object that diverged.\n\n" );
 	fprintf( fp, "%6s %8s %10s %12s %12s %12s %10s  %s\n",
 		"index", "objectID", "runningCRC", "x", "y", "z", "health", "template" );
@@ -3050,8 +3130,8 @@ void GameLogic::writeMismatchDump( Int numPlayers )
 		const CRCSnapshot *other = m_crcSnapshots.getSlot( m_crcSnapshots.getNthNewestSlot( n ) );
 		if( other == NULL || other == snap )
 			continue;
-		fprintf( fp, "  frame %d: world CRC 0x%8.8X, %d objects\n",
-			other->m_frame, other->m_totalCRC, other->m_objects.size() );
+		fprintf( fp, "  frame %d: world CRC 0x%8.8X, %d objects, %d command runs before it, digest 0x%8.8X\n",
+			other->m_frame, other->m_totalCRC, other->m_objects.size(), other->m_commands.size(), commandDigest( other ) );
 	}
 
 	fclose( fp );
@@ -4950,6 +5030,13 @@ void GameLogic::update( void )
 			GameMessage *msg = TheMessageStream->appendMessage( GameMessage::MSG_LOGIC_CRC );
 			msg->appendIntegerArgument( m_CRC );
 			msg->appendBooleanArgument( (TheRecorder && TheRecorder->getMode() == RECORDERMODETYPE_PLAYBACK) ); // playback CRC
+			/* The frame this CRC is of.  The message executes a run-ahead later, and the run-ahead can
+				 shrink: the network never stamps an order below its last execution frame, so after the
+				 opening second's run-ahead of 60 drops, every CRC from frame 61 to about 112 lands on one
+				 execution frame, each machine's pile ending somewhere else.  Keeping the last per player
+				 then held one machine's frame 107 against another's frame 112 (report 1845).  Last, so
+				 the playback check's arguments 0 and 1 stay where old replays have them. */
+			msg->appendIntegerArgument( m_frame );
 			//DEBUG_LOG(("Appended CRC of %8.8X on frame %d\n", m_CRC, m_frame));
 		}
 		else
