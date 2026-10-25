@@ -8,6 +8,12 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## French
+
+- The language box under Options, Gameplay now offers Français after Русский. All 4722 lines the game shows are in French: menus, tooltips, briefings and subtitles in the words of EA's own French release, so unit names and orders read as French players have always known them, and every line Reforged added, its options, hotkeys, lobby, score screen and Turkiye included, translated to match.
+- An English install can pick it too. A French install that picks it reads the new options, hotkeys and lobby in French, where they used to stay in English. `-language french` picks it for one run.
+- Lines EA left unfinished in French, such as the Dragon Tank's and the MiG's fire buttons, which showed a lone full stop, are written out.
+
 ## A Random tab in the map list
 
 - Select Map has a third tab beside Official and Unofficial. Pick a map type from the official maps, listed in the Official tab's order, or Surprise me, and a size from Tiny to Extra Large; the preview shows the original map with its start positions, the way the Official tab does. Accept makes a new map from that choice for everybody seated, in the skirmish, LAN and online rooms alike, and every Accept rolls a fresh one. Extra Large still seats eight.
@@ -238,6 +244,8 @@ found and fixed, EA's own, not port damage.**
 
 ## Zero Hour on a Mac, on Linux and on the Steam Deck
 
+- On Linux and Mac, a failed resolution change no longer discards the old picture before its replacement is ready. Pending drawing finishes before the old targets are retired.
+- Linux and Mac keep the ordinary depth format when the graphics card cannot provide the depth copy needed by modern water and volumetric clouds, instead of choosing a potentially larger format for effects it cannot draw.
 - The game runs on Apple silicon Macs and on Linux, the Steam Deck included, as a program built for that machine. There is no Wine or Proton underneath. It draws through Metal on a Mac and through Vulkan on Linux, from the same Zero Hour files you already own.
 - The first start finds your game. It looks in your Steam libraries, `~/Games`, `/Applications`, and CrossOver and Whisky bottles, and asks for the folder only when it comes up empty.
 - One command builds it. `./build-macos.sh` leaves a Mac app ready to open and `./build-linux.sh` a folder ready to start, and each checks your machine first and names the package to install for anything missing. On Linux it can make an AppImage, a .deb, an .rpm, an Arch package and a Flatpak, none of them carrying EA's files, and the Flatpak has played a full check match on a Steam Deck.
