@@ -214,6 +214,7 @@ AudioManager::AudioManager() :
 	m_zoomVolume = 1.0f;
 	m_zoomOut = 0.0f;
 	m_zoomDetailVolume = 1.0f;
+	m_rangeScale = 1.0f;
 	m_volumeHasChanged			= FALSE;
 	//
 
@@ -451,6 +452,14 @@ void AudioManager::update()
 	m_zoomOut = span > 0.0f ? (height - settings->m_zoomMixNearHeight) / span : (height > settings->m_zoomMixNearHeight ? 1.0f : 0.0f);
 	m_zoomOut = MIN( 1.0f, MAX( 0.0f, m_zoomOut ) );
 	m_zoomDetailVolume = 1.0f - (1.0f - settings->m_zoomMixDetailVolume) * m_zoomOut;
+
+	// The sounds' ranges were made for EA's zoom, MaxCameraHeight; the wheel goes nearly three times
+	// further out, where the side of the screen stood 700 units from the microphone and its top 1000,
+	// past nearly every sound's MaxRange of 800, so only the middle of the screen was heard.  Past
+	// MaxCameraHeight the ranges grow with the zoom, and the screen falls off from its middle to its
+	// edges as it does at EA's zoom.  Legacy sound keeps retail's ranges.
+	m_rangeScale = TheGlobalData->m_legacySound ? 1.0f
+		: MAX( 1.0f, TheTacticalView->getHeightAboveGround() / TheGlobalData->m_maxCameraHeight );
 
 	set3DVolumeAdjustment( m_zoomVolume );
 

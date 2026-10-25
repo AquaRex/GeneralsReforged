@@ -146,6 +146,8 @@ MilesAudioManager::MilesAudioManager() :
 	m_clockElapsedMs(MSEC_PER_LOGICFRAME_REAL),
 	m_clockMovedAt(0),
 	m_legacySound(FALSE),
+	m_roomAbsorption(0.0f),
+	m_airScale(0.0f),
 	m_askingOnArrival(false),
 	m_bedHandle(AHSV_Error),
 	m_bedStartedAt(0),
@@ -507,6 +509,7 @@ void MilesAudioManager::init()
 {
 	AudioManager::init();
 	m_engineSettings = *m_audioSettings;
+	m_roomAbsorption = m_audioSettings->m_airAbsorptionDistance;
 #ifdef INTENSE_DEBUG
 	DEBUG_LOG(("Sound has temporarily been disabled in debug builds only. jkmcd\n"));
 	// for now, _DEBUG builds only should have no sound. ask jkmcd or srj about this.
@@ -629,6 +632,12 @@ void MilesAudioManager::update()
 	{
 		m_roomMap = TheGlobalData->m_mapName;
 		setRoomFromMap();
+	}
+	// the air, as far as the room has it, stretched with the sounds' ranges (AudioManager::getRangeScale)
+	if (m_airScale != getRangeScale())
+	{
+		m_airScale = getRangeScale();
+		AIL_ex_set_3D_air(m_audioSettings->m_speedOfSound, m_roomAbsorption * m_airScale);
 	}
 	if (TheGameLogic->isInGame() && !TheGameLogic->isLoadingMap())
 	{
@@ -1664,6 +1673,55 @@ void MilesAudioManager::initFilters3D( PlayingAudio *audio, const Coord3D *pos )
 		updateOcclusion(audio, pos, TRUE);	// the first pass hears its hill from the start
 	}
 	applyOcclusion(audio);
+	noteReach(audio, pos);
+}
+
+//-------------------------------------------------------------------------------------------------
+/** What a battle sound starts at, for the AUDIO REACH line: where on the screen it is (the middle
+	* half of the width and height, the rest of the screen, off it), its distance from the microphone,
+	* its gain before the sliders (distance, the hill in the way, the zoom mix) and its low-pass cutoff
+	* (air and occlusion, AIL_ex_3D_cutoff; a snow map's thinner air is not counted). */
+void MilesAudioManager::noteReach( const PlayingAudio *playing, const Coord3D *pos ) const
+{
+	const AudioEventInfo *info = playing->m_audioEventRTS->getAudioEventInfo();
+	if (info->m_soundType != AT_SoundEffect || BitTest(info->m_type, ST_VOICE | ST_GLOBAL) || isAmbientSound(info)
+			|| !TheGameLogic->isInGame() || TheGameLogic->isInShellGame()) {
+		return;
+	}
+	Int bucket = 2;
+	ICoord2D screen;
+	if (TheTacticalView->worldToScreenTriReturn(pos, &screen) == View::WTS_INSIDE_FRUSTUM) {
+		Int originX, originY;
+		TheTacticalView->getOrigin(&originX, &originY);
+		const Int width = TheTacticalView->getWidth();
+		const Int height = TheTacticalView->getHeight();
+		bucket = abs(2 * (screen.x - originX) - width) < width / 2 && abs(2 * (screen.y - originY) - height) < height / 2 ? 0 : 1;
+	}
+	Coord3D toMicrophone = *pos;
+	toMicrophone.sub(&m_listenerPosition);
+	const Real distance = toMicrophone.length();
+	const AudioSettings *settings = m_audioSettings;
+	const Real occlusionGain = 1.0f - (1.0f - settings->m_occlusionVolume) * playing->m_occlusion;
+	const Real gain = AIL_ex_3D_distance_gain(distance, info->m_minDistance * getRangeScale(), info->m_maxDistance * getRangeScale(),
+		settings->m_rangeVolumeFade) * occlusionGain * m_zoomDetailVolume;
+	const Real occlusion = max(playing->m_offscreenOcclusion, playing->m_occlusion * settings->m_occlusionStrength);
+	++m_mixCounts.reachCount[bucket];
+	m_mixCounts.reachDistance[bucket] += distance;
+	m_mixCounts.reachGainDb[bucket] += 20.0f * log10f(max(gain, 0.001f));
+	m_mixCounts.reachCutoff[bucket] += AIL_ex_3D_cutoff(distance, settings->m_airAbsorptionDistance * getRangeScale(), occlusion);
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A 3D sample's range, as the zoom has it (getRangeScale): set as it starts and again every pass, so
+	* a loop playing while the camera zooms follows it.  Miles takes the maximum first; EA passed the
+	* minimum first, and with the pair backwards every world sound played at full volume out to its
+	* cut-off, so far-reaching ambient loops drowned the fighting next to the camera. */
+void MilesAudioManager::setSampleDistances( H3DSAMPLE sample3D, const AudioEventRTS *event ) const
+{
+	const Bool global = BitTest(event->getAudioEventInfo()->m_type, ST_GLOBAL);
+	const Real minRange = global ? (Real)m_audioSettings->m_globalMinRange : event->getAudioEventInfo()->m_minDistance;
+	const Real maxRange = global ? (Real)m_audioSettings->m_globalMaxRange : event->getAudioEventInfo()->m_maxDistance;
+	AIL_set_3D_sample_distances(sample3D, maxRange * getRangeScale(), minRange * getRangeScale());
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2541,6 +2599,33 @@ void MilesAudioManager::logMix( void )
 		"%d replies let %d held, %d looks, most muffled %.2f\n", frame, m_mixCounts.started3D, m_mixCounts.peak3D,
 		m_mixCounts.peakBattle, m_mixCounts.merged, m_mixCounts.stolen, m_mixCounts.overBudget, m_mixCounts.repliesLet,
 		m_mixCounts.repliesHeld, m_mixCounts.looks, m_mixCounts.occludedPeak));
+
+	// How far the microphone is from the ground at the middle of the screen's side and top and bottom
+	// edges, against which the battle sounds started this second in each part of the screen.
+	Int originX, originY;
+	TheTacticalView->getOrigin(&originX, &originY);
+	const Int width = TheTacticalView->getWidth();
+	const Int height = TheTacticalView->getHeight();
+	const ICoord2D edges[3] = { { originX, originY + height / 2 }, { originX + width / 2, originY }, { originX + width / 2, originY + height - 1 } };
+	Real edgeDistance[3] = { -1.0f, -1.0f, -1.0f };
+	for (Int i = 0; i < 3; ++i) {
+		Coord3D ground;
+		if (TheTacticalView->screenToTerrain(&edges[i], &ground)) {
+			ground.sub(&m_listenerPosition);
+			edgeDistance[i] = ground.length();
+		}
+	}
+	const char *bucketNames[3] = { "middle", "edge", "off" };
+	AsciiString reach;
+	for (Int i = 0; i < 3; ++i) {
+		const Int n = m_mixCounts.reachCount[i];
+		AsciiString part;
+		part.format(", %s %d at %.0f units %.1f dB %.0f Hz", bucketNames[i], n, n ? m_mixCounts.reachDistance[i] / n : 0.0f,
+			n ? m_mixCounts.reachGainDb[i] / n : 0.0f, n ? m_mixCounts.reachCutoff[i] / n : 0.0f);
+		reach.concat(part);
+	}
+	DEBUG_LOG(("AUDIO REACH frame %u: side %.0f, top %.0f, bottom %.0f units away, zoom out %.2f%s\n", frame,
+		edgeDistance[0], edgeDistance[1], edgeDistance[2], getZoomOut(), reach.str()));
 	memset(&m_mixCounts, 0, sizeof(m_mixCounts));
 }
 
@@ -3078,6 +3163,7 @@ void MilesAudioManager::processPlayingList( void )
 					{
 						updateOcclusion( playing, pos, lookAgain );
 						trackVelocity( playing, pos );
+						setSampleDistances( playing->m_3DSample, playing->m_audioEventRTS );
 						Real x = pos->x;
 						Real y = pos->y;
 						Real z = pos->z;
@@ -3495,7 +3581,8 @@ void MilesAudioManager::applyLegacySound( void )
 	m_legacySound = TheGlobalData->m_legacySound;
 	setSoundProcessing( m_audioSettings, m_legacySound ? NULL : &m_engineSettings );
 	AIL_ex_set_limiter( !m_legacySound );
-	AIL_ex_set_3D_air( m_audioSettings->m_speedOfSound, m_audioSettings->m_airAbsorptionDistance );
+	m_roomAbsorption = m_audioSettings->m_airAbsorptionDistance;
+	m_airScale = 0.0f;
 	removeAudioEvent( m_bedHandle );
 	m_bedEvent.clear();
 	m_roomMap.clear();
@@ -3557,7 +3644,8 @@ void MilesAudioManager::setRoomFromMap( void )
 		slap = 0.0f;
 		absorption *= SNOW_AIR_SHARE;
 	}
-	AIL_ex_set_3D_air(m_audioSettings->m_speedOfSound, absorption);
+	m_roomAbsorption = absorption;
+	m_airScale = 0.0f;	// update() hands it down with the zoom's range scale
 	AIL_ex_set_reverb(wet * m_audioSettings->m_reverbLevel, decay, damping, echo, slap);
 	DEBUG_LOG(("AUDIO: room for %s: %.2f%% built over, town %.2f%s, send %.2f, decay %.2f s, damping %.2f, "
 		"echo %d ms at %.2f, air %.0f\n", m_roomMap.str(), cover * 100.0f, town, snowy ? " in snow" : "",
@@ -3693,8 +3781,8 @@ void MilesAudioManager::duckForBlast( AudioEventRTS *event, H3DSAMPLE sample3D )
 	toMicrophone.sub(&m_listenerPosition);
 	const Real distance = toMicrophone.length();
 	const Real nearness = sqrtf(AIL_ex_3D_distance_gain(distance,
-		global ? (Real)settings->m_globalMinRange : info->m_minDistance,
-		global ? (Real)settings->m_globalMaxRange : info->m_maxDistance, settings->m_rangeVolumeFade));
+		(global ? (Real)settings->m_globalMinRange : info->m_minDistance) * getRangeScale(),
+		(global ? (Real)settings->m_globalMaxRange : info->m_maxDistance) * getRangeScale(), settings->m_rangeVolumeFade));
 	if (nearness <= 0.0f)
 	{
 		DEBUG_LOG(("AUDIO: duck by %s at %.0f units: out of earshot, none\n", event->getEventName().str(), distance));
@@ -3932,7 +4020,7 @@ Real MilesAudioManager::getEffectiveVolume(AudioEventRTS *event) const
 				// the cut is. Off by default: it changes how every 3D sound in the game attenuates,
 				// and that is a listening decision, not a bug fix.  The curve is the audio backend's
 				// own, so a sound is culled on the same curve it is heard at.
-				volume *= AIL_ex_3D_distance_gain( objDistance, objMinDistance, objMaxDistance,
+				volume *= AIL_ex_3D_distance_gain( objDistance, objMinDistance * getRangeScale(), objMaxDistance * getRangeScale(),
 					TheAudio->getAudioSettings()->m_rangeVolumeFade );
 			}
 		} 
@@ -4049,12 +4137,8 @@ void *MilesAudioManager::playSample3D( PlayingAudio *audio )
 			// Set the position values of the sample here.  Miles takes the maximum first; EA passed the
 			// minimum first, and with the pair backwards every world sound played at full volume out to
 			// its cut-off, so far-reaching ambient loops drowned the fighting next to the camera.
-			if (event->getAudioEventInfo()->m_type & ST_GLOBAL) {
-				AIL_set_3D_sample_distances(sample3D, TheAudio->getAudioSettings()->m_globalMaxRange, TheAudio->getAudioSettings()->m_globalMinRange );
-			} else {
-				AIL_set_3D_sample_distances(sample3D, event->getAudioEventInfo()->m_maxDistance, event->getAudioEventInfo()->m_minDistance );
-			}
-			
+			setSampleDistances(sample3D, event);
+
 			// Set the position of the sample here
 			Real x = pos->x;
 			Real y = pos->y;

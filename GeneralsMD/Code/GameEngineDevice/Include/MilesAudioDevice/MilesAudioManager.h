@@ -269,6 +269,8 @@ class MilesAudioManager : public AudioManager
 		Bool refuseOverBudget( AudioEventRTS *event ) const;
 		Real getLoudness( AudioEventRTS *event ) const;
 		void logMix( void );
+		void noteReach( const PlayingAudio *playing, const Coord3D *pos ) const;
+		void setSampleDistances( H3DSAMPLE sample3D, const AudioEventRTS *event ) const;
 
 		// Occlusion: the line from the microphone to a world sound, through the ground and the buildings.
 		Real lookForOcclusion( const Coord3D *pos ) const;
@@ -384,6 +386,8 @@ class MilesAudioManager : public AudioManager
 		UnsignedInt m_clockMovedAt;	///< Clock_Milliseconds when the logic clock last moved on
 		AsciiString m_roomMap;	///< the map setRoomFromMap last set the room for
 		Bool m_legacySound;	///< what applyLegacySound last put into m_audioSettings
+		Real m_roomAbsorption;	///< the air's absorption distance the room asks for, before the range scale
+		Real m_airScale;	///< the range scale the backend's air was last given with, 0 to give it again
 		AudioSettings m_engineSettings;	///< AudioSettings.ini as init read it, for Legacy sound turned off again
 		Bool m_askingOnArrival;	///< checkForSample is asking canPlayNow about a sound that waited out its distance
 
@@ -469,6 +473,10 @@ class MilesAudioManager : public AudioManager
 			Int started3D, merged, stolen, overBudget, repliesLet, repliesHeld, looks;
 			UnsignedInt peak3D, peakBattle;
 			Real occludedPeak;
+			// the AUDIO REACH line (noteReach): battle sounds started in the middle of the screen, on the
+			// rest of it and off it, their summed distance, gain in dB and cutoff in Hz
+			Int reachCount[3];
+			Real reachDistance[3], reachGainDb[3], reachCutoff[3];
 		};
 		mutable MixCounts m_mixCounts;
 		UnsignedInt m_mixLoggedAt;

@@ -49,7 +49,7 @@ struct AudioSettings
 		m_maxSoundDelay( 1000.0f ),
 		m_dopplerScale( 3.0f ),
 		m_dopplerFastSpeed( 100.0f ),
-		m_airAbsorptionDistance( 300.0f ),
+		m_airAbsorptionDistance( 450.0f ),
 		m_reverbLevel( 1.0f ),
 		m_duckVolume( 0.15f ),
 		m_duckTime( 4000.0f ),
@@ -68,7 +68,7 @@ struct AudioSettings
 		m_occlusionRays( 16 ),
 		m_zoomMixNearHeight( 300.0f ),
 		m_zoomMixFarHeight( 900.0f ),
-		m_zoomMixDetailVolume( 0.6f ),
+		m_zoomMixDetailVolume( 0.75f ),
 		m_ambienceBedNearVolume( 0.3f ),
 		m_ambienceBedFarVolume( 0.8f ),
 		m_ambienceBedSnow( "Amb_WinterNatureWindLoop" ),
@@ -119,7 +119,9 @@ struct AudioSettings
 		* times its speed and a tank at 30 at 3. Zero keeps one scale for everything.
 		* `AirAbsorptionDistance`, game units: where air has taken the top end down from 20 kHz to 10,
 		* falling with the square of the distance past it, through two stages. Zero is no air. A snow
-		* map takes it at 60%.
+		* map takes it at 60%, and a zoom past MaxCameraHeight stretches it with the ranges.  450: at
+		* 300 a fight at the edge of the screen at EA's zoom (about 300 units off) lost all above 10 kHz
+		* and one just past it (460) all above 6 kHz.
 		* `ReverbLevel`: the room's send, as a share of what the map asks for. Zero is no room.
 		* `DuckVolume` and `DuckTime` (milliseconds): when one of `DuckSounds` starts within earshot,
 		* everything else dips to that volume and comes back over that time. 100% is no duck. */
@@ -174,7 +176,9 @@ struct AudioSettings
 		* at, the 3D sounds that are not ambience (weapons, engines, explosions, voices on the field) fall
 		* to `ZoomMixDetailVolume` of their level, while ambience keeps its own; zoomed back in, the
 		* detail returns.  100% leaves the mix as it was.  EA's own zoom bonus (`ZoomSoundVolume...`)
-		* still applies on top, to both.
+		* still applies on top, to both.  75%, 2.5 dB: 60% took 4.4 dB off a zoomed out
+		* fight, on top of EA's 1.9.  The ranges and the air stretch with the zoom as well
+		* (AudioManager::getRangeScale), which is what keeps the edges of a zoomed out screen in earshot.
 		*
 		* The map's ambience bed (MilesAudioManager::updateAmbienceBed): one looping 2D sound chosen
 		* from the map when it starts, `AmbienceBedSnow` on a snow map, `AmbienceBedTown` on a built-up
