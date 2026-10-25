@@ -17583,8 +17583,20 @@ CONTROLBAR:ConstructTurkiyeKarguBase
 "Kar&gu İHA Üssü"
 END
 
+OBJECT:TurkiyeHarekatMerkezi
+"Harekat Merkezi"
+END
+
+CONTROLBAR:ConstructTurkiyeHarekatMerkezi
+"Har&ekat Merkezi"
+END
+
+CONTROLBAR:ToolTipTurkiyeHarekatMerkezi
+"Türkiye'nin teknoloji binası. Bütün ordu aynı anda tek bir savaş planıyla savaşır: Bombardıman, Ara ve Yok Et ya da Hattı Koru. İleri Eğitim ve Kimyasal Koruma Giysileri araştırır, Kargu İHA Üssü'nü açar. \n \n Gereken: Fabrika veya Hava Alanı \n Gereken Enerji: 2"
+END
+
 CONTROLBAR:ToolTipTurkiyeKarguBase
-"Haritanın herhangi bir yerine on altı kamikaze İHA'dan oluşan bir sürü gönderir. Her biri dairedeki en değerli hedeflerden birini bulur ve üstüne dalar; dağınık ordular en çok zarar görür. \n \n Gereken: Fabrika, Radar Kulesi \n Gereken Enerji: 10 \n Geri Sayım: 5:00"
+"Haritanın herhangi bir yerine on altı kamikaze İHA'dan oluşan bir sürü gönderir. Her biri dairedeki en değerli hedeflerden birini bulur ve üstüne dalar; dağınık ordular en çok zarar görür. \n \n Gereken: Harekat Merkezi \n Gereken Enerji: 10 \n Geri Sayım: 5:00"
 END
 
 CONTROLBAR:TurkiyeKarguSwarm

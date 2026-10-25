@@ -3294,8 +3294,20 @@ CONTROLBAR:ConstructTurkiyeKarguBase
 "&Kargu Drone Base"
 END
 
+OBJECT:TurkiyeHarekatMerkezi
+"Operations Center"
+END
+
+CONTROLBAR:ConstructTurkiyeHarekatMerkezi
+"&Operations Center"
+END
+
+CONTROLBAR:ToolTipTurkiyeHarekatMerkezi
+"Turkiye's technology building. The whole army fights under one battle plan at a time: Bombardment, Search and Destroy or Hold the Line. Researches Advanced Training and Chemical Suits, and opens the Kargu Drone Base. \n \n Requires: Factory or Airfield \n Energy Required: 2"
+END
+
 CONTROLBAR:ToolTipTurkiyeKarguBase
-"Sends a swarm of sixteen kamikaze drones anywhere on the map. Each one hunts down one of the most valuable targets in the circle and dives into it; spread-out armies suffer most. \n \n Requires: Factory, Radar Tower \n Energy Required: 10 \n Recharge: 5:00"
+"Sends a swarm of sixteen kamikaze drones anywhere on the map. Each one hunts down one of the most valuable targets in the circle and dives into it; spread-out armies suffer most. \n \n Requires: Operations Center \n Energy Required: 10 \n Recharge: 5:00"
 END
 
 CONTROLBAR:TurkiyeKarguSwarm
