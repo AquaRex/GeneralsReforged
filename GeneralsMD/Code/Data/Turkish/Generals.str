@@ -17116,7 +17116,7 @@ CONTROLBAR:ConstructTurkiyeInfantrySpotter
 END
 
 CONTROLBAR:ToolTipTurkiyeInfantrySpotter
-"500 görür, dururken gizlenir, neredeyse hiç savaşmaz. Tepeye çıkınca arkadaki topçunun gözü olur."
+"500 görür, neredeyse hiç savaşmaz. Gizlenemez, menzil dışında tutun. Tepeye çıkınca arkadaki topçunun gözü olur."
 END
 
 OBJECT:TurkiyeInfantryMaroonBeret
@@ -17436,7 +17436,7 @@ SCIENCE:TurkiyeFuelResupply
 END
 
 CONTROLBAR:ToolTipTurkiyeScienceFuelResupply
-"Bayraktar her uçuşta bir mühimmat, Akıncı bir bomba fazla taşır."
+"Bayraktar her uçuşta bir mühimmat fazla taşır."
 END
 
 SCIENCE:TurkiyeSwarmMunition
@@ -17508,7 +17508,7 @@ CONTROLBAR:UpgradeTurkiyeFuelCell
 END
 
 CONTROLBAR:ToolTipUpgradeTurkiyeFuelCell
-"Bayraktar ve Akıncı hedefin üstünde iki kat kalır, iki kat mühimmatla."
+"Bayraktar hedefin üstünde iki kat kalır, iki kat mühimmatla."
 END
 
 UPGRADE:TurkiyeSwarmSoftware
@@ -17592,11 +17592,23 @@ CONTROLBAR:ConstructTurkiyeHarekatMerkezi
 END
 
 CONTROLBAR:ToolTipTurkiyeHarekatMerkezi
-"Türkiye'nin teknoloji binası. Bütün ordu aynı anda tek bir savaş planıyla savaşır: Bombardıman, Ara ve Yok Et ya da Hattı Koru. İleri Eğitim ve Kimyasal Koruma Giysileri araştırır, Kargu İHA Üssü'nü açar. \n \n Gereken: Fabrika veya Hava Alanı \n Gereken Enerji: 2"
+"Türkiye'nin teknoloji binası. Bütün ordu aynı anda tek bir savaş planıyla savaşır: Bombardıman, Ara ve Yok Et ya da Hattı Koru. İleri Eğitim ve Kimyasal Koruma Giysileri araştırır; Kargu İHA Üssü'nü, Sakarya'yı, Koral'ı, Akıncı'yı ve Bordo Bereli'yi açar. \n \n Gereken: Fabrika veya Hava Alanı \n Gereken Enerji: 2"
+END
+
+OBJECT:TurkiyeKapalicarsi
+"Kapalıçarşı"
+END
+
+CONTROLBAR:ConstructTurkiyeKapalicarsi
+"K&apalıçarşı"
+END
+
+CONTROLBAR:ToolTipTurkiyeKapalicarsi
+"Türkiye'nin karaborsası. Her 2 saniyede 20 öder; Bayraktar, Akıncı ve Kızılelma için Karşı Tedbirler, istihkam takımı için İşçi Ayakkabıları satar. \n \n Gereken: Fabrika"
 END
 
 CONTROLBAR:ToolTipTurkiyeKarguBase
-"Haritanın herhangi bir yerine on altı kamikaze İHA'dan oluşan bir sürü gönderir. Her biri dairedeki en değerli hedeflerden birini bulur ve üstüne dalar; dağınık ordular en çok zarar görür. \n \n Gereken: Harekat Merkezi \n Gereken Enerji: 10 \n Geri Sayım: 5:00"
+"Haritanın herhangi bir yerine on altı kamikaze İHA'dan oluşan bir sürü gönderir. Her biri dairedeki en değerli hedeflerden birini bulur ve üstüne dalar; dağınık ordular en çok zarar görür. Tavana tırmanıp Scud füzesi gibi iner, yolda hiçbir şey onları vuramaz. \n \n Gereken: Harekat Merkezi \n Gereken Enerji: 10 \n Geri Sayım: 5:00"
 END
 
 CONTROLBAR:TurkiyeKarguSwarm

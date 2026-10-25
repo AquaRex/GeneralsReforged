@@ -18258,7 +18258,7 @@ CONTROLBAR:ConstructTurkiyeInfantrySpotter
 END
 
 CONTROLBAR:ToolTipTurkiyeInfantrySpotter
-"Видит на 500, прячется, пока стоит на месте, и почти не воюет. Поставьте её на холм, и артиллерия за ней сможет стрелять."
+"Видит на 500 и почти не воюет. Прятаться не умеет, держите её вне досягаемости. Поставьте её на холм, и артиллерия за ней сможет стрелять."
 END
 
 OBJECT:TurkiyeInfantryMaroonBeret
@@ -18578,7 +18578,7 @@ SCIENCE:TurkiyeFuelResupply
 END
 
 CONTROLBAR:ToolTipTurkiyeScienceFuelResupply
-"Дроны Bayraktar несут на одну боеприпасную единицу больше, а Akinci - на одну бомбу больше за вылет."
+"Дроны Bayraktar несут на одну боеприпасную единицу больше за вылет."
 END
 
 SCIENCE:TurkiyeSwarmMunition
@@ -18650,7 +18650,7 @@ CONTROLBAR:UpgradeTurkiyeFuelCell
 END
 
 CONTROLBAR:ToolTipUpgradeTurkiyeFuelCell
-"Bayraktar и Akinci остаются над целью вдвое дольше и несут вдвое больше боеприпасов."
+"Bayraktar остаётся над целью вдвое дольше и несёт вдвое больше боеприпасов."
 END
 
 UPGRADE:TurkiyeSwarmSoftware
@@ -18726,7 +18726,19 @@ CONTROLBAR:ConstructTurkiyeHarekatMerkezi
 END
 
 CONTROLBAR:ToolTipTurkiyeHarekatMerkezi
-"Технологическое здание Турции. Вся армия воюет по одному боевому плану за раз: Бомбардировка, Поиск и уничтожение или Удержание рубежа. Исследует Улучшенную подготовку и Химзащиту, открывает Базу дронов Kargu. \n \n Требуется: Завод или Аэродром \n Требуется энергия: 2"
+"Технологическое здание Турции. Вся армия воюет по одному боевому плану за раз: Бомбардировка, Поиск и уничтожение или Удержание рубежа. Исследует Улучшенную подготовку и Химзащиту, открывает Базу дронов Kargu, Sakarya, Koral, Akinci и Maroon Beret. \n \n Требуется: Завод или Аэродром \n Требуется энергия: 2"
+END
+
+OBJECT:TurkiyeKapalicarsi
+"Капалычарши"
+END
+
+CONTROLBAR:ConstructTurkiyeKapalicarsi
+"&Капалычарши"
+END
+
+CONTROLBAR:ToolTipTurkiyeKapalicarsi
+"Чёрный рынок Турции. Платит 20 каждые 2 секунды и продаёт Контрмеры для Bayraktar, Akinci и Kizilelma и Обувь рабочих для инженеров. \n \n Требуется: Завод"
 END
 
 OBJECT:TurkiyeKarguBase
@@ -18738,7 +18750,7 @@ CONTROLBAR:ConstructTurkiyeKarguBase
 END
 
 CONTROLBAR:ToolTipTurkiyeKarguBase
-"Посылает рой из шестнадцати дронов-камикадзе в любую точку карты. Каждый выслеживает одну из самых ценных целей в круге и пикирует на неё; сильнее всего страдают рассредоточенные армии. \n \n Требуется: Оперативный центр \n Требуется энергия: 10 \n Перезарядка: 5:00"
+"Посылает рой из шестнадцати дронов-камикадзе в любую точку карты. Каждый выслеживает одну из самых ценных целей в круге и пикирует на неё; сильнее всего страдают рассредоточенные армии. Они поднимаются к потолку и падают, как ракеты Scud, и по пути их ничем не сбить. \n \n Требуется: Оперативный центр \n Требуется энергия: 10 \n Перезарядка: 5:00"
 END
 
 CONTROLBAR:TurkiyeKarguSwarm

@@ -2827,7 +2827,7 @@ CONTROLBAR:ConstructTurkiyeInfantrySpotter
 END
 
 CONTROLBAR:ToolTipTurkiyeInfantrySpotter
-"Sees 500, hides while it stands still and barely fights. Put it on a hill and the artillery behind it can shoot."
+"Sees 500 and barely fights. It cannot hide, so keep it out of reach. Put it on a hill and the artillery behind it can shoot."
 END
 
 OBJECT:TurkiyeInfantryMaroonBeret
@@ -3147,7 +3147,7 @@ SCIENCE:TurkiyeFuelResupply
 END
 
 CONTROLBAR:ToolTipTurkiyeScienceFuelResupply
-"Bayraktar drones carry one more munition and Akinci one more bomb on every sortie."
+"Bayraktar drones carry one more munition on every sortie."
 END
 
 SCIENCE:TurkiyeSwarmMunition
@@ -3219,7 +3219,7 @@ CONTROLBAR:UpgradeTurkiyeFuelCell
 END
 
 CONTROLBAR:ToolTipUpgradeTurkiyeFuelCell
-"Bayraktar and Akinci stay over the target twice as long, with twice the munitions."
+"The Bayraktar stays over the target twice as long, with twice the munitions."
 END
 
 UPGRADE:TurkiyeSwarmSoftware
@@ -3303,11 +3303,23 @@ CONTROLBAR:ConstructTurkiyeHarekatMerkezi
 END
 
 CONTROLBAR:ToolTipTurkiyeHarekatMerkezi
-"Turkiye's technology building. The whole army fights under one battle plan at a time: Bombardment, Search and Destroy or Hold the Line. Researches Advanced Training and Chemical Suits, and opens the Kargu Drone Base. \n \n Requires: Factory or Airfield \n Energy Required: 2"
+"Turkiye's technology building. The whole army fights under one battle plan at a time: Bombardment, Search and Destroy or Hold the Line. Researches Advanced Training and Chemical Suits, and opens the Kargu Drone Base, the Sakarya, the Koral, the Akinci and the Maroon Beret. \n \n Requires: Factory or Airfield \n Energy Required: 2"
+END
+
+OBJECT:TurkiyeKapalicarsi
+"Grand Bazaar"
+END
+
+CONTROLBAR:ConstructTurkiyeKapalicarsi
+"&Grand Bazaar"
+END
+
+CONTROLBAR:ToolTipTurkiyeKapalicarsi
+"Turkiye's black market. Pays 20 every 2 seconds and sells Countermeasures for the Bayraktar, the Akinci and the Kizilelma, and Worker Shoes for the engineers. \n \n Requires: Factory"
 END
 
 CONTROLBAR:ToolTipTurkiyeKarguBase
-"Sends a swarm of sixteen kamikaze drones anywhere on the map. Each one hunts down one of the most valuable targets in the circle and dives into it; spread-out armies suffer most. \n \n Requires: Operations Center \n Energy Required: 10 \n Recharge: 5:00"
+"Sends a swarm of sixteen kamikaze drones anywhere on the map. Each one hunts down one of the most valuable targets in the circle and dives into it; spread-out armies suffer most. They climb to the ceiling and come down like Scud missiles, and nothing can shoot them on the way. \n \n Requires: Operations Center \n Energy Required: 10 \n Recharge: 5:00"
 END
 
 CONTROLBAR:TurkiyeKarguSwarm
