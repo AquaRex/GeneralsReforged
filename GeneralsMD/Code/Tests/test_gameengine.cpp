@@ -51,6 +51,7 @@
 #include "GameNetwork/GameInfo.h"
 #include "Common/PlayerTemplate.h"
 #include "GameClient/ChallengeGenerals.h"
+#include "GameClient/FactionPicker.h"
 #include "GameClient/UIStyle.h"
 #include <fstream>
 #include <sstream>
@@ -7346,6 +7347,22 @@ TEST(capitals_reach_turkish_and_cyrillic_letters)
 	CHECK( UIStyle::capitals( UnicodeString( u"ß ÷" ) ) == UnicodeString( u"ß ÷" ) );
 	delete TheWritableGlobalData;
 	TheWritableGlobalData = saved;
+}
+
+/* The army screen's side box is ticked while the whole side is in the pool, and a click puts the
+	 side in or takes it out; untick one army and the box clears, tick it back and the box is ticked. */
+TEST(army_screen_side_box_follows_the_side_armies)
+{
+	const UnsignedInt usa = 0xFu;			// USA and its three generals
+	const UnsignedInt china = 0xF0u;
+	CHECK( FactionPickerSideTicked( 0xFFu, usa ) );
+	CHECK( !FactionPickerSideTicked( 0xFEu, usa ) );
+	CHECK( !FactionPickerSideTicked( 0xFFu, 0 ) );	// Observer has no armies to tick
+	CHECK_EQ( FactionPickerToggleSide( 0xFFu, usa ), china );
+	CHECK_EQ( FactionPickerToggleSide( china, usa ), 0xFFu );
+	// a side partly in comes in whole on the first click
+	CHECK_EQ( FactionPickerToggleSide( 0x12u, usa ), 0x1Fu );
+	CHECK( FactionPickerSideTicked( FactionPickerToggleSide( 0x12u, usa ), usa ) );
 }
 
 static Bool drawIs( Int pick, Bool oldFactionsOnly, const std::vector<Int> &want )

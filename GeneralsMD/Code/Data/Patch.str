@@ -3372,3 +3372,16 @@ END
 GUI:FactionPickPool
 "Random picks one of the %d armies ticked on the left, out of %d. Click an army to tick it or take it out."
 END
+
+// %s is a side's name as its heading reads (USA, China, a mod's side): the pool is that side and nothing else.
+GUI:FactionPickRandomSide
+"Random %s"
+END
+
+GUI:FactionPickSideHint
+"A side's box ticks or clears the whole side; its name leaves that side alone in the draw."
+END
+
+GUI:FactionPickSideNameHint
+"Click a side's name to play a random army of that side."
+END

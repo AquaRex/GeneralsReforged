@@ -41,7 +41,14 @@ void FactionPickerDetach( void );
 /// the box's Random line carries the seat's own Random, a pool included, so the box shows it and
 /// the screen opens on it
 void FactionPickerSyncRandom( GameWindow *combo, Int pick );
-/// -factionpicker: the next room that attaches opens the screen on its first seat, custom shows the pool
-void FactionPickerOpenOnStart( Bool custom );
+/// -factionpicker: the next room that attaches opens the screen on its first seat, custom shows the
+/// pool, and a side's name (America, China, GLA, Turkiye) narrows the pool to that side as a click on
+/// its heading does
+void FactionPickerOpenOnStart( Bool custom, const char *side );
+
+/// a side's tick box is ticked while every army of the side (its bits) is in the pool
+Bool FactionPickerSideTicked( UnsignedInt pool, UnsignedInt side );
+/// a click on a side's tick box: the whole side in, or out when it was all in already
+UnsignedInt FactionPickerToggleSide( UnsignedInt pool, UnsignedInt side );
 
 #endif // _FACTIONPICKER_H_

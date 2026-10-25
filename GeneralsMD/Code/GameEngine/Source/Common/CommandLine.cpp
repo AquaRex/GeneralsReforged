@@ -2526,16 +2526,18 @@ Int parseSkirmishLobby(char *args[], int num)
 	return 1;
 }
 
-/* -factionpicker [custom] opens the skirmish staging room with the army screen up on the first seat,
-   as a click on the seat's army box would, so the screen can be photographed without a click.
-   "custom" opens it on Custom Selection with the Random pool's ticks showing.  Implies
-   -skirmishlobby. */
+/* -factionpicker [custom [<side>]] opens the skirmish staging room with the army screen up on the
+   first seat, as a click on the seat's army box would, so the screen can be photographed without a
+   click.  "custom" opens it on Custom Selection with the Random pool's ticks showing, and a side
+   after it (America, China, GLA, Turkiye) narrows the pool to that side as a click on its name
+   does.  Implies -skirmishlobby. */
 Int parseFactionPicker(char *args[], int num)
 {
 	const Bool custom = num > 1 && args[1] && strcasecmp(args[1], "custom") == 0;
-	FactionPickerOpenOnStart(custom);
+	const Bool side = custom && num > 2 && args[2] && args[2][0] != '-';
+	FactionPickerOpenOnStart(custom, side ? args[2] : "");
 	parseSkirmishLobby(args, num);
-	return custom ? 2 : 1;
+	return 1 + (custom ? 1 : 0) + (side ? 1 : 0);
 }
 
 /* -optionsmenu opens the options screen over the main menu at startup, where a click on Options

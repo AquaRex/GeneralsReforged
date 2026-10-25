@@ -17658,3 +17658,15 @@ END
 GUI:FactionPickPool
 "Rastgele, solda işaretli %d ordudan birini seçer (toplam %d). Bir orduya tıklayarak onu ekleyin ya da çıkarın."
 END
+
+GUI:FactionPickRandomSide
+"Rastgele %s"
+END
+
+GUI:FactionPickSideHint
+"Bir tarafın kutusu o tarafın tamamını işaretler ya da kaldırır; adına tıklamak çekilişte yalnızca o tarafı bırakır."
+END
+
+GUI:FactionPickSideNameHint
+"Bir tarafın rastgele bir ordusuyla oynamak için o tarafın adına tıklayın."
+END

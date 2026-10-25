@@ -78,6 +78,8 @@ static const Real BANNER_BOTTOM = 504.0f;
 static const Real DESCRIPTION_TOP = 516.0f;
 static const Real PAD = 16.0f;
 static const Real POOL_ICON = 96.0f;
+static const Real SIDE_TICK = 26.0f;
+static const Real SIDE_TICK_GAP = 14.0f;
 static const Real MAX_PORTRAIT_SCALE = 4.0f;	// a 64 px side logo blown up past this is only blur
 static const Int POOL_DIM_ALPHA = 190;
 static const char *const PICKER_IMAGE_PREFIX = "FactionPicker";	// a template's own picture here, FactionPickerFactionTurkiye
@@ -99,13 +101,18 @@ struct PickerGroup
 {
 	AsciiString leadSide;
 	Int mod;
+	UnicodeString name;
 	DisplayString *heading;
 	ICoord2D at;
+	IRegion2D nameBox;		///< a click on the name narrows the pool to the side
+	IRegion2D tickBox;		///< Custom Selection's box for the whole side
+	UnsignedInt mask;			///< the side's pool bits, 0 for Observer
 	std::vector<Int> cells;
 };
 
 static Bool s_openOnStart = FALSE;
 static Bool s_openOnStartCustom = FALSE;
+static AsciiString s_openOnStartSide;
 
 static GameWindow *s_window = NULL;
 static GameWindow *s_combo = NULL;
@@ -262,6 +269,31 @@ static Int cellAt( Int x, Int y )
 	return -1;
 }
 
+/// the side a Custom Selection pool is, every army of it and nothing else, or -1
+static Int poolSide( void )
+{
+	if( !s_custom )
+		return -1;
+	const UnsignedInt pool = s_mask & listedMask();
+	for( size_t group = 0; group < s_groups.size(); group++ )
+	{
+		if( s_groups[ group ].mask != 0 && s_groups[ group ].mask == pool )
+			return (Int)group;
+	}
+	return -1;
+}
+
+static Int sideAt( Int x, Int y, Bool tickBox )
+{
+	for( size_t group = 0; group < s_groups.size(); group++ )
+	{
+		const PickerGroup &g = s_groups[ group ];
+		if( g.mask != 0 && isInside( tickBox ? g.tickBox : g.nameBox, x, y ) )
+			return (Int)group;
+	}
+	return -1;
+}
+
 static Bool canConfirm( void )
 {
 	return s_focus >= 0 || !s_custom || tickedCount() > 0;
@@ -345,9 +377,13 @@ static void buildCells( void )
 			PickerGroup lead;
 			lead.leadSide = side;
 			lead.mod = mod;
+			lead.name = cell.name;
 			lead.heading = newText( cell.name, UIStyle::font( UIStyle::TEXT_HEADING ) );
+			lead.mask = 0;
 			s_groups.push_back( lead );
 		}
+		if( cell.poolBit >= 0 )
+			s_groups[ group ].mask |= 1u << cell.poolBit;
 		s_groups[ group ].cells.push_back( (Int)s_cells.size() );
 		s_cells.push_back( cell );
 	}
@@ -383,6 +419,16 @@ static void layout( void )
 		PickerGroup &g = s_groups[ group ];
 		g.at.x = UIStyle::boardX( LEFT );
 		g.at.y = UIStyle::boardY( y );
+		Int nameWidth, nameHeight;
+		g.heading->getSize( &nameWidth, &nameHeight );
+		g.nameBox.lo = g.at;
+		g.nameBox.hi.x = g.at.x + nameWidth;
+		g.nameBox.hi.y = g.at.y + nameHeight;
+		const Int tick = UIStyle::px( SIDE_TICK );
+		g.tickBox.lo.x = g.nameBox.hi.x + UIStyle::px( SIDE_TICK_GAP );
+		g.tickBox.lo.y = g.at.y + ( nameHeight - tick ) / 2;
+		g.tickBox.hi.x = g.tickBox.lo.x + tick;
+		g.tickBox.hi.y = g.tickBox.lo.y + tick;
 		y += HEADING_HEIGHT;
 		for( size_t each = 0; each < g.cells.size(); each++ )
 		{
@@ -416,9 +462,17 @@ static void refresh( void )
 	}
 	else
 	{
-		name = TheGameText->fetch( "GUI:Random" );
+		const Int side = poolSide();
+		if( side >= 0 )
+			name.format( TheGameText->fetch( "GUI:FactionPickRandomSide" ), s_groups[ side ].name.str() );
+		else
+			name = TheGameText->fetch( "GUI:Random" );
 		if( s_custom )
+		{
 			strategy.format( TheGameText->fetch( "GUI:FactionPickPool" ), tickedCount(), tickableCount() );
+			strategy.concat( u' ' );
+			strategy.concat( TheGameText->fetch( "GUI:FactionPickSideHint" ) );
+		}
 		else
 		{
 			strategy = TheGameText->fetch( "GUI:FactionPickRandom" );
@@ -429,6 +483,8 @@ static void refresh( void )
 				strategy.concat( u' ' );
 				strategy.concat( leftOut );
 			}
+			strategy.concat( u' ' );
+			strategy.concat( TheGameText->fetch( "GUI:FactionPickSideNameHint" ) );
 		}
 		// the armies the draw can land on
 		for( size_t each = 0; each < s_cells.size(); each++ )
@@ -477,6 +533,16 @@ static void drawCellPicture( const PickerCell &cell, const IRegion2D &box )
 		drawFitted( cell.icon, inner, 100.0f );
 	else
 		drawCentred( cell.label, box, UIStyle::INK );
+}
+
+static void drawTickBox( Int x, Int y, Int size, Bool ticked )
+{
+	UIStyle::panel( x, y, size, size, ticked ? UIStyle::ACTIVE : UIStyle::CARD );
+	if( !ticked )
+		return;
+	const Real line = (Real)max( 2, UIStyle::px( 3 ) );
+	TheDisplay->drawLine( x + size / 5, y + size / 2, x + size * 2 / 5, y + size * 3 / 4, line, UIStyle::GROUND );
+	TheDisplay->drawLine( x + size * 2 / 5, y + size * 3 / 4, x + size * 4 / 5, y + size / 4, line, UIStyle::GROUND );
 }
 
 /** Random's preview: every army a Random can be, the ones it can land on lit and the rest dimmed. */
@@ -546,7 +612,15 @@ static void drawPicker( GameWindow *window, WinInstanceData *instData )
 
 	const ICoord2D mouse = TheMouse->getMouseStatus()->pos;
 	for( size_t group = 0; group < s_groups.size(); group++ )
-		s_groups[ group ].heading->draw( s_groups[ group ].at.x, s_groups[ group ].at.y, UIStyle::ACTIVE, UIStyle::SHADOW );
+	{
+		// the name is a button (that side alone), lit under the mouse; the box is Custom Selection's
+		const PickerGroup &g = s_groups[ group ];
+		const Bool narrows = g.mask != 0;
+		const Bool hovered = narrows && isInside( g.nameBox, mouse.x, mouse.y );
+		g.heading->draw( g.at.x, g.at.y, hovered ? UIStyle::EDGE_LIT : UIStyle::ACTIVE, UIStyle::SHADOW );
+		if( s_custom && narrows )
+			drawTickBox( g.tickBox.lo.x, g.tickBox.lo.y, boxWidth( g.tickBox ), FactionPickerSideTicked( s_mask, g.mask ) );
+	}
 	for( size_t each = 0; each < s_cells.size(); each++ )
 	{
 		const PickerCell &cell = s_cells[ each ];
@@ -562,16 +636,8 @@ static void drawPicker( GameWindow *window, WinInstanceData *instData )
 				TheDisplay->drawFillRect( box.lo.x, box.lo.y, boxWidth( box ), boxHeight( box ), UIStyle::withAlpha( UIStyle::GROUND, 150 ) );
 			if( cell.poolBit >= 0 )
 			{
-				const Int size = UIStyle::px( 26 );
-				const Int x = box.hi.x - size - inset;
-				const Int y = box.lo.y + inset;
-				UIStyle::panel( x, y, size, size, isTicked( cell ) ? UIStyle::ACTIVE : UIStyle::CARD );
-				if( isTicked( cell ) )
-				{
-					const Real line = (Real)max( 2, UIStyle::px( 3 ) );
-					TheDisplay->drawLine( x + size / 5, y + size / 2, x + size * 2 / 5, y + size * 3 / 4, line, UIStyle::GROUND );
-					TheDisplay->drawLine( x + size * 2 / 5, y + size * 3 / 4, x + size * 4 / 5, y + size / 4, line, UIStyle::GROUND );
-				}
+				const Int size = UIStyle::px( SIDE_TICK );
+				drawTickBox( box.hi.x - size - inset, box.lo.y + inset, size, isTicked( cell ) );
 			}
 		}
 		if( (Int)each == s_focus )
@@ -679,6 +745,15 @@ static void confirm( void )
 	}
 }
 
+/// a click on a side's name: Random from that side alone ("USA random")
+static void narrowToSide( Int side )
+{
+	s_custom = TRUE;
+	s_focus = -1;
+	s_mask = s_groups[ side ].mask;
+	refresh();
+}
+
 static void pressAt( Int x, Int y )
 {
 	if( isInside( s_backBox, x, y ) )
@@ -707,6 +782,21 @@ static void pressAt( Int x, Int y )
 		s_custom = !s_custom;
 		s_focus = -1;
 		refresh();
+		return;
+	}
+	const Int tickedSide = s_custom ? sideAt( x, y, TRUE ) : -1;
+	if( tickedSide >= 0 )
+	{
+		click();
+		s_mask = FactionPickerToggleSide( s_mask & listedMask(), s_groups[ tickedSide ].mask );
+		refresh();
+		return;
+	}
+	const Int namedSide = sideAt( x, y, FALSE );
+	if( namedSide >= 0 )
+	{
+		click();
+		narrowToSide( namedSide );
 		return;
 	}
 	const Int each = cellAt( x, y );
@@ -874,6 +964,11 @@ void FactionPickerAttach( GameWindow *parent, const char *layoutFilename )
 			s_focus = -1;
 			refresh();
 		}
+		for( size_t group = 0; group < s_groups.size(); group++ )
+		{
+			if( !s_openOnStartSide.isEmpty() && s_groups[ group ].leadSide.compareNoCase( s_openOnStartSide ) == 0 )
+				narrowToSide( (Int)group );
+		}
 	}
 }
 
@@ -898,8 +993,19 @@ void FactionPickerSyncRandom( GameWindow *combo, Int pick )
 	}
 }
 
-void FactionPickerOpenOnStart( Bool custom )
+void FactionPickerOpenOnStart( Bool custom, const char *side )
 {
 	s_openOnStart = TRUE;
 	s_openOnStartCustom = custom;
+	s_openOnStartSide = side;
+}
+
+Bool FactionPickerSideTicked( UnsignedInt pool, UnsignedInt side )
+{
+	return side != 0 && ( pool & side ) == side;
+}
+
+UnsignedInt FactionPickerToggleSide( UnsignedInt pool, UnsignedInt side )
+{
+	return FactionPickerSideTicked( pool, side ) ? pool & ~side : pool | side;
 }
