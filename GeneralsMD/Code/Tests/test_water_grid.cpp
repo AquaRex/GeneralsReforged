@@ -4907,6 +4907,9 @@ TEST(water_style_changes_at_render_boundary_without_advancing_paused_time_or_rel
             TheWritableGlobalData=NULL;water.seedPresentation();
             water.updateRenderTargetTextures(NULL);water.checkChanged(false);
             TheWritableGlobalData=scratch;
+            // Classic graphics keeps EA's water even with Modern asked for.
+            scratch->m_waterStyle=1;scratch->m_classicGraphics=TRUE;
+            water.seedPresentation();water.updateRenderTargetTextures(NULL);water.checkUnchanged();
         }
         device->Release();
     } else {

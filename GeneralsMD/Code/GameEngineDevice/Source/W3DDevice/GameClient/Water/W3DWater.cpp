@@ -944,6 +944,15 @@ bool Supported()
 } // namespace ModernWater
 
 #if ZH_MODERN_WATER
+/** The Modern style is asked for and a device draws it.  Classic graphics is the 2003 picture, so it
+		keeps EA's water whatever WaterStyle says, as it keeps the old clouds and drops the foam; the
+		quality slider and its presets put Modern into WaterStyle from Medium up. */
+static Bool wantsModernWater(void)
+{
+	return TheGlobalData && TheGlobalData->m_waterStyle != 0 && !TheGlobalData->m_classicGraphics
+		&& ModernWater::Supported();
+}
+
 /** The Modern water's registers run to c895, past any Direct3D 9 device; on Windows they go to the
 		Direct3D 11 backend's own bank, which is the only device that draws with them. */
 static void setModernWaterConstants(UnsignedInt first, const float *values, size_t count)
@@ -1072,7 +1081,7 @@ void WaterRenderObjClass::registerWaterStyleShaders(void)
 void WaterRenderObjClass::synchronizeWaterStyle(void)
 {
 #if ZH_MODERN_WATER
-	const Bool modern = TheGlobalData && TheGlobalData->m_waterStyle != 0 && ModernWater::Supported();
+	const Bool modern = wantsModernWater();
 	if (modern == m_useModernWater) return;
 
 	// Apply before any reflected or main-scene water draw. Existing recorded draws keep
@@ -1436,7 +1445,7 @@ WaterRenderObjClass::~WaterRenderObjClass(void)
 WaterRenderObjClass::WaterRenderObjClass(void)
 {
 #if ZH_MODERN_WATER
-	m_useModernWater = TheGlobalData && TheGlobalData->m_waterStyle != 0 && ModernWater::Supported();
+	m_useModernWater = wantsModernWater();
 #endif
 	memset( &m_settings, 0, sizeof( m_settings ) );
 	m_dx=0;
