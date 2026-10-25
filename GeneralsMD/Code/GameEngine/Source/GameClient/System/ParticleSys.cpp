@@ -1441,10 +1441,12 @@ void ParticleSystemInfo::loadPostProcess( void )
 // ParticleSystem /////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
+UnsignedInt ParticleSystem::s_sunMapStamp = 1;
+
 // ------------------------------------------------------------------------------------------------
 /** Read particle system properties from given file */
 // ------------------------------------------------------------------------------------------------
-ParticleSystem::ParticleSystem( const ParticleSystemTemplate *sysTemplate, 
+ParticleSystem::ParticleSystem( const ParticleSystemTemplate *sysTemplate,
 																ParticleSystemID id, 
 																Bool createSlaves )
 {
@@ -1586,7 +1588,7 @@ ParticleSystem::ParticleSystem( const ParticleSystemTemplate *sysTemplate,
 	m_personalityStore = 0;
 	m_controlParticle = NULL;
 	m_groundShadow = NULL;
-	m_inSunMap = FALSE;
+	m_inSunMapStamp = 0;
 
 	m_gpuEligible = TheParticleSystemManager->acceptsGpuParticles() && sysTemplate->isGpuEligible();
 	m_gpuSpawnTotal = 0;
@@ -2900,7 +2902,7 @@ Bool ParticleSystem::shouldCastGroundShadow( void ) const
 		return FALSE;
 
 	// the sun's map holds this cloud already and shades the ground under it through its own density
-	if (m_inSunMap)
+	if (isInSunMap())
 		return FALSE;
 
 	if (m_isGroundAligned)

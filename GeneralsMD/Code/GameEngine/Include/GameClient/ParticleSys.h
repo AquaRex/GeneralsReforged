@@ -786,8 +786,11 @@ public:
 	/// The renderer put at least one of this system's particles into the sun's smoke map on its
 	/// last frame, so the cloud shades the ground already and its blob would shade it twice.
 	/// Written by the shadow pass every frame it runs, read by shouldCastGroundShadow.
-	void setInSunMap( Bool inSunMap ) { m_inSunMap = inSunMap; }
-	Bool isInSunMap( void ) const { return m_inSunMap; }
+	/// A mark is the stamp of the fill that set it, so the next fill drops every mark at once with
+	/// forgetAllInSunMap rather than finding each system the last one marked.
+	void setInSunMap( Bool inSunMap ) { m_inSunMapStamp = inSunMap ? s_sunMapStamp : 0; }
+	Bool isInSunMap( void ) const { return m_inSunMapStamp == s_sunMapStamp; }
+	static void forgetAllInSunMap( void ) { if( ++s_sunMapStamp == 0 ) s_sunMapStamp = 1; }
 
 	Bool shouldBillboard( void ) { return !m_isGroundAligned; }
 
@@ -903,7 +906,8 @@ protected:
 	ParticleShadowBlob	m_pendingShadowBlob;				///< the survivors' footprint, gathered by updateParticlesMark
 	Bool								m_pendingCastsGroundShadow;	///< decided by updateEmission, where update() always decided it
 	UnsignedInt					m_pendingDeaths;						///< particles updateParticlesMark marked; the reap stops once it has removed them
-	Bool								m_inSunMap;									///< setInSunMap: client-only, never xfered
+	UnsignedInt					m_inSunMapStamp;						///< setInSunMap: client-only, never xfered; 0 is never a fill's stamp
+	static UnsignedInt	s_sunMapStamp;							///< the current fill's, from 1
 
 protected:
 	Particle *				m_systemParticlesHead;

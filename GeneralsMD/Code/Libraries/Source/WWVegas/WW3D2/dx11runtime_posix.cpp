@@ -74,6 +74,10 @@ std::string Direct3D11_Shadow_Map_Report() { return std::string("no Direct3D 11 
 void Direct3D11_Set_Shadow_Parameters(float, float, float, float, float, float, float) {}
 void Direct3D11_Clear_Shadow_Parameters() {}
 bool Direct3D11_Fill_Smoke_Map(const float *, unsigned, float) { return false; }
+bool Direct3D11_Upload_Shadow_Casters(const float * const *, const unsigned *, unsigned, const float * const *, unsigned) { return false; }
+bool Direct3D11_Draw_Shadow_Casters(const DX11ShadowCasterRun *, unsigned) { return false; }
+bool Direct3D11_Upload_Shadow_Skin(const DX11ShadowSkinVertex *, unsigned, unsigned &) { return false; }
+unsigned Direct3D11_Shadow_Skin_Generation() { return 0; }
 void Direct3D11_Set_Scene_View(const float [16]) {}
 void Direct3D11_Set_Smoke_Glow(bool) {}
 void Direct3D11_Set_Fire_Look(bool) {}

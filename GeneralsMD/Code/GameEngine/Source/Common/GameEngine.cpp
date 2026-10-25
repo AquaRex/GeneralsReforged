@@ -3320,6 +3320,15 @@ void GameEngine::update( void )
 			if( windowMS >= 1000 )
 			{
 				const Real fps = (Real)fpsFrames * 1000.0f / (Real)windowMS;
+				// The sun's depth pass every second of a match, fast or slow, so its cost can be read
+				// on a machine that never drops under the gate below.  Under -shadowmapreport only.
+				if( TheGlobalData->m_shadowMapReport && TheGameLogic && TheGameLogic->isInGame()
+					&& !TheGameLogic->isInShellGame() )
+				{
+					DEBUG_LOG(("SHADOW WINDOW frame %d: cpu %.2f ms, %.0f casters, %.0f draws a picture\n",
+									 TheGameLogic->getFrame(), fpsShadowTotal / fpsFrames,
+									 (Real)fpsCasterTotal / fpsFrames, (Real)fpsShadowDrawTotal / fpsFrames));
+				}
 				if( fps < 50.0f && TheGameLogic && TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() )
 				{
 					// 'hz' is the rate the simulation actually achieved and 'catchup' how many render

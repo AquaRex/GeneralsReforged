@@ -1041,6 +1041,16 @@ Int parseShadowMapReport(char *args[], int num)
 	return 1;
 }
 
+/* -shadowmapoldcasters: the sun's depth pass draws every caster through the mesh renderer one draw a
+	 piece, as it did before the opaque rigid ones went into instanced depth-only draws.  The other half
+	 of any A/B of what that costs or of whether the map still holds the same depth. */
+Int parseShadowMapOldCasters(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+		TheWritableGlobalData->m_shadowMapOldCasters = TRUE;
+	return 1;
+}
+
 /* -noparticleshadows: take the soft blob back off the ground under every particle cloud.
 
 	 ShadowsForParticles is on by default and the shipped INI has no entry for it, so without this
@@ -2860,6 +2870,7 @@ static CommandLineParam params[] =
 	{ "-noDynamicLOD", parseNoDynamicLOD },
 	{ "-nochroma", parseNoChroma },
 	{ "-shadowmapreport", parseShadowMapReport },
+	{ "-shadowmapoldcasters", parseShadowMapOldCasters },
 	{ "-shadowmapboth", parseShadowMapBoth },
 	{ "-noparticleshadows", parseNoParticleShadows },
 	{ "-novolumetricsmoke", parseNoVolumetricSmoke },

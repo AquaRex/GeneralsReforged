@@ -3669,7 +3669,10 @@ void W3DModelDraw::setModelState(const ModelConditionInfo* newState)
 		//BONEPOS_LOG(("validateStuff() from within W3DModelDraw::setModelState()\n"));
 		//BONEPOS_DUMPREAL(draw->getScale());
 
-		newState->validateStuff(m_renderObject, draw->getScale(), getW3DModelDrawModuleData()->m_extraPublicBones);
+		// inside a tick never the live model, as getPristineBonePositionsForConditionState asks: the render
+		// may be posing it beside the tick, and its captured turret bones would go into the shared cache
+		newState->validateStuff(TheGameLogic->isInGameLogicUpdate() ? NULL : m_renderObject, draw->getScale(),
+			getW3DModelDrawModuleData()->m_extraPublicBones);
 		// ensure that any muzzle flashes from the *new* state, start out hidden...
 //		hideAllMuzzleFlashes(newState, m_renderObject);//moved to above
 		rebuildWeaponRecoilInfo(newState);
@@ -3801,7 +3804,8 @@ void W3DModelDraw::setModelState(const ModelConditionInfo* newState)
 		//BONEPOS_LOG(("validateStuff() from within W3DModelDraw::setModelState()\n"));
 		//BONEPOS_DUMPREAL(getDrawable()->getScale());
 
-		newState->validateStuff(m_renderObject, getDrawable()->getScale(), getW3DModelDrawModuleData()->m_extraPublicBones);
+		newState->validateStuff(TheGameLogic->isInGameLogicUpdate() ? NULL : m_renderObject, getDrawable()->getScale(),
+			getW3DModelDrawModuleData()->m_extraPublicBones);	// the live model only outside a tick, as above
 		rebuildWeaponRecoilInfo(newState);
 
 		// ensure that any muzzle flashes from the *previous* state, are hidden...

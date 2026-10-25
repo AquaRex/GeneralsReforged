@@ -53,6 +53,7 @@
 
 thread_local Bool LogicThread::t_isLogicThread = FALSE;
 std::atomic<Int> LogicThread::g_windowOpen( 0 );
+std::recursive_mutex LogicThread::g_liveModelLock;
 
 namespace
 {
