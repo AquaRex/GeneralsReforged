@@ -300,14 +300,20 @@ Bool ControlBar::describePortraitBarWindow( GameWindow *window, UnicodeString &n
 			continue;
 
 		name = TheGameText->fetch( shown->getDisplayNameLabel().str() );
-		// the description is the one on the button that buys it, when there is such a button
+		// the description is the one on the button that buys it, when there is such a button;
+		// retail's unused Command_UpgradeCamoNetting has a typo'd label, so skip labels the string table lacks
 		description.clear();
 		for( const CommandButton *button = TheCommandStore->getCommandButtons(); button; button = button->getNext() )
 		{
 			if( button->getUpgradeTemplate() == shown && button->getDescriptionLabel().isNotEmpty() )
 			{
-				description = TheGameText->fetch( button->getDescriptionLabel() );
-				break;
+				Bool exists = FALSE;
+				UnicodeString text = TheGameText->fetch( button->getDescriptionLabel(), &exists );
+				if( exists )
+				{
+					description = text;
+					break;
+				}
 			}
 		}
 		return TRUE;
