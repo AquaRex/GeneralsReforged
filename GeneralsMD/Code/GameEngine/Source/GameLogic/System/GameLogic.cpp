@@ -846,8 +846,18 @@ static void populateRandomStartPosition( GameInfo *game )
 	Int numPlayers = MAX_SLOTS;
 	const MapMetaData *md = TheMapCache->findMap( game->getMap() );
   DEBUG_ASSERTCRASH( md , ("Could not find map %s in the mapcache", game->getMap().str()));
+	/* The map cache is this machine's own.  Without the map it deals over all MAX_SLOTS spots where a
+		 machine that has it deals over the map's, so a network game or a replay refuses the start (the
+		 corrupt-map path in update) instead of splitting into two games on the first draw. */
+	if (md == NULL && (TheGameLogic->isInMultiplayerGame() || TheRecorder->getMode() == RECORDERMODETYPE_PLAYBACK))
+	{
+		DEBUG_LOG(("populateRandomStartPosition: no map %s in the cache, a network game or replay is refused\n", game->getMap().str()));
+		throw ERROR_CORRUPT_FILE_FORMAT;
+	}
 	if (md)
 		numPlayers = md->m_numPlayers;
+	else
+		DEBUG_LOG(("populateRandomStartPosition: no map %s, start spots are dealt without distances\n", game->getMap().str()));
 
 	// generate a map of start spot distances
 	Real startSpotDistance[MAX_SLOTS][MAX_SLOTS];
@@ -855,7 +865,7 @@ static void populateRandomStartPosition( GameInfo *game )
 	{
 		for (Int j=0; j<MAX_SLOTS; ++j)
 		{
-			if (i != j && (i<numPlayers && j<numPlayers))
+			if (md && i != j && (i<numPlayers && j<numPlayers))
 			{
 				AsciiString w1, w2;
 				w1.format("Player_%d_Start", i+1);

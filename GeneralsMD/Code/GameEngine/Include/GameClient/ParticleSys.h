@@ -1075,6 +1075,9 @@ public:
 	void friend_renumberParticleSystem( ParticleSystem *particleSystem, ParticleSystemID oldID );
 	/// a system a tick made waits here for its build after the tick (ParticleSystem::buildClientPart)
 	void friend_addShell( ParticleSystem *shell, Bool createSlaves );
+	/// LogicThread::OverlapWindow::close, once the tick beside the render is done: what the render
+	/// made inside the window joins the list and the lookup
+	void friend_fileWindowSystems( void );
 
 protected:
 
@@ -1101,6 +1104,7 @@ protected:
 	Int m_localPlayerIndex;	///<used to tell particle systems which particles can be skipped due to player shroud status
 	std::vector<ParticleSystem *> m_independentUpdates;	///< this update's systems whose particles go to the job pool; kept so it does not reallocate
 	std::vector<ParticleSystem *> m_shells;							///< made inside this tick, built after it; reset() deletes any a cleared game left
+	std::vector<ParticleSystem *> m_windowSystems;			///< built by the main thread inside the overlap window, filed when it closes; the tick reads the list and the lookup beside the render
 
 private:
 	TemplateMap m_templateMap;		///< a hash map of all particle system templates

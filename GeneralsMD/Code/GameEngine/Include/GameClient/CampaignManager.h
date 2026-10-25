@@ -131,6 +131,7 @@ public:
 	Mission *getCurrentMission( void );			///< Returns a point to the current mission
 	Mission *gotoNextMission( void );				///< Set the next mission as the current Mission, and returns a point to it
 	void setCampaignAndMission( AsciiString campaign, AsciiString mission );		///< Sets the campaing and Mission we're on
+	Campaign *findCampaign( AsciiString campaign );		///< the campaign of that name, NULL when the data has none; changes nothing
 	void setCampaign( AsciiString campaign );																		///< sets the campaign and set's it's first mission
 	AsciiString getCurrentMap( void );			///< Get the map located in m_currentMission;
 	enum { INVALID_MISSION_NUMBER = -1 };

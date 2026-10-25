@@ -1516,7 +1516,7 @@ void GameEngine::init( int argc, char *argv[] )
 		why.format("GameEngine::init failed with ErrorCode 0x%08x.", (UnsignedInt)ec);
 		RELEASE_CRASH((why.str()));
 	}
-	catch (INIException e)
+	catch (const INIException &e)
 	{
 		if (e.mFailureMessage)
 			RELEASE_CRASH((e.mFailureMessage));
@@ -3432,7 +3432,7 @@ void GameEngine::execute( void )
 					// compute a frame
 					update();
 				}
-				catch (INIException e)
+				catch (const INIException &e)
 				{
 					// Release CRASH doesn't return, so don't worry about executing additional code.
 					if (e.mFailureMessage)

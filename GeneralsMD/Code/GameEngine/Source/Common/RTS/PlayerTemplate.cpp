@@ -52,6 +52,7 @@
 #include "Common/Player.h"
 #include "Common/INI.h"
 #include "Common/Science.h"
+#include "Common/ThingFactory.h"
 #include "GameClient/Image.h"
 
 #ifdef _INTERNAL
@@ -305,6 +306,35 @@ void PlayerTemplateStore::update()
 	// nothing
 }
 
+//-----------------------------------------------------------------------------
+/** A faction whose start building is not among the loaded objects cannot start a match: Turkiye's
+	* command center is an ObjectReskin of America's, skipped under a mod that has none, and the match
+	* stopped at frame 0 placing it.  The name is emptied, as Civilian's and Observer's are, and every
+	* faction list and the Random draw already leave those out.  A missing start unit is dropped the
+	* same way.  The data alone decides it, so every machine with the same files agrees. */
+//-----------------------------------------------------------------------------
+void PlayerTemplateStore::postProcessLoad()
+{
+	for (PlayerTemplateVector::iterator it = m_playerTemplates.begin(); it != m_playerTemplates.end(); ++it)
+	{
+		if (it->m_startingBuilding.isNotEmpty() && !TheThingFactory->findTemplate(it->m_startingBuilding, FALSE))
+		{
+			DEBUG_LOG(("PlayerTemplate %s: start building %s does not exist, the faction is not offered\n",
+								 it->getName().str(), it->m_startingBuilding.str()));
+			it->m_startingBuilding.clear();
+		}
+		for (Int i = 0; i < MAX_MP_STARTING_UNITS; ++i)
+		{
+			if (it->m_startingUnits[i].isNotEmpty() && !TheThingFactory->findTemplate(it->m_startingUnits[i], FALSE))
+			{
+				DEBUG_LOG(("PlayerTemplate %s: start unit %s does not exist, it is left out\n",
+									 it->getName().str(), it->m_startingUnits[i].str()));
+				it->m_startingUnits[i].clear();
+			}
+		}
+	}
+}
+
 
 Int PlayerTemplateStore::getTemplateNumByName(AsciiString name) const
 {
@@ -313,7 +343,7 @@ Int PlayerTemplateStore::getTemplateNumByName(AsciiString name) const
 		if (m_playerTemplates[num].getName().compareNoCase(name.str()) == 0)
 			return num;
 	}
-	DEBUG_ASSERTCRASH(NULL, ("Template doesn't exist for given name"));
+	// a query: -side and the challenge menu ask with names a mod's data may not have
 	return -1;
 }
 

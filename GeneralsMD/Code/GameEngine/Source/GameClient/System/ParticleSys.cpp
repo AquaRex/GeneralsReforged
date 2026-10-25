@@ -33,6 +33,7 @@
 #include "Common/LogicThread.h"
 
 #include <algorithm>
+#include <mutex>
 
 #define DEFINE_PARTICLE_SYSTEM_NAMES
 
@@ -4093,8 +4094,18 @@ ParticleSystem *ParticleSystemManager::createParticleSystem( const ParticleSyste
 	if (sysTemplate == NULL)
 		return NULL;
 
-	m_uniqueSystemID = (ParticleSystemID)((UnsignedInt)m_uniqueSystemID + 1);
-	ParticleSystem *sys = newInstance(ParticleSystem)( sysTemplate, m_uniqueSystemID, createSlaves );
+	// The tick's shells and the render's own systems (a model state's bone systems, a truck's dust)
+	// take ids at the same time while the two overlap.  Particle ids are client handles; no logic CRC
+	// reads them.
+	// ponytail: one global lock on the counter, uncontended outside the overlap; an atomic if it ever shows in a profile
+	static std::mutex s_idLock;
+	ParticleSystemID id;
+	{
+		std::lock_guard<std::mutex> lock( s_idLock );
+		m_uniqueSystemID = (ParticleSystemID)((UnsignedInt)m_uniqueSystemID + 1);
+		id = m_uniqueSystemID;
+	}
+	ParticleSystem *sys = newInstance(ParticleSystem)( sysTemplate, id, createSlaves );
 	return sys;
 }
 
@@ -4120,10 +4131,20 @@ ParticleSystem *ParticleSystemManager::findParticleSystem( ParticleSystemID id )
 	if (id == INVALID_PARTICLE_SYSTEM_ID)
 		return NULL;	// my, that was easy
 
-	// a system this tick made is the tick's own until it is built
-	for (size_t i = 0; i < m_shells.size(); ++i)
-		if (m_shells[ i ]->getSystemID() == id)
-			return m_shells[ i ];
+	// A system this tick made is the tick's own until it is built, and the logic thread fills the list
+	// beside the render: the main thread inside the window looks only at what it made there itself.
+	if (LogicThread::isInsideWindow())
+	{
+		for (size_t i = 0; i < m_windowSystems.size(); ++i)
+			if (m_windowSystems[ i ]->getSystemID() == id)
+				return m_windowSystems[ i ];
+	}
+	else
+	{
+		for (size_t i = 0; i < m_shells.size(); ++i)
+			if (m_shells[ i ]->getSystemID() == id)
+				return m_shells[ i ];
+	}
 
 	LOGIC_CENSUS( CENSUS_PARTICLES );
 	ParticleSystemIDMap::const_iterator it = m_allParticleSystemMap.find( id );
@@ -4331,10 +4352,25 @@ void ParticleSystemManager::removeParticle( Particle *particleToRemove)
 // ------------------------------------------------------------------------------------------------
 void ParticleSystemManager::friend_addParticleSystem( ParticleSystem *particleSystemToAdd )
 {
+	// the tick beside the render reads the list and the lookup; filed once the window closes
+	if (LogicThread::isInsideWindow())
+	{
+		m_windowSystems.push_back(particleSystemToAdd);
+		return;
+	}
 	m_allParticleSystemList.push_back(particleSystemToAdd);
 	particleSystemToAdd->m_managerListIt = --m_allParticleSystemList.end();
 	m_allParticleSystemMap[ particleSystemToAdd->getSystemID() ] = particleSystemToAdd;
 	++m_particleSystemCount;
+}
+
+// ------------------------------------------------------------------------------------------------
+void ParticleSystemManager::friend_fileWindowSystems( void )
+{
+	// outside the window now, so each one files itself as it would have at its build, in the order made
+	for (size_t i = 0; i < m_windowSystems.size(); ++i)
+		friend_addParticleSystem( m_windowSystems[ i ] );
+	m_windowSystems.clear();
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -4344,6 +4380,12 @@ void ParticleSystemManager::friend_removeParticleSystem( ParticleSystem *particl
 {
 	// The constructor filed it and only the destructor calls this, so the iterator is ours and
 	// still good; EA scanned the whole list for it on every single system that died.
+	std::vector<ParticleSystem *>::iterator unfiled = std::find( m_windowSystems.begin(), m_windowSystems.end(), particleSystemToRemove );
+	if (unfiled != m_windowSystems.end())
+	{
+		m_windowSystems.erase( unfiled );
+		return;
+	}
 	m_allParticleSystemList.erase( particleSystemToRemove->m_managerListIt );
 	m_allParticleSystemMap.erase( particleSystemToRemove->getSystemID() );
 	--m_particleSystemCount;

@@ -157,6 +157,8 @@ protected:
 
 private:
 
+	friend class PlayerTemplateStore;		///< postProcessLoad empties a start template the loaded objects lack
+
 	NameKeyType			m_nameKey;
 	Int							m_modIndex;
 	UnicodeString		m_displayName;
@@ -221,6 +223,7 @@ public:
 	virtual void init();
 	virtual void reset();
 	virtual void update();
+	virtual void postProcessLoad();
 
 	static void parsePlayerTemplateDefinition( INI* ini );
 

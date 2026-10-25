@@ -604,10 +604,12 @@ TEST(zero_hour_language_is_the_one_its_language_archive_names)
 	std::filesystem::remove_all( dir );
 }
 
-/* An unknown block name aborts the whole file - INI::load throws
-   INI_UNKNOWN_TOKEN and the blocks after it never get read.  Worth pinning:
-   nothing in the loader skips unknown blocks, so an INI written for a newer
-   build breaks an older one outright. */
+/* An unknown block name aborts the whole file - INI::load throws and the
+   blocks after it never get read.  Worth pinning: nothing in the loader skips
+   unknown blocks, so an INI written for a newer build breaks an older one
+   outright.  The throw is an INIException naming the file and the block: a
+   bare INI_UNKNOWN_TOKEN reached GameEngine::init as "Uncaught Exception
+   during initialization." (v3.3.0 crash reports, a mod's Rank.ini). */
 TEST(ini_unknown_block_aborts_the_file)
 {
 	CHECK( bootOnce() );
@@ -624,6 +626,36 @@ TEST(ini_unknown_block_aborts_the_file)
 
 	CHECK( loadIni( TEST_INI ) == FALSE );
 	CHECK_EQ( WaterSettings[ TIME_OF_DAY_EVENING ].m_waterRepeatCount, -1 );
+
+	Bool named = FALSE;
+	try
+	{
+		INI ini;
+		ini.load( AsciiString( TEST_INI ), INI_LOAD_OVERWRITE, NULL );
+	}
+	catch( const INIException &e )
+	{
+		named = e.mFailureMessage && strstr( e.mFailureMessage, TEST_INI ) && strstr( e.mFailureMessage, "ThisBlockTypeDoesNotExist" );
+	}
+	CHECK( named );
+
+	remove( TEST_INI );
+}
+
+/* Some editors start a file with a UTF-8 byte order mark, which glued itself
+   to the first block's name and made it unknown. */
+TEST(ini_utf8_bom_is_skipped)
+{
+	CHECK( bootOnce() );
+
+	writeFile( TEST_INI,
+		"\xEF\xBB\xBFWaterSet EVENING\r\n"
+		"  WaterRepeatCount = 5\r\n"
+		"End\r\n" );
+
+	WaterSettings[ TIME_OF_DAY_EVENING ].m_waterRepeatCount = -1;
+	CHECK( loadIni( TEST_INI ) );
+	CHECK_EQ( WaterSettings[ TIME_OF_DAY_EVENING ].m_waterRepeatCount, 5 );
 
 	remove( TEST_INI );
 }
@@ -19449,6 +19481,7 @@ TEST(modfactions_prefix_only_the_mods_own_names)
 	names.scanLine( 0, "  Weapon = PRIMARY RetailGun" );		// a field, not a definition
 	names.scanLine( 0, "CommandSet GLA CommandSet" );				// The End of Days really has this line
 	names.scanLine( 0, "  Side = GLA" );
+	names.scanLine( 0, "ObjectCreationList OCL_Mine" );
 	names.finishScan( 0 );
 	names.setActive( 0 );
 
@@ -19456,6 +19489,13 @@ TEST(modfactions_prefix_only_the_mods_own_names)
 	strcpy( line, "Object AmericaRanger" );
 	CHECK( names.rewriteLine( line, sizeof( line ) ) );
 	CHECK_STR( line, "Object M1~AmericaRanger" );
+	// a colon parser's keyword stays the parser's, the name after it is the mod's; a label is neither
+	strcpy( line, "  FactionOCL = Faction:GLA OCL:OCL_Mine" );
+	CHECK( names.rewriteLine( line, sizeof( line ) ) );
+	CHECK_STR( line, "  FactionOCL = Faction:GLA OCL:M1~OCL_Mine" );
+	strcpy( line, "  DisplayName = OBJECT:OCL_Mine" );
+	CHECK( names.rewriteLine( line, sizeof( line ) ) );
+	CHECK_STR( line, "  DisplayName = OBJECT:OCL_Mine" );
 	strcpy( line, "  Weapon = PRIMARY RangerGun" );
 	CHECK( names.rewriteLine( line, sizeof( line ) ) );
 	CHECK_STR( line, "  Weapon = PRIMARY M1~RangerGun" );

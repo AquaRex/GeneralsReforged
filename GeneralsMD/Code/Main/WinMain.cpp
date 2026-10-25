@@ -1563,7 +1563,7 @@ Int APIENTRY WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
 		 running: the thread list was destroyed first, and the mouse or texture loader thread faulted
 		 taking itself off it (Except.cpp, Unregister_Thread_ID), which is all a player's report ever
 		 showed.  Name what was thrown, and leave through ReleaseCrash's _exit so no destructor runs. */
-	catch (INIException e)
+	catch (const INIException &e)
 	{
 		RELEASE_CRASH((e.mFailureMessage ? e.mFailureMessage : "Uncaught INI exception in WinMain"));
 	}

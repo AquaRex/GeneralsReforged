@@ -294,21 +294,22 @@ void CampaignManager::setCampaignAndMission( AsciiString campaign, AsciiString m
 		setCampaign(campaign);
 		return;
 	}
-	CampaignListIt it;
-	it = m_campaignList.begin();
+	// a name this data lacks clears both, rather than leaving the last game's campaign current
+	m_currentCampaign = findCampaign( campaign );
+	m_currentMission = m_currentCampaign ? m_currentCampaign->getMission( mission ) : NULL;
+}
+
+//-----------------------------------------------------------------------------
+Campaign *CampaignManager::findCampaign( AsciiString campaign )
+{
 	campaign.toLower();
-	while	( it != m_campaignList.end())
+	for( CampaignListIt it = m_campaignList.begin(); it != m_campaignList.end(); ++it )
 	{
-		Campaign *camp = *it;
-		if(camp->m_name.compare(campaign) == 0)
-		{
-			m_currentCampaign = camp;
-			m_currentMission = camp->getMission( mission );
-			return;
-		}
-		++it;
+		if( (*it)->m_name.compare( campaign ) == 0 )
+			return *it;
 	}
-}	
+	return NULL;
+}
 
 //-----------------------------------------------------------------------------
 void CampaignManager::setCampaign( AsciiString campaign )
@@ -463,7 +464,17 @@ void CampaignManager::xfer( Xfer *xfer )
 
 	// when loading, need to set the current campaign and mission
 	if( xfer->getXferMode() == XFER_LOAD )
+	{
 		setCampaignAndMission( currentCampaign, currentMission );
+		// a save from other data (a mod's, or one since changed) names a campaign or a mission this
+		// Campaign.ini lacks; the load fails with the error box instead of a mission that is not there
+		if( currentCampaign.isNotEmpty() && ( m_currentCampaign == NULL || ( currentMission.isNotEmpty() && m_currentMission == NULL ) ) )
+		{
+			DEBUG_LOG(( "CampaignManager: the save's campaign '%s' mission '%s' is not in this game's data\n",
+									currentCampaign.str(), currentMission.str() ));
+			throw XFER_UNKNOWN_STRING;
+		}
+	}
 
 	if( version >= 4 )
 	{
