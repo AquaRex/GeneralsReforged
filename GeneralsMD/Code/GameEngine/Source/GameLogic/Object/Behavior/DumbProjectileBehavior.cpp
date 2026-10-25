@@ -62,10 +62,13 @@
 //-----------------------------------------------------------------------------
 const Int DEFAULT_MAX_LIFESPAN = 10 * LOGICFRAMES_PER_SECOND;
 
-// A StraightWhenClear shell whose barrel stands more than this over the line to its victim is being
-// lobbed, and takes the barrel's arc on open ground too. A tank's hull tilted on a slope leaves its
-// barrel a few degrees off the line and still shoots straight. The sine of 8 degrees.
-const Real STRAIGHT_SHOT_MAX_BARREL_RISE = 0.139f;
+// A StraightWhenClear shell whose barrel is raised steeper than this slope is being lobbed, and takes
+// the barrel's arc on open ground too. It is the barrel against level ground and not against the line
+// to the victim: a tank's barrel cannot dip, so a target close below it stands well under the barrel,
+// and measured that way a Paladin's shot 28 away and 13 degrees down went back to EA's arc. A tank's
+// barrel sits within 3 degrees of level (the logic does not tilt the hull on a slope); a Fire Base's
+// stands 38 to 57 degrees up. The tangent of 8 degrees.
+const Real STRAIGHT_SHOT_MAX_BARREL_SLOPE = 0.1405f;
 
 //-----------------------------------------------------------------------------
 DumbProjectileBehaviorModuleData::DumbProjectileBehaviorModuleData() : 
@@ -471,16 +474,13 @@ Bool DumbProjectileBehavior::calcFlightPath(Bool recalcNumSegments)
 	controlPoints[1].z = highestInterveningTerrain + d->m_firstHeight;
 	controlPoints[2].z = highestInterveningTerrain + d->m_secondHeight;
 
-	// The sine of the angle the barrel stands over the line to the victim, negative under it.
-	Real barrelRise = (m_launchSlope * sqrtf( sqr(targetVector.X) + sqr(targetVector.Y) ) - targetVector.Z) / sqrtf( 1.0f + sqr(m_launchSlope) );
-
-	if( d->m_straightWhenClear && barrelRise < STRAIGHT_SHOT_MAX_BARREL_RISE
+	if( d->m_straightWhenClear && m_launchSlope < STRAIGHT_SHOT_MAX_BARREL_SLOPE
 		&& ThePartitionManager->isClearLineOfSightTerrain( NULL, controlPoints[0], NULL, controlPoints[3] ) )
 	{
 		// A cannon shell flies the line to its victim. The arc above was ten over the highest ground on the
 		// way, so on flat ground a Crusader's shell climbed twelve degrees off the barrel and came down on
 		// the target at twenty five; with the glowing trail on it, every shot read as a lob. A hill in the
-		// way still lifts it, and so does a barrel raised well over the line.
+		// way still lifts it, and so does a raised barrel.
 		controlPoints[1].z = controlPoints[0].z + targetVector.Z * targetDistance * d->m_firstPercentIndent;
 		controlPoints[2].z = controlPoints[0].z + targetVector.Z * targetDistance * d->m_secondPercentIndent;
 	}
