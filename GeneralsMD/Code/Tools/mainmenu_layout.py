@@ -17,11 +17,15 @@ When the side's original Generals campaign is installed, a pick panel comes firs
 menu's (MapBorder1: two buttons and Back) cloned the same way:
 
     MapBorder6 / EarthMap6
-        ButtonCampaignZH                     Zero Hour's campaign
         ButtonCampaignGenerals               the original 2003 campaign
+        ButtonCampaignZH                     Zero Hour's campaign
         ButtonCampaignBack                   back to the single player menu
 
-Both sit exactly where the single player menu does, which is hidden while either shows.  The labels
+It is PICK_WIDEN wider than the other panels, to the left, so "GENERALS ZERO HOUR" fits its button
+at 800x600 (211 pixels of Arial at 15 points against 208); the right edges stay in line.  The
+recent-save buttons under the extra strip are never shown.
+
+Both sit where the single player menu does, which is hidden while either shows.  The labels
 are set from GUI:CampaignMission, GUI:CampaignZeroHour and GUI:CampaignGenerals; the transitions
 that flash them in and out are in Data/INI/WindowTransitionsReforged.ini.
 
@@ -72,10 +76,13 @@ MISSION_BUTTONS = 7
 PICK_RENAME = [
     ("MapBorder1", "MapBorder6", None),
     ("EarthMap1", "EarthMap6", None),
-    ("ButtonOnline", "ButtonCampaignZH", "GUI:CampaignZeroHour"),
-    ("ButtonNetwork", "ButtonCampaignGenerals", "GUI:CampaignGenerals"),
+    ("ButtonOnline", "ButtonCampaignGenerals", "GUI:CampaignGenerals"),
+    ("ButtonNetwork", "ButtonCampaignZH", "GUI:CampaignZeroHour"),
     ("ButtonMultiBack", "ButtonCampaignBack", None),
 ]
+
+# 800x600 pixels the pick panel and its buttons grow by, leftwards
+PICK_WIDEN = 32
 
 STRINGS = ["GUI:CampaignMission", "GUI:CampaignZeroHour", "GUI:CampaignGenerals"]
 
@@ -143,7 +150,11 @@ def build(layout):
         for old, new in MISSION_RENAME])
     grow_missions(missions)
     layout.root.children.append(missions)
-    layout.root.children.append(clone_panel(layout, PICK_RENAME))
+    pick = clone_panel(layout, PICK_RENAME)
+    for window in pick.walk():
+        l, t, r, b, cw, ch = window.rect
+        window.rect = (l - PICK_WIDEN, t, r, b, cw, ch)
+    layout.root.children.append(pick)
     return layout
 
 

@@ -3483,9 +3483,7 @@ WINDOW
   CHILD
   WINDOW
     WINDOWTYPE = USER;
-    SCREENRECT = UPPERLEFT: 532 108,
-                 BOTTOMRIGHT: 756 240,
-                 CREATIONRESOLUTION: 800 600;
+    SCREENRECT = UPPERLEFT: 500 108, BOTTOMRIGHT: 756 240, CREATIONRESOLUTION: 800 600;
     NAME = "MainMenu.wnd:MapBorder6";
     STATUS = ENABLED;
     STYLE = USER;
@@ -3529,9 +3527,7 @@ WINDOW
     CHILD
     WINDOW
       WINDOWTYPE = USER;
-      SCREENRECT = UPPERLEFT: 532 108,
-                   BOTTOMRIGHT: 756 233,
-                   CREATIONRESOLUTION: 800 600;
+      SCREENRECT = UPPERLEFT: 500 108, BOTTOMRIGHT: 756 233, CREATIONRESOLUTION: 800 600;
       NAME = "MainMenu.wnd:EarthMap6";
       STATUS = ENABLED;
       STYLE = USER;
@@ -3575,9 +3571,7 @@ WINDOW
       CHILD
       WINDOW
         WINDOWTYPE = PUSHBUTTON;
-        SCREENRECT = UPPERLEFT: 540 196,
-                     BOTTOMRIGHT: 748 232,
-                     CREATIONRESOLUTION: 800 600;
+        SCREENRECT = UPPERLEFT: 508 196, BOTTOMRIGHT: 748 232, CREATIONRESOLUTION: 800 600;
         NAME = "MainMenu.wnd:ButtonCampaignBack";
         STATUS = ENABLED+IMAGE;
         STYLE = PUSHBUTTON+MOUSETRACK;
@@ -3623,10 +3617,8 @@ WINDOW
       CHILD
       WINDOW
         WINDOWTYPE = PUSHBUTTON;
-        SCREENRECT = UPPERLEFT: 540 156,
-                     BOTTOMRIGHT: 748 191,
-                     CREATIONRESOLUTION: 800 600;
-        NAME = "MainMenu.wnd:ButtonCampaignGenerals";
+        SCREENRECT = UPPERLEFT: 508 156, BOTTOMRIGHT: 748 191, CREATIONRESOLUTION: 800 600;
+        NAME = "MainMenu.wnd:ButtonCampaignZH";
         STATUS = ENABLED+IMAGE;
         STYLE = PUSHBUTTON+MOUSETRACK;
         SYSTEMCALLBACK = "[None]";
@@ -3636,7 +3628,7 @@ WINDOW
         FONT = NAME: "Generals", SIZE: 15, BOLD: 0;
         HEADERTEMPLATE = "MainButton";
         TOOLTIPDELAY = -1;
-        TEXT = "GUI:CampaignGenerals";
+        TEXT = "GUI:CampaignZeroHour";
         TEXTCOLOR = ENABLED:  255 255 255 255, ENABLEDBORDER:  0 0 0 255,
                     DISABLED: 62 64 92 255, DISABLEDBORDER: 31 32 47 255,
                     HILITE:   186 255 12 255, HILITEBORDER:   0 2 0 255;
@@ -3671,10 +3663,8 @@ WINDOW
       CHILD
       WINDOW
         WINDOWTYPE = PUSHBUTTON;
-        SCREENRECT = UPPERLEFT: 540 116,
-                     BOTTOMRIGHT: 748 151,
-                     CREATIONRESOLUTION: 800 600;
-        NAME = "MainMenu.wnd:ButtonCampaignZH";
+        SCREENRECT = UPPERLEFT: 508 116, BOTTOMRIGHT: 748 151, CREATIONRESOLUTION: 800 600;
+        NAME = "MainMenu.wnd:ButtonCampaignGenerals";
         STATUS = ENABLED+IMAGE;
         STYLE = PUSHBUTTON+MOUSETRACK;
         SYSTEMCALLBACK = "[None]";
@@ -3684,7 +3674,7 @@ WINDOW
         FONT = NAME: "Generals", SIZE: 15, BOLD: 0;
         HEADERTEMPLATE = "MainButton";
         TOOLTIPDELAY = -1;
-        TEXT = "GUI:CampaignZeroHour";
+        TEXT = "GUI:CampaignGenerals";
         TEXTCOLOR = ENABLED:  255 255 255 255, ENABLEDBORDER:  0 0 0 255,
                     DISABLED: 62 64 92 255, DISABLEDBORDER: 31 32 47 255,
                     HILITE:   186 255 12 255, HILITEBORDER:   0 2 0 255;
