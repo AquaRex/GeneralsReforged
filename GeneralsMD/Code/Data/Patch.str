@@ -685,6 +685,14 @@ TOOLTIP:MuteInBackground
 "Silences the game while another window has the focus. Off keeps it playing behind a browser or on a second monitor."
 END
 
+GUI:LegacySound
+"Legacy Sound"
+END
+
+TOOLTIP:LegacySound
+"The original game's sound: no echo off the map, no muffling by distance, hills or buildings, no delay or pitch bend on distant and passing sounds, no dip after big blasts, no cap on battle sounds or unit replies, no limiter, no map ambience and no music following the fight. Master volume, the device and the speakers still apply. Takes effect at once."
+END
+
 GUI:IsometricCamera
 "Isometric Camera"
 END

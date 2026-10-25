@@ -625,6 +625,7 @@ std::atomic<S32> g_linearFalloff(0);	// AIL_ex_set_3D_linear_falloff
 std::atomic<float> g_speedOfSound(0.0f);	// AIL_ex_set_3D_air
 std::atomic<float> g_absorptionDistance(0.0f);
 std::atomic<float> g_roomSend(0.0f);	// AIL_ex_set_reverb's wet
+std::atomic<bool> g_limiter(true);	// AIL_ex_set_limiter
 // AIL_set_3D_speaker_type's AIL_3D_HEADPHONE, under the engine lock.  Every other type is the stereo
 // pan here: this backend's device is two channels (OUTPUT_CHANNELS), surround is miles_xaudio2's.
 bool g_headphones = false;
@@ -1232,7 +1233,9 @@ void dataCallback(ma_device *, void *output, const void *, ma_uint32 frameCount)
 	if (g_engine.room.ready) {
 		processRoom(&g_engine.room, room, out, frameCount);
 	}
-	AIL_ex_limit(&g_engine.limiter, out, (S32)frameCount);
+	if (g_limiter.load()) {
+		AIL_ex_limit(&g_engine.limiter, out, (S32)frameCount);
+	}
 
 	if (g_engine.capture != NULL) {
 		writeCapture(g_engine.capture, out, frameCount);
@@ -1960,6 +1963,11 @@ void AILCALL AIL_ex_set_3D_air(F32 speed_of_sound, F32 absorption_distance)
 {
 	g_speedOfSound.store(speed_of_sound);
 	g_absorptionDistance.store(absorption_distance);
+}
+
+void AILCALL AIL_ex_set_limiter(S32 on)
+{
+	g_limiter.store(on != 0);
 }
 
 void AILCALL AIL_ex_set_reverb(F32 wet, F32 decay, F32 damping, F32 echo, F32 slap)

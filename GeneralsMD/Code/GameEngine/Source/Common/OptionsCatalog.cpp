@@ -96,6 +96,7 @@ static void set_m_masterVolume( Int value )
 		TheAudio->setVolume( value / 100.0f, (AudioAffect)(AudioAffect_Master | AudioAffect_SystemSetting) );
 }
 OPTION_BOOL_ACCESSORS( m_dynamicMusic )
+OPTION_BOOL_ACCESSORS( m_legacySound )
 OPTION_BOOL_ACCESSORS( m_muteInBackground )
 // The catalog loads before there is a game; the menu's Accept during a mission changes its speed
 // on the spot, which only the pacing reads.
@@ -349,6 +350,14 @@ const OptionDef TheOptionCatalog[] =
 	{ "DynamicMusic",							OPT_WND( "CheckDynamicMusic" ), "GUI:DynamicMusic",
 		OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_dynamicMusic, set_m_dynamicMusic },
+
+	// Retail's mix: no sound travel delay, air, doppler, room, occlusion, duck, limiter, battle voice
+	// budget, shot folding, reply limits, zoom mix, ambience bed or music following the fight.  The
+	// audio manager takes it up on its next pass (MilesAudioManager::applyLegacySound), the room and
+	// the bed included.  Master volume, the device and the speakers stay as they are.  On Options > Audio.
+	{ "LegacySound",							OPT_WND( "CheckLegacySound" ), "GUI:LegacySound",
+		OPTION_BOOL, APPLY_LIVE, 0, 1,
+		get_m_legacySound, set_m_legacySound },
 
 	// Silent while another window has the focus, as retail always was; off keeps the game heard
 	// behind a browser or a second monitor's window.  Read at the next focus change.  On Options > Audio.

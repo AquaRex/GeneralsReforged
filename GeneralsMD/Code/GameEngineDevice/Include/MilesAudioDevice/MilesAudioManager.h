@@ -23,6 +23,7 @@
 // Author: John K. McDonald, July 2002
 
 #include "Common/AsciiString.h"
+#include "Common/AudioSettings.h"
 #include "Common/GameAudio.h"
 #include "MSS/MSS.h"
 #include "mutex.h"
@@ -290,6 +291,7 @@ class MilesAudioManager : public AudioManager
 		void advanceAudioClock( void );
 		void trackVelocity( PlayingAudio *playing, const Coord3D *pos );
 		void setRoomFromMap( void );
+		void applyLegacySound( void );
 		void updateAmbienceBed( void );
 		void duckForBlast( AudioEventRTS *event, H3DSAMPLE sample3D );
 		Bool checkForSample( AudioRequest *req );
@@ -381,6 +383,8 @@ class MilesAudioManager : public AudioManager
 		Real m_clockElapsedMs;
 		UnsignedInt m_clockMovedAt;	///< Clock_Milliseconds when the logic clock last moved on
 		AsciiString m_roomMap;	///< the map setRoomFromMap last set the room for
+		Bool m_legacySound;	///< what applyLegacySound last put into m_audioSettings
+		AudioSettings m_engineSettings;	///< AudioSettings.ini as init read it, for Legacy sound turned off again
 		Bool m_askingOnArrival;	///< checkForSample is asking canPlayNow about a sound that waited out its distance
 
 		/// The map's ambience bed (AmbienceBed* in AudioSettings.h): the event setRoomFromMap chose, the

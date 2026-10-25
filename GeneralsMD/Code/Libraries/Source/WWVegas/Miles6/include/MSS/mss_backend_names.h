@@ -87,6 +87,7 @@
 #define AIL_ex_set_reverb                    MSS_BACKEND_NAME(AIL_ex_set_reverb)
 #define AIL_ex_duck                          MSS_BACKEND_NAME(AIL_ex_duck)
 #define AIL_ex_set_3D_sample_dry             MSS_BACKEND_NAME(AIL_ex_set_3D_sample_dry)
+#define AIL_ex_set_limiter                   MSS_BACKEND_NAME(AIL_ex_set_limiter)
 #define AIL_ex_set_output_device             MSS_BACKEND_NAME(AIL_ex_set_output_device)
 #define AIL_ex_enumerate_output_devices      MSS_BACKEND_NAME(AIL_ex_enumerate_output_devices)
 #define AIL_WAV_info                         MSS_BACKEND_NAME(AIL_WAV_info)

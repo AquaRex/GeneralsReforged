@@ -216,6 +216,7 @@ NEW_CONTROLS = [
     (LABEL,  "LabelSpeakerType",       "GUI:SpeakerType"),
     (COMBO,  "ComboBoxSpeakerType",    None),
     (CHECK,  "CheckMuteInBackground",  "GUI:MuteInBackground"),
+    (CHECK,  "CheckLegacySound",       "GUI:LegacySound"),
     (LABEL,  "LabelZoomSpeed",         "GUI:ZoomSpeed"),
     (SLIDER, "SliderZoomSpeed",        None),
     (LABEL,  "LabelShadowQuality",     "GUI:ShadowQuality"),
@@ -397,7 +398,8 @@ GROUP_LAYOUT = [
         ("GUI:OptionsGroupOutput", [
             setting("LabelAudioDevice", "ComboBoxAudioDevice"),
             setting("LabelSpeakerType", "ComboBoxSpeakerType"),
-            ("check", "CheckMuteInBackground")])]),
+            ("check", "CheckMuteInBackground"),
+            ("check", "CheckLegacySound")])]),
 
     ("PageControls", [
         ("GUI:OptionsGroupCamera", [

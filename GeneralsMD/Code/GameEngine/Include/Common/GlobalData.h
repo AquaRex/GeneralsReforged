@@ -700,6 +700,7 @@ public:
 	Int m_ambientVolume;							///< "AmbientVolume" in Options.ini: percent for looping world ambience, in place of the effects slider
 	Int m_masterVolume;								///< "MasterVolume" in Options.ini: percent every other slider is multiplied by, music and speech included
 	Bool m_dynamicMusic;							///< "DynamicMusic" in Options.ini: a skirmish's music follows the fight (MusicManager::update)
+	Bool m_legacySound;								///< "LegacySound" in Options.ini: retail's mix, none of the v3.4 processing (MilesAudioManager::applyLegacySound)
 	Bool m_muteInBackground;					///< "MuteInBackground" in Options.ini: silent while another window has the focus (WinMain's WM_ACTIVATE)
   Bool m_3DSoundPref;               ///< Whether user wants to use 3DSound or not
 

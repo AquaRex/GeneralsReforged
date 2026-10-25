@@ -571,6 +571,7 @@ S32 g_linearFalloff;	// AIL_ex_set_3D_linear_falloff
 std::atomic<float> g_speedOfSound(0.0f);	// AIL_ex_set_3D_air
 std::atomic<float> g_absorptionDistance(0.0f);
 std::atomic<float> g_roomSend(0.0f);	// AIL_ex_set_reverb's wet
+std::atomic<bool> g_limiter(true);	// AIL_ex_set_limiter, read by MasterTap on XAudio2's thread
 
 // The rest of AIL_ex_set_reverb, under the lock, for a room made again with the output.
 struct RoomSettings
@@ -1347,7 +1348,9 @@ public:
 		if (input[0].BufferFlags == XAPO_BUFFER_SILENT) {
 			memset(mix, 0, samples * sizeof(float));
 		}
-		AIL_ex_limit(&m_limiter, mix, (S32)input[0].ValidFrameCount);
+		if (g_limiter.load()) {
+			AIL_ex_limit(&m_limiter, mix, (S32)input[0].ValidFrameCount);
+		}
 		if (output != NULL) {
 			output[0].ValidFrameCount = input[0].ValidFrameCount;
 			output[0].BufferFlags = XAPO_BUFFER_VALID;
@@ -2252,6 +2255,12 @@ void AILCALL AIL_ex_set_3D_air(F32 speed_of_sound, F32 absorption_distance)
 	// No lock, as AIL_ex_set_3D_linear_falloff
 	g_speedOfSound.store(speed_of_sound);
 	g_absorptionDistance.store(absorption_distance);
+}
+
+void AILCALL AIL_ex_set_limiter(S32 on)
+{
+	// No lock, as AIL_ex_set_3D_linear_falloff; the master's next pass takes it up
+	g_limiter.store(on != 0);
 }
 
 void AILCALL AIL_ex_set_reverb(F32 wet, F32 decay, F32 damping, F32 echo, F32 slap)

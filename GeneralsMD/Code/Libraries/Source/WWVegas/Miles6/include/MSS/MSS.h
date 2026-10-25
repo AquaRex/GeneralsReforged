@@ -311,7 +311,8 @@ void      AILCALL AIL_ex_set_3D_linear_falloff(S32 linear);
  * (mss_ex_pcm.h) is never ducked.
  *
  * Both backends hold the mix under AIL_EX_LIMITER_CEILING with the same limiter (AIL_ex_limit), so
- * nothing they play or record clips.
+ * nothing they play or record clips.  AIL_ex_set_limiter(0) passes the mix through untouched, as
+ * Miles did, for the Legacy sound option; it starts on.
  *
  * AIL_ex_set_3D_sample_dry: a 3D sample that takes no air, no doppler and no room, only its distance
  * gain, pan and occlusion; a unit's reply stays clean.  Set on each play; a fresh handle is wet. */
@@ -319,6 +320,7 @@ void      AILCALL AIL_ex_set_3D_air(F32 speed_of_sound, F32 absorption_distance)
 void      AILCALL AIL_ex_set_reverb(F32 wet, F32 decay, F32 damping, F32 echo, F32 slap);
 void      AILCALL AIL_ex_duck(H3DSAMPLE trigger, F32 gain, F32 seconds);
 void      AILCALL AIL_ex_set_3D_sample_dry(H3DSAMPLE handle, S32 dry);
+void      AILCALL AIL_ex_set_limiter(S32 on);
 
 /* ---- output device ------------------------------------------------------ */
 /* Not Miles.  AIL_ex_set_output_device: the endpoint to play on, an MMDevice id as IMMDevice::GetId

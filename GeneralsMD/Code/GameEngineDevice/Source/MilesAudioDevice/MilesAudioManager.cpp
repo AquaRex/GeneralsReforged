@@ -145,6 +145,7 @@ MilesAudioManager::MilesAudioManager() :
 	m_clockFrame(0),
 	m_clockElapsedMs(MSEC_PER_LOGICFRAME_REAL),
 	m_clockMovedAt(0),
+	m_legacySound(FALSE),
 	m_askingOnArrival(false),
 	m_bedHandle(AHSV_Error),
 	m_bedStartedAt(0),
@@ -505,6 +506,7 @@ void MilesAudioManager::audioDebugDisplay(DebugDisplayInterface *dd, void *, FIL
 void MilesAudioManager::init()
 {
 	AudioManager::init();
+	m_engineSettings = *m_audioSettings;
 #ifdef INTENSE_DEBUG
 	DEBUG_LOG(("Sound has temporarily been disabled in debug builds only. jkmcd\n"));
 	// for now, _DEBUG builds only should have no sound. ask jkmcd or srj about this.
@@ -622,6 +624,7 @@ void MilesAudioManager::update()
 	processCompletedAudio();
 	updateSoundCapture();
 	advanceAudioClock();
+	applyLegacySound();
 	if (TheGameLogic->isInGame() && !TheGameLogic->isLoadingMap() && m_roomMap != TheGlobalData->m_mapName)
 	{
 		m_roomMap = TheGlobalData->m_mapName;
@@ -3325,6 +3328,11 @@ void MilesAudioManager::updateOcclusion( PlayingAudio *playing, const Coord3D *p
 {
 	const AudioEventInfo *info = playing->m_audioEventRTS->getAudioEventInfo();
 	if (m_audioSettings->m_occlusionStrength <= 0.0f || info == NULL || BitTest(info->m_type, ST_VOICE | ST_GLOBAL)) {
+		// occlusion switched off (Legacy sound) under a sound it had muffled
+		if (playing->m_occlusion > 0.0f) {
+			playing->m_occlusion = 0.0f;
+			applyOcclusion(playing);
+		}
 		return;
 	}
 	if (look) {
@@ -3447,6 +3455,56 @@ void MilesAudioManager::buildBlockers( void )
 			}
 		}
 	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The processing v3.4.0 put between a sound and the speakers, as AudioSettings.ini gives it (`from`)
+	* or, with `from` NULL, each stage at the value its own comment in AudioSettings.h calls none. */
+static void setSoundProcessing( AudioSettings *to, const AudioSettings *from )
+{
+	to->m_speedOfSound = from ? from->m_speedOfSound : 0.0f;							// travel delay and doppler
+	to->m_maxSoundDelay = from ? from->m_maxSoundDelay : 0.0f;
+	to->m_dopplerScale = from ? from->m_dopplerScale : 0.0f;
+	to->m_airAbsorptionDistance = from ? from->m_airAbsorptionDistance : 0.0f;	// the air's low pass
+	to->m_reverbLevel = from ? from->m_reverbLevel : 0.0f;								// the map's room
+	to->m_duckVolume = from ? from->m_duckVolume : 1.0f;
+	to->m_replyUnitCooldown = from ? from->m_replyUnitCooldown : 0.0f;
+	to->m_replyGap = from ? from->m_replyGap : 0.0f;
+	to->m_replyMaxVoices = from ? from->m_replyMaxVoices : 0;
+	to->m_battleVoiceBudget = from ? from->m_battleVoiceBudget : 0;
+	to->m_coalesceRadius = from ? from->m_coalesceRadius : 0.0f;							// shot folding
+	to->m_occlusionStrength = from ? from->m_occlusionStrength : 0.0f;
+	to->m_occlusionVolume = from ? from->m_occlusionVolume : 1.0f;
+	to->m_zoomMixDetailVolume = from ? from->m_zoomMixDetailVolume : 1.0f;
+	to->m_ambienceBedSnow = from ? from->m_ambienceBedSnow : AsciiString::TheEmptyString;
+	to->m_ambienceBedTown = from ? from->m_ambienceBedTown : AsciiString::TheEmptyString;
+	to->m_ambienceBedDesert = from ? from->m_ambienceBedDesert : AsciiString::TheEmptyString;
+	to->m_ambienceBedField = from ? from->m_ambienceBedField : AsciiString::TheEmptyString;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Legacy sound (LegacySound in Options.ini, on Options > Audio): retail's mix, every stage above off
+	* and the backend's limiter with them, and MusicManager::engaged leaving the music to the scripts.
+	* Taken up the pass after the option changes.  The room and the bed are set again from the map on
+	* this same pass (setRoomFromMap), the bed playing now stopped; a sound already muffled opens up on
+	* its next position update (updateOcclusion). */
+void MilesAudioManager::applyLegacySound( void )
+{
+	if (m_legacySound == TheGlobalData->m_legacySound)
+		return;
+	m_legacySound = TheGlobalData->m_legacySound;
+	setSoundProcessing( m_audioSettings, m_legacySound ? NULL : &m_engineSettings );
+	AIL_ex_set_limiter( !m_legacySound );
+	AIL_ex_set_3D_air( m_audioSettings->m_speedOfSound, m_audioSettings->m_airAbsorptionDistance );
+	removeAudioEvent( m_bedHandle );
+	m_bedEvent.clear();
+	m_roomMap.clear();
+	DEBUG_LOG(("AUDIO: legacy sound %s: delay %.0f ms, doppler %.1f, air %.0f, room %.2f, duck %.2f, occlusion %.2f, "
+		"budget %d, folding %.0f, replies %d, zoom mix %.2f, limiter %s\n", m_legacySound ? "on" : "off",
+		m_audioSettings->m_maxSoundDelay, m_audioSettings->m_dopplerScale, m_audioSettings->m_airAbsorptionDistance,
+		m_audioSettings->m_reverbLevel, m_audioSettings->m_duckVolume, m_audioSettings->m_occlusionStrength,
+		m_audioSettings->m_battleVoiceBudget, m_audioSettings->m_coalesceRadius, m_audioSettings->m_replyMaxVoices,
+		m_audioSettings->m_zoomMixDetailVolume, m_legacySound ? "off" : "on"));
 }
 
 //-------------------------------------------------------------------------------------------------

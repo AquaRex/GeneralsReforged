@@ -15169,6 +15169,14 @@ TOOLTIP:MuteInBackground
 "Başka bir pencere öndeyken oyunu susturur. Kapalıyken oyun bir tarayıcının arkasında ya da ikinci monitörde de duyulur."
 END
 
+GUI:LegacySound
+"Eski Ses"
+END
+
+TOOLTIP:LegacySound
+"Özgün oyunun sesi: haritada yankı yok, uzaklık, tepe ya da bina boğukluğu yok, uzak ve geçen seslerde gecikme ya da perde kayması yok, büyük patlamalardan sonra kısılma yok, savaş seslerine ve birlik cevaplarına sınır yok, sınırlayıcı yok, harita ambiyansı yok, müzik de çatışmayı izlemez. Ana ses, cihaz ve hoparlörler yine geçerlidir. Hemen etkili olur."
+END
+
 GUI:IsometricCamera
 "İzometrik Kamera"
 END

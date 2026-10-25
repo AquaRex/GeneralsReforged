@@ -360,7 +360,7 @@ void MusicManager::startMatch( void )
 	* main thread outside the tick, where the audio already reads the player and the objects. */
 Bool MusicManager::engaged( void ) const
 {
-	if (!TheGlobalData->m_dynamicMusic || TheGameLogic == NULL || !TheGameLogic->isInGame()
+	if (!TheGlobalData->m_dynamicMusic || TheGlobalData->m_legacySound || TheGameLogic == NULL || !TheGameLogic->isInGame()
 			|| TheGameLogic->isLoadingMap() || TheGameLogic->isInShellGame()
 			|| !(TheGameLogic->isInSkirmishGame() || TheGameLogic->isInMultiplayerGame()))
 		return FALSE;
