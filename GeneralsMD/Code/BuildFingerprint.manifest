@@ -14,8 +14,6 @@ Data/Art/Textures/ReforgedBarChinaRight.tga
 Data/Art/Textures/ReforgedBarGLACenter.tga
 Data/Art/Textures/ReforgedBarGLALeft.tga
 Data/Art/Textures/ReforgedBarGLARight.tga
-Data/Art/Textures/ReforgedExplosionFire.dds
-Data/Art/Textures/ReforgedExplosionSmoke.dds
 Data/Art/Textures/ReforgedForceAttack.tga
 Data/Art/Textures/ReforgedHudAmericaCommandBar.dds
 Data/Art/Textures/ReforgedHudAmericaPowers.dds
@@ -4043,7 +4041,6 @@ Tools/china_beacon.py
 Tools/control_client.py
 Tools/d3d9posix_check.py
 Tools/diplomacy_layout.py
-Tools/explosion_flipbook.py
 Tools/ffmpeg-build-posix.sh
 Tools/ffmpeg-build.bat
 Tools/ffmpeg-build.sh
