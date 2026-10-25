@@ -1182,17 +1182,11 @@ Bool isValidMap( AsciiString mapName, Bool isMultiplayer )
 		return FALSE;
 	TheMapCache->updateCache();
 
-	mapName.toLower();
-	MapCache::iterator it = TheMapCache->find(mapName);
-	if (it != TheMapCache->end())
-	{
-		if (isMultiplayer == it->second.m_isMultiplayer)
-		{
-			return TRUE;
-		}
-	}
-
-	return FALSE;
+	// findMap, not find: a generated map is in the cache only while the generator holds it, and one
+	// it has let go of - the room's map after a match, the one remembered from the last run - is
+	// still a map, built again from its name
+	const MapMetaData *md = TheMapCache->findMap(mapName);
+	return md != NULL && isMultiplayer == md->m_isMultiplayer;
 }  // end isValidMap
 
 //-------------------------------------------------------------------------------------------------

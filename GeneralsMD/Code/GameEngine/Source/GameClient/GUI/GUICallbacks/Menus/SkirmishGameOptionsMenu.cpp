@@ -418,7 +418,9 @@ Bool SkirmishPreferences::write(void)
 
 	(*this)["PlayerTemplate"] = PlayerTemplatePreference(TheSkirmishGameInfo->getConstSlot(0)->getPlayerTemplate());
 
-	(*this)["Map"] = TheSkirmishGameInfo->getMap();
+	// read back through QuotedPrintableToAsciiString, whose escape is '_': a generated map's
+	// "rmg_v17_..." written as it is came back as garbage and the room fell back to another map
+	(*this)["Map"] = AsciiStringToQuotedPrintable(TheSkirmishGameInfo->getMap());
 
 	(*this)["UserName"] = UnicodeStringToQuotedPrintable(TheSkirmishGameInfo->getConstSlot(0)->getName());
 
