@@ -40,6 +40,7 @@
 #include "Common/PlayerTemplate.h"
 #include "Common/QuotedPrintable.h"
 #include "Common/RandomValue.h"
+#include "Common/RandomMapGenerator.h"
 #include "Common/SkirmishBattleHonors.h"
 #include "Common/SkirmishPreferences.h"
 #include "GameLogic/GameLogic.h"
@@ -884,7 +885,24 @@ void positionStartSpots( GameInfo *myGame, GameWindow *buttonMapStartPositions[]
 			}
 		}
 	}
-	positionStartSpots(localMapFname, buttonMapStartPositions, mapWindow);	
+	// A generated map shows the shipped map it is made from (Surprise me the unknown map) until the
+	// match loads.  Its spots, depots and tech are not that map's, so none is shown and nobody picks
+	// a spot: every seat starts where the map puts it.
+	if (isGeneratedMapPath(localMapFname))
+	{
+		AsciiString templatePath;
+		generatedMapTemplate(localMapFname, templatePath);
+		positionStartSpots(templatePath, buttonMapStartPositions, mapWindow);
+		mapWindow->winSetUserData(NULL);
+		positionAdditionalImages(NULL, mapWindow, TRUE);
+		for (Int i = 0; i < MAX_SLOTS; ++i)
+		{
+			if (buttonMapStartPositions[i] != NULL)
+				buttonMapStartPositions[i]->winHide(TRUE);
+		}
+		return;
+	}
+	positionStartSpots(localMapFname, buttonMapStartPositions, mapWindow);
 }
 
 // A start spot draws as the button it is; a taken one then has its dark middle filled with its team's
