@@ -16763,6 +16763,8 @@ TEST(graphics_quality_slider_only_ever_turns_settings_up)
 		for( Int step = 1; step < GRAPHICS_QUALITY_STEPS; ++step )
 			CHECK( quality.values[ step ] >= quality.values[ step - 1 ] );
 	}
+	// Modern water is opt-in: a preset gave it to the sea of the main menu's shell map at 11 to 45 ms a pass
+	CHECK( findGraphicsQualityRow( "ComboBoxWaterStyle" ) == NULL );
 
 	// the slider's own position is a catalog row with exactly the table's steps
 	const OptionDef *slider = findOptionDef( "GraphicsQuality" );

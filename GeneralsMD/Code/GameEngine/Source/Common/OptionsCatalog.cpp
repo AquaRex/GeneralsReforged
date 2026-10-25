@@ -651,12 +651,16 @@ const Int TheOptionCatalogCount = (sizeof( TheOptionCatalog ) / sizeof( TheOptio
 // free on a card that holds its frame rate and is what saves one that does not, so it waits for
 // Ultra.  Multisampling is read by Direct3D 9 alone and cost nothing measurable there at 8x on this
 // card, which another card may not repeat, so it rises through the middle.  Under Direct3D 9
-// MapLight, TeamGlow and WaterFoam are greyed and the slider leaves them; the shadow map, Modern
-// water and the volumetric clouds are the other renderers' alone.
+// MapLight, TeamGlow and WaterFoam are greyed and the slider leaves them; the shadow map and the
+// volumetric clouds are the other renderers' alone.
 //
 // Trees have no row: GameLogic reads the setting as a map loads, so it stays with the memory test
 // as EA had it and a preset never turns them off.  The behind-buildings marker has none either; it
-// is there to read the battlefield, not to cost frame time.
+// is there to read the battlefield, not to cost frame time.  Water style has none: the fight above
+// had no sea, so Modern water read as free, and v3.4.0 gave it to every preset from Medium up and
+// to every Options.ini without the key.  The main menu's shell map is mostly sea, and there the
+// same card spent 11 to 45 ms a pass against 3.3 to 6 ms with Classic water.  It stays the opt-in
+// GlobalData's constructor makes it.
 //-----------------------------------------------------------------------------
 const Int TheGraphicsQualityAnchors[] = { 0, 4, 7, 10 };
 
@@ -676,7 +680,6 @@ const GraphicsQualityRow TheGraphicsQualityTable[] =
 	{ "CheckSmokeFireLighting",	0.0f,  {    0,    0,    1,    1,    1,    1,    1,    1,    1,    1,    1 } },
 	{ "CheckTeamGlow",					0.0f,  {    0,    0,    0,    1,    1,    1,    1,    1,    1,    1,    1 } },
 	{ "CheckWaterFoam",					0.0f,  {    0,    0,    0,    1,    1,    1,    1,    1,    1,    1,    1 } },
-	{ "ComboBoxWaterStyle",			0.0f,  {    0,    0,    0,    1,    1,    1,    1,    1,    1,    1,    1 } },
 	{ "ComboBoxCloudStyle",			0.0f,  {    0,    0,    0,    1,    1,    1,    1,    1,    1,    1,    1 } },
 	{ "CheckParticleBounce",		0.0f,  {    0,    0,    0,    1,    1,    1,    1,    1,    1,    1,    1 } },
 	{ "CheckInfantryShadows",		0.0f,  {    0,    0,    0,    0,    0,    1,    1,    1,    1,    1,    1 } },
