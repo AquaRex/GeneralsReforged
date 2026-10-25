@@ -1,8 +1,9 @@
 # Projectile flight paths, one launcher per lane, each shooting an unarmed target: tank shell
 # (Crusader), lobbed shells (Inferno Cannon, Nuke Cannon), missiles (Scud Launcher, Tomahawk,
 # Rocket Buggy), tank shells out of raised barrels (the four Fire Bases, the base one at about 105 and
-# then 160; the demo battleship at 330) and tank shells on uneven ground (a Crusader up a slope at
-# 100, a Scorpion down one at 75, an Overlord at a car 40 away and 10 degrees below). The paths are
+# then 160; the demo battleship at 330; the USS Bender's own shell at 230) and tank shells on
+# uneven ground (a Crusader up a slope at 100, a Scorpion down one at 75, an Overlord at a car 40
+# away and 10 degrees below). The paths are
 # only in the log with a temporary per-frame trace of each projectile's position and nose, a
 # DEBUG_LOG in DumbProjectileBehavior::update and MissileAIUpdate::update.
 #
@@ -16,12 +17,16 @@
 # degrees up while the shell flew the line, 9 to 12 degrees down, because StraightWhenClear never
 # looked at the barrel. It now leaves at 44 and 51 and comes down at 66 to 71. The Air Force, Laser
 # and Superweapon Fire Bases do the same (barrel 38 to 57, leave 1.4 under it). Every tank barrel
-# reads -2.5 or 0, since the logic never tilts a hull on a slope, and every tank shell, the Overlord's
-# at 10 degrees down included, still flies the line. The battleship's front turret is aimed 12 up but
-# its launch matrix read 12 down (its art faces backward, it has no launch bone, and the identity
-# matrix was turned by the art angle anyway), so its shells flew the line. It now reads 12 up: the
-# shell leaves at 11, peaks 19 over the line on a 330 shot and comes down on the car at 17. Inferno and Nuke Cannon shells are
-# unchanged to the tenth of a degree.
+# reads -2.5 or 0, since the logic never tilts a hull on a slope, and every tank shell, the
+# Overlord's at 10 degrees down included, still flies the line. The battleships' front turret is aimed 12 up (20 on the USS Bender)
+# but its launch matrix read 12 down (20 down): its art faces backward, it has no launch bone, and the
+# identity matrix was turned by the art angle anyway. The demo battleship's shell flew the line and
+# the Bender's took EA's arc, out at 43. Both now leave along the barrel: the demo's at 11, in at 17,
+# peaking 19 over the line at 330; the Bender's at 21, in at 76, its own arc 63 over the line at
+# 230. Inferno and Nuke Cannon shells are unchanged to the tenth of a degree.
+#
+# A battleship's shell starts about 65 beyond the drawn muzzle: with no launch bone the logic launches
+# from the ship's origin swung round the turret's pivot, 180 to 190 from the ship's centre.
 #
 # Sharpest nose turn in one frame, before and after straight tank shells, barrel-led lobs and the
 # cruise missiles' single curve (2026-10-13): tank shell 13.7 to 1.9 and 7.2 to 0 over the line, Nuke
@@ -53,6 +58,8 @@
 30    spawn      1  CarSUV01                       1   250 1260
 30    spawn      0  AmericaVehicleBattleShipDemo   1   1400 1550
 30    spawn      1  CarTaxiCab01                   1   1000 1250
+30    spawn      0  AmericaVehicleBattleShipUSSBender 1 1400 1100
+30    spawn      1  CarBug1                        1   1000 1000
 30    spawn      0  ChinaTankOverlord              1   1150 1720
 30    spawn      1  CarTaxiCab02                   1   1150 1650
 30    spawn      0  SupW_AmericaTankCrusader       1   850 1600
@@ -71,6 +78,7 @@
 60    attack     0  Lazr_AmericaFireBase           1  CarCompact
 60    attack     0  SupW_AmericaFireBase           1  CarSUV01
 60    attack     0  AmericaVehicleBattleShipDemo   1  CarTaxiCab01
+60    attack     0  AmericaVehicleBattleShipUSSBender 1 CarBug1
 60    attack     0  ChinaTankOverlord              1  CarTaxiCab02
 60    attack     0  SupW_AmericaTankCrusader       1  CarCamaro
 60    attack     0  GLATankScorpion                1  CarTaxiCab04
