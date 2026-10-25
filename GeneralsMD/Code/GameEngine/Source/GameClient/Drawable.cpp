@@ -3709,6 +3709,15 @@ void Drawable::drawContained( const IRegion2D *healthBarRegion )
 			!(obj->isKindOf( KINDOF_STRUCTURE ) && container->isGarrisonable()))
 		return;
 
+	//
+	// a unit nobody can select carries a load nobody can unload: the plane a Supply Drop Zone or a
+	// paradrop sends over is a 100 slot transport, and it drew a row of 100 empty boxes across the
+	// screen whenever the data left it out of IGNORED_IN_GUI (drawIconUI's bail). Buildings are
+	// exempt, since a civilian house holds a garrison without being selectable.
+	//
+	if (!obj->isKindOf( KINDOF_STRUCTURE ) && !obj->isKindOf( KINDOF_SELECTABLE ))
+		return;
+
 	Int numTotal;
 	Int numFull;
 	if (!container->getContainerPipsToShow(numTotal, numFull))
