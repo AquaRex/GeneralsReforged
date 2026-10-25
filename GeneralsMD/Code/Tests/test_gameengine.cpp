@@ -1963,6 +1963,17 @@ TEST(hotkeys_file_reads_the_launchers_rows_and_leaves_its_defaults_out)
 	// KEY_NONE is not a key the launcher shows, so the shipped hold comes back as its own bar-only row
 	CHECK( hold != NULL && hold->barOnly && hold->binding == HotkeyBinding( "", "CTRL" ) && hold->pair == "END_FORCEATTACK" );
 	CHECK( idle != NULL && idle->launcherDefault && idle->binding.key == "KEY_I" );
+	// the requests to the allies start on Alt and Z, X, C and V, as the launcher writes them (issue 129)
+	static const char *const ASKS[][ 2 ] = { { "SIGNAL_ATTACK", "KEY_Z" }, { "SIGNAL_DEFEND", "KEY_X" },
+		{ "SIGNAL_ATTENTION", "KEY_C" }, { "REQUEST_MONEY", "KEY_V" } };
+	for( size_t ask = 0; ask < sizeof( ASKS ) / sizeof( ASKS[ 0 ] ); ask++ )
+	{
+		Bool found = FALSE;
+		for( size_t each = 0; each < rows.size(); each++ )
+			found = found || ( rows[ each ].id == ASKS[ ask ][ 0 ] && rows[ each ].launcherDefault
+				&& rows[ each ].binding == HotkeyBinding( ASKS[ ask ][ 1 ], "ALT" ) && rows[ each ].category == "INFORMATION" );
+		CHECK( found );
+	}
 
 	// the launcher's own defaults in the player's part are no change of his
 	const HotkeysFile mine = Hotkeys_parse(
@@ -2308,6 +2319,15 @@ TEST(each_signal_key_drops_its_own_smoke)
 	CHECK( Command_signalKindForMeta( GameMessage::MSG_META_SIGNAL_DEFEND ) == SIGNAL_DEFEND );
 	CHECK( Command_signalKindForMeta( GameMessage::MSG_META_SIGNAL_ATTENTION ) == SIGNAL_ATTENTION );
 	CHECK( Command_signalKindForMeta( GameMessage::MSG_META_PLACE_BEACON ) == SIGNAL_KIND_COUNT );
+}
+
+/* CommandXlat.cpp: attack and defend signals are also requests to the computer allies (issue 129),
+   look here is only smoke. */
+TEST(attack_and_defend_signals_ask_the_computer_allies)
+{
+	CHECK( Command_teamRequestForSignal( SIGNAL_ATTACK ) == AIREQ_ATTACK );
+	CHECK( Command_teamRequestForSignal( SIGNAL_DEFEND ) == AIREQ_HELP );
+	CHECK( Command_teamRequestForSignal( SIGNAL_ATTENTION ) == -1 );
 }
 
 /* GameLogicDispatch.cpp: one signal a second per player. */

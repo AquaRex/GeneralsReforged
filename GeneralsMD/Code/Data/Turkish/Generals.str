@@ -14709,6 +14709,10 @@ GUI:SignalAttentionPlaced
 "%s: buraya bakın!"
 END
 
+GUI:RequestMoneyChat
+"Paraya ihtiyacım var!"
+END
+
 GUI:GamePaused
 "Oyun duraklatıldı."
 END
@@ -15525,10 +15529,6 @@ TOOLTIP:StatNewWeaponFigures
 "%d hasar, %d menzil"
 END
 
-TOOLTIP:Upgrades
-"GELİŞTİRMELER"
-END
-
 TOOLTIP:StatHealthHint
 "(zırhtan sonra kaldırabileceği hasar)"
 END
@@ -15553,12 +15553,12 @@ TOOLTIP:StatTimeHint
 "(şu anki enerjiniz ve fabrikalarınızla)"
 END
 
-TOOLTIP:UpgradeChanges
-"ETKİLEDİKLERİ"
+TOOLTIP:Upgrades
+"GELİŞTİRMELER"
 END
 
-TOOLTIP:UpgradeOwned
-"alındı"
+TOOLTIP:UpgradeChanges
+"ETKİLEDİKLERİ"
 END
 
 TOOLTIP:UpgradesHint
@@ -15567,6 +15567,10 @@ END
 
 TOOLTIP:UpgradeChangesHint
 "(yalın birlik → bununla)"
+END
+
+TOOLTIP:UpgradeOwned
+"alındı"
 END
 
 GUI:HudStatArmy
@@ -16179,6 +16183,10 @@ END
 
 GUI:HotkeysCommandSIGNAL_ATTENTION
 "İşaret: buraya bak"
+END
+
+GUI:HotkeysCommandREQUEST_MONEY
+"Müttefiklerden para iste"
 END
 
 GUI:HotkeysCommandBEGIN_WAYPOINTS

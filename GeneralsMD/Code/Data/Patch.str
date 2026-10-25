@@ -84,6 +84,11 @@ GUI:SignalAttentionPlaced
 "%s: look here!"
 END
 
+// The money request's line in the allies' chat, in the asker's own language.
+GUI:RequestMoneyChat
+"I need money!"
+END
+
 GUI:GamePaused
 "Game paused."
 END
@@ -911,11 +916,6 @@ TOOLTIP:StatNewWeaponFigures
 "%d damage, %d range"
 END
 
-// Under the figures: a unit's upgrades, or on an upgrade's card the units it changes.
-
-TOOLTIP:Upgrades
-"UPGRADES"
-END
 // The gloss after each figure on the card: what it counts, as the card computes it.  Damage is the
 // main weapon's primary damage a shot, the weapon that does the most a second; attack speed spreads
 // a clip's reload over its shots; range is in world units, 10 to a pathfinding cell, the square the
@@ -945,16 +945,16 @@ TOOLTIP:StatTimeHint
 "(with your power and factories now)"
 END
 
+// Under the figures: a unit's upgrades, or on an upgrade's card the units it changes.
+
+TOOLTIP:Upgrades
+"UPGRADES"
+END
 
 TOOLTIP:UpgradeChanges
 "CHANGES"
 END
 
-TOOLTIP:UpgradeOwned
-"owned"
-END
-
-// Peace time - the lobby combo box, its tooltip, the corner countdown and the three things the game
 TOOLTIP:UpgradesHint
 "(without it → with it)"
 END
@@ -963,6 +963,11 @@ TOOLTIP:UpgradeChangesHint
 "(plain unit → with this)"
 END
 
+TOOLTIP:UpgradeOwned
+"owned"
+END
+
+// Peace time - the lobby combo box, its tooltip, the corner countdown and the three things the game
 // says while the clock runs.  Tools/peacetime_layout.py selfcheck fails if any of these goes missing.
 
 GUI:PeaceTimeOff
@@ -1799,6 +1804,10 @@ END
 
 GUI:HotkeysCommandSIGNAL_ATTENTION
 "Signal: look here"
+END
+
+GUI:HotkeysCommandREQUEST_MONEY
+"Ask allies for money"
 END
 
 GUI:HotkeysCommandBEGIN_WAYPOINTS
