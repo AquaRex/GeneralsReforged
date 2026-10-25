@@ -17630,3 +17630,31 @@ END
 GUI:RandomMapSizeHuge
 "Çok Büyük"
 END
+
+GUI:FactionPickTitle
+"Ordu Seç"
+END
+
+GUI:FactionPickRandomAll
+"Hepsi Rastgele"
+END
+
+GUI:FactionPickCustom
+"Özel Seçim"
+END
+
+GUI:FactionPickConfirm
+"Onayla: %s"
+END
+
+GUI:FactionPickRandom
+"Rastgele, maç başlarken bu ordulardan birini sizin için seçer."
+END
+
+GUI:FactionPickLeftOut
+"Rastgele şunları hiç seçmez: %s. Eklemek için Özel Seçim'den işaretleyin."
+END
+
+GUI:FactionPickPool
+"Rastgele, solda işaretli %d ordudan birini seçer (toplam %d). Bir orduya tıklayarak onu ekleyin ya da çıkarın."
+END

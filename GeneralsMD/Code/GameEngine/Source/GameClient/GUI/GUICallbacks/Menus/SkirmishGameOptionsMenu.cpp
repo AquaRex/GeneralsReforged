@@ -310,8 +310,8 @@ Int SkirmishPreferences::getPreferredFaction(void)
 		return PLAYERTEMPLATE_RANDOM;
 	}
 
-	ret = atoi(it->second.str());
-	if (ret < PLAYERTEMPLATE_MIN || ret >= ThePlayerTemplateStore->getPlayerTemplateCount())
+	ret = PlayerTemplateFromPreference(it->second);
+	if (!IsValidPlayerTemplatePick(ret))
 		ret = PLAYERTEMPLATE_RANDOM;
 
 	if (ret >= 0)
@@ -415,8 +415,7 @@ Bool SkirmishPreferences::write(void)
 	tmp.format("%d", TheSkirmishGameInfo->getConstSlot(0)->getColor());
 	(*this)["Color"] = tmp;
 
-	tmp.format("%d", TheSkirmishGameInfo->getConstSlot(0)->getPlayerTemplate());
-	(*this)["PlayerTemplate"] = tmp;
+	(*this)["PlayerTemplate"] = PlayerTemplatePreference(TheSkirmishGameInfo->getConstSlot(0)->getPlayerTemplate());
 
 	(*this)["Map"] = TheSkirmishGameInfo->getMap();
 
@@ -988,12 +987,12 @@ void updateMapStartSpots( GameInfo *myGame, GameWindow *buttonMapStartPositions[
 		// a taken spot is filled with its team's colour, or the player's without a team; the number
 		// stays for whoever cannot tell the colours apart
 		const Int spot = onLoadScreen ? gs->getApparentStartPos() : gs->getStartPos();
-		if (spot >= 0 && spot < mmd.m_numPlayers && gs->getPlayerTemplate() > PLAYERTEMPLATE_MIN)
+		if (spot >= 0 && spot < mmd.m_numPlayers && gs->getPlayerTemplate() != PLAYERTEMPLATE_OBSERVER)
 			startSpotFill(buttonMapStartPositions[spot])->fill =
 				gs->getTeamNumber() >= 0 ? LobbyTeamColor(gs->getTeamNumber()) : LobbySeatColor(gs);
 		if(onLoadScreen)
 		{
-			if(gs->getApparentStartPos() >=0 && gs->getApparentStartPos() < mmd.m_numPlayers && gs->getPlayerTemplate() > PLAYERTEMPLATE_MIN )
+			if(gs->getApparentStartPos() >=0 && gs->getApparentStartPos() < mmd.m_numPlayers && gs->getPlayerTemplate() != PLAYERTEMPLATE_OBSERVER )
 			{
 				AsciiString displayNumber;
 				displayNumber.format("NUMBER:%d",i + 1);
@@ -1002,7 +1001,7 @@ void updateMapStartSpots( GameInfo *myGame, GameWindow *buttonMapStartPositions[
 		}
 		else
 		{
-			if(gs->getStartPos() >=0 && gs->getStartPos() < mmd.m_numPlayers && gs->getPlayerTemplate() > PLAYERTEMPLATE_MIN )
+			if(gs->getStartPos() >=0 && gs->getStartPos() < mmd.m_numPlayers && gs->getPlayerTemplate() != PLAYERTEMPLATE_OBSERVER )
 			{
 				AsciiString displayNumber;
 				displayNumber.format("NUMBER:%d",i + 1);

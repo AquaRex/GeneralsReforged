@@ -53,6 +53,7 @@
 #include "Common/PlayerTemplate.h"
 #include "GameNetwork/LANAPICallbacks.h" // for acceptTrueColor, etc
 #include "GameClient/ChallengeGenerals.h"
+#include "GameClient/FactionPicker.h"
 #include "Common/GlobalData.h"
 #include "Lib/WideCharFns.h"
 #include "Lib/Clock.h"
@@ -1393,10 +1394,12 @@ void InitLobbySeatVisuals(GameWindow *parent, const char *layoutFilename)
 			theSeatTeam[i]->winSetDrawFunc(drawSwatch);
 	}
 	theSeatsShowReady = strcmp(layoutFilename, "SkirmishGameOptionsMenu.wnd") != 0;
+	FactionPickerAttach(parent, layoutFilename);
 }
 
 void ShutdownLobbySeatVisuals(void)
 {
+	FactionPickerDetach();
 	for (Int i = 0; i < MAX_SLOTS; ++i)
 		theSeatCard[i] = theSeatBar[i] = theSeatSwatch[i] = theSeatTeam[i] = NULL;
 }
@@ -1578,6 +1581,7 @@ void UpdateSlotList( GameInfo *myGame, GameWindow *comboPlayer[],
 			}
 
 			if (comboPlayerTemplate[i] != NULL) {
+				FactionPickerSyncRandom(comboPlayerTemplate[i], slot->getPlayerTemplate());
 				max = GadgetComboBoxGetLength(comboPlayerTemplate[i]);
 				for (idx=0; idx<max; ++idx)
 				{

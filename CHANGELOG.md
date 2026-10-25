@@ -19,6 +19,12 @@ found and fixed â€” EA's own, not port damage.**
 - In a LAN or online room the other players do not download anything: the map's name carries its recipe, and their own game builds the same map from it and checks it against yours. A room that records stats keeps to the official list.
 - Random maps used to be reachable only by a hidden command-line switch that added five rows to the skirmish list.
 
+## An army screen in every lobby
+
+- Click a seat's army in the skirmish, LAN or online room and a full screen opens in place of the drop-down list. Every army stands on it under its side's heading, USA, China, GLA and Turkiye, with a large portrait of the one you click, its name across a banner, what it is built to do and what it brings. Confirm takes the army; Back or Escape leaves the seat as it was. The host picks for the computer seats the same way, and nobody can open another player's seat.
+- Random gets a pool you choose. Custom Selection puts a tick box on every army, and Random then draws only from the ticked ones: tick China and its three generals and you play Chinese every game, which one is a surprise. With Random focused, the portrait shows every army it can be, lit when it is in the draw and dimmed when it is not. Everyone in the room draws from the same pool, the replay too, so a game never splits over it, and the skirmish room keeps your pool for the next match.
+- A plain Random no longer hands you Turkiye. The side is an experiment and a player asking for any army should not get it unasked; tick it into a Custom Selection to have it in the draw. Armies a mod brings in beside ours show on the screen and go into a pool like any other. A replay recorded before this change, with a Random seat in it, plays out differently.
+
 ## Music that follows the fight
 
 - In a skirmish or an online match the music now answers the battle. While nothing happens one of your side's calmer tracks plays; once guns open up near the camera or on your own forces it crossfades to a harder one, and to the hardest when the fight is big. Six Crusaders against six Scorpions and four Technicals: the first shots brought in a tense track, the battle track followed four seconds later, and twelve seconds after the shooting died down a calm one was back. Two Rangers against three Rebels only gets the middle one.

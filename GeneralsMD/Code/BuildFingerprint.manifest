@@ -187,6 +187,7 @@ Data/INI/ControlBarSchemeReforged.ini
 Data/INI/FXListReforged.ini
 Data/INI/FixesReforged.ini
 Data/INI/MappedImages/HandCreated/ReforgedBarChinaBeacon.ini
+Data/INI/MappedImages/HandCreated/ReforgedFactionPicker.ini
 Data/INI/MappedImages/HandCreated/ReforgedForceAttack.ini
 Data/INI/MappedImages/HandCreated/ReforgedHudAmericaCommandBar.ini
 Data/INI/MappedImages/HandCreated/ReforgedHudAmericaPowers.ini
@@ -212,12 +213,12 @@ Data/INI/ParticleSystemReforged.ini
 Data/INI/PlayerTemplateReforged.ini
 Data/INI/ScienceReforged.ini
 Data/INI/SpecialPowerReforged.ini
-Data/INI/TurkiyeReforged.ini
 Data/INI/SpeechReforged.ini
+Data/INI/TurkiyeReforged.ini
 Data/INI/TurkiyeWeaponReforged.ini
 Data/INI/UpgradeReforged.ini
-Data/INI/WeaponReforged.ini
 Data/INI/VideoReforged.ini
+Data/INI/WeaponReforged.ini
 Data/INI/WindowTransitionsReforged.ini
 Data/Install_Final.bmp
 Data/Patch.str
@@ -653,6 +654,7 @@ GameEngine/Include/GameClient/EstablishConnectionsMenu.h
 GameEngine/Include/GameClient/Eva.h
 GameEngine/Include/GameClient/ExtendedMessageBox.h
 GameEngine/Include/GameClient/FXList.h
+GameEngine/Include/GameClient/FactionPicker.h
 GameEngine/Include/GameClient/FontDesc.h
 GameEngine/Include/GameClient/GUICallbacks.h
 GameEngine/Include/GameClient/GUICommandTranslator.h
@@ -1252,6 +1254,7 @@ GameEngine/Source/GameClient/GUI/ControlBar/ControlBarStructureInventory.cpp
 GameEngine/Source/GameClient/GUI/ControlBar/ControlBarUnderConstruction.cpp
 GameEngine/Source/GameClient/GUI/DisconnectMenu/DisconnectMenu.cpp
 GameEngine/Source/GameClient/GUI/EstablishConnectionsMenu/EstablishConnectionsMenu.cpp
+GameEngine/Source/GameClient/GUI/FactionPicker.cpp
 GameEngine/Source/GameClient/GUI/GUICallbacks/ControlBarCallback.cpp
 GameEngine/Source/GameClient/GUI/GUICallbacks/ControlBarPopupDescription.cpp
 GameEngine/Source/GameClient/GUI/GUICallbacks/Diplomacy.cpp

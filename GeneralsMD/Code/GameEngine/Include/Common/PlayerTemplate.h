@@ -141,6 +141,8 @@ public:
 	AsciiString getScoreScreenMusic() const { return m_scoreScreenMusic; }
 
   inline Bool isOldFaction( void ) const { return m_oldFaction; }
+	/// a plain Random never draws it; a lobby's own pick of the Random pool may still tick it in
+	inline Bool isRandomExcluded( void ) const { return m_randomExcluded; }
 
 	static const FieldParse* getFieldParse();
 
@@ -181,6 +183,7 @@ private:
 	Bool							m_observer;
 	Bool							m_playableSide;
   Bool              m_oldFaction;                       ///< Faction existed in the original Generals
+	Bool							m_randomExcluded;
 
 	Int								m_intrinsicSPP;
 

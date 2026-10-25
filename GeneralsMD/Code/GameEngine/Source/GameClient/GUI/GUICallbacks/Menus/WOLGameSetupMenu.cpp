@@ -2582,7 +2582,7 @@ void WOLGameSetupMenuUpdate( WindowLayout * layout, void *userData)
 								}
 								else if (key == "PlayerTemplate")
 								{
-									if (val >= PLAYERTEMPLATE_MIN && val < ThePlayerTemplateStore->getPlayerTemplateCount() && val != slot->getPlayerTemplate())
+									if (IsValidPlayerTemplatePick(val) && val != slot->getPlayerTemplate())
 									{
                     // Validate for LimitArmies checkbox
                     if ( game->oldFactionsOnly() )

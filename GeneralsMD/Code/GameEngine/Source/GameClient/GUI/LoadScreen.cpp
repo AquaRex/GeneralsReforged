@@ -264,7 +264,7 @@ public:
 
 private:
 	static void drawWindow( GameWindow *window, WinInstanceData *instData );
-	void prepare( const UnicodeString &title, const UnicodeString &subtitle );
+	void prepare( const UnicodeString &titleInCapitals, const UnicodeString &subtitle );
 	GameWindow *makeWindow( GameWindow *parent );
 	void draw( void );
 	void drawMatch( void );
@@ -548,7 +548,7 @@ GameWindow *LoadScreenBoard::create( GameInfo *game, const char *modeLabel, Bool
 	cash.format( u"$%u", game->getStartingCash().countMoney() );
 	subtitle.concat( BOARD_SEPARATOR );
 	subtitle.concat( cash );
-	prepare( mapName, subtitle );
+	prepare( UIStyle::nameCapitals( mapName ), subtitle );
 
 	// the cards: two columns with the map between, as tall as four cards a side allow
 	m_unknown = text( UnicodeString( u"?" ), centerFont );
@@ -675,11 +675,11 @@ GameWindow *LoadScreenBoard::create( GameInfo *game, const char *modeLabel, Bool
 }
 
 /** The header's and the foot's words, the same on every board. */
-void LoadScreenBoard::prepare( const UnicodeString &title, const UnicodeString &subtitle )
+void LoadScreenBoard::prepare( const UnicodeString &titleInCapitals, const UnicodeString &subtitle )
 {
 	GameFont *wordmarkFont = UIStyle::font( UIStyle::TEXT_STRONG, TRUE );
 	GameFont *tipFont = UIStyle::font( UIStyle::TEXT_BODY );
-	m_title = text( UIStyle::capitals( title ), UIStyle::titleFont( UIStyle::TEXT_TITLE ) );
+	m_title = text( titleInCapitals, UIStyle::titleFont( UIStyle::TEXT_TITLE ) );
 	m_subtitle = text( subtitle, tipFont );
 	m_wordmark[ 0 ] = text( UnicodeString( u"Zero Hour" ), wordmarkFont );
 	m_wordmark[ 1 ] = text( UnicodeString( u" Reforged" ), wordmarkFont );
@@ -710,7 +710,7 @@ GameWindow *LoadScreenBoard::createMission( GameWindow *parent, const UnicodeStr
 	const UnicodeString *briefing, Int briefingLines )
 {
 	m_mission = TRUE;
-	prepare( title, subtitle );
+	prepare( UIStyle::capitals( title ), subtitle );
 
 	const Int pad = scaled( 28 );
 	const Int width = scaled( BOARD_COLUMN_WIDTH );

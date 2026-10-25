@@ -49,6 +49,11 @@
 #include "GameLogic/CRCSnapshotRing.h"
 #include "GameNetwork/GameDataMatch.h"
 #include "GameNetwork/GameInfo.h"
+#include "Common/PlayerTemplate.h"
+#include "GameClient/ChallengeGenerals.h"
+#include "GameClient/UIStyle.h"
+#include <fstream>
+#include <sstream>
 #include "GameNetwork/FrameResendPolicy.h"
 #include "GameLogic/FPUControl.h"
 #include "GameNetwork/StallJudgement.h"
@@ -7323,6 +7328,155 @@ TEST(gameslot_restores_the_pre_randomization_setup_on_a_restart)
 	fixed.reset();
 	CHECK( !fixed.hasSavedOriginalSetup() );
 	CHECK_EQ( fixed.getOriginalColor(), -1 );
+}
+
+/* A front-end title is set in capitals, and towupper in the C locale stops at ASCII: the army
+	 screen's Turkish title came out "ORDU SEç".  Turkish's i takes its dot along only in Turkish. */
+TEST(capitals_reach_turkish_and_cyrillic_letters)
+{
+	GlobalData *saved = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+	const UnicodeString words( u"ordu seç, şiğ öü ı зіґ" );
+	TheWritableGlobalData->m_textLanguage = TEXT_LANGUAGE_TURKISH;
+	CHECK( UIStyle::capitals( words ) == UnicodeString( u"ORDU SEÇ, ŞİĞ ÖÜ I ЗІҐ" ) );
+	// a map's name is English whatever the language, so its i stays plain
+	CHECK( UIStyle::nameCapitals( UnicodeString( u"Twilight Flame" ) ) == UnicodeString( u"TWILIGHT FLAME" ) );
+	TheWritableGlobalData->m_textLanguage = TEXT_LANGUAGE_ENGLISH;
+	CHECK( UIStyle::capitals( words ) == UnicodeString( u"ORDU SEÇ, ŞIĞ ÖÜ I ЗІҐ" ) );
+	CHECK( UIStyle::capitals( UnicodeString( u"ß ÷" ) ) == UnicodeString( u"ß ÷" ) );
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = saved;
+}
+
+static Bool drawIs( Int pick, Bool oldFactionsOnly, const std::vector<Int> &want )
+{
+	std::vector<Int> draw;
+	GetRandomDraw( pick, oldFactionsOnly, draw );
+	return draw == want;
+}
+
+// A seat's Random narrowed to a pool rides in its faction number, which every lobby message, slot
+// string, save and replay already carries, so the pool has to come back out of the number whole and
+// the draw has to be that pool on every machine.  Turkiye's RandomExcluded, read from the shipped
+// master, keeps it out of a plain Random and out of the default pool; a pool can still tick it in.
+TEST(random_pool_round_trips_and_plain_random_leaves_out_turkiye)
+{
+	CHECK( bootOnce() );
+	PlayerTemplateStore *savedStore = ThePlayerTemplateStore;
+	ChallengeGenerals *savedGenerals = TheChallengeGenerals;
+	ChallengeGenerals generals;	// no persona, so no general is locked
+	TheChallengeGenerals = &generals;
+	ThePlayerTemplateStore = NEW PlayerTemplateStore;
+	ThePlayerTemplateStore->init();
+
+	// Turkiye's block as the master ships it, the fields the draw reads
+	std::string turkiye;
+	{
+		std::ifstream master( std::string( ZH_CODE_DIR ) + "/Data/INI/PlayerTemplateReforged.ini" );
+		CHECK( master.good() );
+		std::string line;
+		Bool inBlock = FALSE;
+		while( std::getline( master, line ) )
+		{
+			std::istringstream words( line );
+			std::string first, second;
+			words >> first >> second;
+			if( first == "PlayerTemplate" )
+				inBlock = second == "FactionTurkiye";
+			if( !inBlock )
+				continue;
+			if( first == "PlayerTemplate" || first == "Side" || first == "StartingBuilding" || first == "OldFaction" || first == "RandomExcluded" || first == "End" )
+				turkiye += line + "\n";
+			if( first == "End" )
+				inBlock = FALSE;
+		}
+	}
+	CHECK( turkiye.find( "RandomExcluded" ) != std::string::npos );
+
+	std::string text =
+		"PlayerTemplate FactionObserver\n  Side = Observer\nEnd\n"
+		"PlayerTemplate FactionAmerica\n  Side = America\n  StartingBuilding = AmericaCommandCenter\n  OldFaction = Yes\nEnd\n"
+		"PlayerTemplate FactionAmericaAirForceGeneral\n  Side = AmericaAirForceGeneral\n  StartingBuilding = AirF_AmericaCommandCenter\nEnd\n"
+		"PlayerTemplate FactionChina\n  Side = China\n  StartingBuilding = ChinaCommandCenter\n  OldFaction = Yes\nEnd\n";
+	text += turkiye;
+	writeFile( TEST_INI, text.c_str() );
+	CHECK( loadIni( TEST_INI ) );
+	CHECK_EQ( ThePlayerTemplateStore->getPlayerTemplateCount(), 5 );
+	CHECK( ThePlayerTemplateStore->getNthPlayerTemplate( 4 )->isRandomExcluded() );
+
+	// the observer has no command center, so the pool's bits are America, Air Force, China, Turkiye
+	std::vector<Int> candidates;
+	GetRandomPoolCandidates( candidates );
+	const Int four[] = { 1, 2, 3, 4 };
+	CHECK( candidates == std::vector<Int>( four, four + 4 ) );
+	CHECK_EQ( GetDefaultRandomPool(), 0x7u );
+
+	// plain Random never lands on Turkiye, and the old-factions rule narrows it further
+	const Int three[] = { 1, 2, 3 };
+	const Int old[] = { 1, 3 };
+	CHECK( drawIs( PLAYERTEMPLATE_RANDOM, FALSE, std::vector<Int>( three, three + 3 ) ) );
+	CHECK( drawIs( PLAYERTEMPLATE_RANDOM, TRUE, std::vector<Int>( old, old + 2 ) ) );
+
+	// the default pool and an empty one are plain Random, so a lobby that ticked nothing new sends -1
+	CHECK_EQ( EncodeRandomPool( GetDefaultRandomPool() ), (Int)PLAYERTEMPLATE_RANDOM );
+	CHECK_EQ( EncodeRandomPool( 0 ), (Int)PLAYERTEMPLATE_RANDOM );
+	CHECK_EQ( DecodeRandomPool( PLAYERTEMPLATE_RANDOM ), 0x7u );
+
+	// America and Turkiye: the pick is a Random, a valid faction number, and gives the pool back
+	const Int pick = EncodeRandomPool( 0x9 );
+	CHECK( pick < PLAYERTEMPLATE_RANDOM_POOL );
+	CHECK( IsRandomPlayerTemplate( pick ) );
+	CHECK( IsValidPlayerTemplatePick( pick ) );
+	CHECK_EQ( DecodeRandomPool( pick ), 0x9u );
+	const Int ticked[] = { 1, 4 };
+	CHECK( drawIs( pick, FALSE, std::vector<Int>( ticked, ticked + 2 ) ) );
+	// Turkiye alone in a limited-armies game leaves nothing, so it draws as plain Random
+	CHECK( drawIs( EncodeRandomPool( 0x8 ), TRUE, std::vector<Int>( old, old + 2 ) ) );
+
+	// the widest pool still round-trips; one past it, and the unused negatives, are refused
+	const UnsignedInt widest = ( 1u << RANDOM_POOL_BITS ) - 1;
+	CHECK_EQ( DecodeRandomPool( EncodeRandomPool( widest ) ), widest );
+	CHECK( IsValidPlayerTemplatePick( EncodeRandomPool( widest ) ) );
+	CHECK( !IsValidPlayerTemplatePick( EncodeRandomPool( widest ) - 1 ) );
+	CHECK( !IsValidPlayerTemplatePick( -3 ) );
+	CHECK( !IsValidPlayerTemplatePick( PLAYERTEMPLATE_RANDOM_POOL ) );
+	CHECK( !IsValidPlayerTemplatePick( 5 ) );
+	CHECK( IsValidPlayerTemplatePick( PLAYERTEMPLATE_OBSERVER ) );
+	CHECK( IsValidPlayerTemplatePick( 4 ) );
+
+	// the slot string carries a pool as its mask in hex, nine bytes at the widest where the number was eleven
+	CHECK_STR( PlayerTemplateSlotField( pick ).str(), "P9" );
+	CHECK_STR( PlayerTemplateSlotField( PLAYERTEMPLATE_RANDOM ).str(), "-1" );
+	CHECK_STR( PlayerTemplateSlotField( 3 ).str(), "3" );
+	CHECK_EQ( PlayerTemplateSlotField( EncodeRandomPool( widest ) ).getLength(), 9 );
+	CHECK_EQ( PlayerTemplateFromSlotField( PlayerTemplateSlotField( pick ) ), pick );
+	CHECK_EQ( PlayerTemplateFromSlotField( PlayerTemplateSlotField( EncodeRandomPool( widest ) ) ), EncodeRandomPool( widest ) );
+	CHECK_EQ( PlayerTemplateFromSlotField( AsciiString( "-2" ) ), (Int)PLAYERTEMPLATE_OBSERVER );
+	CHECK( !IsValidPlayerTemplatePick( PlayerTemplateFromSlotField( AsciiString( "P0" ) ) ) );
+	CHECK( !IsValidPlayerTemplatePick( PlayerTemplateFromSlotField( AsciiString( "PFFFFFFFF" ) ) ) );
+
+	// the preferences keep a pool by names, so a template added in front of them leaves the pool its armies
+	CHECK_STR( PlayerTemplatePreference( pick ).str(), "Random:FactionAmerica,FactionTurkiye" );
+	CHECK_STR( PlayerTemplatePreference( 2 ).str(), "2" );
+	CHECK_EQ( PlayerTemplateFromPreference( PlayerTemplatePreference( pick ) ), pick );
+	CHECK_EQ( PlayerTemplateFromPreference( AsciiString( "Random:FactionTurkiye,FactionGone" ) ), EncodeRandomPool( 0x8 ) );
+	CHECK_EQ( PlayerTemplateFromPreference( AsciiString( "Random:FactionGone" ) ), (Int)PLAYERTEMPLATE_RANDOM );
+	CHECK_EQ( PlayerTemplateFromPreference( AsciiString( "3" ) ), 3 );
+	// a pool a build before the names wrote by number is dropped, its bits being anyone's now
+	CHECK_EQ( PlayerTemplateFromPreference( AsciiString( "-25" ) ), (Int)PLAYERTEMPLATE_RANDOM );
+
+	// a seat on a pool keeps its start spot; only an observer gives it up
+	GameSlot slot;
+	slot.setStartPos( 3 );
+	slot.setPlayerTemplate( pick );
+	CHECK_EQ( slot.getStartPos(), 3 );
+	slot.setPlayerTemplate( PLAYERTEMPLATE_OBSERVER );
+	CHECK_EQ( slot.getStartPos(), -1 );
+
+	remove( TEST_INI );
+	delete ThePlayerTemplateStore;
+	ThePlayerTemplateStore = savedStore;
+	TheChallengeGenerals = savedGenerals;
 }
 
 // The game's fingerprint over a BitFlags used to be taken with sizeof(this) - the size of the
@@ -18056,6 +18210,16 @@ TEST(lan_options_fit_eight_humans_on_a_generated_template_map)
 	const AsciiString replay = GameInfoOptionsString( &game, AsciiString( paths[4] ), 0 );
 	CHECK_EQ( shortestHumanName( replay ), 12 );
 	CHECK( strstr( replay.str(), "M=00userdata/maps/rmg_v17_2147483647_8p_672c_tffffffff_bombardment beach;" ) != NULL );
+
+	// eight seats on a pool as wide as retail's armies and Turkiye (13 bits, "P1FFF") cost three bytes
+	// a seat; a wider one that does not fit is turned back to Random by the host (LANAPI::OnGameOptions)
+	for( Int i = 0; i < MAX_SLOTS; ++i )
+		game.getSlot( i )->setPlayerTemplate( PLAYERTEMPLATE_RANDOM_POOL - 0x1FFF );
+	const AsciiString pooled = GameInfoOptionsString( &game, AsciiString( paths[4] ), m_lanMaxOptionsLength );
+	printf( "    pooled    %d bytes, names keep %d\n", pooled.getLength(), shortestHumanName( pooled ) );
+	CHECK( !pooled.isEmpty() );
+	CHECK( shortestHumanName( pooled ) >= 2 );
+	CHECK( strstr( pooled.str(), ",P1FFF," ) != NULL );
 
 	delete TheWritableGlobalData;
 	TheWritableGlobalData = saved;

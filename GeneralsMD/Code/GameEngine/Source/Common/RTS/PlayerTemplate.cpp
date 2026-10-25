@@ -102,6 +102,7 @@
 		{ "SpecialPowerShortcutButtonCount",INI::parseInt,												NULL, offsetof( PlayerTemplate, m_specialPowerShortcutButtonCount ) },
 		{ "IsObserver",								INI::parseBool,																	NULL, offsetof( PlayerTemplate, m_observer ) },
     { "OldFaction",               INI::parseBool,                                 NULL, offsetof( PlayerTemplate, m_oldFaction ) },
+		{ "RandomExcluded",						INI::parseBool,																	NULL, offsetof( PlayerTemplate, m_randomExcluded ) },
 		{ "IntrinsicSciencePurchasePoints",				INI::parseInt,												NULL, offsetof( PlayerTemplate, m_intrinsicSPP ) },
 		{ "ScoreScreenImage",					INI::parseAsciiString,													NULL, offsetof( PlayerTemplate, m_scoreScreenImage ) },
 		{ "LoadScreenImage",					INI::parseAsciiString,													NULL, offsetof( PlayerTemplate, m_loadScreenImage ) },
@@ -201,6 +202,7 @@ PlayerTemplate::PlayerTemplate() :
 	m_observer(false),
 	m_playableSide(false),
   m_oldFaction(false),
+	m_randomExcluded(false),
 	m_intrinsicSPP(0),
 	m_specialPowerShortcutButtonCount(0)
 {

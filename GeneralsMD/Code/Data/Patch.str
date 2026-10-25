@@ -3341,3 +3341,34 @@ END
 GUI:RandomMapSizeHuge
 "Extra Large"
 END
+
+// The staging rooms' army screen, opened from a seat's army box.  %s in the Confirm label is the
+// army's name, %s in LeftOut the armies a plain Random never draws, and the two %d in Pool are the
+// ticked armies and the armies that can be ticked.
+GUI:FactionPickTitle
+"Select Army"
+END
+
+GUI:FactionPickRandomAll
+"Random All"
+END
+
+GUI:FactionPickCustom
+"Custom Selection"
+END
+
+GUI:FactionPickConfirm
+"Confirm %s"
+END
+
+GUI:FactionPickRandom
+"Random picks one of these armies for you when the match starts."
+END
+
+GUI:FactionPickLeftOut
+"Random never draws: %s. Tick it under Custom Selection to add it."
+END
+
+GUI:FactionPickPool
+"Random picks one of the %d armies ticked on the left, out of %d. Click an army to tick it or take it out."
+END

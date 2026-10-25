@@ -788,31 +788,6 @@ static void populateRandomSideAndColor( GameInfo *game )
 		return;
 	Int i;
 
-#define MORE_RANDOM
-#ifdef MORE_RANDOM
-	std::vector<Int> startSlots;
-	for (i = 0; i < ThePlayerTemplateStore->getPlayerTemplateCount(); ++i)
-	{
-		const PlayerTemplate* ptTest = ThePlayerTemplateStore->getNthPlayerTemplate(i);
-		if (!ptTest || ptTest->getStartingBuilding().isEmpty())
-			continue;
-
-		if ( game->oldFactionsOnly() && !ptTest->isOldFaction() )
-		  continue;
-
-		// Prevent from selecting the disabled Generals.
-		// This is also enforced at GUI setup (GUIUtil.cpp).
-		// @todo: unlock these when something rad happens
-		Bool disallowLockedGenerals = TRUE;
-		const GeneralPersona *general = TheChallengeGenerals->getGeneralByTemplateName(ptTest->getName());
-		Bool startsLocked = general ? !general->isStartingEnabled() : FALSE;
-		if (disallowLockedGenerals && startsLocked)
-			continue;
-
-		startSlots.push_back(i);
-	}
-#endif
-
 	for (i=0; i<MAX_SLOTS; ++i)
 	{
 		GameSlot *slot = game->getSlot(i);
@@ -820,40 +795,29 @@ static void populateRandomSideAndColor( GameInfo *game )
 		if (!slot || !slot->isOccupied())
 			continue;
 
-		// clean up random factions
+		// clean up random factions: plain Random draws from every playable template the data does not
+		// keep out (RandomExcluded), a pool from the templates the player ticked; both lists come from
+		// the INI and the slot string, the same on every machine
 		Int playerTemplateIdx = slot->getPlayerTemplate();
 		DEBUG_LOG(("Player %d has playerTemplate index %d\n", i, playerTemplateIdx));
-		while (playerTemplateIdx != PLAYERTEMPLATE_OBSERVER && (playerTemplateIdx < 0 || playerTemplateIdx >= ThePlayerTemplateStore->getPlayerTemplateCount()))
+		if (IsRandomPlayerTemplate(playerTemplateIdx))
 		{
-			DEBUG_ASSERTCRASH(playerTemplateIdx == PLAYERTEMPLATE_RANDOM, ("Non-random bad playerTemplate %d in slot %d\n", playerTemplateIdx, i));
-#ifdef MORE_RANDOM
+			std::vector<Int> draw;
+			GetRandomDraw(playerTemplateIdx, game->oldFactionsOnly(), draw);
 			// our RNG is basically shit -- horribly nonrandom at the start of the sequence.
 			// get a few values at random to get rid of the dreck.
 			// there's no mathematical basis for this, but empirically, it helps a lot.
 			UnsignedInt silly = GetGameLogicRandomSeed() % 7;
-			for (Int poo = 0; poo < silly; ++poo) 
+			for (Int poo = 0; poo < silly; ++poo)
 			{
 				GameLogicRandomValue(0, 1);	// ignore result
 			}
-			Int idxIdx = GameLogicRandomValue(0, 1000) % startSlots.size();
-			playerTemplateIdx = startSlots[idxIdx];
-#else
-			playerTemplateIdx = GameLogicRandomValue(0, ThePlayerTemplateStore->getPlayerTemplateCount()-1);
-#endif
-			const PlayerTemplate* pt = ThePlayerTemplateStore->getNthPlayerTemplate(playerTemplateIdx);
-			if (!pt || pt->getStartingBuilding().isEmpty())
-			{
-#ifdef MORE_RANDOM
-				DEBUG_CRASH(("should not be possible"));
-#endif
-				playerTemplateIdx = -1; // only pick playable factions
-			}
-			else
-			{
-				DEBUG_LOG(("Setting playerTemplateIdx %d to %d\n", i, playerTemplateIdx));
-				slot->setPlayerTemplate(playerTemplateIdx);
-			}
+			playerTemplateIdx = draw[GameLogicRandomValue(0, 1000) % draw.size()];
+			DEBUG_LOG(("Setting playerTemplateIdx %d to %d\n", i, playerTemplateIdx));
+			slot->setPlayerTemplate(playerTemplateIdx);
 		}
+		DEBUG_ASSERTCRASH(playerTemplateIdx == PLAYERTEMPLATE_OBSERVER || ThePlayerTemplateStore->getNthPlayerTemplate(playerTemplateIdx),
+			("Non-random bad playerTemplate %d in slot %d\n", playerTemplateIdx, i));
 
 		Int colorIdx = slot->getColor();
 		if (colorIdx < 0 || colorIdx >= TheMultiplayerSettings->getNumColors())

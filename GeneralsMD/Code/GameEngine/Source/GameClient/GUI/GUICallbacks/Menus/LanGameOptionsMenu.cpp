@@ -540,6 +540,12 @@ static void handlePlayerTemplateSelection(int index)
 
 		Int oldTemplate = slot->getPlayerTemplate();
 		slot->setPlayerTemplate(playerTemplate);
+		// the host's own pick, or his AI's, gets the budget check a request gets in LANAPI::OnGameOptions
+		if (myGame->amIHost() && GameInfoToAsciiString(myGame).isEmpty())
+		{
+			playerTemplate = PLAYERTEMPLATE_RANDOM;
+			slot->setPlayerTemplate(playerTemplate);
+		}
 
 		if (oldTemplate == PLAYERTEMPLATE_OBSERVER)
 		{

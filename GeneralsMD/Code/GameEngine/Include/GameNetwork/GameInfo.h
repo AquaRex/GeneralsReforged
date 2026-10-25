@@ -36,6 +36,7 @@
 #include "Common/Money.h"
 #include "GameNetwork/NetworkDefs.h"
 #include "GameNetwork/FirewallHelper.h"
+#include <vector>
 
 enum SlotState
 {
@@ -57,6 +58,38 @@ enum
 	PLAYERTEMPLATE_OBSERVER = -2,
 	PLAYERTEMPLATE_MIN = PLAYERTEMPLATE_OBSERVER
 };
+
+// A Random the player narrowed to a pool of factions.  The pool rides in the seat's faction number
+// itself, PLAYERTEMPLATE_RANDOM_POOL - mask, so every slot string, LAN or online request, save and
+// replay that carries a pick carries the pool too and every machine draws from the same list.  Bit n
+// of the mask is the n-th template GetRandomPoolCandidates lists, the store's order, which the INI
+// checksum already holds equal across machines.
+enum
+{
+	PLAYERTEMPLATE_RANDOM_POOL = -16,
+	RANDOM_POOL_BITS = 30		// ponytail: candidates past the 30th cannot be ticked into a pool; a wider mask needs a field of its own in the slot string
+};
+
+inline Bool IsRandomPlayerTemplate( Int pick ) { return pick == PLAYERTEMPLATE_RANDOM || pick < PLAYERTEMPLATE_RANDOM_POOL; }
+/// a faction, Random, a Random pool or Observer, whatever the pick came from
+Bool IsValidPlayerTemplatePick( Int pick );
+/// the pick for a pool; no faction and the default pool are plain Random
+Int EncodeRandomPool( UnsignedInt mask );
+/// the pool a Random pick draws from; plain Random's is the default one
+UnsignedInt DecodeRandomPool( Int pick );
+/// the templates a Random may land on, in the store's order: playable, not a locked general
+void GetRandomPoolCandidates( std::vector<Int> &candidates );
+/// every candidate a template does not mark RandomExcluded
+UnsignedInt GetDefaultRandomPool( void );
+/// the templates a Random pick draws from in this game; a pool the old-factions rule empties draws as plain Random
+void GetRandomDraw( Int pick, Bool oldFactionsOnly, std::vector<Int> &draw );
+/// a pick as a preferences file keeps it, a Random pool by its armies' template names: the pool's bits
+/// count candidates, and a mod loaded or dropped since the file was written renumbers them
+AsciiString PlayerTemplatePreference( Int pick );
+Int PlayerTemplateFromPreference( const AsciiString &text );
+/// a pick as the slot string carries it: a Random pool as its mask in hex, the room's budget being 400 bytes
+AsciiString PlayerTemplateSlotField( Int pick );
+Int PlayerTemplateFromSlotField( const AsciiString &field );
 
 // The lobby's income sharing: which earnings are split evenly between a player and every ally
 // still in the match.  The values travel in the options string and in saves, so only append.
@@ -98,7 +131,7 @@ public:
 
 	void setPlayerTemplate( Int playerTemplate ) 
 	{ m_playerTemplate = playerTemplate;
-		if (playerTemplate <= PLAYERTEMPLATE_MIN)
+		if (playerTemplate == PLAYERTEMPLATE_OBSERVER)
 			m_startPos = -1;
 	 }
 	Int getPlayerTemplate( void ) const { return m_playerTemplate; }

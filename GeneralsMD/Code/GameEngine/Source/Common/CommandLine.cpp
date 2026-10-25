@@ -42,6 +42,7 @@
 #include "GameClient/GameText.h"
 #include "GameClient/ChromaKeyboard.h"
 #include "GameClient/GameConsole.h" // for -freecam
+#include "GameClient/FactionPicker.h" // for -factionpicker
 #include "GameNetwork/GameInfo.h" // for the SlotState -autoskirmish hands the AI slots
 #include "GameLogic/AI.h" // for aiPersonalityFromName, which -aipersona reads its names with
 #include "GameNetwork/NetworkUtil.h" // for ResolveIP, which -lanip parses its address with
@@ -2525,6 +2526,18 @@ Int parseSkirmishLobby(char *args[], int num)
 	return 1;
 }
 
+/* -factionpicker [custom] opens the skirmish staging room with the army screen up on the first seat,
+   as a click on the seat's army box would, so the screen can be photographed without a click.
+   "custom" opens it on Custom Selection with the Random pool's ticks showing.  Implies
+   -skirmishlobby. */
+Int parseFactionPicker(char *args[], int num)
+{
+	const Bool custom = num > 1 && args[1] && strcasecmp(args[1], "custom") == 0;
+	FactionPickerOpenOnStart(custom);
+	parseSkirmishLobby(args, num);
+	return custom ? 2 : 1;
+}
+
 /* -optionsmenu opens the options screen over the main menu at startup, where a click on Options
    would put it.  A change to that screen can then be photographed page by page from a script that
    only has to press the tabs, instead of first finding the main menu's buttons.  Implies
@@ -3007,6 +3020,7 @@ static CommandLineParam params[] =
 	{ "-lanname", parseLanName },
 	{ "-lanlobby", parseLanLobby },
 	{ "-skirmishlobby", parseSkirmishLobby },
+	{ "-factionpicker", parseFactionPicker },
 	{ "-optionsmenu", parseOptionsMenu },
 
 	//-allAdvice feature
