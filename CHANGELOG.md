@@ -151,6 +151,7 @@ found and fixed â€” EA's own, not port damage.**
 
 ## Health bars you can read at a glance
 
+- The original Generals campaigns from 2003 are back beside Zero Hour's, seven missions a side, each with its spoken briefing and the voices its script cues during the fight. Zero Hour has always read the base game's archives for art and maps, but its own data dropped the 1355 lines of mission speech and the 29 movies the old campaigns call for, and its own campaigns took their names. The movies play when your Generals install has them. Finishing one earns that side's campaign medal, as Zero Hour's does.
 - The bars over units are a third thinner, so a big fight no longer looks like a sheet of red and green stripes over the units underneath.
 - Health a unit has lost now shows as a dark stretch at the end of its bar. It used to be bare ground, so a red bar over red ground, or any team colour over the wrong terrain, looked full when it was half gone.
 

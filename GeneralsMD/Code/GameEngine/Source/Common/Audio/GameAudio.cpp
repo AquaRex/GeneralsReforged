@@ -265,6 +265,9 @@ void AudioManager::init()
 	ini.load( AsciiString( "Data\\INI\\Default\\Voice.ini" ), INI_LOAD_OVERWRITE, NULL );
 	ini.load( AsciiString( "Data\\INI\\Voice.ini" ), INI_LOAD_OVERWRITE, NULL );
 
+	// the original Generals campaigns' briefings and mission dialogue, which Zero Hour's files left out
+	ini.load( AsciiString( "Data\\INI\\SpeechReforged.ini" ), INI_LOAD_OVERWRITE, NULL );
+
 	// -modfactions: each mod's own events under "M<n>~" names; AudioSettings and MiscAudio stay ours
 	INI::loadModPasses( "Data\\INI\\Music.ini", NULL );
 	INI::loadModPasses( "Data\\INI\\SoundEffects.ini", NULL );

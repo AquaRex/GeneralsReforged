@@ -316,7 +316,7 @@ static void showOptionsPage( Int which )
 // shows its column again when it ends.  The main menu's logo and frame stay; they are the screen's
 // mark and its edge.
 //-------------------------------------------------------------------------------------------------
-enum { MAIN_MENU_COLUMN_COUNT = 6 };
+enum { MAIN_MENU_COLUMN_COUNT = 7 };
 
 static const char *TheMainMenuColumnNames[ MAIN_MENU_COLUMN_COUNT ] =
 {
@@ -326,6 +326,7 @@ static const char *TheMainMenuColumnNames[ MAIN_MENU_COLUMN_COUNT ] =
 	"MainMenu.wnd:MapBorder3",
 	"MainMenu.wnd:MapBorder4",
 	"MainMenu.wnd:MapBorder5",
+	"MainMenu.wnd:MapBorder6",
 };
 
 static Bool mainMenuColumnHidden[ MAIN_MENU_COLUMN_COUNT ] = { FALSE };

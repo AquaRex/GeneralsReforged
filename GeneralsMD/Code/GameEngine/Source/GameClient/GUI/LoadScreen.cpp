@@ -1323,6 +1323,29 @@ void SinglePlayerLoadScreen::init( GameInfo *game )
 
 */
 	m_ambientLoop.setEventName("LoadScreenAmbient");
+
+	// format the progress bar: USA to blue, GLA to green, China to red
+	// and set the background image.  Before the movie, which may not open: the original Generals
+	// campaigns' movies come from a Generals install, and without one the side's picture was lost too.
+	AsciiString campaignName = TheCampaignManager->getCurrentCampaign()->getSide();
+	GameWindow *backgroundWin = TheWindowManager->winGetWindowFromId( m_loadScreen,TheNameKeyGenerator->nameToKey( AsciiString( "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen" ) ));
+	if (campaignName.compareNoCase("USA") == 0)
+	{
+		backgroundWin->winSetEnabledImage( 0, TheMappedImageCollection->findImageByName("MissionLoad_USA") );
+		m_progressBar->winSetEnabledImage( 6, TheMappedImageCollection->findImageByName("LoadingBar_ProgressCenter2") );
+	}
+	else if (campaignName.compareNoCase("GLA") == 0)
+	{
+		backgroundWin->winSetEnabledImage( 0, TheMappedImageCollection->findImageByName("MissionLoad_GLA") );
+		m_progressBar->winSetEnabledImage( 6, TheMappedImageCollection->findImageByName("LoadingBar_ProgressCenter3") );
+	}
+	else if (campaignName.compareNoCase("China") == 0)
+	{
+		backgroundWin->winSetEnabledImage( 0, TheMappedImageCollection->findImageByName("MissionLoad_China") );
+		m_progressBar->winSetEnabledImage( 6, TheMappedImageCollection->findImageByName("LoadingBar_ProgressCenter1") );
+	}
+	// else leave the default background screen
+
 	// create the new stream
 	m_videoStream = TheVideoPlayer->open( TheCampaignManager->getCurrentMission()->m_movieLabel );
 	if ( m_videoStream == NULL )
@@ -1347,27 +1370,6 @@ void SinglePlayerLoadScreen::init( GameInfo *game )
 
 		return;
 	}
-
-	// format the progress bar: USA to blue, GLA to green, China to red
-	// and set the background image
-	AsciiString campaignName = TheCampaignManager->getCurrentCampaign()->m_name;
-	GameWindow *backgroundWin = TheWindowManager->winGetWindowFromId( m_loadScreen,TheNameKeyGenerator->nameToKey( AsciiString( "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen" ) ));
-	if (campaignName.compareNoCase("USA") == 0)
-	{
-		backgroundWin->winSetEnabledImage( 0, TheMappedImageCollection->findImageByName("MissionLoad_USA") );
-		m_progressBar->winSetEnabledImage( 6, TheMappedImageCollection->findImageByName("LoadingBar_ProgressCenter2") );
-	}
-	else if (campaignName.compareNoCase("GLA") == 0)
-	{
-		backgroundWin->winSetEnabledImage( 0, TheMappedImageCollection->findImageByName("MissionLoad_GLA") );
-		m_progressBar->winSetEnabledImage( 6, TheMappedImageCollection->findImageByName("LoadingBar_ProgressCenter3") );
-	}
-	else if (campaignName.compareNoCase("China") == 0)
-	{
-		backgroundWin->winSetEnabledImage( 0, TheMappedImageCollection->findImageByName("MissionLoad_China") );
-		m_progressBar->winSetEnabledImage( 6, TheMappedImageCollection->findImageByName("LoadingBar_ProgressCenter1") );
-	} 
-	// else leave the default background screen
 
 
 	if(TheGameLODManager && TheGameLODManager->didMemPass())

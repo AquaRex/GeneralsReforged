@@ -100,6 +100,7 @@ public:
 	Mission *getMission( AsciiString missionName);
 	AsciiString getFinalVictoryMovie( void );
 	Bool isChallengeCampaign( void ) { return m_isChallengeCampaign; }
+	AsciiString getSide( void ) const;		///< the name with the original Generals campaigns' GEN_ taken off: GEN_USA plays as usa
 
 public:
 	typedef std::list< Mission* > MissionList;			///< list of Shell Menu schemes

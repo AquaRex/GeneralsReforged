@@ -15633,6 +15633,14 @@ GUI:CampaignMission
 "GÖREV %d"
 END
 
+GUI:CampaignZeroHour
+"ZERO HOUR"
+END
+
+GUI:CampaignGenerals
+"GENERALS"
+END
+
 GUI:MapCorrupt
 "%ls haritası bozuk, oynanamaz."
 END

@@ -180,6 +180,7 @@ Data/Cinema/wreckcheck.txt
 Data/German/Generals.str
 Data/INI/AIDataReforged.ini
 Data/INI/BalanceReforged.ini
+Data/INI/CampaignReforged.ini
 Data/INI/CommandSetReforged.ini
 Data/INI/ControlBarProReforged.ini
 Data/INI/ControlBarSchemeReforged.ini
@@ -212,9 +213,11 @@ Data/INI/PlayerTemplateReforged.ini
 Data/INI/ScienceReforged.ini
 Data/INI/SpecialPowerReforged.ini
 Data/INI/TurkiyeReforged.ini
+Data/INI/SpeechReforged.ini
 Data/INI/TurkiyeWeaponReforged.ini
 Data/INI/UpgradeReforged.ini
 Data/INI/WeaponReforged.ini
+Data/INI/VideoReforged.ini
 Data/INI/WindowTransitionsReforged.ini
 Data/Install_Final.bmp
 Data/Patch.str

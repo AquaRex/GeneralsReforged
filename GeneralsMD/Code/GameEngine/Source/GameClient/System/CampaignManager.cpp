@@ -252,6 +252,16 @@ void CampaignManager::init( void )
 	INI ini;
 	// Read from INI all the CampaignManager
 	ini.load( AsciiString( "Data\\INI\\Campaign.ini" ), INI_LOAD_OVERWRITE, NULL );
+	// the original Generals campaigns as GEN_USA, GEN_GLA and GEN_CHINA: under their own names
+	// newCampaign would let them replace Zero Hour's
+	ini.load( AsciiString( "Data\\INI\\CampaignReforged.ini" ), INI_LOAD_OVERWRITE, NULL );
+}
+
+//-----------------------------------------------------------------------------
+AsciiString Campaign::getSide( void ) const
+{
+	// m_name is lower case (newCampaign)
+	return m_name.startsWith( "gen_" ) ? AsciiString( m_name.str() + 4 ) : m_name;
 }
 
 //-----------------------------------------------------------------------------
