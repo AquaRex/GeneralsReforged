@@ -1,12 +1,20 @@
 # Projectile flight paths, one launcher per lane, each shooting an unarmed target: tank shell
-# (Crusader), lobbed shells (Inferno Cannon, Nuke Cannon) and missiles (Scud Launcher, Tomahawk,
-# Rocket Buggy). The paths are only in the log with a temporary per-frame trace of each projectile's
-# position and nose, a DEBUG_LOG in DumbProjectileBehavior::update and MissileAIUpdate::update.
+# (Crusader), lobbed shells (Inferno Cannon, Nuke Cannon), missiles (Scud Launcher, Tomahawk,
+# Rocket Buggy) and a tank shell out of a raised barrel (Fire Base, at about 105 and then 160). The
+# paths are only in the log with a temporary per-frame trace of each projectile's position and nose,
+# a DEBUG_LOG in DumbProjectileBehavior::update and MissileAIUpdate::update.
 #
 #   generals.exe -headless -quickstart -noshellmap -observer -multiInstance -noFPSLimit
 #     -randommap 1 2 small -autoskirmish 2 -takeover
-#     -side 0 FactionAmerica -side 1 FactionGLA -seed 1 -maxframes 600
+#     -side 0 FactionAmerica -side 1 FactionGLA -seed 1 -maxframes 900
 #     -scenario shellpaths -logPrefix shellpaths_
+#
+# Fire Base, barrel against the shell's first and last direction (2026-10-25), logged at launch from
+# the path DumbProjectileBehavior::projectileFireAtObjectOrPosition built: its barrel stood 46 and 53
+# degrees up while the shell flew the line, 9 to 12 degrees down, because StraightWhenClear never
+# looked at the barrel. It now leaves at 44 and 51 and comes down at 66 to 71. The Crusader's barrel
+# sits within 6 degrees of its line and still shoots straight; Inferno and Nuke Cannon shells are
+# unchanged to the tenth of a degree.
 #
 # Sharpest nose turn in one frame, before and after straight tank shells, barrel-led lobs and the
 # cruise missiles' single curve (2026-10-13): tank shell 13.7 to 1.9 and 7.2 to 0 over the line, Nuke
@@ -26,6 +34,9 @@
 30    spawn      1  ChinaVehicleTroopCrawlerEmpty  1   800 1100
 30    spawn      0  GLAVehicleRocketBuggy          1   500 1250
 30    spawn      1  ChinaVehicleListeningOutpost   1   700 1250
+30    spawn      0  AmericaFireBase                1   500 1500
+30    spawn      1  AmericaVehicleMedic            1   630 1500
+30    spawn      1  GLAVehicleRadarVan             1   740 1590
 
 60    attack     0  AmericaTankCrusader            1  AmericaVehicleDozer
 60    attack     0  ChinaVehicleInfernoCannon      1  ChinaVehicleDozer
@@ -33,3 +44,5 @@
 60    attack     0  GLAVehicleScudLauncher         1  ChinaVehicleSupplyTruck
 60    attack     0  AmericaVehicleTomahawk         1  ChinaVehicleTroopCrawlerEmpty
 60    attack     0  GLAVehicleRocketBuggy          1  ChinaVehicleListeningOutpost
+60    attack     0  AmericaFireBase                1  AmericaVehicleMedic
+260   attack     0  AmericaFireBase                1  GLAVehicleRadarVan

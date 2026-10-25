@@ -62,6 +62,11 @@
 //-----------------------------------------------------------------------------
 const Int DEFAULT_MAX_LIFESPAN = 10 * LOGICFRAMES_PER_SECOND;
 
+// A StraightWhenClear shell whose barrel stands more than this over the line to its victim is being
+// lobbed, and takes the barrel's arc on open ground too. A tank's hull tilted on a slope leaves its
+// barrel a few degrees off the line and still shoots straight. The sine of 8 degrees.
+const Real STRAIGHT_SHOT_MAX_BARREL_RISE = 0.139f;
+
 //-----------------------------------------------------------------------------
 DumbProjectileBehaviorModuleData::DumbProjectileBehaviorModuleData() : 
 	m_maxLifespan(DEFAULT_MAX_LIFESPAN),
@@ -415,7 +420,7 @@ void DumbProjectileBehavior::projectileFireAtObjectOrPosition( const Object *vic
 	// the shell sits on the barrel here, pointing where the barrel points
 	Vector3 barrel = getObject()->getTransformMatrix()->Get_X_Vector();
 	Real barrelRun = sqrtf(sqr(barrel.X) + sqr(barrel.Y));
-	m_launchSlope = (barrel.Z > 0.0f && barrelRun > 0.0f) ? barrel.Z / barrelRun : 0.0f;
+	m_launchSlope = (barrelRun > 0.0f) ? barrel.Z / barrelRun : 0.0f;
 	if (!calcFlightPath(true))
 	{
 		//Can only fail if wildly incorrect points
@@ -466,12 +471,16 @@ Bool DumbProjectileBehavior::calcFlightPath(Bool recalcNumSegments)
 	controlPoints[1].z = highestInterveningTerrain + d->m_firstHeight;
 	controlPoints[2].z = highestInterveningTerrain + d->m_secondHeight;
 
-	if( d->m_straightWhenClear && ThePartitionManager->isClearLineOfSightTerrain( NULL, controlPoints[0], NULL, controlPoints[3] ) )
+	// The sine of the angle the barrel stands over the line to the victim, negative under it.
+	Real barrelRise = (m_launchSlope * sqrtf( sqr(targetVector.X) + sqr(targetVector.Y) ) - targetVector.Z) / sqrtf( 1.0f + sqr(m_launchSlope) );
+
+	if( d->m_straightWhenClear && barrelRise < STRAIGHT_SHOT_MAX_BARREL_RISE
+		&& ThePartitionManager->isClearLineOfSightTerrain( NULL, controlPoints[0], NULL, controlPoints[3] ) )
 	{
 		// A cannon shell flies the line to its victim. The arc above was ten over the highest ground on the
 		// way, so on flat ground a Crusader's shell climbed twelve degrees off the barrel and came down on
-		// the target at twenty five; with the glowing trail on it, every shot read as a lob. Only a hill
-		// in the way still lifts it.
+		// the target at twenty five; with the glowing trail on it, every shot read as a lob. A hill in the
+		// way still lifts it, and so does a barrel raised well over the line.
 		controlPoints[1].z = controlPoints[0].z + targetVector.Z * targetDistance * d->m_firstPercentIndent;
 		controlPoints[2].z = controlPoints[0].z + targetVector.Z * targetDistance * d->m_secondPercentIndent;
 	}
@@ -481,6 +490,16 @@ Bool DumbProjectileBehavior::calcFlightPath(Bool recalcNumSegments)
 		// direction, and over the highest ground it pointed off the barrel: a Nuke Cannon's shell left
 		// six and a half degrees under its 39 degree barrel and jinked at the muzzle.
 		controlPoints[1].z = controlPoints[0].z + m_launchSlope * sqrtf( sqr(firstPointAlongLine.X) + sqr(firstPointAlongLine.Y) );
+
+		// A tank shell's own arc is ten over the ground, so the lob of a raised tank-shell barrel (the
+		// Fire Base's howitzer) went up at the barrel's angle and slid in on the target almost flat. The
+		// last control point now sits where the barrel's slope, run backwards from the target, puts it:
+		// the shell comes down as steeply as it went up.
+		if( d->m_straightWhenClear )
+		{
+			Real lastRun = sqrtf( sqr(controlPoints[3].x - controlPoints[2].x) + sqr(controlPoints[3].y - controlPoints[2].y) );
+			controlPoints[2].z = max( controlPoints[2].z, controlPoints[3].z + m_launchSlope * lastRun );
+		}
 	}
 
 	// With four control points, we have a curve.  We will decide how many frames we want to take to get to the target,
