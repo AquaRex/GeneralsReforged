@@ -18,8 +18,9 @@
 # and Superweapon Fire Bases do the same (barrel 38 to 57, leave 1.4 under it). Every tank barrel
 # reads -2.5 or 0, since the logic never tilts a hull on a slope, and every tank shell, the Overlord's
 # at 10 degrees down included, still flies the line. The battleship's front turret is aimed 12 up but
-# its launch bone reads 12 down (its art faces backward and the logic pitches it the wrong way), so
-# its shells fly the line and land on the target as before. Inferno and Nuke Cannon shells are
+# its launch matrix read 12 down (its art faces backward, it has no launch bone, and the identity
+# matrix was turned by the art angle anyway), so its shells flew the line. It now reads 12 up: the
+# shell leaves at 11, peaks 19 over the line on a 330 shot and comes down on the car at 17. Inferno and Nuke Cannon shells are
 # unchanged to the tenth of a degree.
 #
 # Sharpest nose turn in one frame, before and after straight tank shells, barrel-led lobs and the

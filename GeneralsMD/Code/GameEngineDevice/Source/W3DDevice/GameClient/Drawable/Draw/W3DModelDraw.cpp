@@ -822,7 +822,10 @@ void ModelConditionInfo::validateWeaponBarrelInfo() const
 					snprintf(buffer, ARRAY_SIZE(buffer), "%s%02d",plbName.str(), i);
 					const Matrix3D* mtx = findPristineBone(NAMEKEY(buffer), &plbBoneIndex);
 					if (mtx != NULL)
+					{
 						info.m_projectileOffsetMtx = *mtx;
+						info.m_hasProjectileLaunchBone = true;
+					}
 				}
 
 				if (info.m_fxBone == 0 && info.m_recoilBone == 0 && info.m_muzzleFlashBone == 0 && plbBoneIndex == 0)
@@ -857,7 +860,10 @@ void ModelConditionInfo::validateWeaponBarrelInfo() const
 
 				const Matrix3D* plbMtx = plbName.isEmpty() ? NULL : findPristineBone(NAMEKEY(plbName), NULL);
 				if (plbMtx != NULL)
+				{
 					info.m_projectileOffsetMtx = *plbMtx;
+					info.m_hasProjectileLaunchBone = true;
+				}
 				else
 					info.m_projectileOffsetMtx.Make_Identity();
 
@@ -3972,7 +3978,11 @@ Bool W3DModelDraw::getProjectileLaunchOffset(
 			CRCDEBUG_LOG(("specificBarrelToUse = %d\n", specificBarrelToUse));
 			*launchPos = wbvec[specificBarrelToUse].m_projectileOffsetMtx;
 
-			if (tur != TURRET_INVALID)
+			// The art angle turns a launch bone, posed the way the turret's art faces, to the front. With
+			// no launch bone the matrix is the object's own, facing the front already, and turned by the
+			// art it faced backward, so the turret's pitch tipped it down: the battleship's front guns
+			// fired 12 degrees under barrels drawn 12 degrees up.
+			if (tur != TURRET_INVALID && wbvec[specificBarrelToUse].m_hasProjectileLaunchBone)
 			{
 				launchPos->Pre_Rotate_Z(stateToUse->m_turrets[tur].m_turretArtAngle);
 				launchPos->Pre_Rotate_Y(-stateToUse->m_turrets[tur].m_turretArtPitch);
