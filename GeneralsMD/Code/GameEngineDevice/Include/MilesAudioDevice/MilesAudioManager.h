@@ -84,7 +84,9 @@ struct PlayingAudio
 	/// Asked to fade out.  Moving from the playing list to the fading list writes two lists, so it
 	/// happens in processPlayingList holding both locks rather than wherever the fade is asked for.
 	Bool m_fade;
-	Int m_framesFaded;
+	/// logic frames of the fade gone by, counted on the audio clock: a pass a frame made a fade at 120
+	/// fps a quarter of TimeToFadeAudio, and a music crossfade a drop followed by a slow rise
+	Real m_framesFaded;
 	/// Doppler's velocity for a 3D sound, units a second, and where the source was the last time the
 	/// logic clock had moved (MilesAudioManager::trackVelocity).
 	Bool m_tracked;
@@ -111,7 +113,7 @@ struct PlayingAudio
 		m_sample(0),
 		m_3DSample(0),
 		m_stream(0),
-		m_framesFaded(0),
+		m_framesFaded(0.0f),
 		m_tracked(false),
 		m_stopHeld(false),
 		m_stopInMs(0.0f),
@@ -288,6 +290,7 @@ class MilesAudioManager : public AudioManager
 		void advanceAudioClock( void );
 		void trackVelocity( PlayingAudio *playing, const Coord3D *pos );
 		void setRoomFromMap( void );
+		void updateAmbienceBed( void );
 		void duckForBlast( AudioEventRTS *event, H3DSAMPLE sample3D );
 		Bool checkForSample( AudioRequest *req );
 
@@ -378,6 +381,13 @@ class MilesAudioManager : public AudioManager
 		Real m_clockElapsedMs;
 		UnsignedInt m_clockMovedAt;	///< Clock_Milliseconds when the logic clock last moved on
 		AsciiString m_roomMap;	///< the map setRoomFromMap last set the room for
+		Bool m_askingOnArrival;	///< checkForSample is asking canPlayNow about a sound that waited out its distance
+
+		/// The map's ambience bed (AmbienceBed* in AudioSettings.h): the event setRoomFromMap chose, the
+		/// handle of the one playing, and the logic frame it was last started at.
+		AsciiString m_bedEvent;
+		AudioHandle m_bedHandle;
+		UnsignedInt m_bedStartedAt;
 
 		// LOGIC-THREAD.md M7: what the tick asks, as captureForLogic found it at the sync point
 		std::vector<AudioHandle> m_playingAtSync;											///< every handle isCurrentlyPlaying said yes to, sorted

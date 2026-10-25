@@ -152,6 +152,15 @@ static const FieldParse audioSettingsFieldParseTable[] =
 	{ "OcclusionDepth",				INI::parseReal,											NULL,							offsetof( AudioSettings, m_occlusionDepth) },
 	{ "OcclusionTime",				INI::parseReal,											NULL,							offsetof( AudioSettings, m_occlusionTime) },
 	{ "OcclusionRaysPerFrame",	INI::parseInt,										NULL,							offsetof( AudioSettings, m_occlusionRays) },
+	{ "ZoomMixNearHeight",		INI::parseReal,											NULL,							offsetof( AudioSettings, m_zoomMixNearHeight) },
+	{ "ZoomMixFarHeight",			INI::parseReal,											NULL,							offsetof( AudioSettings, m_zoomMixFarHeight) },
+	{ "ZoomMixDetailVolume",	INI::parsePercentToReal,						NULL,							offsetof( AudioSettings, m_zoomMixDetailVolume) },
+	{ "AmbienceBedNearVolume",	INI::parsePercentToReal,					NULL,							offsetof( AudioSettings, m_ambienceBedNearVolume) },
+	{ "AmbienceBedFarVolume",	INI::parsePercentToReal,						NULL,							offsetof( AudioSettings, m_ambienceBedFarVolume) },
+	{ "AmbienceBedSnow",			INI::parseAsciiString,							NULL,							offsetof( AudioSettings, m_ambienceBedSnow) },
+	{ "AmbienceBedTown",			INI::parseAsciiString,							NULL,							offsetof( AudioSettings, m_ambienceBedTown) },
+	{ "AmbienceBedDesert",		INI::parseAsciiString,							NULL,							offsetof( AudioSettings, m_ambienceBedDesert) },
+	{ "AmbienceBedField",			INI::parseAsciiString,							NULL,							offsetof( AudioSettings, m_ambienceBedField) },
 	{ "GlobalMinRange",				INI::parseInt,											NULL,							offsetof( AudioSettings, m_globalMinRange) },
 	{ "GlobalMaxRange",				INI::parseInt,											NULL,							offsetof( AudioSettings, m_globalMaxRange) },
 	{ "TimeBetweenDrawableSounds", INI::parseDurationUnsignedInt, NULL,							offsetof( AudioSettings, m_drawableAmbientFrames) },
@@ -203,6 +212,8 @@ AudioManager::AudioManager() :
 	m_systemAmbientVolume = 0.0f;
 	m_systemMasterVolume = 1.0f;
 	m_zoomVolume = 1.0f;
+	m_zoomOut = 0.0f;
+	m_zoomDetailVolume = 1.0f;
 	m_volumeHasChanged			= FALSE;
 	//
 
@@ -431,6 +442,15 @@ void AudioManager::update()
 			m_zoomVolume = 1.0f - scalar * maxBoostScalar;
 		}
 	}
+
+	// Zoomed out over a battle, every gun at full detail is a wall of noise; the detail steps back and
+	// the ambience, which keeps its level, comes forward (ZoomMix* in AudioSettings.h).
+	const AudioSettings *settings = TheAudio->getAudioSettings();
+	const Real span = settings->m_zoomMixFarHeight - settings->m_zoomMixNearHeight;
+	const Real height = cameraPos.z - groundPos.z;
+	m_zoomOut = span > 0.0f ? (height - settings->m_zoomMixNearHeight) / span : (height > settings->m_zoomMixNearHeight ? 1.0f : 0.0f);
+	m_zoomOut = MIN( 1.0f, MAX( 0.0f, m_zoomOut ) );
+	m_zoomDetailVolume = 1.0f - (1.0f - settings->m_zoomMixDetailVolume) * m_zoomOut;
 
 	set3DVolumeAdjustment( m_zoomVolume );
 
@@ -915,7 +935,7 @@ void AudioManager::recomputeVolumes( void )
 {
 	m_musicVolume = m_scriptMusicVolume * m_systemMusicVolume * m_systemMasterVolume;
 	m_soundVolume = m_scriptSoundVolume * m_systemSoundVolume * m_systemMasterVolume;
-	m_sound3DVolume = MIN( 1.0f, MAX( 0.0f, m_zoomVolume * m_scriptSound3DVolume * m_systemSound3DVolume * m_systemMasterVolume ) );
+	m_sound3DVolume = MIN( 1.0f, MAX( 0.0f, m_zoomVolume * m_zoomDetailVolume * m_scriptSound3DVolume * m_systemSound3DVolume * m_systemMasterVolume ) );
 	m_speechVolume = m_scriptSpeechVolume * m_systemSpeechVolume * m_systemMasterVolume;
 
 	// Flagged every frame, changed or not: MilesAudioManager::getEffectiveVolume folds the listener's

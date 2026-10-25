@@ -53,6 +53,7 @@
 #include "Common/GameMemory.h"
 
 #include <map>
+#include <vector>
 
 
 //----------------------------------------------------------------------------
@@ -110,7 +111,8 @@ public:
 	* or by half when it is the local player's own unit wherever it stands.  Those add to an intensity
 	* that halves about every three and a half seconds, so it reads roughly as weighted shots a second.
 	* Above a threshold the music moves from calm to tense to battle, each a crossfade to a track of
-	* the side's own playlist chosen by a hand table (TheDynamicTracks), and comes back down once the
+	* the side's own playlist chosen by a hand table (TheDynamicTracks) or, for a mod's music, by the
+	* MusicMood and MusicSide its Music.ini gives each track, and comes back down once the
 	* fight has been over for a few seconds and the track has had its minimum time.  While tense or
 	* battle music plays, the skirmish scripts' own track changes are held; back at calm, they choose
 	* when the music changes again and a calm track of the side plays whichever they named.  Nothing
@@ -137,12 +139,24 @@ class MusicManager
 		enum Mood { MOOD_CALM, MOOD_TENSE, MOOD_BATTLE, MOOD_COUNT };
 
 	private:
+		/// a track of a side's playlist at a mood: the hand table's, or a MusicTrack's MusicMood tag
+		struct MoodTrack
+		{
+			AsciiString name;
+			AsciiString side;
+			Int mood;
+		};
+
 		Bool engaged( void ) const;
 		void startMatch( void );
 		void releaseHeldStop( void );
+		void buildTracks( void );
+		const MoodTrack *findTrack( const AsciiString& name );
 		AsciiString pickTrack( Mood mood );
 		void changeTrack( Mood mood );
 		void buildCombatSounds( void );
+
+		std::vector<MoodTrack> m_tracks;							///< built at the first track of a match, so a map's music is in it
 
 		std::map<const AudioEventInfo *, Real> m_combatWeight;	///< weapon fire, damage and fear sounds, built once
 		Real m_intensity;
@@ -154,7 +168,7 @@ class MusicManager
 		Bool m_issuing;								///< our own stop and play are going through
 		Bool m_stopHeld;
 		AudioHandle m_heldStop;				///< a script's stop, kept until the play after it says whose track it was
-		AsciiString m_side;						///< "USA", "CHI" or "GLA": whose playlist
+		AsciiString m_side;						///< "USA", "CHI", "GLA" or a mod's MusicSide: whose playlist
 		AsciiString m_track;					///< the track we last started
 		AudioEventRTS *m_fadeEvent;		///< the device's own copy of the track fading in, NULL when none
 		AudioHandle m_fadeHandle;			///< its handle: the copy is only touched while the device still has it

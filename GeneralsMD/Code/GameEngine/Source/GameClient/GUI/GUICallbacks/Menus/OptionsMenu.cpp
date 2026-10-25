@@ -1424,6 +1424,86 @@ static void saveVolumeOptions( OptionPreferences &out )
 	}
 }
 
+//-------------------------------------------------------------------------------------------------
+/** The audio output: the endpoint and the speaker setup.  Neither is a catalog row.  The speaker
+	* setup is EA's SpeakerType string, which MilesAudioManager reads out of Options.ini itself and
+	* hands the backend; the menu offers four of EA's six (GameAudio.cpp's TheSpeakerTypes, numbered as
+	* MSS.h's AIL_3D_*), and a file holding Surround Sound or 4 Speaker shows the stereo entry until the
+	* player picks one.  The endpoint is the backend's own id, "" for the default, and one that has gone
+	* shows Default while the saved id stays for when it comes back. */
+//-------------------------------------------------------------------------------------------------
+static const UnsignedInt TheMenuSpeakerTypes[] = { 0 /* 2 Speakers */, 1 /* Headphones */, 4 /* 5.1 Surround */, 5 /* 7.1 Surround */ };
+enum { MENU_SPEAKER_TYPE_COUNT = sizeof( TheMenuSpeakerTypes ) / sizeof( TheMenuSpeakerTypes[ 0 ] ) };
+enum { MAX_AUDIO_DEVICE_ENTRIES = 32 };
+static AsciiString menuAudioDevices[ MAX_AUDIO_DEVICE_ENTRIES ];	///< entry 0 is "", the default
+static Int menuAudioDeviceCount = 0;
+static Int speakerTypeShown = 0;	///< the entries the menu opened on, so Accept writes only a change
+static Int audioDeviceShown = 0;
+
+static GameWindow *audioOutputWidget( const char *name )
+{
+	return TheWindowManager->winGetWindowFromId( NULL, NAMEKEY( name ) );
+}
+
+static void fillAudioOutputLists( void )
+{
+	GameWindow *speakers = audioOutputWidget( "OptionsMenu.wnd:ComboBoxSpeakerType" );
+	const UnsignedInt speakerType = TheAudio->translateSpeakerTypeToUnsignedInt( pref->getSpeakerType() );
+	GadgetComboBoxReset( speakers );
+	speakerTypeShown = 0;
+	for( Int entry = 0; entry < MENU_SPEAKER_TYPE_COUNT; ++entry )
+	{
+		AsciiString label;
+		label.format( "GUI:SpeakerType%d", entry );
+		GadgetComboBoxAddEntry( speakers, TheGameText->fetch( label ), MENU_ENTRY_COLOR );
+		if( TheMenuSpeakerTypes[ entry ] == speakerType )
+			speakerTypeShown = entry;
+	}
+	GadgetComboBoxSetSelectedPos( speakers, speakerTypeShown );
+
+	GameWindow *devices = audioOutputWidget( "OptionsMenu.wnd:ComboBoxAudioDevice" );
+	OptionPreferences::const_iterator saved = pref->find( "AudioDevice" );
+	const AsciiString savedDevice = saved != pref->end() ? saved->second : AsciiString();
+	GadgetComboBoxReset( devices );
+	GadgetComboBoxAddEntry( devices, TheGameText->fetch( "GUI:AudioDeviceDefault" ), MENU_ENTRY_COLOR );
+	menuAudioDevices[ 0 ].clear();
+	menuAudioDeviceCount = 1;
+	audioDeviceShown = 0;
+	UnicodeString name;
+	while( menuAudioDeviceCount < MAX_AUDIO_DEVICE_ENTRIES
+		&& TheGameEngine->getAudioOutputDevice( menuAudioDeviceCount - 1, menuAudioDevices[ menuAudioDeviceCount ], name ) )
+	{
+		GadgetComboBoxAddEntry( devices, name, MENU_ENTRY_COLOR );
+		if( menuAudioDevices[ menuAudioDeviceCount ] == savedDevice )
+			audioDeviceShown = menuAudioDeviceCount;
+		++menuAudioDeviceCount;
+	}
+	GadgetComboBoxSetSelectedPos( devices, audioDeviceShown );
+}
+
+static void saveAudioOutputOptions( OptionPreferences &out )
+{
+	Int index = -1;
+	GadgetComboBoxGetSelectedPos( audioOutputWidget( "OptionsMenu.wnd:ComboBoxSpeakerType" ), &index );
+	if( index >= 0 && index < MENU_SPEAKER_TYPE_COUNT && index != speakerTypeShown )
+	{
+		const AsciiString speakerType = TheAudio->translateUnsignedIntToSpeakerType( TheMenuSpeakerTypes[ index ] );
+		out[ "SpeakerType" ] = speakerType;
+		TheAudio->setPreferredSpeaker( speakerType );
+		TheAudio->setSpeakerType( TheMenuSpeakerTypes[ index ] );
+		speakerTypeShown = index;
+	}
+
+	index = -1;
+	GadgetComboBoxGetSelectedPos( audioOutputWidget( "OptionsMenu.wnd:ComboBoxAudioDevice" ), &index );
+	if( index >= 0 && index < menuAudioDeviceCount && index != audioDeviceShown )
+	{
+		out[ "AudioDevice" ] = menuAudioDevices[ index ];
+		TheGameEngine->setAudioOutputDevice( menuAudioDevices[ index ] );
+		audioDeviceShown = index;
+	}
+}
+
 static void saveOptions( void )
 {
 	Int index;
@@ -1457,11 +1537,9 @@ static void saveOptions( void )
 //	(*pref)["3DAudioProvider"] = TheAudio->getProviderName(TheAudio->getSelectedProvider());
 //
 	//-------------------------------------------------------------------------------------------------
-//	// speaker type
-	//	isChecked = GadgetCheckBoxIsChecked(checkAudioSurround);
-	//	TheAudio->setSpeakerSurround(isChecked);
-	//	(*pref)["SpeakerType"] = TheAudio->translateUnsignedIntToSpeakerType(TheAudio->getSpeakerType());
-	//
+	// speaker setup and endpoint, in place of EA's surround check box
+	saveAudioOutputOptions( *pref );
+
 	//-------------------------------------------------------------------------------------------------
 	// language filter
 	if( GadgetCheckBoxIsChecked( checkLanguageFilter ) )
@@ -2658,6 +2736,7 @@ void OptionsMenuInit( WindowLayout *layout, void *userData )
 	// the monitor the game is on, and the size it is showing there
 	fillMonitorList();
 	fillResolutionList( selectedMonitor(), TheDisplay->getWidth(), TheDisplay->getHeight() );
+	fillAudioOutputLists();
 
 	// set the display detail
 	GadgetComboBoxReset(comboBoxDetail);

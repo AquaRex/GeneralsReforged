@@ -51,6 +51,7 @@
 #include "Common/AudioEventRTS.h"
 #include "Common/AudioHandleSpecialValues.h"
 #include "Common/AudioRequest.h"
+#include "Common/AudioSettings.h"
 #include "Common/GameAudio.h"
 #include "Common/GlobalData.h"
 #include "Common/INI.h"
@@ -106,8 +107,8 @@ const FieldParse MusicTrack::m_musicTrackFieldParseTable[] =
 	* rest of its own side's list: the three lowest calm, the four highest battle, the rest tense
 	* (experiments/proofs/2026-10-25/audio-music/classify.py in the wrapper).  Game_Silent is the sixty
 	* seconds the scripts leave between two tracks; it has no side and is never picked, but while our
-	* music plays it is held like the tracks are.  A mod's own tracks are not here, so its music stays
-	* the scripts'. */
+	* music plays it is held like the tracks are.  A mod's own tracks are not here: its Music.ini tags
+	* them with MusicMood and MusicSide (buildTracks), and an untagged one stays the scripts'. */
 struct DynamicTrack
 {
 	const char *name;
@@ -174,14 +175,61 @@ static const Real FEAR_WEIGHT = 3.0f;					///< a unit hit into a worse state or 
 static const UnsignedInt UP_AFTER = 4 * LOGICFRAMES_PER_SECOND;			///< a crossfade's length: no change cuts one short
 static const UnsignedInt DOWN_HOLD = 12 * LOGICFRAMES_PER_SECOND;	///< quieter this long before the music comes down: from battle, past tense to calm
 static const UnsignedInt MIN_TRACK = 20 * LOGICFRAMES_PER_SECOND;		///< and never before a track has had this long
-static const UnsignedInt FADE_IN = 3 * LOGICFRAMES_PER_SECOND;			///< the new track's rise; the old one falls over TimeToFadeAudio
-static const Real FADE_FLOOR = 0.05f;													///< where it rises from, above MinSampleVolume's cull
+static const Real FADE_FLOOR = 0.05f;													///< where the new track rises from, above MinSampleVolume's cull
 
-static const DynamicTrack *findDynamicTrack( const AsciiString& name )
+//-------------------------------------------------------------------------------------------------
+/** The retail table, then every MusicTrack the loaded data tags with a MusicMood, in Music.ini's
+	* order: a tag on a retail track moves it, a tag on a new one adds it.  Built at a match's first
+	* track, after any map.ini has added its own. */
+void MusicManager::buildTracks( void )
 {
+	m_tracks.clear();
 	for (Int i = 0; i < ARRAY_SIZE( TheDynamicTracks ); ++i)
-		if (name.compareNoCase( TheDynamicTracks[i].name ) == 0)
-			return &TheDynamicTracks[i];
+	{
+		MoodTrack track;
+		track.name = TheDynamicTracks[i].name;
+		track.side = TheDynamicTracks[i].side;
+		track.mood = TheDynamicTracks[i].mood;
+		m_tracks.push_back( track );
+	}
+
+	Int tagged = 0;
+	const AsciiString first = TheAudio->nextTrackName( AsciiString::TheEmptyString );
+	AsciiString name = first;
+	while (name.isNotEmpty())
+	{
+		const AudioEventInfo *info = TheAudio->findAudioEventInfo( name );
+		if (info != NULL && info->m_musicMood > 0)
+		{
+			MoodTrack *track = NULL;
+			for (size_t i = 0; i < m_tracks.size() && track == NULL; ++i)
+				if (m_tracks[i].name.compareNoCase( name ) == 0)
+					track = &m_tracks[i];
+			if (track == NULL)
+			{
+				m_tracks.push_back( MoodTrack() );
+				track = &m_tracks.back();
+				track->name = name;
+			}
+			track->side = info->m_musicSide;
+			track->mood = info->m_musicMood - 1;
+			++tagged;
+		}
+		name = TheAudio->nextTrackName( name );
+		if (name == first)
+			break;
+	}
+	DEBUG_LOG(("MUSIC: %d tracks by mood, %d of them tagged in Music.ini\n", (Int)m_tracks.size(), tagged));
+}
+
+//-------------------------------------------------------------------------------------------------
+const MusicManager::MoodTrack *MusicManager::findTrack( const AsciiString& name )
+{
+	if (m_tracks.empty())
+		buildTracks();
+	for (size_t i = 0; i < m_tracks.size(); ++i)
+		if (name.compareNoCase( m_tracks[i].name ) == 0)
+			return &m_tracks[i];
 	return NULL;
 }
 
@@ -219,8 +267,8 @@ void MusicManager::stopTrack( AudioHandle eventToRemove )
 //-------------------------------------------------------------------------------------------------
 void MusicManager::addAudioEvent( AudioEventRTS *eventToAdd )
 {
-	const DynamicTrack *track = findDynamicTrack( eventToAdd->getEventName() );
-	if (track != NULL && track->side[0] != '\0')
+	const MoodTrack *track = findTrack( eventToAdd->getEventName() );
+	if (track != NULL && track->side.isNotEmpty())
 		m_side = track->side;
 
 	if (m_inControl && !m_issuing && engaged())
@@ -239,10 +287,13 @@ void MusicManager::addAudioEvent( AudioEventRTS *eventToAdd )
 		m_side.clear();
 
 	// At calm the cycle's own next track is swapped for a calm one of its side, or a fight's music
-	// would play over a quiet base.  The scripts' sixty seconds of silence stay as they are.
-	if (!m_issuing && !m_inControl && track != NULL && track->side[0] != '\0' && track->mood != MOOD_CALM && engaged())
+	// would play over a quiet base.  The scripts' sixty seconds of silence stay as they are, and so
+	// does the track of a mod's side that tagged no calm one.
+	const AsciiString calm = !m_issuing && !m_inControl && track != NULL && track->side.isNotEmpty()
+		&& track->mood != MOOD_CALM && engaged() ? pickTrack( MOOD_CALM ) : AsciiString::TheEmptyString;
+	if (calm.isNotEmpty())
 	{
-		m_track = pickTrack( MOOD_CALM );
+		m_track = calm;
 		DEBUG_LOG(("MUSIC: frame %u the scripts' %s plays as %s\n", TheGameLogic->getFrame(),
 			eventToAdd->getEventName().str(), m_track.str()));
 		eventToAdd->setEventName( m_track );
@@ -382,25 +433,29 @@ void MusicManager::noteSound( const AudioEventRTS *event )
 /** The side's tracks of this mood in turn, never the one we started last; empty for an unknown side. */
 AsciiString MusicManager::pickTrack( Mood mood )
 {
+	if (m_tracks.empty())
+		buildTracks();
 	AsciiString pick;
 	Int count = 0;
-	for (Int i = 0; i < ARRAY_SIZE( TheDynamicTracks ); ++i)
-		if (TheDynamicTracks[i].mood == mood && m_side == TheDynamicTracks[i].side)
+	for (size_t i = 0; i < m_tracks.size(); ++i)
+		if (m_tracks[i].mood == mood && m_side == m_tracks[i].side)
 			++count;
 	for (Int tries = 0; tries < count && (pick.isEmpty() || pick == m_track); ++tries)
 	{
 		const Int want = m_pick[mood]++ % count;
-		for (Int i = 0, n = 0; i < ARRAY_SIZE( TheDynamicTracks ); ++i)
-			if (TheDynamicTracks[i].mood == mood && m_side == TheDynamicTracks[i].side && n++ == want)
-				pick = TheDynamicTracks[i].name;
+		Int n = 0;
+		for (size_t i = 0; i < m_tracks.size(); ++i)
+			if (m_tracks[i].mood == mood && m_side == m_tracks[i].side && n++ == want)
+				pick = m_tracks[i].name;
 	}
 	return pick;
 }
 
 //-------------------------------------------------------------------------------------------------
-/** Fades out whatever music plays, over TimeToFadeAudio, and brings a track of this mood up from
-	* nearly nothing over FADE_IN.  The fading track is marked as such, so the one-track rule in the
-	* device leaves it alone until it has gone. */
+/** A crossfade: whatever music plays falls over TimeToFadeAudio, in logic time (the device's fading
+	* list), and a track of this mood rises over the same frames from the same frame, so the two overlap
+	* end to end.  The fading track is marked as such, so the one-track rule in the device leaves it
+	* alone until it has gone. */
 void MusicManager::changeTrack( Mood mood )
 {
 	const UnsignedInt now = TheGameLogic->getFrame();
@@ -436,6 +491,8 @@ void MusicManager::update( void )
 	const UnsignedInt now = match ? TheGameLogic->getFrame() : 0;
 	if (!match || now < m_lastFrame)
 	{
+		// the next match builds the mood table again, with whatever music its map.ini brings
+		m_tracks.clear();
 		if (m_lastFrame != 0)
 			startMatch();
 		m_lastFrame = now;
@@ -451,11 +508,14 @@ void MusicManager::update( void )
 	// The rise is the device's own copy of the event, which the device frees when the stream ends, so
 	// it is written only while the device still answers for its handle.  The device reads the volume
 	// back on its next pass, with the music slider on it, in the same update.
+	// The old track falls in a straight line, so the new one rises as sqrt(1 - (1 - t)^2): the two
+	// together keep the power of one track all through, where two straight lines dip 3 dB halfway.
 	if (m_fadeEvent != NULL)
 	{
-		const Real t = MIN( 1.0f, (Real)(now - m_fadeStart) / FADE_IN );
+		const Real fadeFrames = (Real)MAX( 1, TheAudio->getAudioSettings()->m_fadeAudioFrames );
+		const Real t = MIN( 1.0f, (Real)(now - m_fadeStart) / fadeFrames );
 		if (TheAudio->isCurrentlyPlaying( m_fadeHandle ))
-			m_fadeEvent->setVolume( FADE_FLOOR + (m_fadeTarget - FADE_FLOOR) * t );
+			m_fadeEvent->setVolume( MAX( FADE_FLOOR, m_fadeTarget * sqrtf( t * (2.0f - t) ) ) );
 		if (t >= 1.0f || !TheAudio->isCurrentlyPlaying( m_fadeHandle ))
 			m_fadeEvent = NULL;
 	}

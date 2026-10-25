@@ -48,6 +48,7 @@
 #include "Common/LatchRestore.h"
 #include "Common/MapObject.h"
 #include "Common/MatchHistory.h"
+#include "Common/MiscAudio.h"
 #include "Common/MultiplayerSettings.h"
 #include "Common/PerfTimer.h"
 #include "Common/Player.h"
@@ -71,6 +72,7 @@
 
 #include "GameClient/ControlBar.h"
 #include "GameClient/Drawable.h"
+#include "GameClient/Eva.h"
 #include "GameClient/GameClient.h"
 #include "GameClient/GameText.h"
 #include "GameClient/GUICallbacks.h"
@@ -4112,7 +4114,27 @@ static void updateRankAuras( Object *objList )
 			const Real distSqr = dx * dx + dy * dy;
 			if( detect > 0.0f && distSqr <= detect * detect && other->getStealth()
 					&& other->testStatus( OBJECT_STATUS_STEALTHED ) && leader->getRelationship( other ) == ENEMIES )
+			{
+				// a fresh find pings the leader's owner the way StealthDetectorUpdate does, after the tick
+				if( !other->testStatus( OBJECT_STATUS_DETECTED ) && ThePlayerList->getLocalPlayer() == leader->getControllingPlayer() )
+				{
+					const Coord3D found = *other->getPosition();
+					const Int playerIndex = leader->getControllingPlayer()->getPlayerIndex();
+					const EvaMessage message = other->getStealth()->getEnemyDetectionEvaEvent();
+					LogicThread::callAfterTick( [found, playerIndex, message]()
+					{
+						if( !TheRadar->tryEvent( RADAR_EVENT_STEALTH_DISCOVERED, &found ) )
+							return;
+						static AudioEventRTS discoveredSound = TheAudio->getMiscAudio()->m_stealthDiscoveredSound;
+						discoveredSound.setPlayerIndex( playerIndex );
+						TheAudio->addAudioEvent( &discoveredSound );
+						TheInGameUI->message( TheGameText->fetch( "MESSAGE:StealthDiscovered" ) );
+						if( message != EVA_Invalid && TheEva != NULL )
+							TheEva->setShouldPlay( message );
+					} );
+				}
 				other->getStealth()->markAsDetected( LOGICFRAMES_PER_SECOND + 1 );
+			}
 			if( !gives || distSqr > radius * radius || other->isKindOf( KINDOF_STRUCTURE )
 					|| leader->getRelationship( other ) != ALLIES )
 				continue;

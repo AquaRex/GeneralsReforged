@@ -65,7 +65,16 @@ struct AudioSettings
 		m_occlusionVolume( 0.6f ),
 		m_occlusionDepth( 20.0f ),
 		m_occlusionTime( 250.0f ),
-		m_occlusionRays( 16 )
+		m_occlusionRays( 16 ),
+		m_zoomMixNearHeight( 300.0f ),
+		m_zoomMixFarHeight( 900.0f ),
+		m_zoomMixDetailVolume( 0.6f ),
+		m_ambienceBedNearVolume( 0.3f ),
+		m_ambienceBedFarVolume( 0.8f ),
+		m_ambienceBedSnow( "Amb_WinterNatureWindLoop" ),
+		m_ambienceBedTown( "Amb_UrbanCityAmbientLoop" ),
+		m_ambienceBedDesert( "Amb_DesertNatureWindThinLoop" ),
+		m_ambienceBedField( "Amb_TemperateMeadowAmbientLoop" )
 	{
 		m_duckSounds.push_back( "ExplosionNeutron" );
 		m_duckSounds.push_back( "ExplosionDaisyCutter" );
@@ -158,6 +167,30 @@ struct AudioSettings
 	Real m_occlusionDepth;
 	Real m_occlusionTime;
 	Int m_occlusionRays;
+
+	/** The mix as the camera zooms out, none of which the shipped file carries.
+		*
+		* Between `ZoomMixNearHeight` and `ZoomMixFarHeight`, the camera's height over the ground it looks
+		* at, the 3D sounds that are not ambience (weapons, engines, explosions, voices on the field) fall
+		* to `ZoomMixDetailVolume` of their level, while ambience keeps its own; zoomed back in, the
+		* detail returns.  100% leaves the mix as it was.  EA's own zoom bonus (`ZoomSoundVolume...`)
+		* still applies on top, to both.
+		*
+		* The map's ambience bed (MilesAudioManager::updateAmbienceBed): one looping 2D sound chosen
+		* from the map when it starts, `AmbienceBedSnow` on a snow map, `AmbienceBedTown` on a built-up
+		* one, `AmbienceBedDesert` or `AmbienceBedField` by the ground it is painted with.  It plays at
+		* `AmbienceBedNearVolume` of its own Volume with the camera at the near height and rises to
+		* `AmbienceBedFarVolume` at the far one, under the Ambience slider.  `NoSound`, or any name the loaded
+		* audio data lacks, plays no bed on that kind of map. */
+	Real m_zoomMixNearHeight;
+	Real m_zoomMixFarHeight;
+	Real m_zoomMixDetailVolume;
+	Real m_ambienceBedNearVolume;
+	Real m_ambienceBedFarVolume;
+	AsciiString m_ambienceBedSnow;
+	AsciiString m_ambienceBedTown;
+	AsciiString m_ambienceBedDesert;
+	AsciiString m_ambienceBedField;
 
 	Int m_drawableAmbientFrames;
 	Int m_fadeAudioFrames;

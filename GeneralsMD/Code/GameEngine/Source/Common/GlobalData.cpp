@@ -1452,6 +1452,7 @@ GlobalData::GlobalData()
 	m_ambientVolume = 40;
 	m_masterVolume = 100;
 	m_dynamicMusic = TRUE;
+	m_muteInBackground = TRUE;	// retail's: loseFocus on every deactivation
   m_3DSoundPref = false;
 
 	m_keyboardDefaultScrollFactor = m_keyboardScrollFactor = 0.5f;

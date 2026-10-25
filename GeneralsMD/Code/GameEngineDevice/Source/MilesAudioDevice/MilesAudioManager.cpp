@@ -63,6 +63,7 @@
 #include "Common/MapObject.h"
 #include "Common/ThingTemplate.h"
 #include "Common/ScopedMutex.h"
+#include "Common/TerrainTypes.h"
 
 #include <algorithm>
 
@@ -70,6 +71,7 @@
 #include "GameClient/Drawable.h"
 #include "GameClient/GameClient.h"
 #include "GameClient/ObserverCamera.h"
+#include "GameClient/TerrainVisual.h"
 #include "GameClient/VideoPlayer.h"
 #include "GameClient/View.h"
 
@@ -143,6 +145,9 @@ MilesAudioManager::MilesAudioManager() :
 	m_clockFrame(0),
 	m_clockElapsedMs(MSEC_PER_LOGICFRAME_REAL),
 	m_clockMovedAt(0),
+	m_askingOnArrival(false),
+	m_bedHandle(AHSV_Error),
+	m_bedStartedAt(0),
 	m_lastReplyAtMs(0),
 	m_mixLoggedAt(0),
 	m_occlusionCursor(0),
@@ -535,6 +540,10 @@ void MilesAudioManager::reset()
 	m_replyAtMs.clear();
 	m_blockers.clear();
 	m_blockersBuiltAt = 0;
+	// the bed went with everything else; the next map, the same one again included, chooses anew
+	m_roomMap.clear();
+	m_bedEvent.clear();
+	m_bedHandle = AHSV_Error;
   // This must come after stopAllAudioImmediately() and removeAllAudioRequests(), to ensure that
   // sounds pointing to the temporary AudioEventInfo handles are deleted before their info is deleted
   removeLevelSpecificAudioEventInfos();
@@ -622,6 +631,7 @@ void MilesAudioManager::update()
 	{
 		buildBlockers();
 	}
+	updateAmbienceBed();
 	setDeviceListenerPosition();
 	processRequestList();
 	processPlayingList();
@@ -2278,8 +2288,10 @@ UnsignedInt MilesAudioManager::getNumStreams( void ) const
 	* where they start (playAudioEvent), since a unit's second line skips this question altogether. */
 Bool MilesAudioManager::doesViolateLimit( AudioEventRTS *event ) const
 {
+	// Folding is decided once, when the shot is asked for.  On arrival the shot it would fold into
+	// is a later one from the same gun, still on its way, and two shots a beat apart became one.
 	const Bool mixed = !event->getIsLogicalAudio();
-	if (mixed && coalesceShot(event)) {
+	if (mixed && !m_askingOnArrival && coalesceShot(event)) {
 		return true;
 	}
 	if (doesViolateEventLimit(event)) {
@@ -2288,7 +2300,7 @@ Bool MilesAudioManager::doesViolateLimit( AudioEventRTS *event ) const
 	if (mixed && refuseOverBudget(event)) {
 		return true;
 	}
-	if (mixed) {
+	if (mixed && !m_askingOnArrival) {
 		noteShot(event);
 	}
 	return false;
@@ -2565,14 +2577,16 @@ Bool MilesAudioManager::doesViolateEventLimit( AudioEventRTS *event ) const
 		}
 	}
 	
-	// Also check the request list in case we've requested to play this sound.
+	// Also check the request list in case we've requested to play this sound.  A sound asked again as
+	// it lands (checkForSample) is on that list itself and is not one more of its kind: counted, it
+	// refused itself at a Limit of 1.
 	std::list<AudioRequest*>::const_iterator arIt;
 	for (arIt = m_audioRequests.begin(); arIt != m_audioRequests.end(); ++arIt) {
 		AudioRequest *req = (*arIt);
 		if (req == NULL) {
 			continue;
 		}
-		if( req->m_usePendingEvent ) 
+		if( req->m_usePendingEvent && req->m_pendingEvent != event )
 		{
 			if( req->m_pendingEvent->getEventName() == event->getEventName() ) 
 			{
@@ -3173,7 +3187,10 @@ void MilesAudioManager::processFadingList( void )
 			continue;
 		}
 
-		++playing->m_framesFaded;
+		// TimeToFadeAudio is logic frames; a pass is a render frame.  In a match the audio clock says how
+		// far the logic went (none while paused, so a crossfade holds with MusicManager's rise), and
+		// out of one a pass counts as a frame, as it always did.
+		playing->m_framesFaded += m_clockElapsedMs / MSEC_PER_LOGICFRAME_REAL;
 		Real volume = getEffectiveVolume(playing->m_audioEventRTS);
 		volume *= (1.0f - 1.0f * playing->m_framesFaded / getAudioSettings()->m_fadeAudioFrames);
 
@@ -3487,6 +3504,117 @@ void MilesAudioManager::setRoomFromMap( void )
 	DEBUG_LOG(("AUDIO: room for %s: %.2f%% built over, town %.2f%s, send %.2f, decay %.2f s, damping %.2f, "
 		"echo %d ms at %.2f, air %.0f\n", m_roomMap.str(), cover * 100.0f, town, snowy ? " in snow" : "",
 		wet * m_audioSettings->m_reverbLevel, decay, damping, (Int)(echo * 1000.0f), slap, absorption));
+
+	// The bed, from the same reading and the ground the map is painted with, sampled on a grid: snow
+	// (the weather, or snow on most of the ground that is not plain dirt and rock), a town (half way to
+	// the room's town or more, or streets and houses painted on a quarter of it), else desert or field,
+	// whichever of the two covers more.  The shell map behind the menus keeps quiet.
+	const Int GRID = 24;
+	Int desert = 0, field = 0, snow = 0, urban = 0, counted = 0;
+	for (Int i = 0; i < GRID; ++i)
+	{
+		for (Int j = 0; j < GRID; ++j)
+		{
+			TerrainType *tile = TheTerrainVisual->getTerrainTile(extent.lo.x + extent.width() * (i + 0.5f) / GRID,
+				extent.lo.y + extent.height() * (j + 0.5f) / GRID);
+			if (tile == NULL)
+				continue;
+			++counted;
+			switch (tile->getClass())
+			{
+				case TERRAIN_DESERT_1: case TERRAIN_DESERT_2: case TERRAIN_DESERT_3: case TERRAIN_LIVE_DESERT:
+				case TERRAIN_DRY_DESERT: case TERRAIN_SAND: case TERRAIN_ACCENT_SAND: case TERRAIN_TROPICAL_BEACH:
+					++desert;
+					break;
+				case TERRAIN_EASTERN_EUROPE_1: case TERRAIN_EASTERN_EUROPE_2: case TERRAIN_EASTERN_EUROPE_3:
+				case TERRAIN_SWISS_1: case TERRAIN_SWISS_2: case TERRAIN_SWISS_3: case TERRAIN_GRASS: case TERRAIN_FIELD:
+				case TERRAIN_COBBLESTONE_GRASS: case TERRAIN_ACCENT_GRASS: case TERRAIN_BEACH_PARK: case TERRAIN_WOOD:
+					++field;
+					break;
+				case TERRAIN_SNOW_1: case TERRAIN_SNOW_2: case TERRAIN_SNOW_3: case TERRAIN_RUGGED_SNOW: case TERRAIN_FLAT_SNOW:
+					++snow;
+					break;
+				case TERRAIN_RESIDENTIAL: case TERRAIN_ASPHALT: case TERRAIN_CONCRETE: case TERRAIN_CHINA: case TERRAIN_URBAN:
+					++urban;
+					break;
+				default:
+					break;
+			}
+		}
+	}
+	const AudioSettings *settings = m_audioSettings;
+	const char *kind;
+	if (TheGameLogic->isInShellGame())
+	{
+		kind = "none, the shell map";
+		m_bedEvent.clear();
+	}
+	else if (snowy || 2 * snow > desert + field + snow + urban)
+	{
+		kind = "snow";
+		m_bedEvent = settings->m_ambienceBedSnow;
+	}
+	else if (town >= 0.5f || 4 * urban >= counted)
+	{
+		kind = "town";
+		m_bedEvent = settings->m_ambienceBedTown;
+	}
+	else if (desert >= field)
+	{
+		kind = "desert";
+		m_bedEvent = settings->m_ambienceBedDesert;
+	}
+	else
+	{
+		kind = "field";
+		m_bedEvent = settings->m_ambienceBedField;
+	}
+	if (m_bedEvent.isNotEmpty() && findAudioEventInfo(m_bedEvent) == NULL)
+		m_bedEvent.clear();
+	m_bedHandle = AHSV_Error;
+	m_bedStartedAt = 0;
+	DEBUG_LOG(("AUDIO: ambience bed for %s: %s (%d desert, %d field, %d snow, %d town of %d samples), %s\n",
+		m_roomMap.str(), kind, desert, field, snow, urban, counted, m_bedEvent.isEmpty() ? "none" : m_bedEvent.str()));
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The map's bed, a looping 2D sound under everything else: started once the match runs, started
+	* again (a second on) whenever it is not playing, since as the lowest of priorities it gives up its
+	* voice to anything that needs one, and set every pass to the level the camera's height asks for,
+	* AmbienceBedNearVolume of its own Volume zoomed in up to AmbienceBedFarVolume zoomed out.  It
+	* answers to the Ambience slider (AudioManager::isAmbientSound) and pauses with the rest. */
+void MilesAudioManager::updateAmbienceBed( void )
+{
+	if (m_bedEvent.isEmpty() || !TheGameLogic->isInGame() || TheGameLogic->isLoadingMap())
+		return;
+
+	const AudioSettings *settings = m_audioSettings;
+	const Real level = settings->m_ambienceBedNearVolume
+		+ (settings->m_ambienceBedFarVolume - settings->m_ambienceBedNearVolume) * getZoomOut();
+
+	const UnsignedInt frame = TheGameLogic->getFrame();
+	if (!isCurrentlyPlaying(m_bedHandle))
+	{
+		if (m_bedStartedAt != 0 && frame >= m_bedStartedAt && frame < m_bedStartedAt + LOGICFRAMES_PER_SECOND)
+			return;
+		AudioEventRTS bed(m_bedEvent);
+		getInfoForAudioEvent(&bed);
+		bed.setVolume(bed.getAudioEventInfo()->m_volume * level);
+		m_bedHandle = addAudioEvent(&bed);
+		m_bedStartedAt = frame > 0 ? frame : 1;
+		return;
+	}
+
+	std::list<PlayingAudio *>::iterator it;
+	for (it = m_playingSounds.begin(); it != m_playingSounds.end(); ++it)
+	{
+		PlayingAudio *playing = *it;
+		if (playing && playing->isPlaying() && playing->m_audioEventRTS->getPlayingHandle() == m_bedHandle)
+		{
+			playing->m_audioEventRTS->setVolume(playing->m_audioEventRTS->getAudioEventInfo()->m_volume * level);
+			break;
+		}
+	}
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3541,19 +3669,23 @@ Bool MilesAudioManager::checkForSample( AudioRequest *req )
     getInfoForAudioEvent( req->m_pendingEvent );
   }
 
-	// A battle shot that waited out its distance meets the voice budget as it lands: when it was asked
-	// for, the voices it would join were still to come.  EA's test below compares the ST_ bits with an
-	// AudioType, so most delayed sounds skip canPlayNow here and never reached the budget at all.
-	if (refuseOverBudget(req->m_pendingEvent)) {
-		return false;
-	}
-
-	if (req->m_pendingEvent->getAudioEventInfo()->m_type != AT_SoundEffect)
+	// A sound that waited out its distance is asked again as it lands, as EA meant it to be: its range
+	// from where the microphone is now, the fog, its Limit, the channels and the battle budget, since
+	// when it was asked for the voices it would join were still to come.  EA compared the info's ST_
+	// bits with AT_SoundEffect here, so only a sound typed plain "world" (ST_WORLD has the same value)
+	// was ever asked.  A loop's next pass is the same sound going on, not a new one, and is let through:
+	// refused here it would be gone for good, with nothing to start it again.  So is a sound a script
+	// asked for, which the script may be waiting on and which passed every test when it was asked.
+	if (req->m_nextLoop || req->m_pendingEvent->getIsLogicalAudio()
+		|| req->m_pendingEvent->getAudioEventInfo()->m_soundType != AT_SoundEffect)
   {
 		return true;
 	}
 
-	return m_sound->canPlayNow(req->m_pendingEvent);
+	m_askingOnArrival = true;
+	const Bool canPlay = m_sound->canPlayNow(req->m_pendingEvent);
+	m_askingOnArrival = false;
+	return canPlay;
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -136,4 +136,19 @@ void AILCALL AIL_ex_capture_length(S32 *frames, S32 *rate)
 	*rate = 0;
 }
 
+// XAudio2's alone, whatever g_offline says: WinMain names the device before the choice is made, and
+// a -wav run plays on no device at all.
+void AILCALL XA_AIL_ex_set_output_device(const char *id);
+S32 AILCALL XA_AIL_ex_enumerate_output_devices(S32 index, char *id, S32 id_bytes, U16 *name, S32 name_chars);
+
+void AILCALL AIL_ex_set_output_device(const char *id)
+{
+	XA_AIL_ex_set_output_device(id);
+}
+
+S32 AILCALL AIL_ex_enumerate_output_devices(S32 index, char *id, S32 id_bytes, U16 *name, S32 name_chars)
+{
+	return XA_AIL_ex_enumerate_output_devices(index, id, id_bytes, name, name_chars);
+}
+
 } // extern "C"

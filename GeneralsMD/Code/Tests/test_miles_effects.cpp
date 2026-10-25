@@ -351,3 +351,53 @@ TEST(a_loud_mix_never_reaches_full_scale)
 	CHECK(capture.peak > AIL_EX_LIMITER_CEILING - 0.05);
 	CHECK(rms(capture, 1.1, 1.2) < 0.0002);
 }
+
+TEST(headphones_hear_a_sound_on_the_right_later_quieter_and_duller_in_the_left_ear)
+{
+	// MSS.h's ears alone, both backends' code.  A click straight to the right of a listener facing +y
+	// (right is up x face, -x here, as the test above places its tones): Woodworth's 0.66 ms is 31.6
+	// frames at 48 kHz, and the far ear's shadow both lowers and spreads what arrives.
+	const float RATE = 48000.0f;
+	const int FRAMES = 96;
+	float side = 0.0f;
+	float front = 0.0f;
+	AIL_ex_3D_bearing(-10.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, &side, &front);
+	CHECK_NEAR(side, 1.0f, 0.0001f);
+	CHECK_NEAR(front, 0.0f, 0.0001f);
+
+	AIL_EX_HRTF_TARGET ears;
+	AIL_ex_hrtf_target(side, front, RATE, &ears);
+	CHECK_NEAR(ears.delay[0], AIL_EX_HRTF_HEAD_SECONDS * (TONE_PI / 2.0 + 1.0) * RATE, 0.01);
+	CHECK_EQ(ears.delay[1], 0.0f);
+	CHECK(ears.gain[0] < ears.gain[1]);
+	CHECK(ears.coefficient[0] < ears.coefficient[1]);
+
+	float click[FRAMES] = { 1.0f };
+	float heard[FRAMES * 2];
+	AIL_EX_HRTF head;
+	AIL_ex_hrtf_reset(&head);
+	AIL_ex_hrtf_process(&head, &ears, click, heard, FRAMES);
+
+	int loudest[2] = { 0, 0 };
+	float leftSum = 0.0f;
+	float rightSum = 0.0f;
+	for (int frame = 0; frame < FRAMES; ++frame) {
+		for (int ear = 0; ear < 2; ++ear) {
+			if (fabsf(heard[frame * 2 + ear]) > fabsf(heard[loudest[ear] * 2 + ear])) {
+				loudest[ear] = frame;
+			}
+		}
+		leftSum += heard[frame * 2];
+		rightSum += heard[frame * 2 + 1];
+	}
+	CHECK(loudest[1] <= 1);
+	CHECK(loudest[0] >= 31);
+	CHECK(fabsf(heard[30 * 2]) < 1e-6f);	// nothing reaches the left ear before the delay
+	CHECK(leftSum < rightSum);
+
+	// straight ahead the two ears are one: no delay, the stereo pan's centre gain
+	AIL_ex_hrtf_target(0.0f, 1.0f, RATE, &ears);
+	CHECK_EQ(ears.delay[0], ears.delay[1]);
+	CHECK_NEAR(ears.gain[0], AIL_EX_HRTF_CENTRE, 0.0001f);
+	CHECK_NEAR(ears.gain[1], AIL_EX_HRTF_CENTRE, 0.0001f);
+}

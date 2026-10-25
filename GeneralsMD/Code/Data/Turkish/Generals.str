@@ -1109,10 +1109,6 @@ TOOLTIP:ProviderType
 "Ses Sağlayıcınızı seçin"
 END
 
-TOOLTIP:SpeakerType
-"Hoparlör Yapılandırmanızı seçin"
-END
-
 TOOLTIP:Resolution
 "Oyununuz için bir ekran çözünürlüğü seçin. Çözünürlük yükseldikçe oyun yavaşlayabilir"
 END
@@ -15123,6 +15119,54 @@ END
 
 TOOLTIP:DynamicMusic
 "Çatışma ya da çevrim içi maçta müzik savaşa göre değişir: ortalık sakinken tarafının sakin parçalarından biri, kameranın yakınında ya da birliklerine ateş açılınca daha sert bir parça çalar, çarpışma bittikten birkaç saniye sonra sakin müziğe döner. Kapalıyken müzik özgün oyundaki gibi çalar."
+END
+
+GUI:OptionsGroupOutput
+"Çıkış"
+END
+
+GUI:AudioDevice
+"Çıkış Aygıtı"
+END
+
+TOOLTIP:AudioDevice
+"Oyunun sesinin çıktığı hoparlör ya da kulaklık. Varsayılan Windows'u izler, kulaklık takınca onunla birlikte geçer. Kabul Et'e bastığınızda uygulanır."
+END
+
+GUI:AudioDeviceDefault
+"Varsayılan"
+END
+
+GUI:SpeakerType
+"Hoparlör Düzeni"
+END
+
+TOOLTIP:SpeakerType
+"Savaş alanındaki seslerin çevrenize nasıl yerleştiği. Kulaklıkta her kulak kendi zamanlamasını ve tınısını alır, böylece arkanızdaki ya da yanınızdaki bir ses oradan duyulur. 5.1 ve 7.1 sesleri çevresel hoparlörlere dağıtır; Linux ve macOS'ta stereo çalar. Kabul Et'e bastığınızda uygulanır."
+END
+
+GUI:SpeakerType0
+"Stereo Hoparlör"
+END
+
+GUI:SpeakerType1
+"Kulaklık"
+END
+
+GUI:SpeakerType2
+"5.1 Çevresel"
+END
+
+GUI:SpeakerType3
+"7.1 Çevresel"
+END
+
+GUI:MuteInBackground
+"Arka Planda Sessiz"
+END
+
+TOOLTIP:MuteInBackground
+"Başka bir pencere öndeyken oyunu susturur. Kapalıyken oyun bir tarayıcının arkasında ya da ikinci monitörde de duyulur."
 END
 
 GUI:IsometricCamera

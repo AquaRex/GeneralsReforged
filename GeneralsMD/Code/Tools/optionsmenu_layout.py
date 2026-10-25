@@ -122,9 +122,10 @@ ADVANCED_KEEP = GRAPHICS_CHECKS + ["CheckUnlockFPS", "LowResSlider", "ParticleCa
 # swaying trees are a GameLOD.ini field like the popup's boxes, so they save under Custom with them.
 MENU_CHECKS = ["CheckTreeSway"]
 
-# Combo boxes OptionsMenu.cpp fills in by name for the same reason: the monitors on the desktop are
-# not a range a catalog row can describe.
-MENU_COMBOS = ["ComboBoxMonitor"]
+# Combo boxes OptionsMenu.cpp fills in by name for the same reason: the monitors on the desktop and
+# the audio endpoints are not a range a catalog row can describe, and the speaker setup is EA's
+# SpeakerType string in Options.ini, which the audio manager reads itself.
+MENU_COMBOS = ["ComboBoxMonitor", "ComboBoxSpeakerType", "ComboBoxAudioDevice"]
 
 # The catalog's shadow rows, which stood in GameData.ini with no control until the Effects page.
 SHADOW_CHECKS = ["Check3DShadows", "Check2DShadows", "CheckCloudShadows", "CheckInfantryShadows",
@@ -210,6 +211,11 @@ NEW_CONTROLS = [
     (LABEL,  "LabelMasterVolume",      "GUI:MasterVolume"),
     (SLIDER, "SliderMasterVolume",     None),
     (CHECK,  "CheckDynamicMusic",      "GUI:DynamicMusic"),
+    (LABEL,  "LabelAudioDevice",       "GUI:AudioDevice"),
+    (COMBO,  "ComboBoxAudioDevice",    None),
+    (LABEL,  "LabelSpeakerType",       "GUI:SpeakerType"),
+    (COMBO,  "ComboBoxSpeakerType",    None),
+    (CHECK,  "CheckMuteInBackground",  "GUI:MuteInBackground"),
     (LABEL,  "LabelZoomSpeed",         "GUI:ZoomSpeed"),
     (SLIDER, "SliderZoomSpeed",        None),
     (LABEL,  "LabelShadowQuality",     "GUI:ShadowQuality"),
@@ -387,7 +393,11 @@ GROUP_LAYOUT = [
             setting("LabelAmbientVolume", "SliderAmbientVolume", "ValueAmbientVolume")]),
         ("GUI:OptionsGroupMusic", [
             setting("MusicVolumeLabel", "SliderMusicVolume", "ValueMusicVolume"),
-            ("check", "CheckDynamicMusic")])]),
+            ("check", "CheckDynamicMusic")]),
+        ("GUI:OptionsGroupOutput", [
+            setting("LabelAudioDevice", "ComboBoxAudioDevice"),
+            setting("LabelSpeakerType", "ComboBoxSpeakerType"),
+            ("check", "CheckMuteInBackground")])]),
 
     ("PageControls", [
         ("GUI:OptionsGroupCamera", [

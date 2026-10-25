@@ -622,8 +622,9 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message,
 					ClipCursor( NULL );
 					isCursorClippedToWindow = false;
 					// A -wav run is heard by its file, not a person: muting it here silenced the
-					// capture whenever another window took the focus.
-					if (TheAudio && TheGlobalData->m_wavEndFrame <= 0)
+					// capture whenever another window took the focus.  MuteInBackground off keeps it
+					// playing behind another window.
+					if (TheAudio && TheGlobalData->m_wavEndFrame <= 0 && TheGlobalData->m_muteInBackground)
 						TheAudio->loseFocus();
 				}  // end if
 				else
@@ -1548,6 +1549,13 @@ Int APIENTRY WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
 #endif
 
 		DEBUG_LOG(("CRC message is %d\n", GameMessage::MSG_LOGIC_CRC));
+
+		// The audio endpoint the options menu saved, handed to the backend before the audio device
+		// opens on the default: "" or a device that is gone plays on the default.
+		const size_t AUDIO_DEVICE_ID_BYTES = 256;	// an MMDevice id is about 55
+		char savedAudioDevice[AUDIO_DEVICE_ID_BYTES];
+		findEarlyOptionValue( "AudioDevice", savedAudioDevice, sizeof( savedAudioDevice ) );
+		AIL_ex_set_output_device( savedAudioDevice );
 
 		// run the game main loop
 		GameMain(argc, argv);

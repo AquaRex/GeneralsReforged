@@ -96,6 +96,7 @@ static void set_m_masterVolume( Int value )
 		TheAudio->setVolume( value / 100.0f, (AudioAffect)(AudioAffect_Master | AudioAffect_SystemSetting) );
 }
 OPTION_BOOL_ACCESSORS( m_dynamicMusic )
+OPTION_BOOL_ACCESSORS( m_muteInBackground )
 // The catalog loads before there is a game; the menu's Accept during a mission changes its speed
 // on the spot, which only the pacing reads.
 static Int get_m_turboMode( void ) { return TheGlobalData->m_turboMode ? 1 : 0; }
@@ -348,6 +349,12 @@ const OptionDef TheOptionCatalog[] =
 	{ "DynamicMusic",							OPT_WND( "CheckDynamicMusic" ), "GUI:DynamicMusic",
 		OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_dynamicMusic, set_m_dynamicMusic },
+
+	// Silent while another window has the focus, as retail always was; off keeps the game heard
+	// behind a browser or a second monitor's window.  Read at the next focus change.  On Options > Audio.
+	{ "MuteInBackground",					OPT_WND( "CheckMuteInBackground" ), "GUI:MuteInBackground",
+		OPTION_BOOL, APPLY_LIVE, 0, 1,
+		get_m_muteInBackground, set_m_muteInBackground },
 
 	// With the move, attack move or guard key armed, a left drag over the ground spreads the
 	// selection along the line drawn instead of sending everyone to one point.  On by default, and

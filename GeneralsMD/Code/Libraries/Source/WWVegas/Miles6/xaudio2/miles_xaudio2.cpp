@@ -18,10 +18,16 @@
  *                           running mss_ex_room.h's room, miles_miniaudio's own.
  *   EOS callbacks        -> the service thread notices a voice run dry and calls back from there,
  *                           which is the thread context Miles used (MilesAudioManager locks for it).
+ *   speaker types        -> headphones run AIL_ex_hrtf in an effect on every 3D voice; 4, 5.1 and 7.1
+ *                           are a mastering voice of that many channels, 3D voices panned round it.
+ *   the output           -> made again on the service thread whenever it is lost or asked for another
+ *                           way (openOutput, closeOutput), and absent altogether on a machine with
+ *                           no endpoint, where every sound plays in silence for its length.
  */
 
 #include <windows.h>
 #include <mmreg.h>
+#include <mmdeviceapi.h>
 #include <xaudio2.h>
 #include <xapo.h>
 #include <math.h>
@@ -50,6 +56,12 @@ const int STREAM_BUFFERS_AHEAD = 4;
 const int USER_DATA_SLOTS = 8;
 const float DEFAULT_PAN = 0.5f;
 const int AVIO_BUFFER_BYTES = 32768;
+// One unplug is a removal, a state change and a new default inside a few milliseconds; the output is
+// made again once the endpoints have been quiet this long, not once for each.
+const ULONGLONG ENDPOINT_SETTLE_MS = 300;
+const int OUTPUT_DEVICE_CHARS = 256;
+const float HEADPHONE_ROOM_SEND = 0.7071f;	// both ears into the room: about the one signal a speaker voice sends
+const float HALF_TURN_RADIANS = 3.14159265f;
 
 struct WaveImage
 {
@@ -279,6 +291,179 @@ public:
 
 SampleVoiceCallback g_sampleCallback;
 
+// An effect of our own on a voice, working on the voice's float mix, in place unless it says
+// otherwise.  XAudio2 holds a reference while the voice has it in its chain.
+class Effect : public IXAPO
+{
+public:
+	explicit Effect(bool inPlace) : m_references(1), m_inPlace(inPlace) {}
+
+	STDMETHOD(QueryInterface)(REFIID riid, void **object)
+	{
+		if (object == NULL) {
+			return E_POINTER;
+		}
+		if (riid == __uuidof(IXAPO) || riid == __uuidof(IUnknown)) {
+			*object = static_cast<IXAPO *>(this);
+			AddRef();
+			return S_OK;
+		}
+		*object = NULL;
+		return E_NOINTERFACE;
+	}
+
+	STDMETHOD_(ULONG, AddRef)()
+	{
+		return (ULONG)InterlockedIncrement(&m_references);
+	}
+
+	STDMETHOD_(ULONG, Release)()
+	{
+		const LONG left = InterlockedDecrement(&m_references);
+		if (left == 0) {
+			delete this;
+		}
+		return (ULONG)left;
+	}
+
+	STDMETHOD(GetRegistrationProperties)(XAPO_REGISTRATION_PROPERTIES **properties)
+	{
+		XAPO_REGISTRATION_PROPERTIES *copy = (XAPO_REGISTRATION_PROPERTIES *)
+			CoTaskMemAlloc(sizeof(XAPO_REGISTRATION_PROPERTIES));
+		if (copy == NULL) {
+			return E_OUTOFMEMORY;
+		}
+		memset(copy, 0, sizeof(*copy));
+		wcscpy_s(copy->FriendlyName, L"master");
+		wcscpy_s(copy->CopyrightInfo, L"");
+		copy->MajorVersion = 1;
+		copy->Flags = XAPO_FLAG_FRAMERATE_MUST_MATCH | XAPO_FLAG_BITSPERSAMPLE_MUST_MATCH | XAPO_FLAG_BUFFERCOUNT_MUST_MATCH;
+		if (m_inPlace) {
+			copy->Flags |= XAPO_FLAG_CHANNELS_MUST_MATCH | XAPO_FLAG_INPLACE_SUPPORTED | XAPO_FLAG_INPLACE_REQUIRED;
+		}
+		copy->MinInputBufferCount = 1;
+		copy->MaxInputBufferCount = 1;
+		copy->MinOutputBufferCount = 1;
+		copy->MaxOutputBufferCount = 1;
+		*properties = copy;
+		return S_OK;
+	}
+
+	// Any format is taken.  The out pointer is for the nearest format to one refused, allocated with
+	// XAPOAlloc for the caller to free, so a yes leaves it alone, as CXAPOBase does: handing back the
+	// caller's own pointer gives it something of its own to free.
+	STDMETHOD(IsInputFormatSupported)(const WAVEFORMATEX *, const WAVEFORMATEX *, WAVEFORMATEX **)
+	{
+		return S_OK;
+	}
+
+	STDMETHOD(IsOutputFormatSupported)(const WAVEFORMATEX *, const WAVEFORMATEX *, WAVEFORMATEX **)
+	{
+		return S_OK;
+	}
+
+	STDMETHOD(Initialize)(const void *, UINT32)
+	{
+		return S_OK;
+	}
+
+	STDMETHOD_(void, Reset)()
+	{
+	}
+
+	STDMETHOD(LockForProcess)(UINT32, const XAPO_LOCKFORPROCESS_BUFFER_PARAMETERS *, UINT32,
+		const XAPO_LOCKFORPROCESS_BUFFER_PARAMETERS *)
+	{
+		return S_OK;
+	}
+
+	STDMETHOD_(void, UnlockForProcess)()
+	{
+	}
+
+	STDMETHOD_(UINT32, CalcInputFrames)(UINT32 outputFrameCount)
+	{
+		return outputFrameCount;
+	}
+
+	STDMETHOD_(UINT32, CalcOutputFrames)(UINT32 inputFrameCount)
+	{
+		return inputFrameCount;
+	}
+
+protected:
+	virtual ~Effect() {}
+
+private:
+	volatile LONG m_references;
+	bool m_inPlace;
+};
+
+// A 3D voice's head under AIL_3D_HEADPHONE: the voice's channels summed and put round the head by
+// MSS.h's AIL_ex_hrtf, two channels out whatever came in.  The bearing comes from the service
+// thread at each refresh, and the mixer takes it up at its next pass.
+class HeadEffect : public Effect
+{
+public:
+	HeadEffect() : Effect(false), m_side(0.0f), m_front(1.0f), m_inputChannels(1), m_rate(0.0f)
+	{
+		AIL_ex_hrtf_reset(&m_head);
+	}
+
+	void aim(float side, float front)
+	{
+		m_side.store(side);
+		m_front.store(front);
+	}
+
+	STDMETHOD(LockForProcess)(UINT32, const XAPO_LOCKFORPROCESS_BUFFER_PARAMETERS *input, UINT32,
+		const XAPO_LOCKFORPROCESS_BUFFER_PARAMETERS *)
+	{
+		m_inputChannels = input[0].pFormat->nChannels;
+		m_rate = (float)input[0].pFormat->nSamplesPerSec;
+		m_sum.resize(input[0].MaxFrameCount);
+		AIL_ex_hrtf_reset(&m_head);
+		return S_OK;
+	}
+
+	STDMETHOD_(void, Reset)()
+	{
+		AIL_ex_hrtf_reset(&m_head);
+	}
+
+	STDMETHOD_(void, Process)(UINT32, const XAPO_PROCESS_BUFFER_PARAMETERS *input, UINT32,
+		XAPO_PROCESS_BUFFER_PARAMETERS *output, BOOL)
+	{
+		// not in place: the voice's channels come in, two go out; a silent pass is no input, and the
+		// delay line still gives out what it holds
+		const UINT32 frames = input[0].ValidFrameCount;
+		const float *in = (const float *)input[0].pBuffer;
+		const bool silent = input[0].BufferFlags == XAPO_BUFFER_SILENT;
+		for (UINT32 frame = 0; frame < frames; ++frame) {
+			float sum = 0.0f;
+			for (UINT32 channel = 0; !silent && channel < m_inputChannels; ++channel) {
+				sum += in[frame * m_inputChannels + channel];
+			}
+			m_sum[frame] = sum;
+		}
+		AIL_EX_HRTF_TARGET target;
+		AIL_ex_hrtf_target(m_side.load(), m_front.load(), m_rate, &target);
+		AIL_ex_hrtf_process(&m_head, &target, m_sum.data(), (float *)output[0].pBuffer, (S32)frames);
+		output[0].ValidFrameCount = frames;
+		output[0].BufferFlags = XAPO_BUFFER_VALID;
+	}
+
+private:
+	~HeadEffect() {}
+
+	AIL_EX_HRTF m_head;	// the mixer thread's alone
+	std::vector<float> m_sum;
+	std::atomic<float> m_side;
+	std::atomic<float> m_front;
+	UINT32 m_inputChannels;
+	float m_rate;
+};
+
 struct Sample
 {
 	bool is3D;
@@ -300,6 +485,8 @@ struct Sample
 	float velocityX, velocityY, velocityZ;	// units a second, AIL_set_3D_velocity_vector
 	bool unducked;	// started a duck, so the duck leaves it alone until it is over or the sample stops
 	bool dry;	// AIL_ex_set_3D_sample_dry
+	HeadEffect *head;	// our reference to the voice's head under AIL_3D_HEADPHONE, NULL otherwise
+	ULONGLONG silentEndMs;	// playing with no voice: when the sound it would have been is over
 };
 
 struct StreamBuffer
@@ -313,7 +500,7 @@ struct Stream
 		: format(NULL), avio(NULL), decoder(NULL), resampler(NULL), audioStream(-1), fileHandle(0),
 		  ownsFileHandle(false), voice(NULL), loopCount(1), paused(false), playing(false),
 		  exhausted(false), volume(1.0f), pan(DEFAULT_PAN), totalMs(0.0), framesSubmitted(0),
-		  callback(NULL)
+		  callback(NULL), silentEndMs(0)
 	{
 		memset(&voiceFormat, 0, sizeof(voiceFormat));
 	}
@@ -339,6 +526,7 @@ struct Stream
 	double totalMs;
 	long long framesSubmitted;
 	AILSTREAMCB callback;
+	ULONGLONG silentEndMs;	// playing with no voice: when the file would have played out
 };
 
 struct Listener
@@ -351,9 +539,12 @@ struct Listener
 struct Engine
 {
 	IXAudio2 *xaudio;
-	IXAudio2MasteringVoice *master;
+	IXAudio2MasteringVoice *master;	// NULL while there is no endpoint to play on
 	unsigned int masterRate;
+	unsigned int masterChannels;
+	bool onPickedDevice;	// the master is on AIL_ex_set_output_device's endpoint, not the default
 	IXAudio2SubmixVoice *room;	// RoomTap, AIL_ex_set_reverb; NULL where it could not be made
+	IMMDeviceEnumerator *endpoints;	// holds EndpointWatch's registration
 	CRITICAL_SECTION lock;
 	HANDLE serviceThread;
 	volatile LONG serviceRunning;
@@ -365,11 +556,32 @@ struct Engine
 };
 
 Engine g_engine;
+// The output asked for: AIL_set_3D_speaker_type's and AIL_ex_set_output_device's, under the lock once
+// there is one.  An empty device is the system's default.
+S32 g_speakerType = AIL_3D_2_SPEAKER;
+wchar_t g_outputDevice[OUTPUT_DEVICE_CHARS];
+// Set on XAudio2's and MMDevice's own threads, and by the two settings, and taken up by the service
+// thread (serviceOutput).
+std::atomic<bool> g_remakeOutput(false);
+std::atomic<bool> g_endpointsMoved(false);
+std::atomic<bool> g_defaultMoved(false);
+std::atomic<ULONGLONG> g_endpointsMovedMs(0);
 S32 g_linearFalloff;	// AIL_ex_set_3D_linear_falloff
 // written by the game's thread with no lock, read by the service thread under it
 std::atomic<float> g_speedOfSound(0.0f);	// AIL_ex_set_3D_air
 std::atomic<float> g_absorptionDistance(0.0f);
 std::atomic<float> g_roomSend(0.0f);	// AIL_ex_set_reverb's wet
+
+// The rest of AIL_ex_set_reverb, under the lock, for a room made again with the output.
+struct RoomSettings
+{
+	bool given;
+	float decay;
+	float damping;
+	float echo;
+	float slap;
+};
+RoomSettings g_roomSettings = { false, 0.0f, 0.0f, 0.0f, 0.0f };
 
 // AIL_ex_duck, under the lock.  duckNow is the gain the service thread worked out last.
 struct Duck
@@ -400,44 +612,93 @@ float clampUnit(float value)
 	return value;
 }
 
-void applyPan(IXAudio2SourceVoice *voice, unsigned int sourceChannels, float pan)
+// Every source channel into each of the master's speakers at that speaker's gain, the way Miles sums a
+// sample's channels into both sides of a pan.  The master by name: a 3D sample's voice has a second
+// send, into the room.
+void applySpeakerGains(IXAudio2SourceVoice *voice, unsigned int sourceChannels, const float *gains)
 {
-	if (voice == NULL || g_engine.master == NULL) {
-		return;
+	std::vector<float> matrix((size_t)sourceChannels * g_engine.masterChannels, 0.0f);
+	for (unsigned int speaker = 0; speaker < g_engine.masterChannels; ++speaker) {
+		for (unsigned int channel = 0; channel < sourceChannels; ++channel) {
+			matrix[(size_t)speaker * sourceChannels + channel] = gains[speaker];
+		}
 	}
-
-	XAUDIO2_VOICE_DETAILS masterDetails;
-	g_engine.master->GetVoiceDetails(&masterDetails);
-	if (masterDetails.InputChannels < 2) {
-		return;
-	}
-
-	const float left = clampUnit(1.0f - pan);
-	const float right = clampUnit(pan);
-	// Miles' pan is a constant-power law: dead centre is not two half-volume speakers.
-	const float leftGain = (float)sqrt(left);
-	const float rightGain = (float)sqrt(right);
-
-	std::vector<float> matrix((size_t)sourceChannels * masterDetails.InputChannels, 0.0f);
-	for (unsigned int channel = 0; channel < sourceChannels; ++channel) {
-		matrix[(size_t)0 * sourceChannels + channel] = leftGain;
-		matrix[(size_t)1 * sourceChannels + channel] = rightGain;
-	}
-	// the master by name: a 3D sample's voice has a second send, into the room
-	voice->SetOutputMatrix(g_engine.master, sourceChannels, masterDetails.InputChannels, &matrix[0]);
+	voice->SetOutputMatrix(g_engine.master, sourceChannels, g_engine.masterChannels, &matrix[0]);
 }
 
-// Every source channel into both of the room's, at one gain relative to the voice's volume.
-void applyRoomSend(IXAudio2SourceVoice *voice, unsigned int sourceChannels, float send)
+// Miles' pan, onto the front pair of whatever the master has.  A constant-power law: dead centre is
+// not two half-volume speakers.
+void applyPan(IXAudio2SourceVoice *voice, unsigned int sourceChannels, float pan)
 {
-	std::vector<float> matrix((size_t)sourceChannels * 2, send);
-	voice->SetOutputMatrix(g_engine.room, sourceChannels, 2, &matrix[0]);
+	if (voice == NULL || g_engine.master == NULL || g_engine.masterChannels < 2) {
+		return;
+	}
+
+	float gains[XAUDIO2_MAX_AUDIO_CHANNELS] = { 0.0f };
+	gains[0] = (float)sqrt(clampUnit(1.0f - pan));
+	gains[1] = (float)sqrt(clampUnit(pan));
+	applySpeakerGains(voice, sourceChannels, gains);
+}
+
+// A speaker of a surround master: its bearing in degrees clockwise from ahead, and its channel in
+// WAVEFORMATEXTENSIBLE's order for the count, which is how XAudio2 reads a master of that many
+// channels: front left, front right, centre, LFE, back left, back right, side left, side right.  The
+// LFE takes nothing.  Each ring runs round the listener in bearing order.
+struct Speaker
+{
+	float bearing;
+	unsigned int channel;
+};
+const Speaker QUAD_RING[] = { { -135.0f, 2 }, { -45.0f, 0 }, { 45.0f, 1 }, { 135.0f, 3 } };
+const Speaker RING_51[] = { { -110.0f, 4 }, { -30.0f, 0 }, { 0.0f, 2 }, { 30.0f, 1 }, { 110.0f, 5 } };
+const Speaker RING_71[] = { { -150.0f, 4 }, { -90.0f, 6 }, { -30.0f, 0 }, { 0.0f, 2 }, { 30.0f, 1 }, { 90.0f, 7 }, { 150.0f, 5 } };
+
+// A 3D sample on a surround master: the two speakers either side of its bearing share it at the
+// constant-power law of the stereo pan, the rest are silent.
+void applySurround(IXAudio2SourceVoice *voice, unsigned int sourceChannels, float side, float front)
+{
+	const Speaker *ring = g_engine.masterChannels >= 8 ? RING_71 : (g_engine.masterChannels >= 6 ? RING_51 : QUAD_RING);
+	const unsigned int count = g_engine.masterChannels >= 8 ? 7 : (g_engine.masterChannels >= 6 ? 5 : 4);
+	const float bearing = atan2f(side, front) * 180.0f / HALF_TURN_RADIANS;
+
+	float gains[XAUDIO2_MAX_AUDIO_CHANNELS] = { 0.0f };
+	for (unsigned int i = 0; i < count; ++i) {
+		const Speaker &from = ring[i];
+		const Speaker &to = ring[(i + 1) % count];
+		const float span = to.bearing > from.bearing ? to.bearing - from.bearing : to.bearing - from.bearing + 360.0f;
+		const float past = bearing >= from.bearing ? bearing - from.bearing : bearing - from.bearing + 360.0f;
+		if (past <= span) {
+			const float share = past / span * 0.5f * HALF_TURN_RADIANS;
+			gains[from.channel] = cosf(share);
+			gains[to.channel] = sinf(share);
+			break;
+		}
+	}
+	applySpeakerGains(voice, sourceChannels, gains);
+}
+
+// A head's two ears straight onto the master's first two speakers; the head has panned already.
+void applyEars(IXAudio2SourceVoice *voice)
+{
+	std::vector<float> matrix((size_t)2 * g_engine.masterChannels, 0.0f);
+	matrix[0 * 2 + 0] = 1.0f;
+	matrix[1 * 2 + 1] = 1.0f;
+	voice->SetOutputMatrix(g_engine.master, 2, g_engine.masterChannels, &matrix[0]);
+}
+
+// Every channel the voice gives out into both of the room's, at one gain relative to its volume.
+void applyRoomSend(IXAudio2SourceVoice *voice, unsigned int voiceChannels, float send)
+{
+	std::vector<float> matrix((size_t)voiceChannels * 2, send);
+	voice->SetOutputMatrix(g_engine.room, voiceChannels, 2, &matrix[0]);
 }
 
 struct Spatial
 {
 	float volume;
 	float pan;
+	float side;		// AIL_ex_3D_bearing, for the head and the surround pan
+	float front;
 	float cutoff;	// Hz, AIL_ex_3D_cutoff
 	float send;		// into the room, AIL_ex_3D_send
 	float doppler;	// pitch ratio, AIL_ex_doppler_ratio
@@ -470,6 +731,8 @@ Spatial computeSpatial(const Sample &sample)
 	Spatial spatial;
 	spatial.volume = clampUnit(sample.volume) * attenuation;
 	spatial.pan = pan;
+	AIL_ex_3D_bearing(dx, dy, dz, listener.faceX, listener.faceY, listener.faceZ,
+		listener.upX, listener.upY, listener.upZ, &spatial.side, &spatial.front);
 	// a duck muffles everything but its trigger, as miles_miniaudio's mix does
 	const float muffle = sample.unducked ? AIL_EX_OPEN_CUTOFF : AIL_ex_duck_cutoff(g_duck.duckNow);
 	if (sample.dry) {
@@ -494,19 +757,34 @@ void refreshSampleOutput(Sample *sample)
 	float volume = sample->volume;
 	float pan = sample->pan;
 	float doppler = 1.0f;
+	bool surround = false;
+	float side = 0.0f;
+	float front = 1.0f;
 	if (sample->is3D) {
 		const Spatial spatial = computeSpatial(*sample);
 		volume = spatial.volume;
 		pan = spatial.pan;
 		doppler = spatial.doppler;
+		side = spatial.side;
+		front = spatial.front;
+		surround = g_engine.masterChannels > 2;
 		const XAUDIO2_FILTER_PARAMETERS filter = { LowPassOnePoleFilter,
 			AIL_ex_one_pole_coefficient(spatial.cutoff, (float)g_engine.masterRate), 1.0f };
 		sample->voice->SetFilterParameters(&filter);
 		sample->voice->SetOutputFilterParameters(g_engine.master, &filter);
-		// the voice's volume scales both sends, so the room's is given relative to it
+		if (sample->head != NULL) {
+			sample->head->aim(side, front);
+		}
+		// the voice's volume scales both sends, so the room's is given relative to it; a head gives
+		// out two ears where a speaker voice gives its own channels
 		if (g_engine.room != NULL) {
+			const float send = volume > 0.0f ? spatial.send / volume : 0.0f;
 			sample->voice->SetOutputFilterParameters(g_engine.room, &filter);
-			applyRoomSend(sample->voice, sample->format.nChannels, volume > 0.0f ? spatial.send / volume : 0.0f);
+			if (sample->head != NULL) {
+				applyRoomSend(sample->voice, 2, send * HEADPHONE_ROOM_SEND);
+			} else {
+				applyRoomSend(sample->voice, sample->format.nChannels, send);
+			}
 		}
 	}
 	if (!sample->unducked) {
@@ -514,7 +792,12 @@ void refreshSampleOutput(Sample *sample)
 	}
 
 	sample->voice->SetVolume(clampUnit(volume));
-	applyPan(sample->voice, sample->format.nChannels, pan);
+	// a head's ears were put on the master when the voice was made (freshVoice)
+	if (surround && sample->head == NULL) {
+		applySurround(sample->voice, sample->format.nChannels, side, front);
+	} else if (sample->head == NULL) {
+		applyPan(sample->voice, sample->format.nChannels, pan);
+	}
 	if (sample->baseRate != 0) {
 		float ratio = (float)sample->rate / (float)sample->baseRate * doppler;
 		if (ratio < XAUDIO2_MIN_FREQ_RATIO) ratio = XAUDIO2_MIN_FREQ_RATIO;
@@ -537,14 +820,28 @@ void destroyVoice(IXAudio2SourceVoice **voice)
 // references, and only OnBufferEnd gives them back, which a destroyed voice no longer calls.  It
 // is stopped and flushed here, and the service thread destroys it once the mixer has retired its
 // last buffer.  Under the lock.
-void retireVoice(IXAudio2SourceVoice **voice)
+void retireVoice(Sample *sample)
 {
-	if (*voice != NULL) {
-		(*voice)->Stop(0);
-		(*voice)->FlushSourceBuffers();
-		g_engine.retiredVoices.push_back(*voice);
-		*voice = NULL;
+	if (sample->voice != NULL) {
+		sample->voice->Stop(0);
+		sample->voice->FlushSourceBuffers();
+		g_engine.retiredVoices.push_back(sample->voice);
+		sample->voice = NULL;
 	}
+	// the chain keeps its own reference for as long as the voice lives
+	if (sample->head != NULL) {
+		sample->head->Release();
+		sample->head = NULL;
+	}
+}
+
+// How long the sample's sound lasts at its playback rate, for one played with no voice.
+ULONGLONG silentLengthMs(const Sample &sample)
+{
+	if (sample.data == NULL || sample.format.nBlockAlign == 0 || sample.rate == 0) {
+		return 0;
+	}
+	return (ULONGLONG)(sample.data->bytes / sample.format.nBlockAlign) * 1000 / sample.rate;
 }
 
 // Every sound gets a voice nobody has played before, and a voice is never fed again once it has
@@ -558,22 +855,37 @@ void retireVoice(IXAudio2SourceVoice **voice)
 // no position to carry, the way every fire-and-forget XAudio2 sound starts.
 bool freshVoice(Sample *sample, const WAVEFORMATEX &format)
 {
-	if (g_engine.xaudio == NULL) {
-		return false;
-	}
-
-	retireVoice(&sample->voice);
+	retireVoice(sample);
 	sample->started = false;
 	sample->format = format;
+	// no endpoint to play on: the sample plays in silence (AIL_start_sample)
+	if (g_engine.xaudio == NULL || g_engine.master == NULL) {
+		return false;
+	}
 	if (!sample->is3D) {
 		return SUCCEEDED(g_engine.xaudio->CreateSourceVoice(&sample->voice, &format, 0, 4.0f, &g_sampleCallback));
 	}
 	// A 3D sample's voice has the filter for air and occlusion, and sends into the room as well.  Each
-	// send filters again, which makes the two one-pole stages miles_miniaudio runs.
+	// send filters again, which makes the two one-pole stages miles_miniaudio runs.  Under headphones
+	// the voice's head comes after the filter and gives out two ears, whatever the file has.
 	XAUDIO2_SEND_DESCRIPTOR sends[2] = { { XAUDIO2_SEND_USEFILTER, g_engine.master }, { XAUDIO2_SEND_USEFILTER, g_engine.room } };
 	XAUDIO2_VOICE_SENDS sendList = { g_engine.room != NULL ? 2u : 1u, sends };
-	return SUCCEEDED(g_engine.xaudio->CreateSourceVoice(&sample->voice, &format, XAUDIO2_VOICE_USEFILTER, 4.0f,
-		&g_sampleCallback, &sendList));
+	if (g_speakerType != AIL_3D_HEADPHONE) {
+		return SUCCEEDED(g_engine.xaudio->CreateSourceVoice(&sample->voice, &format, XAUDIO2_VOICE_USEFILTER, 4.0f,
+			&g_sampleCallback, &sendList));
+	}
+	HeadEffect *head = new HeadEffect;
+	XAUDIO2_EFFECT_DESCRIPTOR descriptor = { static_cast<IXAPO *>(head), TRUE, 2 };
+	XAUDIO2_EFFECT_CHAIN chain = { 1, &descriptor };
+	if (FAILED(g_engine.xaudio->CreateSourceVoice(&sample->voice, &format, XAUDIO2_VOICE_USEFILTER, 4.0f,
+			&g_sampleCallback, &sendList, &chain))) {
+		sample->voice = NULL;
+		head->Release();
+		return false;
+	}
+	sample->head = head;
+	applyEars(sample->voice);
+	return true;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -703,12 +1015,31 @@ bool openStreamDecoder(Stream *stream, const char *filename)
 	} else if (audio->duration > 0) {
 		stream->totalMs = (double)audio->duration * av_q2d(audio->time_base) * 1000.0;
 	}
-
-	if (g_engine.xaudio == NULL ||
-		FAILED(g_engine.xaudio->CreateSourceVoice(&stream->voice, &stream->voiceFormat, 0, 2.0f))) {
-		return false;
-	}
 	return true;
+}
+
+// The stream's voice, under the lock.  None while there is no endpoint: the stream then plays in
+// silence, and openOutput gives it one when an endpoint comes.
+void voiceStream(Stream *stream)
+{
+	if (g_engine.master == NULL ||
+		FAILED(g_engine.xaudio->CreateSourceVoice(&stream->voice, &stream->voiceFormat, 0, 2.0f))) {
+		stream->voice = NULL;
+	}
+}
+
+// AIL_start_stream's half that touches the voice, and openOutput's for a stream that was playing when
+// the output went.  Under the lock.
+void playStream(Stream *stream)
+{
+	if (stream->voice == NULL) {
+		const double loops = stream->loopCount > 1 ? (double)stream->loopCount : 1.0;
+		stream->silentEndMs = GetTickCount64() + (ULONGLONG)(stream->totalMs * loops);
+		return;
+	}
+	stream->voice->SetVolume(clampUnit(stream->volume) * g_duck.duckNow);
+	applyPan(stream->voice, stream->voiceFormat.nChannels, stream->pan);
+	stream->voice->Start(0);
 }
 
 // Decodes up to one chunk.  Returns false at the end of the file with nothing more to give.
@@ -776,7 +1107,18 @@ bool rewindStream(Stream *stream)
 
 void serviceStream(Stream *stream, std::vector<AILSTREAMCB> *callbacks, std::vector<HSTREAM> *callbackHandles)
 {
-	if (stream->voice == NULL || !stream->playing) {
+	if (!stream->playing) {
+		return;
+	}
+	// in silence, with no endpoint: over when the file would have been; a pause does not hold the clock
+	if (stream->voice == NULL) {
+		if (!stream->paused && GetTickCount64() >= stream->silentEndMs) {
+			stream->playing = false;
+			if (stream->callback != NULL) {
+				callbacks->push_back(stream->callback);
+				callbackHandles->push_back((HSTREAM)stream);
+			}
+		}
 		return;
 	}
 
@@ -818,8 +1160,12 @@ void serviceStream(Stream *stream, std::vector<AILSTREAMCB> *callbacks, std::vec
 	}
 }
 
+void serviceOutput();
+
 DWORD WINAPI serviceThreadMain(LPVOID)
 {
+	// the output is made again on this thread, and an endpoint is found through COM
+	CoInitializeEx(NULL, COINIT_MULTITHREADED);
 	while (InterlockedCompareExchange(&g_engine.serviceRunning, 1, 1) == 1) {
 		std::vector<AILSAMPLECB> sampleCallbacks;
 		std::vector<HSAMPLE> sampleHandles;
@@ -830,6 +1176,7 @@ DWORD WINAPI serviceThreadMain(LPVOID)
 		std::vector<IXAudio2SourceVoice *> spentVoices;
 
 		EnterCriticalSection(&g_engine.lock);
+		serviceOutput();
 		for (size_t i = 0; i < g_engine.retiredVoices.size(); ) {
 			XAUDIO2_VOICE_STATE state;
 			g_engine.retiredVoices[i]->GetState(&state);
@@ -861,7 +1208,19 @@ DWORD WINAPI serviceThreadMain(LPVOID)
 			if (ducking && !g_duck.active) {
 				sample->unducked = false;
 			}
+			// started with no voice to play on, or its voice went with the output: over once the
+			// sound would have been, and the handle comes back the way a played one does
 			if (sample->voice == NULL) {
+				if (sample->playing && GetTickCount64() >= sample->silentEndMs) {
+					sample->playing = false;
+					if (sample->is3D && sample->endOf3DSample != NULL) {
+						sample3DCallbacks.push_back(sample->endOf3DSample);
+						sample3DHandles.push_back((H3DSAMPLE)sample);
+					} else if (!sample->is3D && sample->endOfSample != NULL) {
+						sampleCallbacks.push_back(sample->endOfSample);
+						sampleHandles.push_back((HSAMPLE)sample);
+					}
+				}
 				continue;
 			}
 			if (sample->is3D || ducking) {
@@ -909,6 +1268,7 @@ DWORD WINAPI serviceThreadMain(LPVOID)
 
 		Sleep(SERVICE_PERIOD_MS);
 	}
+	CoUninitialize();
 	return 0;
 }
 
@@ -962,119 +1322,13 @@ void writeWaveHeader(FILE *file, unsigned int channels, unsigned int samplesPerS
 	writeLittleU32(file, dataBytes);
 }
 
-// An effect of our own on a voice, working on the voice's float mix in place, with the format the
-// voice has.  XAudio2 holds a reference while the voice has it in its chain.
-class InPlaceEffect : public IXAPO
-{
-public:
-	InPlaceEffect() : m_references(1) {}
-
-	STDMETHOD(QueryInterface)(REFIID riid, void **object)
-	{
-		if (object == NULL) {
-			return E_POINTER;
-		}
-		if (riid == __uuidof(IXAPO) || riid == __uuidof(IUnknown)) {
-			*object = static_cast<IXAPO *>(this);
-			AddRef();
-			return S_OK;
-		}
-		*object = NULL;
-		return E_NOINTERFACE;
-	}
-
-	STDMETHOD_(ULONG, AddRef)()
-	{
-		return (ULONG)InterlockedIncrement(&m_references);
-	}
-
-	STDMETHOD_(ULONG, Release)()
-	{
-		const LONG left = InterlockedDecrement(&m_references);
-		if (left == 0) {
-			delete this;
-		}
-		return (ULONG)left;
-	}
-
-	STDMETHOD(GetRegistrationProperties)(XAPO_REGISTRATION_PROPERTIES **properties)
-	{
-		XAPO_REGISTRATION_PROPERTIES *copy = (XAPO_REGISTRATION_PROPERTIES *)
-			CoTaskMemAlloc(sizeof(XAPO_REGISTRATION_PROPERTIES));
-		if (copy == NULL) {
-			return E_OUTOFMEMORY;
-		}
-		memset(copy, 0, sizeof(*copy));
-		wcscpy_s(copy->FriendlyName, L"master");
-		wcscpy_s(copy->CopyrightInfo, L"");
-		copy->MajorVersion = 1;
-		copy->Flags = XAPO_FLAG_CHANNELS_MUST_MATCH | XAPO_FLAG_FRAMERATE_MUST_MATCH
-			| XAPO_FLAG_BITSPERSAMPLE_MUST_MATCH | XAPO_FLAG_BUFFERCOUNT_MUST_MATCH
-			| XAPO_FLAG_INPLACE_SUPPORTED | XAPO_FLAG_INPLACE_REQUIRED;
-		copy->MinInputBufferCount = 1;
-		copy->MaxInputBufferCount = 1;
-		copy->MinOutputBufferCount = 1;
-		copy->MaxOutputBufferCount = 1;
-		*properties = copy;
-		return S_OK;
-	}
-
-	// Any format is taken.  The out pointer is for the nearest format to one refused, allocated with
-	// XAPOAlloc for the caller to free, so a yes leaves it alone, as CXAPOBase does: handing back the
-	// caller's own pointer gives it something of its own to free.
-	STDMETHOD(IsInputFormatSupported)(const WAVEFORMATEX *, const WAVEFORMATEX *, WAVEFORMATEX **)
-	{
-		return S_OK;
-	}
-
-	STDMETHOD(IsOutputFormatSupported)(const WAVEFORMATEX *, const WAVEFORMATEX *, WAVEFORMATEX **)
-	{
-		return S_OK;
-	}
-
-	STDMETHOD(Initialize)(const void *, UINT32)
-	{
-		return S_OK;
-	}
-
-	STDMETHOD_(void, Reset)()
-	{
-	}
-
-	STDMETHOD(LockForProcess)(UINT32, const XAPO_LOCKFORPROCESS_BUFFER_PARAMETERS *, UINT32,
-		const XAPO_LOCKFORPROCESS_BUFFER_PARAMETERS *)
-	{
-		return S_OK;
-	}
-
-	STDMETHOD_(void, UnlockForProcess)()
-	{
-	}
-
-	STDMETHOD_(UINT32, CalcInputFrames)(UINT32 outputFrameCount)
-	{
-		return outputFrameCount;
-	}
-
-	STDMETHOD_(UINT32, CalcOutputFrames)(UINT32 inputFrameCount)
-	{
-		return inputFrameCount;
-	}
-
-protected:
-	virtual ~InPlaceEffect() {}
-
-private:
-	volatile LONG m_references;
-};
-
 // The master voice's one effect: MSS.h's limiter on everything, then, while AIL_ex_start_capture has
 // a file open, the recording of what the limiter let out.
-class MasterTap : public InPlaceEffect
+class MasterTap : public Effect
 {
 public:
 	MasterTap(FILE *file, unsigned int channels, unsigned int samplesPerSecond)
-		: m_file(file), m_channels(channels), m_samplesPerSecond(samplesPerSecond), m_dataBytes(0),
+		: Effect(true), m_file(file), m_channels(channels), m_samplesPerSecond(samplesPerSecond), m_dataBytes(0),
 		  m_sizesWrittenAt(0)
 	{
 		AIL_ex_limiter_init(&m_limiter, (S32)channels, (F32)samplesPerSecond);
@@ -1178,11 +1432,11 @@ bool installMasterTap(FILE *file)
 
 // The room submix's effect: the send, which every voice puts on both channels alike, through
 // mss_ex_room.h's room, the one miles_miniaudio mixes, so a player and a -wav run hear one room.
-class RoomTap : public InPlaceEffect
+class RoomTap : public Effect
 {
 public:
 	explicit RoomTap(unsigned int samplesPerSecond)
-		: m_pending(false), m_decay(0.0f), m_damping(0.0f), m_echo(0.0f), m_slap(0.0f)
+		: Effect(true), m_pending(false), m_decay(0.0f), m_damping(0.0f), m_echo(0.0f), m_slap(0.0f)
 	{
 		InitializeCriticalSection(&m_settingsLock);
 		initRoom(&m_room, samplesPerSecond);
@@ -1251,7 +1505,8 @@ private:
 
 RoomTap *g_roomTap;	// our reference, for AIL_ex_set_reverb; the room voice holds XAudio2's
 
-// The room every 3D sample sends to: RoomTap on a stereo submix into the master, at the master's rate.
+// The room every 3D sample sends to: RoomTap on a stereo submix into the master, at the master's
+// rate, and the last room AIL_ex_set_reverb asked for, since this is made again with the output.
 void createRoom()
 {
 	RoomTap *tap = new RoomTap(g_engine.masterRate);
@@ -1262,7 +1517,180 @@ void createRoom()
 		tap->Release();
 		return;
 	}
+	if (g_roomSettings.given) {
+		tap->set(g_roomSettings.decay, g_roomSettings.damping, g_roomSettings.echo, g_roomSettings.slap);
+	}
 	g_roomTap = tap;
+}
+
+// ---------------------------------------------------------------------------------------------
+// The output, and keeping it
+//
+// XAudio2 reports a lost device (headphones pulled, a USB card gone, the audio service restarted)
+// as a critical error, after which nothing it made works again and the engine has to go.  A new
+// default endpoint is not an error at all: a game on the default would go on playing into the old
+// one, or into nothing.  Both, a new speaker type and a new endpoint picked in the options all end
+// in the same place, the service thread making the whole output again (serviceOutput).
+// ---------------------------------------------------------------------------------------------
+
+class EngineWatch : public IXAudio2EngineCallback
+{
+public:
+	STDMETHOD_(void, OnProcessingPassStart)() {}
+	STDMETHOD_(void, OnProcessingPassEnd)() {}
+	// on XAudio2's own thread, which may not destroy anything: the service thread does
+	STDMETHOD_(void, OnCriticalError)(HRESULT) { g_remakeOutput.store(true); }
+};
+EngineWatch g_engineWatch;
+
+void noteEndpoints(bool defaultMoved)
+{
+	if (defaultMoved) {
+		g_defaultMoved.store(true);
+	}
+	g_endpointsMovedMs.store(GetTickCount64());
+	g_endpointsMoved.store(true);
+}
+
+// MMDevice's word on the endpoints, on a thread of its own.  One object for the process, never freed.
+class EndpointWatch : public IMMNotificationClient
+{
+public:
+	STDMETHOD(QueryInterface)(REFIID riid, void **object)
+	{
+		if (riid == __uuidof(IUnknown) || riid == __uuidof(IMMNotificationClient)) {
+			*object = static_cast<IMMNotificationClient *>(this);
+			return S_OK;
+		}
+		*object = NULL;
+		return E_NOINTERFACE;
+	}
+	STDMETHOD_(ULONG, AddRef)() { return 1; }
+	STDMETHOD_(ULONG, Release)() { return 1; }
+	STDMETHOD(OnDeviceStateChanged)(LPCWSTR, DWORD) { noteEndpoints(false); return S_OK; }
+	STDMETHOD(OnDeviceAdded)(LPCWSTR) { noteEndpoints(false); return S_OK; }
+	STDMETHOD(OnDeviceRemoved)(LPCWSTR) { noteEndpoints(false); return S_OK; }
+	STDMETHOD(OnDefaultDeviceChanged)(EDataFlow flow, ERole role, LPCWSTR)
+	{
+		if (flow == eRender && role == eConsole) {
+			noteEndpoints(true);
+		}
+		return S_OK;
+	}
+	STDMETHOD(OnPropertyValueChanged)(LPCWSTR, const PROPERTYKEY) { return S_OK; }
+};
+EndpointWatch g_endpointWatch;
+
+// Everything XAudio2 made goes, the engine with it, under the lock.  The engine stops first so no
+// voice waits out a mixer pass as it goes.  A sample that was playing ends on the next service pass,
+// as one that played out does; a stream keeps its decoder and its place in the file.  ponytail: a
+// buffer still queued keeps the copy of its sound (SampleData), its OnBufferEnd never coming, so a
+// lost device leaks what was playing, a few hundred KB.
+void closeOutput()
+{
+	if (g_engine.xaudio == NULL) {
+		return;
+	}
+	g_engine.xaudio->StopEngine();
+	for (size_t i = 0; i < g_engine.samples.size(); ++i) {
+		Sample *sample = g_engine.samples[i];
+		if (sample->voice != NULL) {
+			sample->voice->DestroyVoice();
+			sample->voice = NULL;
+		}
+		if (sample->head != NULL) {
+			sample->head->Release();
+			sample->head = NULL;
+		}
+		sample->started = false;
+		sample->silentEndMs = 0;
+	}
+	for (size_t i = 0; i < g_engine.retiredVoices.size(); ++i) {
+		g_engine.retiredVoices[i]->DestroyVoice();
+	}
+	g_engine.retiredVoices.clear();
+	for (size_t i = 0; i < g_engine.streams.size(); ++i) {
+		Stream *stream = g_engine.streams[i];
+		if (stream->voice != NULL) {
+			stream->voice->DestroyVoice();
+			stream->voice = NULL;
+		}
+		stream->queued.clear();
+	}
+	if (g_engine.room != NULL) {
+		g_engine.room->DestroyVoice();
+		g_engine.room = NULL;
+		g_roomTap->Release();
+		g_roomTap = NULL;
+	}
+	if (g_engine.master != NULL) {
+		g_engine.master->DestroyVoice();
+		g_engine.master = NULL;
+	}
+	g_engine.xaudio->UnregisterForCallbacks(&g_engineWatch);
+	g_engine.xaudio->Release();
+	g_engine.xaudio = NULL;
+	g_engine.masterChannels = 0;
+	g_engine.onPickedDevice = false;
+}
+
+// The engine and its master, on the endpoint AIL_ex_set_output_device picked or the default when that
+// one is not there, at the speaker type's channel count; then the room, the master's tap and a voice
+// for every stream, playing again where one was.  False with no endpoint at all, the engine kept.
+// Under the lock.
+bool openOutput()
+{
+	if (g_engine.xaudio == NULL) {
+		if (FAILED(XAudio2Create(&g_engine.xaudio, 0, XAUDIO2_DEFAULT_PROCESSOR))) {
+			g_engine.xaudio = NULL;
+			return false;
+		}
+		g_engine.xaudio->RegisterForCallbacks(&g_engineWatch);
+	}
+
+	const UINT32 channels = g_speakerType == AIL_3D_71_SPEAKER ? 8
+		: (g_speakerType == AIL_3D_51_SPEAKER ? 6 : (g_speakerType == AIL_3D_4_SPEAKER ? 4 : 2));
+	g_engine.onPickedDevice = g_outputDevice[0] != 0 && SUCCEEDED(g_engine.xaudio->CreateMasteringVoice(&g_engine.master,
+		channels, XAUDIO2_DEFAULT_SAMPLERATE, 0, g_outputDevice, NULL, AudioCategory_GameEffects));
+	if (!g_engine.onPickedDevice && FAILED(g_engine.xaudio->CreateMasteringVoice(&g_engine.master,
+			channels, XAUDIO2_DEFAULT_SAMPLERATE, 0, NULL, NULL, AudioCategory_GameEffects))) {
+		g_engine.master = NULL;	// this machine has no endpoint (0x80070490), or none that will open
+		return false;
+	}
+	XAUDIO2_VOICE_DETAILS masterDetails;
+	g_engine.master->GetVoiceDetails(&masterDetails);
+	g_engine.masterRate = masterDetails.InputSampleRate;
+	g_engine.masterChannels = masterDetails.InputChannels;
+	createRoom();
+	installMasterTap(NULL);
+
+	for (size_t i = 0; i < g_engine.streams.size(); ++i) {
+		Stream *stream = g_engine.streams[i];
+		voiceStream(stream);
+		if (stream->playing && !stream->paused) {
+			playStream(stream);
+		}
+	}
+	return true;
+}
+
+// Whether the output has to be made again, and if so making it, on the service thread under the
+// lock.  At once for a critical error or a setting; for the endpoints moving, once they have been
+// quiet ENDPOINT_SETTLE_MS, and only when that changes something here: no output yet, the endpoint
+// picked is not the one playing, or the default moved under a game on the default.
+void serviceOutput()
+{
+	bool wanted = g_remakeOutput.exchange(false);
+	if (g_endpointsMoved.load() && GetTickCount64() - g_endpointsMovedMs.load() >= ENDPOINT_SETTLE_MS) {
+		g_endpointsMoved.store(false);
+		const bool defaultMoved = g_defaultMoved.exchange(false);
+		wanted = wanted || g_engine.master == NULL || (g_outputDevice[0] != 0 && !g_engine.onPickedDevice)
+			|| (defaultMoved && !g_engine.onPickedDevice);
+	}
+	if (wanted) {
+		closeOutput();
+		openOutput();
+	}
 }
 
 } // namespace
@@ -1296,20 +1724,23 @@ S32 AILCALL AIL_quick_startup(S32 use_digital, S32, U32, S32, S32)
 		return 1;
 	}
 
+	// A machine with no endpoint still gets an engine and a digital driver, so the manager keeps its
+	// sounds going in silence and the next endpoint to come is heard (serviceOutput).
 	CoInitializeEx(NULL, COINIT_MULTITHREADED);
-	if (FAILED(XAudio2Create(&g_engine.xaudio, 0, XAUDIO2_DEFAULT_PROCESSOR))) {
+	EnterCriticalSection(&g_engine.lock);
+	openOutput();
+	const bool engine = g_engine.xaudio != NULL;
+	LeaveCriticalSection(&g_engine.lock);
+	if (!engine) {
 		return 0;
 	}
-	if (FAILED(g_engine.xaudio->CreateMasteringVoice(&g_engine.master))) {
-		g_engine.xaudio->Release();
-		g_engine.xaudio = NULL;
-		return 0;
+
+	if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator),
+			(void **)&g_engine.endpoints))) {
+		g_engine.endpoints = NULL;	// a lost device is still heard through the critical error
+	} else {
+		g_engine.endpoints->RegisterEndpointNotificationCallback(&g_endpointWatch);
 	}
-	XAUDIO2_VOICE_DETAILS masterDetails;
-	g_engine.master->GetVoiceDetails(&masterDetails);
-	g_engine.masterRate = masterDetails.InputSampleRate;
-	createRoom();
-	installMasterTap(NULL);
 
 	InterlockedExchange(&g_engine.serviceRunning, 1);
 	g_engine.serviceThread = CreateThread(NULL, 0, serviceThreadMain, NULL, 0, NULL);
@@ -1318,36 +1749,44 @@ S32 AILCALL AIL_quick_startup(S32 use_digital, S32, U32, S32, S32)
 
 void AILCALL AIL_quick_handles(HDIGDRIVER *pdig, HMDIDRIVER *pmdi, HDLSDEVICE *pdls)
 {
-	// a driver only when AIL_quick_startup opened a device
-	if (pdig != NULL) *pdig = g_engine.master != NULL ? DIGITAL_DRIVER : NULL;
+	// a driver whenever AIL_quick_startup made an engine, an endpoint or not
+	if (pdig != NULL) *pdig = g_engine.xaudio != NULL ? DIGITAL_DRIVER : NULL;
 	if (pmdi != NULL) *pmdi = NULL;
 	if (pdls != NULL) *pdls = NULL;
 }
 
 S32 AILCALL AIL_ex_start_capture(const char *pathname)
 {
-	if (g_engine.master == NULL || pathname == NULL) {
+	if (pathname == NULL || !g_engine.started) {
 		return 0;
 	}
 
+	EnterCriticalSection(&g_engine.lock);
 	FILE *file = NULL;
-	if (fopen_s(&file, pathname, "wb") != 0 || file == NULL) {
-		return 0;
-	}
-	return installMasterTap(file) ? 1 : 0;
+	const bool recording = g_engine.master != NULL && fopen_s(&file, pathname, "wb") == 0 && file != NULL
+		&& installMasterTap(file);
+	LeaveCriticalSection(&g_engine.lock);
+	return recording ? 1 : 0;
 }
 
 void AILCALL AIL_ex_stop_capture(void)
 {
+	if (!g_engine.started) {
+		return;
+	}
+	EnterCriticalSection(&g_engine.lock);
 	if (g_engine.master != NULL) {
 		installMasterTap(NULL);
 	}
+	LeaveCriticalSection(&g_engine.lock);
 }
 
 void AILCALL AIL_shutdown(void)
 {
-	if (g_engine.master != NULL) {
-		g_engine.master->SetEffectChain(NULL);
+	if (g_engine.endpoints != NULL) {
+		g_engine.endpoints->UnregisterEndpointNotificationCallback(&g_endpointWatch);
+		g_engine.endpoints->Release();
+		g_engine.endpoints = NULL;
 	}
 
 	if (g_engine.serviceThread != NULL) {
@@ -1357,26 +1796,12 @@ void AILCALL AIL_shutdown(void)
 		g_engine.serviceThread = NULL;
 	}
 
-	// whatever the service thread had not destroyed yet; the references their buffers hold go with
-	// the process
-	for (size_t i = 0; i < g_engine.retiredVoices.size(); ++i) {
-		g_engine.retiredVoices[i]->DestroyVoice();
-	}
-	g_engine.retiredVoices.clear();
-
-	if (g_engine.room != NULL) {
-		g_engine.room->DestroyVoice();
-		g_engine.room = NULL;
-		g_roomTap->Release();
-		g_roomTap = NULL;
-	}
-	if (g_engine.master != NULL) {
-		g_engine.master->DestroyVoice();
-		g_engine.master = NULL;
-	}
-	if (g_engine.xaudio != NULL) {
-		g_engine.xaudio->Release();
-		g_engine.xaudio = NULL;
+	// whatever the service thread had not destroyed yet, and the output; the references the
+	// retired voices' buffers hold go with the process
+	if (g_engine.started) {
+		EnterCriticalSection(&g_engine.lock);
+		closeOutput();
+		LeaveCriticalSection(&g_engine.lock);
 	}
 	if (g_engine.started) {
 		DeleteCriticalSection(&g_engine.lock);
@@ -1459,8 +1884,16 @@ S32 AILCALL AIL_enumerate_filters(HPROENUM *, HPROVIDER *, char **)
 	return 0;
 }
 
-void AILCALL AIL_set_3D_speaker_type(HPROVIDER, S32)
+// MilesAudioManager hands down Options.ini's SpeakerType here as the device opens and whenever the
+// options menu changes it.  A new one makes the output again, on the service thread.
+void AILCALL AIL_set_3D_speaker_type(HPROVIDER, S32 speaker_type)
 {
+	EnterCriticalSection(&g_engine.lock);
+	if (speaker_type != g_speakerType) {
+		g_speakerType = speaker_type;
+		g_remakeOutput.store(true);
+	}
+	LeaveCriticalSection(&g_engine.lock);
 }
 
 HPROVIDER AILCALL AIL_set_sample_processor(HSAMPLE, S32, HPROVIDER provider)
@@ -1508,7 +1941,7 @@ void AILCALL AIL_release_sample_handle(HSAMPLE handle)
 			break;
 		}
 	}
-	retireVoice(&sample->voice);
+	retireVoice(sample);
 	releaseSampleData(sample->data);
 	LeaveCriticalSection(&g_engine.lock);
 	delete sample;
@@ -1522,7 +1955,7 @@ void AILCALL AIL_init_sample(HSAMPLE handle)
 	}
 
 	EnterCriticalSection(&g_engine.lock);
-	retireVoice(&sample->voice);
+	retireVoice(sample);
 	sample->playing = false;
 	sample->volume = 1.0f;
 	sample->pan = DEFAULT_PAN;
@@ -1540,30 +1973,38 @@ S32 AILCALL AIL_set_sample_file(HSAMPLE handle, const void *file_image, S32)
 		return 0;
 	}
 
+	// the sound is kept whether a voice could be made or not: with no endpoint it plays in silence,
+	// and an endpoint that comes back before the start gets it a voice there
 	EnterCriticalSection(&g_engine.lock);
 	sample->playing = false;
-	const bool ready = freshVoice(sample, wave.format);
-	if (ready) {
-		releaseSampleData(sample->data);
-		sample->data = copySampleData(wave.data, wave.dataBytes);
-		sample->baseRate = wave.format.nSamplesPerSec;
-		sample->rate = wave.format.nSamplesPerSec;
-		refreshSampleOutput(sample);
-	}
+	freshVoice(sample, wave.format);
+	releaseSampleData(sample->data);
+	sample->data = copySampleData(wave.data, wave.dataBytes);
+	sample->baseRate = wave.format.nSamplesPerSec;
+	sample->rate = wave.format.nSamplesPerSec;
+	refreshSampleOutput(sample);
 	LeaveCriticalSection(&g_engine.lock);
-	return ready ? 1 : 0;
+	return 1;
 }
 
 void AILCALL AIL_start_sample(HSAMPLE handle)
 {
 	Sample *sample = (Sample *)handle;
-	if (sample == NULL || sample->voice == NULL || sample->data == NULL) {
+	if (sample == NULL || sample->data == NULL) {
 		return;
 	}
 
 	EnterCriticalSection(&g_engine.lock);
-	// a second start of the same sound: a voice of its own again, as freshVoice says why
-	if (sample->started && !freshVoice(sample, sample->format)) {
+	// a second start of the same sound, or one whose voice went with the output: a voice of its own
+	// again, as freshVoice says why
+	if (sample->started || sample->voice == NULL) {
+		freshVoice(sample, sample->format);
+	}
+	// nothing to play it on: it plays in silence for as long as it lasts, and ends the way a sound
+	// that played out does, so the manager gets its handle back
+	if (sample->voice == NULL) {
+		sample->silentEndMs = GetTickCount64() + silentLengthMs(*sample);
+		sample->playing = true;
 		LeaveCriticalSection(&g_engine.lock);
 		return;
 	}
@@ -1589,12 +2030,14 @@ void AILCALL AIL_start_sample(HSAMPLE handle)
 void AILCALL AIL_stop_sample(HSAMPLE handle)
 {
 	Sample *sample = (Sample *)handle;
-	if (sample == NULL || sample->voice == NULL) {
+	if (sample == NULL) {
 		return;
 	}
 
 	EnterCriticalSection(&g_engine.lock);
-	sample->voice->Stop(0);
+	if (sample->voice != NULL) {
+		sample->voice->Stop(0);
+	}
 	sample->playing = false;
 	LeaveCriticalSection(&g_engine.lock);
 }
@@ -1814,8 +2257,17 @@ void AILCALL AIL_ex_set_3D_air(F32 speed_of_sound, F32 absorption_distance)
 void AILCALL AIL_ex_set_reverb(F32 wet, F32 decay, F32 damping, F32 echo, F32 slap)
 {
 	g_roomSend.store(wet);
+	// kept for a room made again with the output; the lock because that is when g_roomTap changes
+	if (g_engine.started) {
+		EnterCriticalSection(&g_engine.lock);
+	}
+	const RoomSettings settings = { true, decay, damping, echo, slap };
+	g_roomSettings = settings;
 	if (g_roomTap != NULL) {
 		g_roomTap->set(decay, damping, echo, slap);
+	}
+	if (g_engine.started) {
+		LeaveCriticalSection(&g_engine.lock);
 	}
 }
 
@@ -1836,6 +2288,76 @@ void AILCALL AIL_ex_set_3D_sample_dry(H3DSAMPLE handle, S32 dry)
 	EnterCriticalSection(&g_engine.lock);
 	((Sample *)handle)->dry = dry != 0;
 	LeaveCriticalSection(&g_engine.lock);
+}
+
+// The id is IMMDevice::GetId's, as AIL_ex_enumerate_output_devices hands it out, which XAudio2 2.9
+// takes for its device id.  NULL or "" is the default.  WinMain calls this before AIL_startup, with
+// the saved choice, so the first output already opens on it.
+void AILCALL AIL_ex_set_output_device(const char *id)
+{
+	wchar_t wanted[OUTPUT_DEVICE_CHARS] = { 0 };
+	if (id != NULL && id[0] != 0 && MultiByteToWideChar(CP_UTF8, 0, id, -1, wanted, OUTPUT_DEVICE_CHARS) == 0) {
+		wanted[0] = 0;	// longer than any endpoint id: the default
+	}
+
+	if (g_engine.started) {
+		EnterCriticalSection(&g_engine.lock);
+	}
+	if (wcscmp(wanted, g_outputDevice) != 0) {
+		wcscpy_s(g_outputDevice, OUTPUT_DEVICE_CHARS, wanted);
+		if (g_engine.xaudio != NULL) {
+			g_remakeOutput.store(true);
+		}
+	}
+	if (g_engine.started) {
+		LeaveCriticalSection(&g_engine.lock);
+	}
+}
+
+// The index-th active render endpoint: its id in UTF-8 and its friendly name ("Speakers (Realtek(R)
+// Audio)").  0 past the last one, and on a machine with none.
+S32 AILCALL AIL_ex_enumerate_output_devices(S32 index, char *id, S32 id_bytes, U16 *name, S32 name_chars)
+{
+	// functiondiscoverykeys_devpkey.h's, spelled out: its DEFINE_PROPERTYKEY wants INITGUID somewhere
+	const PROPERTYKEY friendlyNameKey = { { 0xa45c254e, 0xdf1c, 0x4efd, { 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0 } }, 14 };
+
+	const HRESULT com = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+	S32 found = 0;
+	IMMDeviceEnumerator *enumerator = NULL;
+	IMMDeviceCollection *collection = NULL;
+	IMMDevice *device = NULL;
+	IPropertyStore *properties = NULL;
+	LPWSTR deviceId = NULL;
+	PROPVARIANT friendlyName;
+	PropVariantInit(&friendlyName);
+
+	if (SUCCEEDED(CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator),
+			(void **)&enumerator))
+		&& SUCCEEDED(enumerator->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &collection))
+		&& SUCCEEDED(collection->Item((UINT)index, &device))
+		&& SUCCEEDED(device->GetId(&deviceId))
+		&& WideCharToMultiByte(CP_UTF8, 0, deviceId, -1, id, id_bytes, NULL, NULL) != 0
+		&& SUCCEEDED(device->OpenPropertyStore(STGM_READ, &properties))
+		&& SUCCEEDED(properties->GetValue(friendlyNameKey, &friendlyName))
+		&& friendlyName.vt == VT_LPWSTR) {
+		S32 at = 0;
+		for (; at < name_chars - 1 && friendlyName.pwszVal[at] != 0; ++at) {
+			name[at] = (U16)friendlyName.pwszVal[at];
+		}
+		name[at] = 0;
+		found = 1;
+	}
+
+	PropVariantClear(&friendlyName);
+	CoTaskMemFree(deviceId);
+	if (properties != NULL) properties->Release();
+	if (device != NULL) device->Release();
+	if (collection != NULL) collection->Release();
+	if (enumerator != NULL) enumerator->Release();
+	if (SUCCEEDED(com)) {
+		CoUninitialize();
+	}
+	return found;
 }
 
 void AILCALL AIL_set_3D_sample_occlusion(H3DSAMPLE handle, F32 occlusion)
@@ -1951,15 +2473,17 @@ HSTREAM AILCALL AIL_open_stream(HDIGDRIVER dig, const char *filename, S32)
 		return NULL;
 	}
 
+	// the file opened outside the lock, which the service thread needs every 10 ms; the voice inside
+	// it, where the output is made and unmade
 	Stream *stream = new Stream;
 	if (!openStreamDecoder(stream, filename)) {
 		closeStreamDecoder(stream);
-		destroyVoice(&stream->voice);
 		delete stream;
 		return NULL;
 	}
 
 	EnterCriticalSection(&g_engine.lock);
+	voiceStream(stream);
 	g_engine.streams.push_back(stream);
 	LeaveCriticalSection(&g_engine.lock);
 	return (HSTREAM)stream;
@@ -1989,7 +2513,7 @@ void AILCALL AIL_close_stream(HSTREAM handle)
 void AILCALL AIL_start_stream(HSTREAM handle)
 {
 	Stream *stream = (Stream *)handle;
-	if (stream == NULL || stream->voice == NULL) {
+	if (stream == NULL) {
 		return;
 	}
 
@@ -1997,26 +2521,26 @@ void AILCALL AIL_start_stream(HSTREAM handle)
 	stream->playing = true;
 	stream->paused = false;
 	stream->exhausted = false;
-	stream->voice->SetVolume(clampUnit(stream->volume) * g_duck.duckNow);
-	applyPan(stream->voice, stream->voiceFormat.nChannels, stream->pan);
-	stream->voice->Start(0);
+	playStream(stream);
 	LeaveCriticalSection(&g_engine.lock);
 }
 
 void AILCALL AIL_pause_stream(HSTREAM handle, S32 onoff)
 {
 	Stream *stream = (Stream *)handle;
-	if (stream == NULL || stream->voice == NULL) {
+	if (stream == NULL) {
 		return;
 	}
 
 	EnterCriticalSection(&g_engine.lock);
 	stream->paused = onoff != 0;
-	if (stream->paused) {
-		stream->voice->Stop(0);
-	} else {
-		stream->voice->Start(0);
+	if (!stream->paused) {
 		stream->playing = true;
+	}
+	if (stream->voice != NULL && stream->paused) {
+		stream->voice->Stop(0);
+	} else if (stream->voice != NULL) {
+		stream->voice->Start(0);
 	}
 	LeaveCriticalSection(&g_engine.lock);
 }

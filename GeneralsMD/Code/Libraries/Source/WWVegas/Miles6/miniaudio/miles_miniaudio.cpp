@@ -306,7 +306,10 @@ const float LOW_PASS_DENORMAL_GUARD = 1e-18f;	// a filter left ringing on silenc
 struct VoiceMix
 {
 	VoiceMix() : resamplerReady(false), channels(0), gainLeft(0.0f), gainRight(0.0f), lowPass(1.0f), lowPassState(0.0f),
-		lowPassSecond(0.0f), roomSend(0.0f), passThrough(false), pending(0), pendingAt(0) {}
+		lowPassSecond(0.0f), roomSend(0.0f), passThrough(false), headphones(false), pending(0), pendingAt(0)
+	{
+		AIL_ex_hrtf_reset(&head);
+	}
 
 	ma_resampler resampler;
 	bool resamplerReady;
@@ -322,6 +325,11 @@ struct VoiceMix
 	// An XAudio2 voice with the default matrix rather than a panned Miles one: left to left and right
 	// to right (a mono source to both), each at its gain.  The movies' voice (mss_ex_pcm.h).
 	bool passThrough;
+	// A 3D sample under AIL_3D_HEADPHONE: the filtered sum through MSS.h's ears to `ears`, at the two
+	// gains (both the volume) in place of the pan, as miles_xaudio2's HeadEffect.
+	bool headphones;
+	AIL_EX_HRTF head;
+	AIL_EX_HRTF_TARGET ears;
 	// Frames already converted to float and not yet taken by the resampler, kept across mix passes
 	// so that nothing is dropped between them.
 	float input[MIX_CHUNK_FRAMES * 2];
@@ -365,6 +373,7 @@ void resetResampler(VoiceMix *mix)
 	mix->pendingAt = 0;
 	mix->lowPassState = 0.0f;
 	mix->lowPassSecond = 0.0f;
+	AIL_ex_hrtf_reset(&mix->head);
 }
 
 // Fills up to maxFrames of float source frames.  Returns how many it gave; 0 means the source is dry.
@@ -382,6 +391,8 @@ bool mixVoice(VoiceMix *mix, SourceRead read, void *source, float *output, unsig
 	const float send = mix->roomSend * duck;
 	const float lowPass = mix->lowPass < muffle ? mix->lowPass : muffle;
 	float resampled[MIX_CHUNK_FRAMES * 2];
+	float heard[MIX_CHUNK_FRAMES];
+	float ears[MIX_CHUNK_FRAMES * 2];
 	unsigned done = 0;
 
 	while (done < frames) {
@@ -417,10 +428,20 @@ bool mixVoice(VoiceMix *mix, SourceRead read, void *source, float *output, unsig
 			mix->lowPassState += lowPass * (sum - mix->lowPassState) + LOW_PASS_DENORMAL_GUARD;
 			mix->lowPassSecond += lowPass * (mix->lowPassState - mix->lowPassSecond) + LOW_PASS_DENORMAL_GUARD;
 			sum = mix->lowPassSecond;
-			output[(done + frame) * OUTPUT_CHANNELS + 0] += left * sum;
-			output[(done + frame) * OUTPUT_CHANNELS + 1] += right * sum;
+			heard[frame] = sum;
+			if (!mix->headphones) {
+				output[(done + frame) * OUTPUT_CHANNELS + 0] += left * sum;
+				output[(done + frame) * OUTPUT_CHANNELS + 1] += right * sum;
+			}
 			if (room != NULL) {
 				room[done + frame] += send * sum;
+			}
+		}
+		if (!mix->passThrough && mix->headphones) {
+			AIL_ex_hrtf_process(&mix->head, &mix->ears, heard, ears, (S32)outFrames);
+			for (ma_uint64 frame = 0; frame < outFrames; ++frame) {
+				output[(done + frame) * OUTPUT_CHANNELS + 0] += left * ears[frame * 2];
+				output[(done + frame) * OUTPUT_CHANNELS + 1] += right * ears[frame * 2 + 1];
 			}
 		}
 
@@ -604,6 +625,9 @@ std::atomic<S32> g_linearFalloff(0);	// AIL_ex_set_3D_linear_falloff
 std::atomic<float> g_speedOfSound(0.0f);	// AIL_ex_set_3D_air
 std::atomic<float> g_absorptionDistance(0.0f);
 std::atomic<float> g_roomSend(0.0f);	// AIL_ex_set_reverb's wet
+// AIL_set_3D_speaker_type's AIL_3D_HEADPHONE, under the engine lock.  Every other type is the stereo
+// pan here: this backend's device is two channels (OUTPUT_CHANNELS), surround is miles_xaudio2's.
+bool g_headphones = false;
 
 AILFILEOPENCB g_fileOpen;
 AILFILECLOSECB g_fileClose;
@@ -691,6 +715,8 @@ void refreshSampleOutput(Sample *sample)
 	float doppler = 1.0f;
 	float lowPass = 1.0f;
 	float send = 0.0f;
+	const bool headphones = sample->is3D && g_headphones;
+	AIL_EX_HRTF_TARGET ears = {};
 	if (sample->is3D) {
 		const Spatial spatial = computeSpatial(*sample);
 		volume = spatial.volume;
@@ -698,6 +724,15 @@ void refreshSampleOutput(Sample *sample)
 		doppler = spatial.doppler;
 		lowPass = AIL_ex_one_pole_coefficient(spatial.cutoff, (float)g_engine.deviceRate);
 		send = spatial.send;
+	}
+	if (headphones) {
+		const Listener &listener = g_engine.listener;
+		float side;
+		float front;
+		AIL_ex_3D_bearing(sample->positionX - listener.positionX, sample->positionY - listener.positionY,
+			sample->positionZ - listener.positionZ, listener.faceX, listener.faceY, listener.faceZ,
+			listener.upX, listener.upY, listener.upZ, &side, &front);
+		AIL_ex_hrtf_target(side, front, (float)g_engine.deviceRate, &ears);
 	}
 
 	float ratio = 1.0f;
@@ -708,7 +743,17 @@ void refreshSampleOutput(Sample *sample)
 	}
 
 	std::lock_guard<std::mutex> mixGuard(g_engine.mixLock);
-	setGains(&sample->mix, volume, pan);
+	if (headphones) {
+		if (!sample->mix.headphones) {
+			AIL_ex_hrtf_reset(&sample->mix.head);
+		}
+		sample->mix.ears = ears;
+		sample->mix.gainLeft = clampUnit(volume);
+		sample->mix.gainRight = clampUnit(volume);
+	} else {
+		setGains(&sample->mix, volume, pan);
+	}
+	sample->mix.headphones = headphones;
 	sample->mix.lowPass = lowPass;
 	sample->mix.roomSend = send;
 	setResampleRate(&sample->mix, (float)sample->baseRate * ratio, g_engine.deviceRate);
@@ -1553,8 +1598,13 @@ S32 AILCALL AIL_enumerate_filters(HPROENUM *, HPROVIDER *, char **)
 	return 0;
 }
 
-void AILCALL AIL_set_3D_speaker_type(HPROVIDER, S32)
+void AILCALL AIL_set_3D_speaker_type(HPROVIDER, S32 speaker_type)
 {
+	std::lock_guard<std::recursive_mutex> guard(g_engine.lock);
+	g_headphones = speaker_type == AIL_3D_HEADPHONE;
+	for (size_t i = 0; i < g_engine.samples.size(); ++i) {
+		refreshSampleOutput(g_engine.samples[i]);
+	}
 }
 
 HPROVIDER AILCALL AIL_set_sample_processor(HSAMPLE, S32, HPROVIDER provider)
@@ -1935,6 +1985,16 @@ void AILCALL AIL_ex_set_3D_sample_dry(H3DSAMPLE handle, S32 dry)
 	std::lock_guard<std::recursive_mutex> guard(g_engine.lock);
 	((Sample *)handle)->dry = dry != 0;
 	refreshSampleOutput((Sample *)handle);
+}
+
+// One device and no choosing: miniaudio plays on the system default (and -wav on none).
+void AILCALL AIL_ex_set_output_device(const char *)
+{
+}
+
+S32 AILCALL AIL_ex_enumerate_output_devices(S32, char *, S32, U16 *, S32)
+{
+	return 0;
 }
 
 void AILCALL AIL_set_3D_sample_occlusion(H3DSAMPLE handle, F32 occlusion)

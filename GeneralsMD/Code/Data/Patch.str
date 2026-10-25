@@ -637,6 +637,54 @@ TOOLTIP:DynamicMusic
 "In a skirmish or online match the music answers the battle: one of your side's calmer tracks while nothing happens, a harder one once guns fire near the camera or at your forces, and back to calm a few seconds after the fight ends. Off leaves the music as the original game played it."
 END
 
+GUI:OptionsGroupOutput
+"Output"
+END
+
+GUI:AudioDevice
+"Output Device"
+END
+
+TOOLTIP:AudioDevice
+"The speakers or headphones the game plays through. Default follows Windows and moves with it when you plug in a headset. Applied when you Accept."
+END
+
+GUI:AudioDeviceDefault
+"Default"
+END
+
+GUI:SpeakerType
+"Speaker Setup"
+END
+
+TOOLTIP:SpeakerType
+"How the battlefield's sounds are placed around you. Headphones give each ear its own timing and tone, so a sound behind or beside you is heard there. 5.1 and 7.1 spread them over surround speakers; on Linux and macOS they play as stereo. Applied when you Accept."
+END
+
+GUI:SpeakerType0
+"Stereo Speakers"
+END
+
+GUI:SpeakerType1
+"Headphones"
+END
+
+GUI:SpeakerType2
+"5.1 Surround"
+END
+
+GUI:SpeakerType3
+"7.1 Surround"
+END
+
+GUI:MuteInBackground
+"Mute in Background"
+END
+
+TOOLTIP:MuteInBackground
+"Silences the game while another window has the focus. Off keeps it playing behind a browser or on a second monitor."
+END
+
 GUI:IsometricCamera
 "Isometric Camera"
 END

@@ -314,6 +314,8 @@ class AudioManager : public SubsystemInterface
     virtual const AudioEventInfoHash & getAllAudioEvents() const { return m_allAudioEventInfo; }
 
 		Real getZoomVolume() const { return m_zoomVolume; }
+		/// how far out the camera is between ZoomMixNearHeight (0) and ZoomMixFarHeight (1)
+		Real getZoomOut() const { return m_zoomOut; }
 
 		// Birds, wind, water, a town's murmur: a looping world sound effect at the lowest priority that
 		// is not hidden by the shroud.  These answer to the Ambient slider instead of the effects one.
@@ -386,6 +388,8 @@ class AudioManager : public SubsystemInterface
 		Real m_systemAmbientVolume;
 		Real m_systemMasterVolume;	///< the Master slider, folded into the four products by recomputeVolumes
 		Real m_zoomVolume;
+		Real m_zoomOut;					///< see getZoomOut
+		Real m_zoomDetailVolume;	///< ZoomMixDetailVolume as far as the camera is out, on every 3D sound but ambience
 
 
 		AudioEventRTS *m_silentAudioEvent;

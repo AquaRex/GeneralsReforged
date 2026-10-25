@@ -102,7 +102,11 @@ typedef void *AILLPDIRECTSOUND;
 typedef void *AILLPDIRECTSOUNDBUFFER;
 
 /* 3D speaker types (AIL_set_3D_speaker_type). 0-3 are verbatim Miles 6.0;
- * 4-5 are the 6.5 additions continuing the sequence. */
+ * 4-5 are the 6.5 additions continuing the sequence.  What each one does here: 2 speakers and
+ * Surround (Dolby's matrix, which nothing decodes any more) are the stereo pan; Headphones is the
+ * stereo pan's place taken by AIL_ex_hrtf on every 3D sample, in both backends; 4, 5.1 and 7.1 are a
+ * mastering voice of that many channels with every 3D sample panned round them (XAudio2 only:
+ * miniaudio plays them as stereo).  A change rebuilds XAudio2's output, as a lost device does. */
 #define AIL_3D_2_SPEAKER  0
 #define AIL_3D_HEADPHONE  1
 #define AIL_3D_SURROUND   2
@@ -316,6 +320,25 @@ void      AILCALL AIL_ex_set_reverb(F32 wet, F32 decay, F32 damping, F32 echo, F
 void      AILCALL AIL_ex_duck(H3DSAMPLE trigger, F32 gain, F32 seconds);
 void      AILCALL AIL_ex_set_3D_sample_dry(H3DSAMPLE handle, S32 dry);
 
+/* ---- output device ------------------------------------------------------ */
+/* Not Miles.  AIL_ex_set_output_device: the endpoint to play on, an MMDevice id as IMMDevice::GetId
+ * gives it, NULL or "" for the system's default.  May come before AIL_startup, which is how WinMain
+ * hands down the one Options.ini saved; later, XAudio2 rebuilds its output on it at once.  An id no
+ * endpoint answers to any more plays on the default.  miniaudio always plays on the default.
+ *
+ * AIL_ex_enumerate_output_devices: the active render endpoints, `index` from 0 until it answers 0,
+ * each one's id (ASCII, what AIL_ex_set_output_device takes) and its name as UTF-16, both cut to
+ * fit and terminated.  miniaudio lists none.
+ *
+ * XAudio2 keeps playing through a lost device: a critical error, the default endpoint changing
+ * under a game on the default, or an endpoint arriving while there is none, and the engine, its
+ * mastering voice, the room and every voice are made again.  What was playing ends (its EOS
+ * callback comes as if it had played out), the streams carry on from their decoders.  With no
+ * endpoint at all AIL_quick_startup still succeeds: a sample started then plays in silence for
+ * its own length and ends, a stream likewise, until an endpoint comes. */
+void      AILCALL AIL_ex_set_output_device(const char *id);
+S32       AILCALL AIL_ex_enumerate_output_devices(S32 index, char *id, S32 id_bytes, U16 *name, S32 name_chars);
+
 /* ---- file format helpers ---------------------------------------------- */
 S32       AILCALL AIL_WAV_info(const void *data, AILSOUNDINFO *info);
 S32       AILCALL AIL_decompress_ADPCM(const AILSOUNDINFO *info, void **outdata, U32 *outsize);
@@ -416,6 +439,126 @@ static inline F32 AIL_ex_duck_gain(F32 elapsed, F32 gain, F32 seconds)
 static inline F32 AIL_ex_duck_cutoff(F32 duck)
 {
 	return AIL_EX_OPEN_CUTOFF * duck * duck;
+}
+
+/* Where (dx, dy, dz) lies round the listener, in the plane of its face and right (up x face) axes,
+   which is the plane the camera turns in: side -1 full left to 1 full right, front 1 ahead to -1
+   behind, side^2 + front^2 = 1.  A sound straight above or below the listener is ahead.  Headphones
+   and the surround pan read it; the stereo pan keeps its own projection, which counts height too. */
+static inline void AIL_ex_3D_bearing(F32 dx, F32 dy, F32 dz, F32 faceX, F32 faceY, F32 faceZ,
+	F32 upX, F32 upY, F32 upZ, F32 *side, F32 *front)
+{
+	const F32 rightX = upY * faceZ - upZ * faceY;
+	const F32 rightY = upZ * faceX - upX * faceZ;
+	const F32 rightZ = upX * faceY - upY * faceX;
+	const F32 rightLength = sqrtf(rightX * rightX + rightY * rightY + rightZ * rightZ);
+	const F32 faceLength = sqrtf(faceX * faceX + faceY * faceY + faceZ * faceZ);
+	F32 across, along, length;
+	*side = 0.0f;
+	*front = 1.0f;
+	if (rightLength < 0.0001f || faceLength < 0.0001f)
+		return;
+	across = (dx * rightX + dy * rightY + dz * rightZ) / rightLength;
+	along = (dx * faceX + dy * faceY + dz * faceZ) / faceLength;
+	length = sqrtf(across * across + along * along);
+	if (length < 0.0001f)
+		return;
+	*side = across / length;
+	*front = along / length;
+}
+
+/* Headphones (AIL_3D_HEADPHONE), kept here so both backends put a 3D sample in the same place: the
+   sound set round the head by the three cues a head gives, with no measured responses.  The far ear
+   hears it later, by Woodworth's spherical head of 8.75 cm, 0.66 ms at the side; quieter, 5 dB at the
+   side, with the near ear lifted so the power holds; and duller, a one-pole low-pass falling to
+   2.2 kHz at the side for the head's shadow.  Behind, both ears are dulled a little, to 8 kHz
+   straight behind, the one cue left to tell a sound there from the same sound ahead.  Ahead both
+   ears take 0.707, where the stereo pan puts a centred sound.  A sample's channels are summed into
+   the one signal both ears hear, as the stereo pan sums them. */
+#define AIL_EX_HRTF_LINE 128				/* frames of delay line: 0.66 ms at 192 kHz is 126 */
+#define AIL_EX_HRTF_HEAD_SECONDS 0.000255f	/* the head's radius over the speed of sound, 0.0875 / 343 */
+#define AIL_EX_HRTF_CENTRE 0.7071f
+#define AIL_EX_HRTF_NEAR_LIFT 0.3f
+#define AIL_EX_HRTF_FAR_DROP 0.45f
+#define AIL_EX_HRTF_SHADOW 8.0f				/* 20 kHz / (1 + 8 side^2): 2.2 kHz at the side */
+#define AIL_EX_HRTF_BEHIND 1.5f				/* 20 kHz / (1 + 1.5 behind^2): 8 kHz straight behind */
+#define AIL_EX_HRTF_DENORMAL_GUARD 1e-18f
+
+/* What each ear does to a sound from one bearing, left ear first. */
+typedef struct
+{
+	F32 delay[2];		/* frames */
+	F32 gain[2];
+	F32 coefficient[2];	/* AIL_ex_one_pole_coefficient's */
+} AIL_EX_HRTF_TARGET;
+
+/* One sample's ears: the delay line both read, each ear's low-pass, and the cues the last frame used. */
+typedef struct
+{
+	F32 line[AIL_EX_HRTF_LINE];
+	S32 at;
+	F32 store[2];
+	AIL_EX_HRTF_TARGET now;
+	S32 primed;
+} AIL_EX_HRTF;
+
+static inline void AIL_ex_hrtf_target(F32 side, F32 front, F32 rate, AIL_EX_HRTF_TARGET *target)
+{
+	const F32 lateral = fabsf(side) < 1.0f ? fabsf(side) : 1.0f;
+	const F32 behind = front < 0.0f ? -front : 0.0f;
+	const F32 limit = (F32)(AIL_EX_HRTF_LINE - 2);
+	const F32 itd = AIL_EX_HRTF_HEAD_SECONDS * (asinf(lateral) + lateral) * rate;
+	const F32 rear = AIL_EX_OPEN_CUTOFF / (1.0f + AIL_EX_HRTF_BEHIND * behind * behind);
+	const F32 shadow = AIL_EX_OPEN_CUTOFF / (1.0f + AIL_EX_HRTF_SHADOW * lateral * lateral);
+	const S32 distant = side < 0.0f ? 1 : 0;	/* a sound on the left has the right ear away from it */
+	target->delay[distant] = itd < limit ? itd : limit;
+	target->delay[1 - distant] = 0.0f;
+	target->gain[distant] = AIL_EX_HRTF_CENTRE * (1.0f - AIL_EX_HRTF_FAR_DROP * lateral);
+	target->gain[1 - distant] = AIL_EX_HRTF_CENTRE * (1.0f + AIL_EX_HRTF_NEAR_LIFT * lateral);
+	target->coefficient[distant] = AIL_ex_one_pole_coefficient(shadow < rear ? shadow : rear, rate);
+	target->coefficient[1 - distant] = AIL_ex_one_pole_coefficient(rear, rate);
+}
+
+static inline void AIL_ex_hrtf_reset(AIL_EX_HRTF *head)
+{
+	S32 i;
+	for (i = 0; i < AIL_EX_HRTF_LINE; ++i)
+		head->line[i] = 0.0f;
+	head->at = 0;
+	head->store[0] = head->store[1] = 0.0f;
+	head->primed = 0;
+}
+
+/* `frames` of the summed signal into interleaved stereo, written rather than added, each cue moving in
+   a straight line from the last pass's to `target` so a sound going round the head neither clicks nor
+   steps.  The delay is read between two frames of the line. */
+static inline void AIL_ex_hrtf_process(AIL_EX_HRTF *head, const AIL_EX_HRTF_TARGET *target,
+	const F32 *mono, F32 *stereo, S32 frames)
+{
+	const F32 step = frames > 0 ? 1.0f / (F32)frames : 0.0f;
+	S32 frame, ear;
+	if (!head->primed) {
+		head->now = *target;
+		head->primed = 1;
+	}
+	for (frame = 0; frame < frames; ++frame) {
+		const F32 t = (F32)(frame + 1) * step;
+		head->line[head->at] = mono[frame];
+		for (ear = 0; ear < 2; ++ear) {
+			const F32 delay = head->now.delay[ear] + (target->delay[ear] - head->now.delay[ear]) * t;
+			const F32 gain = head->now.gain[ear] + (target->gain[ear] - head->now.gain[ear]) * t;
+			const F32 coefficient = head->now.coefficient[ear] + (target->coefficient[ear] - head->now.coefficient[ear]) * t;
+			const S32 whole = (S32)delay;
+			const F32 part = delay - (F32)whole;
+			const F32 later = head->line[(head->at - whole + AIL_EX_HRTF_LINE) % AIL_EX_HRTF_LINE];
+			const F32 earlier = head->line[(head->at - whole - 1 + AIL_EX_HRTF_LINE) % AIL_EX_HRTF_LINE];
+			const F32 heard = later + (earlier - later) * part;
+			head->store[ear] += coefficient * (heard - head->store[ear]) + AIL_EX_HRTF_DENORMAL_GUARD;
+			stereo[frame * 2 + ear] = gain * head->store[ear];
+		}
+		head->at = (head->at + 1) % AIL_EX_HRTF_LINE;
+	}
+	head->now = *target;
 }
 
 /* The master limiter both backends run last.  A frame comes out AIL_EX_LIMITER_LOOKAHEAD - 1 frames
