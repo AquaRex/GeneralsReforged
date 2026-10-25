@@ -37,6 +37,7 @@
 #include "zhio.h"
 
 #include "Common/GameLOD.h"
+#include "Common/OptionsCatalog.h"
 #include "GameClient/TerrainVisual.h"
 #include "GameClient/GameClient.h"
 #include "Common/UserPreferences.h"
@@ -293,6 +294,11 @@ void GameLODManager::init(void)
 	// Ultra has no block in the shipped GameLOD.ini, so it is worked out from whatever High became.
 	m_staticGameLODInfo[STATIC_GAME_LOD_ULTRA] = makeUltraStaticGameLOD( m_staticGameLODInfo[STATIC_GAME_LOD_HIGH] );
 
+	// A preset is a step on the options menu's quality slider, and what it puts in the controls the
+	// menu shows is that step's, not GameLOD.ini's, so the boxes a preset fills in are what it applies.
+	for (Int level = STATIC_GAME_LOD_LOW; level < STATIC_GAME_LOD_CUSTOM; ++level)
+		applyGraphicsQualityStep( m_staticGameLODInfo[level], TheGraphicsQualityAnchors[level] );
+
 	//Get Presets for custom LOD level by pulling them out of initial globaldata (which should
 	//have all settings already applied).
 	refreshCustomStaticLODLevel();
@@ -387,12 +393,22 @@ void GameLODManager::init(void)
 	setStaticLODLevel(userSetDetail);
 }
 
+/** The detail preset whose step on the quality slider is this one or the nearest one below it. */
+static StaticGameLODLevel graphicsQualityLevelAtOrBelow(Int step)
+{
+	Int level = STATIC_GAME_LOD_ULTRA;
+	while (TheGraphicsQualityAnchors[level] > step)
+		--level;
+	return (StaticGameLODLevel)level;
+}
+
 void GameLODManager::refreshCustomStaticLODLevel(void)
 {
 	StaticGameLODInfo *lodInfo=&m_staticGameLODInfo[STATIC_GAME_LOD_CUSTOM];
 
 	lodInfo->m_maxParticleCount=TheGlobalData->m_maxParticleCount;
-	lodInfo->m_gpuParticleCapacity=TheGlobalData->m_gpuParticleCapacity;
+	// the ring has no control on the pages, so a Custom mix takes it from the preset at or below the quality slider's step
+	lodInfo->m_gpuParticleCapacity=m_staticGameLODInfo[graphicsQualityLevelAtOrBelow(TheGlobalData->m_graphicsQuality)].m_gpuParticleCapacity;
 	lodInfo->m_useShadowVolumes=TheGlobalData->m_useShadowVolumes;
 	lodInfo->m_useShadowDecals=TheGlobalData->m_useShadowDecals;
 	lodInfo->m_useCloudMap=TheGlobalData->m_useCloudMap;
@@ -525,6 +541,10 @@ Bool GameLODManager::setStaticLODLevel(StaticGameLODLevel level)
 
 	if (level == STATIC_GAME_LOD_UNKNOWN || (level != STATIC_GAME_LOD_CUSTOM && m_currentStaticLOD == level))
 		return FALSE;	//level is already applied.  Custom levels are always applied since random options could change.
+
+	// the first preset of a run with no quality step saved brings its column's catalog rows with it
+	if (m_currentStaticLOD == STATIC_GAME_LOD_UNKNOWN)
+		applyGraphicsQualityColumnAtStartup(level);
 
 	applyStaticLODLevel(level);
 	m_currentStaticLOD = level;
@@ -734,27 +754,32 @@ Int GameLODManager::getLevelTextureReduction(StaticGameLODLevel level)
 	return m_staticGameLODInfo[level].m_textureReduction;
 }
 
-// The top of the options menu's particle slider, which is as far as a player can drag it by hand.
-enum { ULTRA_MAX_PARTICLE_COUNT = 5000 };
-
 StaticGameLODInfo makeUltraStaticGameLOD( const StaticGameLODInfo &high )
 {
 	StaticGameLODInfo ultra = high;
-	ultra.m_maxParticleCount = ULTRA_MAX_PARTICLE_COUNT;
 	ultra.m_gpuParticleCapacity = TheGpuParticleCapacities[STATIC_GAME_LOD_ULTRA];
-	ultra.m_useShadowVolumes = TRUE;
-	ultra.m_useShadowDecals = TRUE;
-	ultra.m_useCloudMap = TRUE;
-	ultra.m_useLightMap = TRUE;
-	ultra.m_showSoftWaterEdge = TRUE;
-	ultra.m_useBuildupScaffolds = TRUE;
-	ultra.m_useTreeSway = TRUE;
-	ultra.m_useHeatEffects = TRUE;
-	ultra.m_useTrees = TRUE;
-	ultra.m_textureReduction = 0;
-	// dynamic LOD is what drops effects when the frame rate dips, and Ultra is the level that asks it not to
-	ultra.m_enableDynamicLOD = FALSE;
 	return ultra;
+}
+
+static Int graphicsQualityValue( const char *control, Int step )
+{
+	return findGraphicsQualityRow( control )->values[ step ];
+}
+
+void applyGraphicsQualityStep( StaticGameLODInfo &info, Int step )
+{
+	// the texture slider runs low to high, the field counts halvings
+	info.m_textureReduction = 2 - graphicsQualityValue( "LowResSlider", step );
+	info.m_maxParticleCount = graphicsQualityValue( "ParticleCapSlider", step );
+	info.m_useShadowVolumes = graphicsQualityValue( "Check3DShadows", step ) != 0;
+	info.m_useShadowDecals = graphicsQualityValue( "Check2DShadows", step ) != 0;
+	info.m_useLightMap = graphicsQualityValue( "CheckGroundLighting", step ) != 0;
+	info.m_showSoftWaterEdge = graphicsQualityValue( "CheckSmoothWater", step ) != 0;
+	info.m_useBuildupScaffolds = graphicsQualityValue( "CheckExtraAnimations", step ) != 0;
+	info.m_useTreeSway = graphicsQualityValue( "CheckTreeSway", step ) != 0;
+	info.m_useHeatEffects = graphicsQualityValue( "CheckHeatEffects", step ) != 0;
+	// the box is "never lower detail", which is dynamic LOD off
+	info.m_enableDynamicLOD = graphicsQualityValue( "CheckNoDynamicLOD", step ) == 0;
 }
 
 Bool GameLODManager::didMemPass( void )

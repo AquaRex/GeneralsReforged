@@ -16685,12 +16685,110 @@ TEST(ultra_static_lod_is_high_with_the_ceiling_raised)
 	high.m_maxParticleCount = 3000;
 	high.m_maxTankTrackFadeDelay = 60000;
 	high.m_useHeatEffects = FALSE;
-	const StaticGameLODInfo ultra = makeUltraStaticGameLOD( high );
+	StaticGameLODInfo ultra = makeUltraStaticGameLOD( high );
+	CHECK( ultra.m_gpuParticleCapacity > high.m_gpuParticleCapacity );
+	// the page's fields are the quality slider's at Ultra's step, as GameLODManager::init sets them
+	applyGraphicsQualityStep( ultra, TheGraphicsQualityAnchors[ STATIC_GAME_LOD_ULTRA ] );
 	CHECK_EQ( ultra.m_maxParticleCount, 5000 );
 	CHECK_EQ( (Int)ultra.m_enableDynamicLOD, 0 );
 	CHECK_EQ( (Int)ultra.m_useHeatEffects, 1 );
+	CHECK_EQ( ultra.m_textureReduction, 0 );
 	// what Ultra has no opinion about is High's
 	CHECK_EQ( ultra.m_maxTankTrackFadeDelay, 60000 );
+}
+
+/* The Performance / Quality slider runs from the fastest picture to the best looking: no setting
+	 gets cheaper as it moves right, Low is its left end and Ultra its right, and the presets between
+	 come in the order the detail box names them. */
+TEST(graphics_quality_slider_only_ever_turns_settings_up)
+{
+	CHECK_EQ( TheGraphicsQualityAnchors[ STATIC_GAME_LOD_LOW ], 0 );
+	CHECK_EQ( TheGraphicsQualityAnchors[ STATIC_GAME_LOD_ULTRA ], GRAPHICS_QUALITY_STEPS - 1 );
+	CHECK( TheGraphicsQualityAnchors[ STATIC_GAME_LOD_LOW ] < TheGraphicsQualityAnchors[ STATIC_GAME_LOD_MEDIUM ] );
+	CHECK( TheGraphicsQualityAnchors[ STATIC_GAME_LOD_MEDIUM ] < TheGraphicsQualityAnchors[ STATIC_GAME_LOD_HIGH ] );
+	CHECK( TheGraphicsQualityAnchors[ STATIC_GAME_LOD_HIGH ] < TheGraphicsQualityAnchors[ STATIC_GAME_LOD_ULTRA ] );
+
+	for( Int row = 0; row < TheGraphicsQualityTableCount; ++row )
+	{
+		const GraphicsQualityRow &quality = TheGraphicsQualityTable[ row ];
+		CHECK( findGraphicsQualityRow( quality.control ) == &quality );
+		for( Int step = 1; step < GRAPHICS_QUALITY_STEPS; ++step )
+			CHECK( quality.values[ step ] >= quality.values[ step - 1 ] );
+	}
+
+	// the slider's own position is a catalog row with exactly the table's steps
+	const OptionDef *slider = findOptionDef( "GraphicsQuality" );
+	CHECK( slider != NULL );
+	CHECK_EQ( slider->lo, 0 );
+	CHECK_EQ( slider->hi, GRAPHICS_QUALITY_STEPS - 1 );
+
+	// and at Low the preset turns everything the page shows down
+	StaticGameLODInfo low;
+	applyGraphicsQualityStep( low, TheGraphicsQualityAnchors[ STATIC_GAME_LOD_LOW ] );
+	CHECK_EQ( (Int)low.m_useShadowVolumes, 0 );
+	CHECK_EQ( (Int)low.m_useShadowDecals, 0 );
+	CHECK_EQ( (Int)low.m_enableDynamicLOD, 1 );
+	CHECK_EQ( low.m_textureReduction, 1 );
+}
+
+/* A preset is its column at startup, catalog rows included, while Options.ini has no quality step:
+	 the file's own keys win over the column, a file the slider has saved is left alone, and with no
+	 preset named the first preset applied fills only the rows nothing set after the load. */
+TEST(a_preset_brings_its_column_until_the_slider_has_saved_a_step)
+{
+	GlobalData *saved = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+	CHECK( !TheGlobalData->m_teamGlow );
+
+	UserPreferences pref;
+	pref[ AsciiString( "StaticGameLOD" ) ] = AsciiString( "Ultra" );
+	pref[ AsciiString( "MapLight" ) ] = AsciiString( "no" );
+	loadOptionsFromPreferences( pref );
+	CHECK( TheGlobalData->m_teamGlow );
+	CHECK( !TheGlobalData->m_mapLight );
+	CHECK_EQ( findOptionDef( "Smoke" )->get(), 1 );
+
+	TheWritableGlobalData->m_teamGlow = FALSE;
+	pref[ AsciiString( "GraphicsQuality" ) ] = AsciiString( "4" );
+	loadOptionsFromPreferences( pref );
+	CHECK( !TheGlobalData->m_teamGlow );
+	applyGraphicsQualityColumnAtStartup( STATIC_GAME_LOD_ULTRA );
+	CHECK( !TheGlobalData->m_teamGlow );
+
+	UserPreferences none;
+	loadOptionsFromPreferences( none );
+	CHECK( !TheGlobalData->m_teamGlow );
+	TheWritableGlobalData->m_lightingStyle = LIGHTING_STYLE_CLASSIC;	// a switch after the load
+	applyGraphicsQualityColumnAtStartup( STATIC_GAME_LOD_MEDIUM );
+	CHECK( TheGlobalData->m_teamGlow );
+	CHECK_EQ( TheGlobalData->m_lightingStyle, (Int)LIGHTING_STYLE_CLASSIC );
+	// once only
+	TheWritableGlobalData->m_teamGlow = FALSE;
+	applyGraphicsQualityColumnAtStartup( STATIC_GAME_LOD_MEDIUM );
+	CHECK( !TheGlobalData->m_teamGlow );
+
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = saved;
+}
+
+/* The particle ring has no control on the options pages, so a Custom mix between two presets takes
+	 it from the preset at or below the slider's step. */
+TEST(custom_detail_takes_the_particle_ring_of_the_preset_below_the_slider)
+{
+	GlobalData *saved = TheWritableGlobalData;
+	GlobalData *scratch = NEW GlobalData;
+	TheWritableGlobalData = scratch;
+
+	GameLODManager lod;
+	scratch->m_graphicsQuality = TheGraphicsQualityAnchors[ STATIC_GAME_LOD_HIGH ] - 1;
+	CHECK( lod.setStaticLODLevel( STATIC_GAME_LOD_CUSTOM ) );
+	CHECK_EQ( TheGlobalData->m_gpuParticleCapacity, lod.m_staticGameLODInfo[ STATIC_GAME_LOD_MEDIUM ].m_gpuParticleCapacity );
+	scratch->m_graphicsQuality = TheGraphicsQualityAnchors[ STATIC_GAME_LOD_ULTRA ];
+	CHECK( lod.setStaticLODLevel( STATIC_GAME_LOD_CUSTOM ) );
+	CHECK_EQ( TheGlobalData->m_gpuParticleCapacity, lod.m_staticGameLODInfo[ STATIC_GAME_LOD_ULTRA ].m_gpuParticleCapacity );
+
+	delete scratch;					// while it is the current one: ~GlobalData reads TheWritableGlobalData
+	TheWritableGlobalData = saved;
 }
 
 TEST(effects_page_rows_reach_the_fields_the_command_line_switches_set)
@@ -19330,8 +19428,10 @@ TEST(gpu_particle_ring_in_force_is_the_switch_else_the_preset)
 		CHECK_EQ( scratch->getEffectiveGpuParticleCapacity(), 1 << 18 );
 		CHECK( lod.setStaticLODLevel( STATIC_GAME_LOD_LOW ) );
 		CHECK_EQ( scratch->getEffectiveGpuParticleCapacity(), 1 << 17 );
+		// Custom takes the ring of the preset at or below the quality slider, not the last one applied
+		scratch->m_graphicsQuality = TheGraphicsQualityAnchors[ STATIC_GAME_LOD_HIGH ];
 		CHECK( lod.setStaticLODLevel( STATIC_GAME_LOD_CUSTOM ) );
-		CHECK_EQ( scratch->getEffectiveGpuParticleCapacity(), 1 << 17 );
+		CHECK_EQ( scratch->getEffectiveGpuParticleCapacity(), 1 << 19 );
 
 		scratch->m_gpuParticleCapacityOverride = 4096;
 		CHECK( lod.setStaticLODLevel( STATIC_GAME_LOD_ULTRA ) );

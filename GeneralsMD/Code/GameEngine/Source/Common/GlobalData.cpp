@@ -47,6 +47,7 @@
 #include "Common/file.h"
 #include "Common/FileSystem.h"
 #include "Common/GameAudio.h"
+#include "Common/GameLOD.h"	// STATIC_GAME_LOD_HIGH, whose step on the quality slider is the slider's default
 #include "Common/INI.h"
 #include "Common/Monitors.h"
 #include "Common/OptionsCatalog.h"
@@ -976,6 +977,7 @@ GlobalData::GlobalData()
 	m_cloudStyle = 0;				// Classic by default; volumetric hazard clouds are opt-in
 	m_explosionDebrisTrails = TRUE;
 	m_shadowQuality = 1;					//medium, the 2048 map the shadows always had
+	m_graphicsQuality = TheGraphicsQualityAnchors[ STATIC_GAME_LOD_HIGH ];	//a preset moves it to its own step as the menu opens
 	m_classicGraphics = FALSE;
 	m_lightingStyle = LIGHTING_STYLE_REFORGED;
 	m_shadowMap = TRUE;						//the sun's own shadows are what the game draws with now

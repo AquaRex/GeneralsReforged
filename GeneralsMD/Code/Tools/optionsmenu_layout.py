@@ -230,6 +230,8 @@ NEW_CONTROLS = [
     (CHECK,  "CheckMapLight",          "GUI:MapLight"),
     (CHECK,  "CheckTeamGlow",          "GUI:TeamGlow"),
     (CHECK,  "CheckWaterFoam",         "GUI:WaterFoam"),
+    (LABEL,  "LabelGraphicsQuality",   "GUI:GraphicsQuality"),
+    (SLIDER, "SliderGraphicsQuality",  None),
 ]
 
 # EA's check boxes that shipped HIDDEN off the panel's right edge with working code behind them in
@@ -249,7 +251,7 @@ READOUTS = [
     "ValueGamma", "ValueTextureResolution", "ValueParticleCap", "ValueAnisotropy",
     "ValueMusicVolume", "ValueSFXVolume", "ValueVoiceVolume", "ValueScrollSpeed",
     "ValueDragTolerance", "ValueAmbientVolume", "ValueZoomSpeed", "ValueMenuTransitionSpeed",
-    "ValueMasterVolume",
+    "ValueMasterVolume", "ValueGraphicsQuality",
 ]
 
 # Lines of small grey text under a control that say what its current choice does, written by
@@ -274,7 +276,8 @@ NOTE_COLOR = ("ENABLED:  164 170 190 255, ENABLEDBORDER:  0 0 0 255, "
 # catalog row's own bounds
 SLIDER_RANGES = [("SliderAnisotropy", 0, 16), ("SliderDragTolerance", 2, 50),
                  ("SliderAmbientVolume", 0, 100), ("SliderZoomSpeed", 25, 300),
-                 ("SliderMenuTransitionSpeed", 25, 400), ("SliderMasterVolume", 0, 100)]
+                 ("SliderMenuTransitionSpeed", 25, 400), ("SliderMasterVolume", 0, 100),
+                 ("SliderGraphicsQuality", 0, 10)]
 
 # EA's captions that do not fit the page: two popup headings written in capitals, and a check box
 # caption that ran 20 pixels past the panel's right edge once it stood in a 268 pixel column.
@@ -334,11 +337,12 @@ GROUP_LAYOUT = [
             setting("GammaLabel", "SliderGamma", "ValueGamma")])]),
 
     ("PageGraphics", [
+        # the particle limit went to Effects' Particles group to make room for the quality slider
         ("GUI:OptionsGroupDetail", [
             setting("DetailLabel", "ComboBoxDetail"),
+            setting("LabelGraphicsQuality", "SliderGraphicsQuality", "ValueGraphicsQuality"),
             ("note", "DetailNote"),
             setting("LabelTextureResolution", "LowResSlider", "ValueTextureResolution"),
-            setting("LabelParticleCap", "ParticleCapSlider", "ValueParticleCap"),
             ("check", "CheckNoDynamicLOD")]),
         ("GUI:OptionsGroupImage", [
             ("check", "CheckClassicGraphics"),
@@ -369,6 +373,7 @@ GROUP_LAYOUT = [
             ("check", "CheckTreeSway"),
             ("check", "CheckBehindBuilding")]),
         ("GUI:OptionsGroupParticles", [
+            setting("LabelParticleCap", "ParticleCapSlider", "ValueParticleCap"),
             setting("LabelSmoke", "ComboBoxSmoke"),
             ("check", "CheckParticleBounce"),
             ("check", "CheckSmokeFireLighting"),
@@ -810,6 +815,25 @@ def read_catalog():
     return [match.groupdict() for match in _ROW.finditer(text)]
 
 
+# a row of TheGraphicsQualityTable: the control, its cost and its value at every step of the slider
+_QUALITY_ROW = re.compile(r'\{\s*"(?P<control>\w+)",\s*(?P<cost>-?[\d.]+)f?,\s*\{(?P<values>[^}]*)\}\s*\}')
+
+
+def read_quality_table():
+    with open(CATALOG, "rb") as fp:
+        text = fp.read().decode("latin-1")
+    table = text[text.index("TheGraphicsQualityTable[] ="):]
+    table = table[:table.index("};")]
+    return [(match.group("control"), [int(value) for value in match.group("values").split(",")])
+            for match in _QUALITY_ROW.finditer(table)]
+
+
+def bound(text):
+    """A catalog row's bound as written: a number, or an enum constant less one."""
+    text = text.strip()
+    return int(text) if text.lstrip("-").isdigit() else enum_count(text.split()[0]) - 1
+
+
 def read_strings():
     """The keys defined in Patch.str.  A key is a line of its own, the value is the quoted line
     under it, and '//' is the only comment GameText.cpp's parseStringFile knows."""
@@ -890,7 +914,7 @@ def selfcheck():
 
         # a slider narrower than its row never reaches the row's ends, and says nothing about it
         if row["kind"] == "OPTION_INT":
-            bounds = (int(row["lo"]), int(row["hi"]))
+            bounds = (bound(row["lo"]), bound(row["hi"]))
             if dict((name, (low, high)) for name, low, high in SLIDER_RANGES).get(widget) != bounds:
                 problems.append("%s runs %d to %d and SLIDER_RANGES does not give %s that range"
                                 % ((row["ini"],) + bounds + (widget,)))
@@ -934,6 +958,20 @@ def selfcheck():
         for key in ("GUI:%s" % setting_of(name), "TOOLTIP:%s" % setting_of(name)):
             if key not in keys:
                 problems.append("%s needs %s in Patch.str" % (name, key))
+    # every row of the quality slider names a control on Graphics or Effects and has a value for
+    # every step; a row one value short still compiles, with a 0 in the last step
+    steps = enum_count("GRAPHICS_QUALITY_STEPS")
+    quality = read_quality_table()
+    if len(quality) < 9:
+        problems.append("only %d quality rows parsed, the regex has stopped matching" % len(quality))
+    on_pages = set(short(child) for page in ("PageGraphics", "PageEffects")
+                   for child in layout.find(page).children)
+    for control, values in quality:
+        if control not in on_pages:
+            problems.append("quality row %s is not a control on the Graphics or Effects page" % control)
+        if len(values) != steps:
+            problems.append("quality row %s has %d values for %d steps" % (control, len(values), steps))
+
     if ADVANCED in controls:
         problems.append("%s still carries %s; its controls are on the Graphics page"
                         % (os.path.basename(LAYOUT), ADVANCED))

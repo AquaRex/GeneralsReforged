@@ -973,6 +973,14 @@ GUI:Detail
 "Hazır Ayar"
 END
 
+GUI:GraphicsQuality
+"Performans / Kalite"
+END
+
+TOOLTIP:GraphicsQuality
+"Sol en hızlı görüntü, sağ en güzeli. Sürgüyü çekince bu sayfadaki ve Efektler sayfasındaki kutular ayarlanır, ucuz olanlar önce açılır; dört hazır ayar sürgünün üstündeki noktalardır. Sonra bir kutuyu değiştirirseniz hazır ayar Özel olur. Kabul Et'e basınca uygulanır; bazı ayarlar bir sonraki haritayı ya da oyunun bir sonraki açılışını bekler."
+END
+
 GUI:Faction
 "Ordu"
 END
@@ -14766,7 +14774,7 @@ GUI:DetailNote3
 END
 
 GUI:DetailNote4
-"Bu sayfadaki ve Efektler sayfasındaki kutuları kendiniz seçtiniz. Kabul Et'e basınca olduğu gibi kaydedilir."
+"Bu sayfadaki ve Efektler sayfasındaki kutuları kendiniz seçtiniz ya da sürgü iki hazır ayarın arasında duruyor. Kabul Et'e basınca olduğu gibi kaydedilir."
 END
 
 GUI:TextureFilter

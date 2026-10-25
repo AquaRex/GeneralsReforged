@@ -328,6 +328,7 @@ public:
 	Int m_cloudStyle;					// "CloudStyle": 0 = Classic (default), 1 = Volumetric (when supported)
 	Bool m_explosionDebrisTrails;	// "DebrisTrails": blasts throw smoke-trailing fragments and burning shrapnel
 	Int m_shadowQuality;				// "ShadowQuality": the sun's depth map at 1024, 2048 or 4096 texels a side (Direct3D 11)
+	Int m_graphicsQuality;			// "GraphicsQuality": where the options menu's Performance / Quality slider stands; Custom takes the particle ring from the preset at or below it
 	Bool m_classicGraphics;				// "ClassicGraphics": the game's own art, tile, shadows and picture; read at startup
 	Int m_lightingStyle;					// "LightingStyle": LightingStyleType; the map's lights are rebalanced as each map loads
 	Bool m_shadowMap;							// "-shadowmap": draw the casters into the sun's depth buffer as well

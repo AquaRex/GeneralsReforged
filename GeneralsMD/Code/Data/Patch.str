@@ -158,6 +158,14 @@ GUI:Detail
 "Detail Preset"
 END
 
+GUI:GraphicsQuality
+"Performance / Quality"
+END
+
+TOOLTIP:GraphicsQuality
+"Left is the fastest picture, right the best looking. Dragging it sets the boxes on this page and on Effects, the cheap ones first, and the four presets are points along it. Change a box afterwards and the preset reads Custom. Applies when you press Accept; some settings wait for the next map or the next launch."
+END
+
 GUI:DetailNote0
 "Every box on, the most particles and thick smoke, and detail never drops in a big fight. Picking it only fills in the boxes; Accept applies it."
 END
@@ -175,7 +183,7 @@ GUI:DetailNote3
 END
 
 GUI:DetailNote4
-"Your own mix of the boxes on this page and on Effects. Accept keeps it as it is."
+"Your own mix of the boxes on this page and on Effects, or a point on the slider between two presets. Accept keeps it as it is."
 END
 
 GUI:Shadows3D
