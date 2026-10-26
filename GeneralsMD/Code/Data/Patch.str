@@ -3584,7 +3584,28 @@ GUI:FactionPickSideNameHint
 "Click a side's name to play a random army of that side."
 END
 
-// Red Guard Training gives three grades on the rank ladder instead of a whole level.
+// The trainings and the generals' born veterans give grades on the rank ladder instead of a whole
+// level: three for EA's Veteran, six for its Elite.
+
+CONTROLBAR:ToolTipChinaScienceARtilleryTraining
+"Nuke Cannons and Inferno Cannons are built three ranks up"
+END
+
+CONTROLBAR:ToolTipGLAScienceTechnicalTraining
+"All Technicals will be created three ranks up"
+END
+
+CONTROLBAR:ToolTipChinaScienceBattlemasterTraining
+"All Battlemasters will be built six ranks up"
+END
+
+GUI:BioFeatures_Pos4
+"Emperor Tank \n Tank Drop \n All tanks start three ranks up \n Tanks cost less \n Aircraft cost more \n No Nuke or Inferno Cannons"
+END
+
+GUI:BioFeatures_Pos7
+"Assault Troop Transport \n Assault Helix \n Attack Outpost \n Fortified Bunkers \n Mini-Gunner \n Black Lotus hacks faster \n Hackers hack faster \n Mini-Gunner Paradrop \n All Infantry start three ranks up"
+END
 
 CONTROLBAR:ToolTipChinaScienceRedGuardTraining
 "All Red Guard will be built three ranks up, as Corporals"

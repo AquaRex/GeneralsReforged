@@ -10,6 +10,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "Common/GlobalData.h"
@@ -473,10 +474,11 @@ TEST(rank_ladder_no_aura_below_the_elite_pin)
 	}
 }
 
-TEST(rank_ladder_red_guard_training_gives_three_grades)
+TEST(rank_ladder_trainings_and_born_veterans_give_grades)
 {
-	/* every object Red Guard Training reaches gives three grades through StartingGrades and names no
-	   StartingLevel, or the build button would show a Veteran chevron the unit no longer gets */
+	/* every unit EA built Veteran or Elite is built 3 or 6 grades up through StartingGrades, two sources
+	   on one unit adding up, and no block names a StartingLevel, or the build button would show a
+	   chevron the unit no longer gets.  The pilots and the China Agent stay on EA's level. */
 	FILE *fp = fopen( BALANCE_REFORGED_INI, "rb" );
 	CHECK( fp != NULL );
 	if( fp == NULL )
@@ -484,30 +486,54 @@ TEST(rank_ladder_red_guard_training_gives_three_grades)
 	static char text[ 1 << 20 ];
 	text[ fread( text, 1, sizeof( text ) - 1, fp ) ] = '\0';
 	fclose( fp );
-	const char *const trained[] =
+	struct Born { const char *name; Int grades; } const born[] =
 	{
-		"ChinaInfantryRedguard", "Nuke_ChinaInfantryRedguard", "Tank_ChinaInfantryRedguard", "Infa_ChinaInfantryMiniGunner",
+		{ "ChinaInfantryRedguard", 3 }, { "Nuke_ChinaInfantryRedguard", 3 }, { "Tank_ChinaInfantryRedguard", 3 },
+		{ "Infa_ChinaInfantryMiniGunner", 6 }, { "Infa_ChinaInfantryBlackLotus", 3 }, { "Infa_ChinaInfantryHacker", 3 },
+		{ "Infa_ChinaInfantryTankHunter", 3 }, { "Infa_ChinaTankGattling", 3 },
+		{ "Tank_ChinaTankBattleMaster", 9 }, { "Tank_ChinaTankDragon", 3 }, { "Tank_ChinaTankECM", 3 },
+		{ "Tank_ChinaTankEmperor", 3 }, { "Tank_ChinaTankGattling", 3 }, { "Tank_ChinaTankOverlordBattleBunker", 3 },
+		{ "Tank_ChinaTankOverlordGattlingCannon", 3 }, { "Tank_ChinaTankOverlordPropagandaTower", 3 },
+		{ "ChinaTankBattleMaster", 6 }, { "Nuke_ChinaTankBattleMaster", 6 },
+		{ "ChinaVehicleInfernoCannon", 3 }, { "ChinaVehicleNukeLauncher", 3 }, { "Infa_ChinaVehicleInfernoCannon", 3 },
+		{ "Infa_ChinaVehicleNukeLauncher", 3 }, { "Nuke_ChinaVehicleInfernoCannon", 3 }, { "Nuke_ChinaVehicleNukeLauncher", 3 },
+		{ "GLAVehicleTechnical", 3 }, { "GLAVehicleTechnicalChassisOne", 3 }, { "GLAVehicleTechnicalChassisTwo", 3 },
+		{ "GLAVehicleTechnicalChassisThree", 3 }, { "Chem_GLAVehicleTechnical", 3 }, { "Chem_GLAVehicleTechnicalChassisOne", 3 },
+		{ "Chem_GLAVehicleTechnicalChassisTwo", 3 }, { "Chem_GLAVehicleTechnicalChassisThree", 3 },
+		{ "Demo_GLAVehicleTechnical", 3 }, { "Demo_GLAVehicleTechnicalChassisOne", 3 }, { "Demo_GLAVehicleTechnicalChassisTwo", 3 },
+		{ "Demo_GLAVehicleTechnicalChassisThree", 3 }, { "Slth_GLAVehicleTechnical", 3 }, { "Slth_GLAVehicleTechnicalChassisOne", 3 },
+		{ "Slth_GLAVehicleTechnicalChassisTwo", 3 }, { "Slth_GLAVehicleTechnicalChassisThree", 3 },
+		{ "GC_Slth_GLAVehicleTechnical", 3 }, { "GC_Slth_GLAVehicleTechnicalChassisOne", 3 },
+		{ "GC_Slth_GLAVehicleTechnicalChassisTwo", 3 }, { "GC_Slth_GLAVehicleTechnicalChassisThree", 3 },
 	};
-	for( const char *name : trained )
+	for( const Born &unit : born )
 	{
+		/* every block of that name: the file may edit one object in more than one place */
 		char header[ 96 ];
-		snprintf( header, sizeof( header ), "\nObject %s", name );
-		const char *block = strstr( text, header );
-		while( block && strchr( "\r\n", block[ strlen( header ) ] ) == NULL )		// not a longer name
-			block = strstr( block + 1, header );
-		CHECK( block != NULL );
-		if( block == NULL )
-			continue;
-		const char *end = strstr( block + 1, "\nEnd" );	// the object's own End; a module's is indented
-		const char *grades = strstr( block, "StartingGrades = 3" );
-		const char *level = strstr( block, "StartingLevel" );
-		CHECK( end != NULL && grades != NULL && grades < end );
-		CHECK( level == NULL || level > end );
+		snprintf( header, sizeof( header ), "\nObject %s", unit.name );
+		Int grades = 0;
+		for( const char *block = strstr( text, header ); block; block = strstr( block + 1, header ) )
+		{
+			if( strchr( "\r\n", block[ strlen( header ) ] ) == NULL )		// a longer name
+				continue;
+			const char *end = strstr( block + 1, "\nEnd" );	// the object's own End; a module's is indented
+			CHECK( end != NULL );
+			if( end == NULL )
+				break;
+			for( const char *at = strstr( block, "StartingGrades = " ); at && at < end; at = strstr( at + 1, "StartingGrades = " ) )
+				grades += atoi( at + strlen( "StartingGrades = " ) );
+			const char *level = strstr( block, "StartingLevel" );
+			CHECK( level == NULL || level > end );
+		}
+		if( grades != unit.grades )
+			printf( "  %s gives %d grades, not %d\n", unit.name, grades, unit.grades );
+		CHECK_EQ( grades, unit.grades );
 	}
 
-	/* a Red Guard lands on Corporal, short of the Veteran pin; the Infantry General's Mini-Gunner,
-	   always Veteran, three grades above the pin and short of Elite */
+	/* a Red Guard lands on Corporal, short of the Veteran pin; a Battlemaster with Battlemaster
+	   Training on grade 6, still Veteran where EA made it Elite */
 	const RankLadder prc = china();
 	CHECK_EQ( prc.levelOf( 3 ), LEVEL_REGULAR );
-	CHECK_EQ( prc.levelOf( prc.m_pin[LEVEL_VETERAN] + 3 ), LEVEL_VETERAN );
+	CHECK_EQ( prc.levelOf( 6 ), LEVEL_VETERAN );
+	CHECK_EQ( prc.levelOf( 9 ), LEVEL_VETERAN );
 }
