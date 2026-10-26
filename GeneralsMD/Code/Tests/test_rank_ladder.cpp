@@ -417,3 +417,20 @@ TEST(rank_ladder_drill_teaches_up_to_its_cap_and_no_further)
 	/* the Red Guard's E of 5 still learns a point a second */
 	CHECK_EQ( china().drillGain( 5, 0, 4, 0.05f ), 1 );
 }
+
+TEST(rank_ladder_drill_caps_below_the_grade_that_gives_it)
+{
+	/* a cap at the giver's own grade feeds itself: China's Sergeant drilling up to Sergeant made every
+	   Sergeant a new drill leader, and Red Guard Training lands each Red Guard on that pin */
+	struct Side { const char *name; RankLadder ladder; } sides[] =
+	{
+		{ "America", america() }, { "China", china() }, { "GLA", gla() },
+		{ "Turkiye", makeLadder( 21, 4, 11, 16, 16, 1.42f, 1.19f, 1.42f ) },
+	};
+	for( Side &side : sides )
+	{
+		CHECK( shippedLadder( side.ladder, side.name ) );
+		for( Int grade = 1; grade <= side.ladder.m_grades; ++grade )
+			CHECK( side.ladder.aura( grade, RANK_AURA_DRILL ) < (Real)grade );
+	}
+}
