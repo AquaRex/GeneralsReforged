@@ -575,6 +575,10 @@ static AsciiString thePendingReplayFile;
 	 that before init()'s resetAll() would have resetAll tear it straight back down again. */
 static AsciiString thePendingSaveFile;
 
+/* -file <map>: a single player game on that map, queued after init()'s resetAll() as the replay
+	 and the save are, so nothing the reset tears down is set up for it beforehand. */
+static AsciiString thePendingMapFile;
+
 /** Open the save game -loadsave named, once every subsystem has been reset.
 	*
 	* This is doLoadGame() in PopupSaveLoad.cpp without the menu: prepare a single player game, load,
@@ -1430,17 +1434,7 @@ void GameEngine::init( int argc, char *argv[] )
 			{
 				TheWritableGlobalData->m_shellMapOn = FALSE;
 				TheWritableGlobalData->m_playIntro = FALSE;
-				TheWritableGlobalData->m_pendingFile = TheGlobalData->m_initialFile;
-
-				// shutdown the top, but do not pop it off the stack
-	//			TheShell->hideShell();
-
-				// send a message to the logic for a new game
-				GameMessage *msg = TheMessageStream->appendMessage( GameMessage::MSG_NEW_GAME );
-				msg->appendIntegerArgument(GAME_SINGLE_PLAYER);
-				msg->appendIntegerArgument(DIFFICULTY_NORMAL);
-				msg->appendIntegerArgument(0);
-				InitRandom(0);
+				thePendingMapFile = TheGlobalData->m_initialFile;
 			}
 			else if (fname.endsWithNoCase(".rep"))
 			{
@@ -1566,6 +1560,17 @@ void GameEngine::init( int argc, char *argv[] )
 	{
 		startPendingSaveGame();
 		thePendingSaveFile.clear();
+	}
+
+	if (thePendingMapFile.isNotEmpty())
+	{
+		TheWritableGlobalData->m_pendingFile = thePendingMapFile;
+		GameMessage *msg = TheMessageStream->appendMessage( GameMessage::MSG_NEW_GAME );
+		msg->appendIntegerArgument( GAME_SINGLE_PLAYER );
+		msg->appendIntegerArgument( DIFFICULTY_NORMAL );
+		msg->appendIntegerArgument( 0 );
+		InitRandom( 0 );
+		thePendingMapFile.clear();
 	}
 
 	if (TheGlobalData->m_netGameHosts.isNotEmpty() && TheGlobalData->m_initialFile.isEmpty())

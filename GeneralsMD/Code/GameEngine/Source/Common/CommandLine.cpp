@@ -768,6 +768,16 @@ Int parseBuildMapCache(char *args[], int)
 	return 1;
 }
 
+Int parseFile(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 1)
+	{
+		TheWritableGlobalData->m_initialFile = args[1];
+		ConvertShortMapPathToLongMapPath(TheWritableGlobalData->m_initialFile);
+	}
+	return 2;
+}
+
 
 #if defined(_DEBUG) || defined(_INTERNAL)
 Int parseDisplayDebug(char *args[], int)
@@ -777,16 +787,6 @@ Int parseDisplayDebug(char *args[], int)
 		TheWritableGlobalData->m_displayDebug = TRUE;
 	}
 	return 1;
-}
-
-Int parseFile(char *args[], int num)
-{
-	if (TheWritableGlobalData && num > 1)
-	{
-		TheWritableGlobalData->m_initialFile = args[1];
-		ConvertShortMapPathToLongMapPath(TheWritableGlobalData->m_initialFile);
-	}
-	return 2;
 }
 
 
@@ -2928,7 +2928,6 @@ static CommandLineParam params[] =
 	{ "-jabber", parseJabber },
 	{ "-munkee", parseMunkee },
 	{ "-displayDebug", parseDisplayDebug },
-	{ "-file", parseFile },
   
   { "-preloadEverything", parsePreloadEverything },
 	{ "-logAssets", parseLogAssets },
@@ -3026,6 +3025,9 @@ static CommandLineParam params[] =
 	{ "-takeover", parseTakeover },
 	{ "-replay", parseReplay },
 	{ "-loadsave", parseLoadSave },
+	// EA kept -file to Debug and Internal, so a Release run had no way into a campaign mission
+	// without clicking through the shell
+	{ "-file", parseFile },
 	{ "-netgame", parseNetGame },
 	{ "-netslot", parseNetSlot },
 	{ "-netai", parseNetAI },
