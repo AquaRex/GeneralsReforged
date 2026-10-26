@@ -212,6 +212,7 @@ public:
 	Real m_headingLagRate;			///< and how fast that changes, a logic frame
 	Real m_headingLogic;				///< the logic heading on m_headingFrame
 	UnsignedInt m_headingFrame;	///< the logic frame the heading spring last stepped on
+	Bool m_headingSeeded;				///< m_headingLogic and m_headingFrame hold a real heading and frame
 	TWheelInfo m_wheelInfo;			///< Wheel offset & angle info for a wheeled type locomotor.
 
 	DrawableLocoInfo();
@@ -785,8 +786,9 @@ protected:
 		Real m_totalRoll;						///< Current total roll for this frame.
 		Real m_totalYaw;						///< Current total yaw for this frame
 		Real m_totalZ;
+		Real m_headingYaw;					///< a ground vehicle's heading lag, turned before the pitch and roll
 
-		PhysicsXformInfo() : m_totalPitch(0), m_totalRoll(0), m_totalYaw(0), m_totalZ(0) { }
+		PhysicsXformInfo() : m_totalPitch(0), m_totalRoll(0), m_totalYaw(0), m_totalZ(0), m_headingYaw(0) { }
 	};
 
 	Bool calcPhysicsXform(PhysicsXformInfo& info);

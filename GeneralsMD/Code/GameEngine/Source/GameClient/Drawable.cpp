@@ -246,6 +246,7 @@ DrawableLocoInfo::DrawableLocoInfo()
 	m_headingLagRate = 0.0f;
 	m_headingLogic = 0.0f;
 	m_headingFrame = 0;
+	m_headingSeeded = FALSE;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1762,6 +1763,7 @@ void Drawable::applyPhysicsXform(Matrix3D* mtx)
 	if (calcPhysicsXform(info))
 	{
 		mtx->Translate(0.0f, 0.0f, info.m_totalZ);
+		mtx->Rotate_Z( info.m_headingYaw );
 		mtx->Rotate_Y( info.m_totalPitch );
 		mtx->Rotate_X( -info.m_totalRoll );
 		mtx->Rotate_Z( info.m_totalYaw );
@@ -1776,9 +1778,10 @@ Bool Drawable::calcPhysicsXform(PhysicsXformInfo& info)
 	const Object* obj = getObject();
 	const AIUpdateInterface *ai = obj ? obj->getAIUpdateInterface() : NULL;
 	Bool hasPhysicsXform = false;
-	if (ai) 
+	Bool ground = false;
+	if (ai)
 	{
-		const Locomotor *locomotor = ai->getCurLocomotor(); 
+		const Locomotor *locomotor = ai->getCurLocomotor();
 		if (locomotor) 
 		{
 			switch (locomotor->getAppearance())
@@ -1788,6 +1791,7 @@ Bool Drawable::calcPhysicsXform(PhysicsXformInfo& info)
 				case LOCO_TREADS:
 					calcPhysicsXformGround(locomotor, info);
 					hasPhysicsXform = true;
+					ground = true;
 					break;
 				case LOCO_HOVER:
 				case LOCO_WINGS:
@@ -1801,6 +1805,9 @@ Bool Drawable::calcPhysicsXform(PhysicsXformInfo& info)
 			}
 		}
 	}
+	// off its ground locomotor the hull is drawn on its logic heading, and so is its turret
+	if (!ground && m_locoInfo)
+		m_locoInfo->m_headingLag = 0.0f;
 
   if (hasPhysicsXform)
   {
@@ -2226,20 +2233,23 @@ void Drawable::calcPhysicsXformGround( const Locomotor *locomotor, PhysicsXformI
 	const Real HEADING_MAX_LAG = PI / 4.0f;			// never further behind than this: a heading a script sets is drawn there soon
 	const UnsignedInt HEADING_CATCH_UP_FRAMES = 8;	// more logic frames than this unseen and the hull is drawn on its heading
 
-	// the spring is stepped once a logic frame, the rate the heading itself changes at
+	/* The spring is stepped once a logic frame, the rate the heading itself changes at. The heading and
+		 the frame are read once: with -logicthread 1 the logic can move on between two reads. */
 	const Object *owner = getObject();
 	UnsignedInt logicFrame = TheGameLogic->getFrame();
+	Real logicAngle = getOrientation();
 	UnsignedInt gap = logicFrame - m_locoInfo->m_headingFrame;
-	if (gap > HEADING_CATCH_UP_FRAMES || owner->isKindOf(KINDOF_AIRCRAFT))
+	if (!m_locoInfo->m_headingSeeded || gap > HEADING_CATCH_UP_FRAMES || owner->isKindOf(KINDOF_AIRCRAFT))
 	{
-		// a taxiing jet or a landed helicopter eases its own turn in the logic
+		// first drawn, long unseen, or a taxiing jet or landed helicopter, which eases its own turn in the logic
 		m_locoInfo->m_headingLag = 0.0f;
 		m_locoInfo->m_headingLagRate = 0.0f;
+		m_locoInfo->m_headingSeeded = TRUE;
 	}
 	else if (gap != 0)
 	{
 		const Real omega = 2.0f / HEADING_LAG_FRAMES;	// a ramp's lag is 2 / omega
-		Real turned = stdAngleDiff(getOrientation(), m_locoInfo->m_headingLogic) / gap;
+		Real turned = stdAngleDiff(logicAngle, m_locoInfo->m_headingLogic) / gap;
 		for (UnsignedInt i = 0; i < gap; ++i)
 		{
 			m_locoInfo->m_headingLag -= turned;
@@ -2252,14 +2262,16 @@ void Drawable::calcPhysicsXformGround( const Locomotor *locomotor, PhysicsXformI
 			m_locoInfo->m_headingLagRate = 0.0f;
 		}
 	}
-	m_locoInfo->m_headingLogic = getOrientation();
+	m_locoInfo->m_headingLogic = logicAngle;
 	m_locoInfo->m_headingFrame = logicFrame;
+	// turned first, under the lean, so the lean tips along the hull as drawn (applyPhysicsXform)
+	info.m_headingYaw = m_locoInfo->m_headingLag;
 
 	/* Stepped on the retail clock, every second logic frame, so the springs, the locomotor's
 		 stiffness and damping and the ease frames below keep the timing they were tuned at.  Speeds are
 		 per logic frame and only ever divided by the locomotor's own top speed, which cancels; the turn
 		 rate does not, so it is taken per retail frame. */
-	UnsignedInt now = TheGameLogic->getFrame() / LOGICFRAMES_PER_RETAIL_FRAME;
+	UnsignedInt now = logicFrame / LOGICFRAMES_PER_RETAIL_FRAME;
 	UnsignedInt steps = now - m_locoInfo->m_groundFrame;
 	if (steps != 0)
 	{
@@ -2270,7 +2282,7 @@ void Drawable::calcPhysicsXformGround( const Locomotor *locomotor, PhysicsXformI
 			return;
 		BodyDamageType bdt = obj->getBodyModule()->getDamageState();
 		Real speed = physics->getForwardSpeed2D();
-		Real angle = getOrientation() + m_locoInfo->m_headingLag;	// the turn as drawn
+		Real angle = logicAngle + m_locoInfo->m_headingLag;	// the turn as drawn
 		if (steps > MAX_CATCH_UP_FRAMES)
 		{
 			// long unseen, or just loaded: let the springs settle without a lurch from the gap
@@ -2333,7 +2345,6 @@ void Drawable::calcPhysicsXformGround( const Locomotor *locomotor, PhysicsXformI
 	}
 	info.m_totalPitch = m_locoInfo->m_groundPitch;
 	info.m_totalRoll = m_locoInfo->m_groundRoll;
-	info.m_totalYaw = m_locoInfo->m_headingLag;
 	info.m_totalZ = m_locoInfo->m_groundZ;
 }
 
