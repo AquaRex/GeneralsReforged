@@ -323,6 +323,8 @@ public:
 	Real getJetMaxYawRate(BodyDamageType condition, Real speed) const;
 	/// the lateral acceleration a jet's wings pull at full rate above its corner speed
 	Real getJetPull(BodyDamageType condition) const;
+	/// radians a frame the nose swung on the last frame this locomotor flew or drove
+	Real getYawRate() const { return m_yawRate; }
 	/**
 		The circle a hard turn begun now would fly, for an aircraft on wings, and in entryDist how far
 		it goes straight before it is on that circle (a jet's roll into the bank). Other aircraft get

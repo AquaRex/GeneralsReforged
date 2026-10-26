@@ -230,7 +230,6 @@ DrawableLocoInfo::DrawableLocoInfo()
 	m_airPitch = 0.0f;
 	m_airRoll = 0.0f;
 	m_airYaw = 0.0f;
-	m_jetHeading = 0.0f;
 	m_jetBank = 0.0f;
 	m_jetPitch = 0.0f;
 	for (Int i = 0; i < 3; ++i)
@@ -1965,35 +1964,44 @@ void Drawable::calcPhysicsXformHoverOrWings( const Locomotor *locomotor, Physics
 	/* A jet banks into its turn and pitches with its climb. The bank is the lateral acceleration of
 		 the turn, speed times turn rate, against the full pull of its wings (Locomotor::getJetPull):
 		 JET_MAX_BANK at the full pull and level flying straight. The logic eases the turn in and out,
-		 so the bank rolls with it, and through level when a turn reverses. The pitch is the climb
-		 angle, clamped, plus a few degrees of nose-up while it flies slow, the attitude it comes in to
-		 land with, fading out over the last few feet so the nose comes down after the wheels touch.
-		 Both are eased again here against single-frame jumps. The springs below are left holding
-		 the same attitude, so a jet that dies falls from where it was. */
+		 so the bank rolls with it, and through level when a turn reverses. The turn rate is the
+		 locomotor's own, not the heading's change since the last drawn frame: that one was unknown
+		 for a jet coming into view, which rolled it level and back into its turn as it appeared. The
+		 pitch is the climb angle, clamped, plus a few degrees of nose-up while it flies slow, the
+		 attitude it comes in to land with, fading out over the last few feet so the nose comes down
+		 after the wheels touch.
+
+		 Both are eased here over JET_EASE_FRAMES. The logic flies the quickest turn there is, so a
+		 2 degree correction on a chase or a path corner rolls the wings 15 degrees in and straight out
+		 again inside a third of a second, and a jet doing that every few seconds rocked its wings
+		 the whole time it flew. Over 6 retail frames nearly all of those flicks stay under 8 degrees
+		 while a real turn still reaches the full bank, a fifth of a second behind it (2026-10-26, a
+		 four-player Hard match: 1.8 flicks of 8 degrees or more that turned the nose less than 5, a
+		 flight-minute a jet, at 3 frames, 0.2 at 6). The pitch ease also
+		 takes out the lift's frame-to-frame ripple. After a gap in the drawing both start from where
+		 the jet is, not from where it was last seen. The springs below are left holding the same
+		 attitude, so a jet that dies falls from where it was. */
 	if (locomotor->isJet(obj))
 	{
 		const Real JET_MAX_BANK = 1.1f;				// radians, about 63 degrees, at the full pull of the wings
 		const Real JET_MAX_CLIMB = 0.35f;			// radians, about 20 degrees, nose up or down
 		const Real JET_SLOW_NOSE_UP = 0.12f;	// radians, about 7 degrees, at MinSpeed and below, none from twice that
 		const Real JET_NOSE_UP_HEIGHT = 5.0f;	// the nose-up fades out below this height
-		const Real JET_EASE_FRAMES = 3.0f;		// retail frames
-		const UnsignedInt MAX_GAP = 4;				// retail frames; after a longer gap (taxiing, hidden) the turn rate is not known
+		const Real JET_EASE_FRAMES = 6.0f;		// retail frames
+		const UnsignedInt MAX_GAP = 4;				// retail frames; after a longer gap (hidden, out of view) the eased attitude is stale
 
 		BodyDamageType bdt = obj->getBodyModule()->getDamageState();
 		Real speed = sqrt(sqr(vel->x) + sqr(vel->y));	// per logic frame
-		Real heading = obj->getOrientation();
 		Real bank = 0.0f;
 		Real pull = locomotor->getJetPull(bdt);
-		if (elapsed <= MAX_GAP && pull > 0.0f)
+		if (pull > 0.0f)
 		{
-			Real turnRate = stdAngleDiff(heading, m_locoInfo->m_jetHeading) / (Real)(elapsed * LOGICFRAMES_PER_RETAIL_FRAME);
-			bank = JET_MAX_BANK * speed * turnRate / pull;
+			bank = JET_MAX_BANK * speed * locomotor->getYawRate() / pull;
 			if (bank > JET_MAX_BANK)
 				bank = JET_MAX_BANK;
 			else if (bank < -JET_MAX_BANK)
 				bank = -JET_MAX_BANK;
 		}
-		m_locoInfo->m_jetHeading = heading;
 
 		Real pitch = 0.0f;	// nose up
 		if (speed > 0.01f || fabs(vel->z) > 0.01f)
@@ -2020,8 +2028,16 @@ void Drawable::calcPhysicsXformHoverOrWings( const Locomotor *locomotor, Physics
 			}
 		}
 
-		m_locoInfo->m_jetBank += (bank - m_locoInfo->m_jetBank) / JET_EASE_FRAMES;
-		m_locoInfo->m_jetPitch += (pitch - m_locoInfo->m_jetPitch) / JET_EASE_FRAMES;
+		if (elapsed > MAX_GAP)
+		{
+			m_locoInfo->m_jetBank = bank;
+			m_locoInfo->m_jetPitch = pitch;
+		}
+		else
+		{
+			m_locoInfo->m_jetBank += (bank - m_locoInfo->m_jetBank) / JET_EASE_FRAMES;
+			m_locoInfo->m_jetPitch += (pitch - m_locoInfo->m_jetPitch) / JET_EASE_FRAMES;
+		}
 
 		info.m_totalRoll = m_locoInfo->m_jetBank;		// positive rolls the left wing down, into a turn to the left
 		info.m_totalPitch = -m_locoInfo->m_jetPitch;	// negative lifts the nose
