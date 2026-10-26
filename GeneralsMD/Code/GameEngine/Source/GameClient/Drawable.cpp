@@ -242,6 +242,10 @@ DrawableLocoInfo::DrawableLocoInfo()
 	m_groundPitch = 0.0f;
 	m_groundRoll = 0.0f;
 	m_groundZ = 0.0f;
+	m_headingLag = 0.0f;
+	m_headingLagRate = 0.0f;
+	m_headingLogic = 0.0f;
+	m_headingFrame = 0;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1745,15 +1749,15 @@ void Drawable::applyPhysicsXform(Matrix3D* mtx)
 {
 	const Object *obj = getObject();
 
-	if( !obj ||	obj->isDisabledByType( DISABLED_HELD ) || !TheGlobalData->m_showClientPhysics )
-	{
-		return;
-	}
-
  	Bool frozen = TheTacticalView->isTimeFrozen() && !TheTacticalView->isCameraMovementFinished();
  	frozen = frozen || TheScriptEngine->isTimeFrozenDebug() || TheScriptEngine->isTimeFrozenScript();
-	if (frozen)
+	if( !obj ||	obj->isDisabledByType( DISABLED_HELD ) || !TheGlobalData->m_showClientPhysics || frozen )
+	{
+		// drawn on its logic heading, which is what the turret is drawn against (getDrawnHeadingLag)
+		if (m_locoInfo)
+			m_locoInfo->m_headingLag = 0.0f;
 		return;
+	}
 	PhysicsXformInfo info;
 	if (calcPhysicsXform(info))
 	{
@@ -2199,7 +2203,15 @@ void Drawable::calcPhysicsXformHoverOrWings( const Locomotor *locomotor, Physics
 	* follows the change of forward speed over a logic frame as a share of top speed, and in a turn
 	* speed times turn rate as a share of the most the locomotor can do, eased through three stages:
 	* a standing start to top speed inside one frame peaks four frames later at most of the limit and
-	* has gone by about half a second, and a slower pull away leans less for longer. */
+	* has gone by about half a second, and a slower pull away leans less for longer. That one frame
+	* start is how a tank or car pulls away again (Locomotor::isGroundVehicle), so the share of top
+	* speed and of the turn is held to one: a diagonal start, at up to 1.41 times Speed, or a shove
+	* leans no further than a straight start.
+	*
+	* The drawn heading of a tank or car trails the logic one through a critically damped spring,
+	* HEADING_LAG_FRAMES behind on a steady turn, so EA's pivot, which starts and stops dead at full
+	* TurnRate, swings the hull up to speed and settles it. It is the picture only: the turret is drawn
+	* against the logic heading (W3DModelDraw::handleClientTurretPositioning). */
 //-------------------------------------------------------------------------------------------------
 void Drawable::calcPhysicsXformGround( const Locomotor *locomotor, PhysicsXformInfo& info )
 {
@@ -2210,6 +2222,38 @@ void Drawable::calcPhysicsXformGround( const Locomotor *locomotor, PhysicsXformI
 	const Real LEAN_EASE_FRAMES = 3.0f;					// each of the three smoothing stages, in retail frames
 	const Real START_GAIN = 11.0f;							// a one frame start from rest to top speed peaks at tanh(1.2) of the limit
 	const Real DEFAULT_LEAN_LIMIT = 0.07f;			// 4 degrees, for a locomotor that reacts but names no limit, like the Humvee's
+	const Real HEADING_LAG_FRAMES = 5.0f;				// logic frames the drawn hull trails a steady turn by
+	const Real HEADING_MAX_LAG = PI / 4.0f;			// never further behind than this: a heading a script sets is drawn there soon
+	const UnsignedInt HEADING_CATCH_UP_FRAMES = 8;	// more logic frames than this unseen and the hull is drawn on its heading
+
+	// the spring is stepped once a logic frame, the rate the heading itself changes at
+	const Object *owner = getObject();
+	UnsignedInt logicFrame = TheGameLogic->getFrame();
+	UnsignedInt gap = logicFrame - m_locoInfo->m_headingFrame;
+	if (gap > HEADING_CATCH_UP_FRAMES || owner->isKindOf(KINDOF_AIRCRAFT))
+	{
+		// a taxiing jet or a landed helicopter eases its own turn in the logic
+		m_locoInfo->m_headingLag = 0.0f;
+		m_locoInfo->m_headingLagRate = 0.0f;
+	}
+	else if (gap != 0)
+	{
+		const Real omega = 2.0f / HEADING_LAG_FRAMES;	// a ramp's lag is 2 / omega
+		Real turned = stdAngleDiff(getOrientation(), m_locoInfo->m_headingLogic) / gap;
+		for (UnsignedInt i = 0; i < gap; ++i)
+		{
+			m_locoInfo->m_headingLag -= turned;
+			m_locoInfo->m_headingLagRate += -omega * omega * m_locoInfo->m_headingLag - 2.0f * omega * m_locoInfo->m_headingLagRate;
+			m_locoInfo->m_headingLag += m_locoInfo->m_headingLagRate;
+		}
+		if (fabs(m_locoInfo->m_headingLag) > HEADING_MAX_LAG)
+		{
+			m_locoInfo->m_headingLag = (m_locoInfo->m_headingLag > 0.0f) ? HEADING_MAX_LAG : -HEADING_MAX_LAG;
+			m_locoInfo->m_headingLagRate = 0.0f;
+		}
+	}
+	m_locoInfo->m_headingLogic = getOrientation();
+	m_locoInfo->m_headingFrame = logicFrame;
 
 	/* Stepped on the retail clock, every second logic frame, so the springs, the locomotor's
 		 stiffness and damping and the ease frames below keep the timing they were tuned at.  Speeds are
@@ -2226,7 +2270,7 @@ void Drawable::calcPhysicsXformGround( const Locomotor *locomotor, PhysicsXformI
 			return;
 		BodyDamageType bdt = obj->getBodyModule()->getDamageState();
 		Real speed = physics->getForwardSpeed2D();
-		Real angle = getOrientation();
+		Real angle = getOrientation() + m_locoInfo->m_headingLag;	// the turn as drawn
 		if (steps > MAX_CATCH_UP_FRAMES)
 		{
 			// long unseen, or just loaded: let the springs settle without a lurch from the gap
@@ -2250,8 +2294,8 @@ void Drawable::calcPhysicsXformGround( const Locomotor *locomotor, PhysicsXformI
 		{
 			Real maxSpeed = locomotor->getMaxSpeedForCondition(bdt);
 			Real maxLateral = maxSpeed * locomotor->getMaxTurnRate(bdt) * LOGICFRAMES_PER_RETAIL_FRAME;
-			pitchIn = maxSpeed > 0.0f ? -START_GAIN * forwardAccel / maxSpeed : 0.0f;
-			rollIn = maxLateral > 0.0f ? -lateralAccel / maxLateral : 0.0f;
+			pitchIn = maxSpeed > 0.0f ? -START_GAIN * clamp(-1.0f, forwardAccel / maxSpeed, 1.0f) : 0.0f;
+			rollIn = maxLateral > 0.0f ? -clamp(-1.0f, lateralAccel / maxLateral, 1.0f) : 0.0f;
 		}
 		Real accelLimit = locomotor->getAccelPitchLimit();
 		Real decelLimit = locomotor->getDecelPitchLimit();
@@ -2289,6 +2333,7 @@ void Drawable::calcPhysicsXformGround( const Locomotor *locomotor, PhysicsXformI
 	}
 	info.m_totalPitch = m_locoInfo->m_groundPitch;
 	info.m_totalRoll = m_locoInfo->m_groundRoll;
+	info.m_totalYaw = m_locoInfo->m_headingLag;
 	info.m_totalZ = m_locoInfo->m_groundZ;
 }
 

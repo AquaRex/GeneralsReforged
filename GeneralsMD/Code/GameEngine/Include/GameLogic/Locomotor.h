@@ -340,13 +340,14 @@ public:
 	Bool isHelicopter(const Object* obj) const;
 
 	/**
-		A tank, car or bike driving under its own power: treads, four wheels or a motorcycle, not in
-		an ULTRA_ACCURATE manoeuvre; or a jet taxiing on four wheels, which is. A helicopter taxiing
-		on treads is not. Its speed eases up and down, it brakes into bends and stops it can see
-		coming, treads back up to a goal close behind and wheels turn no tighter than their wheelbase
-		allows.
+		A jet taxiing on four wheels, the one user left of moveTowardsPositionVehicle: its speed eases
+		up and down, it brakes into bends and stops it can see coming and turns no tighter than its
+		wheelbase allows. Tanks, cars and bikes drive EA's treads and wheels. A helicopter taxiing on
+		treads is not one either.
 	*/
 	Bool isGroundVehicle(const Object* obj) const;
+	/// treads, four wheels or a motorcycle: whatever drives on the ground on a vehicle's locomotor
+	Bool isGroundDrive() const;
 	/// the tightest circle a ground vehicle on wheels drives at speed, from its length
 	Real calcWheelTurnRadius(const Object* obj) const;
 

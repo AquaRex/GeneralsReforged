@@ -2906,8 +2906,9 @@ void W3DModelDraw::handleClientTurretPositioning()
 			if (obj)
 			{
 				const AIUpdateInterface* ai = obj->getAIUpdateInterface();
-				if (ai)
-					ai->getTurretRotAndPitch((WhichTurretType)tslot, &turretAngle, &turretPitch);
+				// a turret aims from the logic heading, which the drawn hull of a tank or car trails
+				if (ai && ai->getTurretRotAndPitch((WhichTurretType)tslot, &turretAngle, &turretPitch))
+					turretAngle -= getDrawable()->getDrawnHeadingLag();
 			}
 
 			// do turret, if any
