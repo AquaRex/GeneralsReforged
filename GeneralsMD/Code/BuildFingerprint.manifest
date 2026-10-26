@@ -42,6 +42,8 @@ Data/Art/Textures/ReforgedRanksUSA.tga
 Data/Art/Textures/ReforgedSignalAttack.tga
 Data/Art/Textures/ReforgedSignalDefend.tga
 Data/Art/Textures/ReforgedSignalLook.tga
+Data/Art/Textures/ZHCA_TRMehmet.tga
+Data/Art/W3D/TRMEHM_SKN.W3D
 Data/Cinema/aurorablast.txt
 Data/Cinema/aurorafog.txt
 Data/Cinema/blastcheck.txt
@@ -110,6 +112,7 @@ Data/Cinema/rankauramaresal.txt
 Data/Cinema/rankauranight.txt
 Data/Cinema/rankaurasnow.txt
 Data/Cinema/rankladder.txt
+Data/Cinema/rankringsall.txt
 Data/Cinema/rankzero.txt
 Data/Cinema/readme_water.txt
 Data/Cinema/rf_ai.txt
@@ -314,6 +317,7 @@ Data/Scenarios/mappers.txt
 Data/Scenarios/mass420x2.txt
 Data/Scenarios/mass840.txt
 Data/Scenarios/massmove.txt
+Data/Scenarios/mehmetcik.txt
 Data/Scenarios/minefx.txt
 Data/Scenarios/minefx_blast.txt
 Data/Scenarios/minefx_desert.txt
@@ -352,6 +356,7 @@ Data/Scenarios/rankaurareplay.txt
 Data/Scenarios/rankaurasnow.txt
 Data/Scenarios/rankaurawiki.txt
 Data/Scenarios/rankladder.txt
+Data/Scenarios/rankringsall.txt
 Data/Scenarios/rankzero.txt
 Data/Scenarios/reachshot.txt
 Data/Scenarios/readme_hud.txt
