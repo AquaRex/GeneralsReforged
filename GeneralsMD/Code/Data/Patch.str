@@ -3614,3 +3614,9 @@ END
 CONTROLBAR:Infa_ToolTipChinaScienceRedGuardTraining
 "All Mini-Gunners will be built three ranks above Veteran"
 END
+
+// the LAN lobby's error box when the system bound the socket on another adapter; the first %ls is the
+// LAN IP chosen in Options, the second the address the system bound instead
+GUI:SocketRedirected
+"The LAN IP is %ls, but the system put the game's connection on %ls. A VPN split tunnel or a firewall redirected it, so nobody on your network can hear you. Turn split tunnelling off for the game and try again."
+END

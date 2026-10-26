@@ -1476,6 +1476,7 @@ A third pass went through the generals' powers, promotions and unit abilities.
 - The second copy used to come up with a socket error and an empty game list, because the lobby's one network port was already taken by the first. Each copy now takes an address of its own on the machine's own loopback range and they announce themselves to each other across it.
 - The second copy also used to be thrown out on the way in. It arrived carrying the same player name, which a host refuses, and the same serial number, which a host refuses harder - a rule written against two people sharing one bought copy, and two windows on one desk are not that. Both copies get their own name now, and the serial rule is waived only between two addresses on the same machine. Anything that could be a second computer still answers to it.
 - `lan-play.ps1` starts as many copies as you ask for, gives each its own name, address and log, opens each on the LAN screen instead of the main menu, and lays the windows out side by side so they are not stacked on top of one another.
+- A VPN's split tunnel or a firewall can quietly move the game's connection to another network card than the LAN IP picked in Options. The LAN screen then looked open and was dead: you saw yourself listed twice, nobody else, and nobody on your virtual LAN could see you. The LAN screen now refuses to open in that state and says which address you picked and which one Windows used instead, so you know to turn the split tunnel off for the game.
 
 ## Whose side is that
 
