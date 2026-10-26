@@ -7346,7 +7346,7 @@ CONTROLBAR:ToolTipChinaScienceNukeCannon
 END
 
 CONTROLBAR:ToolTipChinaScienceRedGuardTraining
-"Tüm Kızıl Muhafızlar kıdemli olarak üretilir"
+"Tüm Kızıl Muhafızlar üç rütbe yukarıda, Onbaşı olarak üretilir"
 END
 
 CONTROLBAR:ToolTipChinaScienceClusterMines
@@ -13882,7 +13882,7 @@ SCIENCE:Infa_ChinaRedGuardTraining
 END
 
 CONTROLBAR:Infa_ToolTipChinaScienceRedGuardTraining
-"Tüm Minigun Erleri Seçkin olarak üretilir"
+"Tüm Minigun Erleri kıdemliden üç rütbe yukarıda üretilir"
 END
 
 CONTROLBAR:ToolTipChinaBuildNuclearMissileLauncherBoss

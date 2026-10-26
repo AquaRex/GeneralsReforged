@@ -164,7 +164,8 @@ TEST(rank_ladder_hero_insignia_runs_from_its_start_to_the_top)
 
 TEST(rank_ladder_perks_carry_up_and_the_strongest_of_a_kind_holds)
 {
-	/* Turkiye's Perk_ lines: sight 110%, 120%, 130% at 3, 8, 18; the rate-of-fire aura 5% at 10, 10% at 16 */
+	/* Turkiye's Perk_ lines: sight 110%, 120%, 130% at 3, 8, 18; the rate-of-fire aura 10% at 16, and
+	   a 5% one at 10 as the Bascavus carried before auras moved above the Elite pin */
 	RankLadder ladder;
 	ladder.clear();
 	ladder.m_grades = 21;
@@ -188,7 +189,7 @@ TEST(rank_ladder_perks_carry_up_and_the_strongest_of_a_kind_holds)
 	CHECK_NEAR( ladder.perk( 8, RANK_PERK_SIGHT ), 1.20f, 1e-6f );
 	CHECK_NEAR( ladder.perk( 21, RANK_PERK_SIGHT ), 1.30f, 1e-6f );
 
-	/* the Albay's 10% replaces the Bascavus's 5%, it does not add to it */
+	/* the Albay's 10% replaces the 5% below it, it does not add to it */
 	CHECK_EQ( ladder.aura( 9, RANK_AURA_RATE_OF_FIRE ), 0.0f );
 	CHECK_NEAR( ladder.aura( 10, RANK_AURA_RATE_OF_FIRE ), 0.05f, 1e-6f );
 	CHECK_NEAR( ladder.aura( 16, RANK_AURA_RATE_OF_FIRE ), 0.10f, 1e-6f );
@@ -250,9 +251,14 @@ TEST(rank_ladder_america_ships_the_wiki_ladder)
 	RankLadder usa = america();
 	CHECK( shippedLadder( usa, "America" ) );
 
-	/* self: Drilled at E-2, Steady hands then Calibrated, Precision, the Designator's 2 s then 4 s */
+	/* self: Drilled at E-2, raised at 7 and 11 where the NCOs' rate-of-fire auras were, Steady hands
+	   then Calibrated, Precision, the Designator's 2 s then 4 s */
 	CHECK_EQ( usa.perk( 0, RANK_PERK_RATE_OF_FIRE ), 0.0f );
 	CHECK_NEAR( usa.perk( 1, RANK_PERK_RATE_OF_FIRE ), 0.05f, 1e-6f );
+	CHECK_NEAR( usa.perk( 6, RANK_PERK_RATE_OF_FIRE ), 0.05f, 1e-6f );
+	CHECK_NEAR( usa.perk( 7, RANK_PERK_RATE_OF_FIRE ), 0.08f, 1e-6f );
+	CHECK_NEAR( usa.perk( 11, RANK_PERK_RATE_OF_FIRE ), 0.10f, 1e-6f );
+	CHECK_NEAR( usa.perk( 28, RANK_PERK_RATE_OF_FIRE ), 0.10f, 1e-6f );
 	CHECK_NEAR( usa.perk( 2, RANK_PERK_RANGE ), 0.03f, 1e-6f );
 	CHECK_NEAR( usa.perk( 14, RANK_PERK_RANGE ), 0.06f, 1e-6f );
 	CHECK_NEAR( usa.perk( 3, RANK_PERK_MEND ), 0.005f, 1e-6f );
@@ -262,25 +268,25 @@ TEST(rank_ladder_america_ships_the_wiki_ladder)
 	CHECK_NEAR( usa.perk( 28, RANK_PERK_DESIGNATE ), 4.0f, 1e-6f );
 	CHECK_NEAR( usa.perk( 28, RANK_PERK_DESIGNATE_REVEAL ), 1.0f, 1e-6f );
 
-	/* the rate-of-fire aura I to VI, each with its own radius */
-	CHECK_EQ( usa.aura( 3, RANK_AURA_RATE_OF_FIRE ), 0.0f );
-	CHECK_NEAR( usa.aura( 4, RANK_AURA_RATE_OF_FIRE ), 0.05f, 1e-6f );
-	CHECK_NEAR( usa.auraRadius( 4, RANK_AURA_RATE_OF_FIRE ), 80.0f, 1e-3f );
-	CHECK_NEAR( usa.auraRadius( 10, RANK_AURA_RATE_OF_FIRE ), 100.0f, 1e-3f );
+	/* the rate-of-fire aura I to III from the Second Lieutenant, each with its own radius */
+	CHECK_EQ( usa.aura( 17, RANK_AURA_RATE_OF_FIRE ), 0.0f );
+	CHECK_NEAR( usa.aura( 18, RANK_AURA_RATE_OF_FIRE ), 0.12f, 1e-6f );
+	CHECK_NEAR( usa.auraRadius( 18, RANK_AURA_RATE_OF_FIRE ), 140.0f, 1e-3f );
 	CHECK_NEAR( usa.aura( 23, RANK_AURA_RATE_OF_FIRE ), 0.15f, 1e-6f );
 	CHECK_NEAR( usa.auraRadius( 23, RANK_AURA_RATE_OF_FIRE ), 160.0f, 1e-3f );
 
-	/* the mend aura reaches infantry at 80, then every unit at 100 from the Warrant Officer */
-	CHECK_NEAR( usa.aura( 6, RANK_AURA_MEND ), 0.005f, 1e-6f );
-	CHECK_EQ( (Int)usa.auraReach( 6, RANK_AURA_MEND ), (Int)RANK_REACH_INFANTRY );
-	CHECK_NEAR( usa.auraRadius( 12, RANK_AURA_MEND ), 80.0f, 1e-3f );
+	/* the mend aura starts on the Warrant Officer and reaches every unit; the steady aura is the W-2's */
+	CHECK_EQ( usa.aura( 12, RANK_AURA_MEND ), 0.0f );
 	CHECK_NEAR( usa.aura( 13, RANK_AURA_MEND ), 0.0075f, 1e-6f );
 	CHECK_EQ( (Int)usa.auraReach( 13, RANK_AURA_MEND ), (Int)RANK_REACH_UNITS );
 	CHECK_NEAR( usa.auraRadius( 13, RANK_AURA_MEND ), 100.0f, 1e-3f );
+	CHECK_EQ( usa.aura( 13, RANK_AURA_STEADY ), 0.0f );
+	CHECK_NEAR( usa.aura( 14, RANK_AURA_STEADY ), 0.35f, 1e-6f );
+	CHECK_NEAR( usa.auraRadius( 14, RANK_AURA_STEADY ), 140.0f, 1e-3f );
 
 	/* drill caps on the grade it names, detect is a radius, and the O-10's command net reaches 25%
 	   farther with every aura but not with its detection */
-	CHECK_NEAR( usa.aura( 8, RANK_AURA_DRILL ), 4.0f, 1e-6f );
+	CHECK_EQ( usa.aura( 24, RANK_AURA_DRILL ), 0.0f );
 	CHECK_NEAR( usa.aura( 25, RANK_AURA_DRILL ), 13.0f, 1e-6f );
 	CHECK_NEAR( usa.perk( 21, RANK_PERK_DETECT ), 100.0f, 1e-3f );
 	CHECK_NEAR( usa.auraRadius( 26, RANK_AURA_GUARD ), 180.0f, 1e-3f );
@@ -296,16 +302,23 @@ TEST(rank_ladder_china_ships_the_wiki_ladder)
 	RankLadder prc = china();
 	CHECK( shippedLadder( prc, "China" ) );
 
-	/* self: Hardy, and Last stand from the Major General */
+	/* self: Hardy, the NCOs' old auras on the man himself (shoulder to shoulder 4% then 7% while he
+	   stands, rate of fire, mend), and Last stand from the Major General */
 	CHECK_EQ( prc.perk( 1, RANK_PERK_HEALTH ), 0.0f );
 	CHECK_NEAR( prc.perk( 2, RANK_PERK_HEALTH ), 0.08f, 1e-6f );
+	CHECK_NEAR( prc.perk( 3, RANK_PERK_STILL_GUARD ), 0.04f, 1e-6f );
+	CHECK_NEAR( prc.perk( 8, RANK_PERK_STILL_GUARD ), 0.07f, 1e-6f );
+	CHECK_NEAR( prc.perk( 6, RANK_PERK_RATE_OF_FIRE ), 0.05f, 1e-6f );
+	CHECK_NEAR( prc.perk( 7, RANK_PERK_MEND ), 0.005f, 1e-6f );
 	CHECK_EQ( prc.perk( 16, RANK_PERK_LAST_STAND ), 0.0f );
 	CHECK_NEAR( prc.perk( 17, RANK_PERK_LAST_STAND ), 0.25f, 1e-6f );
 
-	/* guard I to III, steady to Fearless's -50%, seize, and forced march for infantry only */
-	CHECK_NEAR( prc.aura( 3, RANK_AURA_GUARD ), 0.04f, 1e-6f );
-	CHECK_NEAR( prc.auraRadius( 3, RANK_AURA_GUARD ), 80.0f, 1e-3f );
+	/* guard from the Lieutenant Colonel, steady at Fearless's -50%, seize, and forced march for
+	   infantry only */
+	CHECK_EQ( prc.aura( 13, RANK_AURA_GUARD ), 0.0f );
 	CHECK_NEAR( prc.aura( 14, RANK_AURA_GUARD ), 0.10f, 1e-6f );
+	CHECK_NEAR( prc.auraRadius( 14, RANK_AURA_GUARD ), 160.0f, 1e-3f );
+	CHECK_EQ( prc.aura( 10, RANK_AURA_STEADY ), 0.0f );
 	CHECK_NEAR( prc.aura( 11, RANK_AURA_STEADY ), 0.50f, 1e-6f );
 	CHECK_NEAR( prc.aura( 12, RANK_AURA_CAPTURE ), 0.30f, 1e-6f );
 	CHECK_NEAR( prc.aura( 16, RANK_AURA_PACE ), 0.08f, 1e-6f );
@@ -324,8 +337,10 @@ TEST(rank_ladder_gla_ships_the_wiki_ladder)
 	RankLadder gla_ = gla();
 	CHECK( shippedLadder( gla_, "GLA" ) );
 
-	/* self: Light feet, Patch-up, Scavenger, Tough, Cell survives */
+	/* self: Light feet, then Move with me's 8% on the Squadhand himself, Patch-up, Scavenger, Tough,
+	   Cell survives */
 	CHECK_NEAR( gla_.perk( 2, RANK_PERK_SPEED ), 0.05f, 1e-6f );
+	CHECK_NEAR( gla_.perk( 6, RANK_PERK_SPEED ), 0.08f, 1e-6f );
 	CHECK_NEAR( gla_.perk( 3, RANK_PERK_MEND ), 0.005f, 1e-6f );
 	CHECK_EQ( gla_.perk( 3, RANK_PERK_SCAVENGE ), 0.0f );
 	CHECK_NEAR( gla_.perk( 4, RANK_PERK_SCAVENGE ), 0.10f, 1e-6f );
@@ -333,14 +348,16 @@ TEST(rank_ladder_gla_ships_the_wiki_ladder)
 	CHECK_EQ( gla_.perk( 17, RANK_PERK_SALVAGE_CRATE ), 0.0f );
 	CHECK_NEAR( gla_.perk( 18, RANK_PERK_SALVAGE_CRATE ), 1.0f, 1e-6f );
 
-	/* pace I is infantry's, pace II as strong for every unit replaces it, III is stronger */
-	CHECK_EQ( (Int)gla_.auraReach( 6, RANK_AURA_PACE ), (Int)RANK_REACH_INFANTRY );
+	/* pace I from the Raid Captain for every unit, II stronger */
+	CHECK_EQ( gla_.aura( 9, RANK_AURA_PACE ), 0.0f );
+	CHECK_NEAR( gla_.aura( 10, RANK_AURA_PACE ), 0.08f, 1e-6f );
 	CHECK_EQ( (Int)gla_.auraReach( 10, RANK_AURA_PACE ), (Int)RANK_REACH_UNITS );
 	CHECK_NEAR( gla_.auraRadius( 10, RANK_AURA_PACE ), 120.0f, 1e-3f );
 	CHECK_NEAR( gla_.aura( 15, RANK_AURA_PACE ), 0.12f, 1e-6f );
 
-	/* spoils I to III, the last one paying for buildings' kills too */
-	CHECK_NEAR( gla_.aura( 7, RANK_AURA_SPOILS ), 0.05f, 1e-6f );
+	/* spoils I and II from the Sector Commander, the last one paying for buildings' kills too */
+	CHECK_EQ( gla_.aura( 13, RANK_AURA_SPOILS ), 0.0f );
+	CHECK_NEAR( gla_.aura( 14, RANK_AURA_SPOILS ), 0.10f, 1e-6f );
 	CHECK_EQ( (Int)gla_.auraReach( 14, RANK_AURA_SPOILS ), (Int)RANK_REACH_UNITS );
 	CHECK_NEAR( gla_.aura( 17, RANK_AURA_SPOILS ), 0.15f, 1e-6f );
 	CHECK_EQ( (Int)gla_.auraReach( 17, RANK_AURA_SPOILS ), (Int)RANK_REACH_STRUCTURES );
@@ -408,7 +425,7 @@ TEST(rank_ladder_perk_line_grammar_refuses_what_it_does_not_know)
 TEST(rank_ladder_drill_teaches_up_to_its_cap_and_no_further)
 {
 	const RankLadder usa = america();
-	/* a Crusader, E 100, 5% a second under a drill aura I (Corporal, grade 4) */
+	/* a Crusader, E 100, 5% a second under a drill aura capped at Corporal (grade 4) */
 	const Int corporal = usa.threshold( 100, 4 );
 	CHECK_EQ( usa.drillGain( 100, 0, 4, 0.05f ), 5 );
 	CHECK_EQ( usa.drillGain( 100, corporal - 2, 4, 0.05f ), 2 );
@@ -433,4 +450,64 @@ TEST(rank_ladder_drill_caps_below_the_grade_that_gives_it)
 		for( Int grade = 1; grade <= side.ladder.m_grades; ++grade )
 			CHECK( side.ladder.aura( grade, RANK_AURA_DRILL ) < (Real)grade );
 	}
+}
+
+TEST(rank_ladder_no_aura_below_the_elite_pin)
+{
+	/* squads of corporals and sergeants ringing and buffing each other: auras are for officers */
+	struct Side { const char *name; RankLadder ladder; } sides[] =
+	{
+		{ "America", america() }, { "China", china() }, { "GLA", gla() },
+		{ "Turkiye", makeLadder( 21, 4, 11, 16, 16, 1.42f, 1.19f, 1.42f ) },
+	};
+	for( Side &side : sides )
+	{
+		CHECK( shippedLadder( side.ladder, side.name ) );
+		for( Int grade = 0; grade < side.ladder.m_pin[LEVEL_ELITE]; ++grade )
+			for( Int kind = 0; kind < RANK_AURA_COUNT; ++kind )
+			{
+				if( side.ladder.aura( grade, (RankAura)kind ) > 0.0f )
+					printf( "  %s grade %d gives %s\n", side.name, grade, TheRankAuraNames[ kind ] );
+				CHECK_EQ( side.ladder.aura( grade, (RankAura)kind ), 0.0f );
+			}
+	}
+}
+
+TEST(rank_ladder_red_guard_training_gives_three_grades)
+{
+	/* every object Red Guard Training reaches gives three grades through StartingGrades and names no
+	   StartingLevel, or the build button would show a Veteran chevron the unit no longer gets */
+	FILE *fp = fopen( BALANCE_REFORGED_INI, "rb" );
+	CHECK( fp != NULL );
+	if( fp == NULL )
+		return;
+	static char text[ 1 << 20 ];
+	text[ fread( text, 1, sizeof( text ) - 1, fp ) ] = '\0';
+	fclose( fp );
+	const char *const trained[] =
+	{
+		"ChinaInfantryRedguard", "Nuke_ChinaInfantryRedguard", "Tank_ChinaInfantryRedguard", "Infa_ChinaInfantryMiniGunner",
+	};
+	for( const char *name : trained )
+	{
+		char header[ 96 ];
+		snprintf( header, sizeof( header ), "\nObject %s", name );
+		const char *block = strstr( text, header );
+		while( block && strchr( "\r\n", block[ strlen( header ) ] ) == NULL )		// not a longer name
+			block = strstr( block + 1, header );
+		CHECK( block != NULL );
+		if( block == NULL )
+			continue;
+		const char *end = strstr( block + 1, "\nEnd" );	// the object's own End; a module's is indented
+		const char *grades = strstr( block, "StartingGrades = 3" );
+		const char *level = strstr( block, "StartingLevel" );
+		CHECK( end != NULL && grades != NULL && grades < end );
+		CHECK( level == NULL || level > end );
+	}
+
+	/* a Red Guard lands on Corporal, short of the Veteran pin; the Infantry General's Mini-Gunner,
+	   always Veteran, three grades above the pin and short of Elite */
+	const RankLadder prc = china();
+	CHECK_EQ( prc.levelOf( 3 ), LEVEL_REGULAR );
+	CHECK_EQ( prc.levelOf( prc.m_pin[LEVEL_VETERAN] + 3 ), LEVEL_VETERAN );
 }

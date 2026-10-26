@@ -3583,3 +3583,13 @@ END
 GUI:FactionPickSideNameHint
 "Click a side's name to play a random army of that side."
 END
+
+// Red Guard Training gives three grades on the rank ladder instead of a whole level.
+
+CONTROLBAR:ToolTipChinaScienceRedGuardTraining
+"All Red Guard will be built three ranks up, as Corporals"
+END
+
+CONTROLBAR:Infa_ToolTipChinaScienceRedGuardTraining
+"All Mini-Gunners will be built three ranks above Veteran"
+END
