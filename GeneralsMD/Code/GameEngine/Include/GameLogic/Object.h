@@ -833,6 +833,7 @@ private:
 
 	// modules
 	BehaviorModule**							m_behaviors;	// BehaviorModule, not BehaviorModuleInterface
+	CollideModuleInterface**			m_collides;		///< the m_behaviors that are collide modules, in their order, null-terminated
 
 	// cache these, for convenience
 	ContainModuleInterface*				m_contain;

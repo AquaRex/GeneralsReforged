@@ -475,6 +475,23 @@ Object::Object( const ThingTemplate *tt, const ObjectStatusMaskType &objectStatu
 
 	*curB = NULL;
 
+	// onCollide asks every module for its collide interface on every collision, and a swarm of
+	// aircraft collides tens of thousands of times a frame (issue 144); the answer never changes
+	Int collideCount = 0;
+	for (BehaviorModule** m = m_behaviors; *m; ++m)
+	{
+		if ((*m)->getCollide())
+			++collideCount;
+	}
+	m_collides = MSGNEW("ModulePtrs") CollideModuleInterface*[collideCount + 1];
+	CollideModuleInterface** curC = m_collides;
+	for (BehaviorModule** m = m_behaviors; *m; ++m)
+	{
+		if (CollideModuleInterface* collide = (*m)->getCollide())
+			*curC++ = collide;
+	}
+	*curC = NULL;
+
 	AIUpdateInterface *ai = getAIUpdateInterface();
 	if (ai) {
 		ai->setAttitude(getTeam()->getPrototype()->getTemplateInfo()->m_initialTeamAttitude);
@@ -678,8 +695,10 @@ Object::~Object()
 		*b = NULL;	// in case other modules call findModule from their dtor!
 	}
 
-	delete [] m_behaviors;		
+	delete [] m_behaviors;
 	m_behaviors = NULL;
+	delete [] m_collides;
+	m_collides = NULL;
 
 	if( m_experienceTracker )
 		m_experienceTracker->deleteInstance();
@@ -2594,11 +2613,9 @@ void Object::updateTriggerAreaFlags()
 //-------------------------------------------------------------------------------------------------
 void Object::onCollide( Object *other, const Coord3D *loc, const Coord3D *normal )
 {
-	for (BehaviorModule** m = m_behaviors; *m; ++m)
+	for (CollideModuleInterface** c = m_collides; *c; ++c)
 	{
-		CollideModuleInterface* collide = (*m)->getCollide();
-		if (!collide)
-			continue;
+		CollideModuleInterface* collide = *c;
 
 		// check each time thru the loop, in case a collide module sets it
 		if( getStatusBits().test( OBJECT_STATUS_NO_COLLISIONS ) )
