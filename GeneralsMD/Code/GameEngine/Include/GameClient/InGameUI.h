@@ -1265,7 +1265,7 @@ protected:
 	void destroyPlacementIcons( void );													///< Destroy placement icons
 	void handleBuildPlacements( void );													///< handle updating of placement icons based on mouse pos
 	void handleRadiusCursor();																	///< handle updating of "radius cursors" that follow the mouse pos
-	void updateAuraRings();																			///< the ground ring of each aura a selected or hovered leader gives
+	void updateAuraRings();																			///< the ground ring of each aura every visible leader gives
 
 	void incrementSelectCount( void ) { ++m_selectCount; }			///< Increase by one the running total of "selected" drawables
 	void decrementSelectCount( void ) { --m_selectCount; }			///< Decrease by one the running total of "selected" drawables
@@ -1554,7 +1554,7 @@ protected:
 	RadiusDecal									m_curRadiusCursor;
 	RadiusCursorType						m_curRcType;
 
-	enum { AURA_RING_MAX = 32 };
+	enum { AURA_RING_MAX = 256 };	// ponytail: past this many rings on the map the rest go undrawn; the slot match is n squared
 	struct AuraRing
 	{
 		ObjectID		id;					///< INVALID_ID: a free slot

@@ -6,8 +6,8 @@
 # fire, mend, capture and pace; a Supreme Liberator Scorpion (grade 20) pace, spoils, mend, capture,
 # rate of fire and steady. Detect has no ring. Each leader brings three infantry walking west and a
 # vehicle driving through the ring. Select each leader with a -control click at the screen centre
-# once Cinema/rankringsall.txt has cut to it (logic frames 380, 1220, 2060); the rings draw only for
-# the owner and allies, so no -observer.
+# once Cinema/rankringsall.txt has cut to it (logic frames 380, 1220, 2060). Since 2026-10-26 the
+# rings draw for every leader the local player can see, so the click is no longer needed.
 #
 #   generals.exe -win -borderless -xres 1920 -yres 1080 -msaa 0 -quickstart -noshellmap
 #     -multiInstance -fps 120 -noFPSLimit -particlecap 2500 -map "Maps\Twilight Flame\Twilight Flame.map"

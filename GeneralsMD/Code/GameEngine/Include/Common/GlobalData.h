@@ -723,7 +723,7 @@ public:
 	Real m_rankDrillRate;																					///< what a drill aura adds a second, a share of the unit's E
 	AsciiString m_rankSalvageCrate;																///< the crate a SALVAGE_CRATE perk leaves
 	UnsignedInt m_rankRallyTime;																	///< frames a death rally lasts
-	RadiusDecalTemplate m_rankAuraRing[RANK_AURA_COUNT];					///< the ground ring under a selected leader, one per aura kind (client)
+	RadiusDecalTemplate m_rankAuraRing[RANK_AURA_COUNT];					///< the ground ring under every visible leader, one per aura kind (client)
 
 	static VeterancySide veterancySideOf( const ThingTemplate *thing );
 	const RankLadder *getRankLadder( const ThingTemplate *thing ) const;	///< NULL: the thing's side keeps EA's levels

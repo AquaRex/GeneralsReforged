@@ -1504,10 +1504,12 @@ void InGameUI::setRadiusCursor(RadiusCursorType cursorType, const SpecialPowerTe
 }
 
 //-------------------------------------------------------------------------------------------------
-/** A leader's auras on the ground: one ring for each kind it gives, under a selected or hovered
-	* leader of the player at this machine or an ally, while that player can see it.  Every ring is the
-	* full aura radius; each kind's texture keeps to its own band of that disc (Tools/aura_rings.py),
-	* so any set of them reads as one dial.  Reads the logic's grades and draws; nothing goes back. */
+/** A leader's auras on the ground: one ring for each kind it gives, under every leader on the map,
+	* selected or not, friend or enemy, while the player at this machine can see it: out of the fog and
+	* shroud, and not a stealthed unit it has not detected (the test the drawable's own shadow obeys).
+	* Every ring is the full aura radius; each kind's texture keeps to its own band of that disc
+	* (Tools/aura_rings.py), so any set of them reads as one dial.  Reads the logic's grades and draws;
+	* nothing goes back. */
 //-------------------------------------------------------------------------------------------------
 void InGameUI::updateAuraRings()
 {
@@ -1516,23 +1518,18 @@ void InGameUI::updateAuraRings()
 	Int wantedCount = 0;
 
 	Player *local = ThePlayerList->getLocalPlayer();
-	auto consider = [&]( const Drawable *draw )
+	for( Drawable *draw = TheGameClient->firstDrawable(); draw != NULL && local != NULL; draw = draw->getNextDrawable() )
 	{
-		const Object *obj = draw ? draw->getObject() : NULL;
+		const Object *obj = draw->getObject();
 		const RankLadder *ladder = obj ? TheGlobalData->getRankLadder( obj->getTemplate() ) : NULL;
-		if( ladder == NULL || local == NULL || obj->isEffectivelyDead() || obj->getContainedBy()
-				|| ( obj->getControllingPlayer() != local && local->getRelationship( obj->getTeam() ) != ALLIES )
+		if( ladder == NULL || obj->isEffectivelyDead() || obj->getContainedBy()
+				|| draw->isDrawableEffectivelyHidden() || draw->getFullyObscuredByShroud()
 				|| obj->getShroudedStatus( local->getPlayerIndex() ) != OBJECTSHROUD_CLEAR )
-			return;
+			continue;
 		const Int grade = obj->getRankGrade();
 		for( Int kind = 0; kind < RANK_AURA_COUNT && wantedCount < AURA_RING_MAX; ++kind )
 		{
 			if( ladder->aura( grade, (RankAura)kind ) <= 0.0f || !TheGlobalData->m_rankAuraRing[ kind ].valid() )
-				continue;
-			Bool twice = FALSE;		// the hovered leader may be selected too
-			for( Int i = 0; i < wantedCount; ++i )
-				twice = twice || ( wanted[ i ].id == obj->getID() && wanted[ i ].kind == kind );
-			if( twice )
 				continue;
 			wanted[ wantedCount ].id = obj->getID();
 			wanted[ wantedCount ].kind = kind;
@@ -1540,10 +1537,7 @@ void InGameUI::updateAuraRings()
 			wanted[ wantedCount ].pos = *draw->getPosition();
 			++wantedCount;
 		}
-	};
-	consider( TheGameClient->findDrawableByID( getMousedOverDrawableID() ) );
-	for( DrawableList::const_iterator it = m_selectedDrawables.begin(); it != m_selectedDrawables.end(); ++it )
-		consider( *it );
+	}
 
 	// a ring nobody wants goes; one whose radius changed goes too and comes back at the new size
 	for( Int slot = 0; slot < AURA_RING_MAX; ++slot )
