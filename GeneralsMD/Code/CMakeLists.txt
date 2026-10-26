@@ -2412,6 +2412,9 @@ endif()
 add_lib_test(test_rank_ladder gameengine)
 target_sources(test_rank_ladder PRIVATE ${TESTS}/test_gameengine_stubs.cpp)
 set_target_properties(test_rank_ladder PROPERTIES CXX_STANDARD 17)
+# the shipped Perk_ lines, read from the tracked master rather than Run/'s copy
+target_compile_definitions(test_rank_ladder PRIVATE
+  BALANCE_REFORGED_INI="${CMAKE_CURRENT_SOURCE_DIR}/Data/INI/BalanceReforged.ini")
 if(ZH_PLATFORM_POSIX)
   target_link_libraries(test_rank_ladder PRIVATE posixdevice w3ddevice)
 endif()

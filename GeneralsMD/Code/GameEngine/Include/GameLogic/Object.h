@@ -309,6 +309,7 @@ public:
 	Bool isSpotter() const;																	///< SpotterSight on the template, or the SPOTTER perk
 	void onRankSightChanged( Real oldScalar );							///< look again if the rank sight moved
 	void giveRankRally();																		///< I fell: my death rally reaches the allies around me
+	void dropRankSalvage();																	///< I fell: my SALVAGE_CRATE perk leaves a crate where I lay
 	void forgoRankRally() { m_forgoRankRally = TRUE; }			///< about to be killed inside a container that let go of me first
 
 	inline const AsciiString& getName() const { return m_name; }

@@ -1536,7 +1536,7 @@ void InGameUI::updateAuraRings()
 				continue;
 			wanted[ wantedCount ].id = obj->getID();
 			wanted[ wantedCount ].kind = kind;
-			wanted[ wantedCount ].radius = ladder->auraRadius( grade );
+			wanted[ wantedCount ].radius = ladder->auraRadius( grade, (RankAura)kind );
 			wanted[ wantedCount ].pos = *draw->getPosition();
 			++wantedCount;
 		}

@@ -1,7 +1,7 @@
 /*
  * The rank ladder's arithmetic (RankLadder in GlobalData.h, docs/plans/RANK-LADDER.md in the
  * wrapper): the ratio each side's length and top give, the thresholds, the EA level on the pins, the
- * one-grade clip and the stat split.
+ * one-grade clip and the stat split, and the perks and auras each side's shipped Perk_ lines give.
  */
 /* crc.h pulls winsock2.h, so it has to come before anything that drags in windows.h */
 #include "Common/crc.h"
@@ -9,6 +9,8 @@
 #include "test_harness.h"
 
 #include <math.h>
+#include <stdio.h>
+#include <string.h>
 
 #include "Common/GlobalData.h"
 
@@ -193,8 +195,225 @@ TEST(rank_ladder_perks_carry_up_and_the_strongest_of_a_kind_holds)
 	CHECK_NEAR( ladder.aura( 17, RANK_AURA_RALLY ), 0.15f, 1e-6f );
 	CHECK_EQ( ladder.aura( 16, RANK_AURA_RALLY ), 0.0f );
 
-	/* the Maresal's double reach, and a grade past the top reads the top */
-	CHECK_NEAR( ladder.auraRadius( 20 ), 150.0f, 1e-3f );
-	CHECK_NEAR( ladder.auraRadius( 21 ), 300.0f, 1e-3f );
-	CHECK_NEAR( ladder.auraRadius( 40 ), 300.0f, 1e-3f );
+	/* the Maresal's double reach, and a grade past the top reads the top; no line names a radius, so
+	   every kind and the rally take AuraRadius */
+	CHECK_NEAR( ladder.auraRadius( 20, RANK_AURA_RATE_OF_FIRE ), 150.0f, 1e-3f );
+	CHECK_NEAR( ladder.auraRadius( 21, RANK_AURA_RATE_OF_FIRE ), 300.0f, 1e-3f );
+	CHECK_NEAR( ladder.auraRadius( 40, RANK_AURA_RATE_OF_FIRE ), 300.0f, 1e-3f );
+	CHECK_NEAR( ladder.auraRadius( 21, RANK_AURA_RALLY ), 300.0f, 1e-3f );
+}
+
+/* The side's Perk_ lines as BalanceReforged.ini ships them, through the parser's own grammar
+   (RankLadder::addPerkLine), on top of that side's stats.  FALSE if the file is missing or a line
+   will not parse. */
+static Bool shippedLadder( RankLadder &ladder, const char *side )
+{
+	FILE *fp = fopen( BALANCE_REFORGED_INI, "rb" );
+	if( fp == NULL )
+		return FALSE;
+	char key[ 32 ];
+	snprintf( key, sizeof( key ), "Perk_%s", side );
+	const size_t keyLength = strlen( key );
+	Bool parsed = TRUE;
+	char line[ 512 ];
+	while( fgets( line, sizeof( line ), fp ) != NULL )
+	{
+		char *at = line;
+		while( *at == ' ' || *at == '\t' )
+			++at;
+		if( strncmp( at, key, keyLength ) != 0 || ( at[ keyLength ] != ' ' && at[ keyLength ] != '=' ) )
+			continue;
+		char *comment = strchr( at, ';' );
+		if( comment )
+			*comment = '\0';
+		const char *tokens[ 6 ];
+		Int count = 0;
+		for( char *token = strtok( strchr( at, '=' ) + 1, " \t\r\n" ); token && count < 6; token = strtok( NULL, " \t\r\n" ) )
+			tokens[ count++ ] = token;
+		try
+		{
+			ladder.addPerkLine( tokens, count );
+		}
+		catch( ... )
+		{
+			printf( "  %s line will not parse\n", key );
+			parsed = FALSE;
+		}
+	}
+	fclose( fp );
+	ladder.finish( 1.4f );
+	return parsed;
+}
+
+TEST(rank_ladder_america_ships_the_wiki_ladder)
+{
+	RankLadder usa = america();
+	CHECK( shippedLadder( usa, "America" ) );
+
+	/* self: Drilled at E-2, Steady hands then Calibrated, Precision, the Designator's 2 s then 4 s */
+	CHECK_EQ( usa.perk( 0, RANK_PERK_RATE_OF_FIRE ), 0.0f );
+	CHECK_NEAR( usa.perk( 1, RANK_PERK_RATE_OF_FIRE ), 0.05f, 1e-6f );
+	CHECK_NEAR( usa.perk( 2, RANK_PERK_RANGE ), 0.03f, 1e-6f );
+	CHECK_NEAR( usa.perk( 14, RANK_PERK_RANGE ), 0.06f, 1e-6f );
+	CHECK_NEAR( usa.perk( 3, RANK_PERK_MEND ), 0.005f, 1e-6f );
+	CHECK_NEAR( usa.perk( 15, RANK_PERK_SCATTER ), 0.50f, 1e-6f );
+	CHECK_NEAR( usa.perk( 24, RANK_PERK_DESIGNATE ), 2.0f, 1e-6f );
+	CHECK_EQ( usa.perk( 27, RANK_PERK_DESIGNATE_REVEAL ), 0.0f );
+	CHECK_NEAR( usa.perk( 28, RANK_PERK_DESIGNATE ), 4.0f, 1e-6f );
+	CHECK_NEAR( usa.perk( 28, RANK_PERK_DESIGNATE_REVEAL ), 1.0f, 1e-6f );
+
+	/* the rate-of-fire aura I to VI, each with its own radius */
+	CHECK_EQ( usa.aura( 3, RANK_AURA_RATE_OF_FIRE ), 0.0f );
+	CHECK_NEAR( usa.aura( 4, RANK_AURA_RATE_OF_FIRE ), 0.05f, 1e-6f );
+	CHECK_NEAR( usa.auraRadius( 4, RANK_AURA_RATE_OF_FIRE ), 80.0f, 1e-3f );
+	CHECK_NEAR( usa.auraRadius( 10, RANK_AURA_RATE_OF_FIRE ), 100.0f, 1e-3f );
+	CHECK_NEAR( usa.aura( 23, RANK_AURA_RATE_OF_FIRE ), 0.15f, 1e-6f );
+	CHECK_NEAR( usa.auraRadius( 23, RANK_AURA_RATE_OF_FIRE ), 160.0f, 1e-3f );
+
+	/* the mend aura reaches infantry at 80, then every unit at 100 from the Warrant Officer */
+	CHECK_NEAR( usa.aura( 6, RANK_AURA_MEND ), 0.005f, 1e-6f );
+	CHECK_EQ( (Int)usa.auraReach( 6, RANK_AURA_MEND ), (Int)RANK_REACH_INFANTRY );
+	CHECK_NEAR( usa.auraRadius( 12, RANK_AURA_MEND ), 80.0f, 1e-3f );
+	CHECK_NEAR( usa.aura( 13, RANK_AURA_MEND ), 0.0075f, 1e-6f );
+	CHECK_EQ( (Int)usa.auraReach( 13, RANK_AURA_MEND ), (Int)RANK_REACH_UNITS );
+	CHECK_NEAR( usa.auraRadius( 13, RANK_AURA_MEND ), 100.0f, 1e-3f );
+
+	/* drill caps on the grade it names, detect is a radius, and the O-10's command net reaches 25%
+	   farther with every aura but not with its detection */
+	CHECK_NEAR( usa.aura( 8, RANK_AURA_DRILL ), 4.0f, 1e-6f );
+	CHECK_NEAR( usa.aura( 25, RANK_AURA_DRILL ), 13.0f, 1e-6f );
+	CHECK_NEAR( usa.perk( 21, RANK_PERK_DETECT ), 100.0f, 1e-3f );
+	CHECK_NEAR( usa.auraRadius( 26, RANK_AURA_GUARD ), 180.0f, 1e-3f );
+	CHECK_NEAR( usa.auraRadius( 27, RANK_AURA_GUARD ), 225.0f, 1e-3f );
+	CHECK_NEAR( usa.aura( 28, RANK_AURA_RATE_OF_FIRE ), 0.18f, 1e-6f );
+	CHECK_NEAR( usa.auraRadius( 28, RANK_AURA_RATE_OF_FIRE ), 250.0f, 1e-3f );
+	CHECK_NEAR( usa.perk( 28, RANK_PERK_DETECT ), 100.0f, 1e-3f );
+	CHECK_EQ( usa.aura( 28, RANK_AURA_PACE ), 0.0f );
+}
+
+TEST(rank_ladder_china_ships_the_wiki_ladder)
+{
+	RankLadder prc = china();
+	CHECK( shippedLadder( prc, "China" ) );
+
+	/* self: Hardy, and Last stand from the Major General */
+	CHECK_EQ( prc.perk( 1, RANK_PERK_HEALTH ), 0.0f );
+	CHECK_NEAR( prc.perk( 2, RANK_PERK_HEALTH ), 0.08f, 1e-6f );
+	CHECK_EQ( prc.perk( 16, RANK_PERK_LAST_STAND ), 0.0f );
+	CHECK_NEAR( prc.perk( 17, RANK_PERK_LAST_STAND ), 0.25f, 1e-6f );
+
+	/* guard I to III, steady to Fearless's -50%, seize, and forced march for infantry only */
+	CHECK_NEAR( prc.aura( 3, RANK_AURA_GUARD ), 0.04f, 1e-6f );
+	CHECK_NEAR( prc.auraRadius( 3, RANK_AURA_GUARD ), 80.0f, 1e-3f );
+	CHECK_NEAR( prc.aura( 14, RANK_AURA_GUARD ), 0.10f, 1e-6f );
+	CHECK_NEAR( prc.aura( 11, RANK_AURA_STEADY ), 0.50f, 1e-6f );
+	CHECK_NEAR( prc.aura( 12, RANK_AURA_CAPTURE ), 0.30f, 1e-6f );
+	CHECK_NEAR( prc.aura( 16, RANK_AURA_PACE ), 0.08f, 1e-6f );
+	CHECK_EQ( (Int)prc.auraReach( 16, RANK_AURA_PACE ), (Int)RANK_REACH_INFANTRY );
+	CHECK_NEAR( prc.aura( 18, RANK_AURA_DRILL ), 10.0f, 1e-6f );
+
+	/* the General's rate-of-fire IV names no radius: III's 180, then People's army's 25% */
+	CHECK_NEAR( prc.aura( 19, RANK_AURA_RATE_OF_FIRE ), 0.18f, 1e-6f );
+	CHECK_NEAR( prc.auraRadius( 18, RANK_AURA_RATE_OF_FIRE ), 180.0f, 1e-3f );
+	CHECK_NEAR( prc.auraRadius( 19, RANK_AURA_RATE_OF_FIRE ), 225.0f, 1e-3f );
+	CHECK_EQ( prc.perk( 19, RANK_PERK_DETECT ), 0.0f );
+}
+
+TEST(rank_ladder_gla_ships_the_wiki_ladder)
+{
+	RankLadder gla_ = gla();
+	CHECK( shippedLadder( gla_, "GLA" ) );
+
+	/* self: Light feet, Patch-up, Scavenger, Tough, Cell survives */
+	CHECK_NEAR( gla_.perk( 2, RANK_PERK_SPEED ), 0.05f, 1e-6f );
+	CHECK_NEAR( gla_.perk( 3, RANK_PERK_MEND ), 0.005f, 1e-6f );
+	CHECK_EQ( gla_.perk( 3, RANK_PERK_SCAVENGE ), 0.0f );
+	CHECK_NEAR( gla_.perk( 4, RANK_PERK_SCAVENGE ), 0.10f, 1e-6f );
+	CHECK_NEAR( gla_.perk( 5, RANK_PERK_HEALTH ), 0.08f, 1e-6f );
+	CHECK_EQ( gla_.perk( 17, RANK_PERK_SALVAGE_CRATE ), 0.0f );
+	CHECK_NEAR( gla_.perk( 18, RANK_PERK_SALVAGE_CRATE ), 1.0f, 1e-6f );
+
+	/* pace I is infantry's, pace II as strong for every unit replaces it, III is stronger */
+	CHECK_EQ( (Int)gla_.auraReach( 6, RANK_AURA_PACE ), (Int)RANK_REACH_INFANTRY );
+	CHECK_EQ( (Int)gla_.auraReach( 10, RANK_AURA_PACE ), (Int)RANK_REACH_UNITS );
+	CHECK_NEAR( gla_.auraRadius( 10, RANK_AURA_PACE ), 120.0f, 1e-3f );
+	CHECK_NEAR( gla_.aura( 15, RANK_AURA_PACE ), 0.12f, 1e-6f );
+
+	/* spoils I to III, the last one paying for buildings' kills too */
+	CHECK_NEAR( gla_.aura( 7, RANK_AURA_SPOILS ), 0.05f, 1e-6f );
+	CHECK_EQ( (Int)gla_.auraReach( 14, RANK_AURA_SPOILS ), (Int)RANK_REACH_UNITS );
+	CHECK_NEAR( gla_.aura( 17, RANK_AURA_SPOILS ), 0.15f, 1e-6f );
+	CHECK_EQ( (Int)gla_.auraReach( 17, RANK_AURA_SPOILS ), (Int)RANK_REACH_STRUCTURES );
+	CHECK_NEAR( gla_.auraRadius( 17, RANK_AURA_SPOILS ), 180.0f, 1e-3f );
+
+	/* the Warlord's rate-of-fire II keeps I's 120, Liberation's 25% on top at the end */
+	CHECK_NEAR( gla_.aura( 15, RANK_AURA_RATE_OF_FIRE ), 0.12f, 1e-6f );
+	CHECK_NEAR( gla_.auraRadius( 15, RANK_AURA_RATE_OF_FIRE ), 120.0f, 1e-3f );
+	CHECK_NEAR( gla_.aura( 19, RANK_AURA_MEND ), 0.0125f, 1e-6f );
+	CHECK_NEAR( gla_.auraRadius( 20, RANK_AURA_MEND ), 225.0f, 1e-3f );
+	CHECK_EQ( gla_.aura( 20, RANK_AURA_GUARD ), 0.0f );
+}
+
+/* Every aura kind a shipped ladder gives draws a ring: the file has an AuraRing_<kind> block for it,
+   or InGameUI::updateAuraRings skips the kind and the leader's aura goes unseen. */
+TEST(rank_ladder_every_aura_given_has_a_ring)
+{
+	FILE *fp = fopen( BALANCE_REFORGED_INI, "rb" );
+	CHECK( fp != NULL );
+	if( fp == NULL )
+		return;
+	static char text[ 1 << 20 ];
+	text[ fread( text, 1, sizeof( text ) - 1, fp ) ] = '\0';
+	fclose( fp );
+
+	struct Side { const char *name; RankLadder ladder; } sides[] =
+	{
+		{ "America", america() }, { "China", china() }, { "GLA", gla() },
+		{ "Turkiye", makeLadder( 21, 4, 11, 16, 16, 1.42f, 1.19f, 1.42f ) },
+	};
+	for( Side &side : sides )
+	{
+		CHECK( shippedLadder( side.ladder, side.name ) );
+		for( Int kind = 0; kind < RANK_AURA_COUNT; ++kind )
+		{
+			Bool given = FALSE;
+			for( Int grade = 0; grade <= side.ladder.m_grades; ++grade )
+				given = given || side.ladder.aura( grade, (RankAura)kind ) > 0.0f;
+			char block[ 64 ];
+			snprintf( block, sizeof( block ), "AuraRing_%s", TheRankAuraNames[ kind ] );
+			Bool ringed = FALSE;		// the block's own line, not a longer name that starts the same
+			for( const char *at = strstr( text, block ); at && !ringed; at = strstr( at + 1, block ) )
+				ringed = strchr( " \t\r\n", at[ strlen( block ) ] ) != NULL;
+			if( given && !ringed )
+				printf( "  %s gives %s and no ring draws it\n", side.name, TheRankAuraNames[ kind ] );
+			CHECK( !given || ringed );
+		}
+	}
+}
+
+TEST(rank_ladder_perk_line_grammar_refuses_what_it_does_not_know)
+{
+	RankLadder ladder;
+	ladder.clear();
+	const char *const unknownKind[] = { "3", "AURA_NOTHING", "5%" };
+	const char *const unknownReach[] = { "3", "AURA_MEND", "1%", "100", "AIRCRAFT" };
+	const char *const pastTheTop[] = { "33", "HEALTH", "8%" };
+	Int threw = 0;
+	try { ladder.addPerkLine( unknownKind, 3 ); } catch( ... ) { ++threw; }
+	try { ladder.addPerkLine( unknownReach, 5 ); } catch( ... ) { ++threw; }
+	try { ladder.addPerkLine( pastTheTop, 3 ); } catch( ... ) { ++threw; }
+	CHECK_EQ( threw, 3 );
+}
+
+TEST(rank_ladder_drill_teaches_up_to_its_cap_and_no_further)
+{
+	const RankLadder usa = america();
+	/* a Crusader, E 100, 5% a second under a drill aura I (Corporal, grade 4) */
+	const Int corporal = usa.threshold( 100, 4 );
+	CHECK_EQ( usa.drillGain( 100, 0, 4, 0.05f ), 5 );
+	CHECK_EQ( usa.drillGain( 100, corporal - 2, 4, 0.05f ), 2 );
+	CHECK_EQ( usa.drillGain( 100, corporal, 4, 0.05f ), 0 );
+	CHECK_EQ( usa.drillGain( 100, corporal + 300, 4, 0.05f ), 0 );
+	/* the Red Guard's E of 5 still learns a point a second */
+	CHECK_EQ( china().drillGain( 5, 0, 4, 0.05f ), 1 );
 }

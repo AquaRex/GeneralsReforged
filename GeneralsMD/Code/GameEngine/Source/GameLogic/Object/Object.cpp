@@ -2261,6 +2261,12 @@ void Object::setDisabledUntil( DisabledType type, UnsignedInt frame )
 		return;
 	}
 
+	// a steady aura on it cuts a timed paralysis or EMP short
+	const UnsignedInt now = TheGameLogic->getFrame();
+	const Real steady = getRankAura( RANK_AURA_STEADY );
+	if( steady > 0.0f && ( type == DISABLED_PARALYZED || type == DISABLED_EMP ) && frame != FOREVER && frame > now )
+		frame = now + REAL_TO_UNSIGNEDINT( ( frame - now ) * ( 1.0f - steady ) );
+
 	//Handle audio events!
  	AudioEventRTS sound;
 	if( type == DISABLED_UNMANNED && !isKindOf( KINDOF_DRONE ) )
@@ -3229,7 +3235,8 @@ void Object::scoreTheKill( const Object *victim )
 	{
 		controller->getScoreKeeper()->addObjectDestroyed(victim);
 		controller->addSkillPointsForKill(this, victim);
-		controller->doBountyForKill(this, victim);
+		// a rank's scavenging of its own kills or a leader's spoils aura, the larger, on top of the bounty
+		controller->doBountyForKill(this, victim, MAX(getRankPerk(RANK_PERK_SCAVENGE), getRankAura(RANK_AURA_SPOILS)));
 	}
 
 	/* Now handle experience, if we can gain any.
@@ -4533,13 +4540,14 @@ static void xferModule( Xfer *xfer, BehaviorModule *module, const Object *obj )
 	* 12: the last threat and value sightings
 	* 13: how many enemy jammers are cutting its sight
 	* 14: the rank auras on it and when its death rally ends
+	* 15: the six aura kinds mend, pace, drill, steady, capture and spoils
 	*/
 //-------------------------------------------------------------------------------------------------
 void Object::xfer( Xfer *xfer )
 {
 
 	// version
-	const XferVersion currentVersion = 14;
+	const XferVersion currentVersion = 15;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -5003,12 +5011,20 @@ void Object::xfer( Xfer *xfer )
 	if( version >= 13 )
 		xfer->xferInt( &m_sightJammerCount );
 
-	if( version >= 14 )
+	// version 14 saved five kinds, the four before MEND and RALLY
+	if( version >= 15 )
 	{
 		for( Int aura = 0; aura < RANK_AURA_COUNT; ++aura )
 			xfer->xferReal( &m_rankAura[ aura ] );
-		xfer->xferUnsignedInt( &m_rankRallyUntil );
 	}
+	else if( version >= 14 )
+	{
+		for( Int aura = 0; aura < RANK_AURA_MEND; ++aura )
+			xfer->xferReal( &m_rankAura[ aura ] );
+		xfer->xferReal( &m_rankAura[ RANK_AURA_RALLY ] );
+	}
+	if( version >= 14 )
+		xfer->xferUnsignedInt( &m_rankRallyUntil );
 
 }  // end xfer
 
@@ -5168,6 +5184,7 @@ void Object::onDie( DamageInfo *damageInfo )
 	Bool selfInflicted = (damageInfo->in.m_sourceID == getID());
 
 	giveRankRally();
+	dropRankSalvage();
 
 	//
 	// FIRST, call our die modules - unless nothing has been built here yet, in which case they are
@@ -5631,7 +5648,7 @@ void Object::giveRankRally()
 	const Real strength = ladder->aura( grade, RANK_AURA_RALLY );
 	if( strength <= 0.0f )
 		return;
-	const Real radius = ladder->auraRadius( grade );
+	const Real radius = ladder->auraRadius( grade, RANK_AURA_RALLY );
 	const UnsignedInt until = TheGameLogic->getFrame() + TheGlobalData->m_rankRallyTime;
 	for( Object *other = TheGameLogic->getFirstObject(); other; other = other->getNextObject() )
 	{
@@ -5643,6 +5660,34 @@ void Object::giveRankRally()
 	}
 	DEBUG_LOG(("RANK RALLY frame=%d template=%s strength=%.2f radius=%.0f\n", TheGameLogic->getFrame(),
 		getTemplate()->getName().str(), strength, radius));
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The cell survives its general: a crate where it fell, placed the way CreateCrateDie places one,
+	* clear of the hulk, for whoever can pick it up. */
+//-------------------------------------------------------------------------------------------------
+void Object::dropRankSalvage()
+{
+	if( m_containedBy || getRankPerk( RANK_PERK_SALVAGE_CRATE ) <= 0.0f )
+		return;
+	// a mod's data may lack the crate
+	const ThingTemplate *crateType = TheThingFactory->findTemplate( TheGlobalData->m_rankSalvageCrate );
+	if( crateType == NULL )
+		return;
+
+	Coord3D where = *getPosition(), clear;
+	FindPositionOptions options;
+	options.maxRadius = 5.0f;
+	options.relationshipObject = this;
+	options.flags = FPF_IGNORE_ALLY_OR_NEUTRAL_UNITS;
+	if( getLayer() == LAYER_GROUND && ThePartitionManager->findPositionAround( getPosition(), &options, &clear ) )
+		where = clear;
+
+	Object *crate = TheThingFactory->newObject( crateType, NULL );
+	crate->setPosition( &where );
+	crate->setLayer( getLayer() );
+	DEBUG_LOG(("RANK SALVAGE frame=%d template=%s crate=%d\n", TheGameLogic->getFrame(), getTemplate()->getName().str(),
+		crate->getID()));
 }
 
 //-------------------------------------------------------------------------------------------------

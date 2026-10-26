@@ -8,6 +8,14 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## What a rank gives
+
+- America, China and GLA units now get what their rank ladder on the website promises. Rank has always raised a unit's stats; now certain grades also add a perk of their own, and the officers and leaders further up the ladder carry an aura that helps friendly units around them.
+- Perks work on the unit itself: a GLA Fighter starts mending itself at 0.5% of its health a second, a Hardened Raider carries 8% more health, an American Private First Class the same. Aura kinds are rate of fire, damage taken, mending, sight, speed, experience, detection, resistance to EMP and paralysis, capture time and a share of kill value. They never touch the leader, and auras of one kind do not add up: a unit near three leaders takes the strongest of each kind.
+- An American Second Lieutenant (grade 18) gives every friendly unit within 140 of it +12% rate of fire; a Captain two grades later heals them 1% of their health a second. A GLA Field Commander (grade 13) heals 1% a second at a radius of 140, and a Warlord (grade 15) speeds up every unit near it by 12%.
+- Select or hover a ranked leader and each aura it gives draws its own ring on the ground, out at that aura's radius, so you can see which units each one covers. The rings borrow Turkiye's five patterns and tell the kinds apart by tint where two share a pattern. Detection draws none. Only you and your allies see them.
+- The full tables, grade by grade, are on the Rank ladder page of the website.
+
 ## French
 
 - The language box under Options, Gameplay now offers Français after Русский. All 4722 lines the game shows are in French: menus, tooltips, briefings and subtitles in the words of EA's own French release, so unit names and orders read as French players have always known them, and every line Reforged added, its options, hotkeys, lobby, score screen and Turkiye included, translated to match.

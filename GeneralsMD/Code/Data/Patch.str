@@ -2470,7 +2470,7 @@ RANK:PerkSTILL_GUARD
 END
 
 RANK:PerkMEND
-"Out of combat: heals %d%% a second"
+"Out of combat: heals %d.%02d%% a second"
 END
 
 RANK:PerkSPOTTER
@@ -2507,6 +2507,66 @@ END
 
 RANK:PerkAURA_RANGE
 "Aura: artillery range +%d%%"
+END
+
+RANK:PerkRATE_OF_FIRE
+"Rate of fire +%d%%"
+END
+
+RANK:PerkRANGE
+"Range +%d%%"
+END
+
+RANK:PerkHEALTH
+"Health +%d%%"
+END
+
+RANK:PerkSPEED
+"Speed +%d%%"
+END
+
+RANK:PerkLAST_STAND
+"Below 35%% health: rate of fire +%d%%"
+END
+
+RANK:PerkSCAVENGE
+"Its kills pay %d%% of the victim's cost"
+END
+
+RANK:PerkDESIGNATE
+"Marks what it hits for %d seconds: everyone fires 50%% faster at it"
+END
+
+RANK:PerkDESIGNATE_REVEAL
+"Its mark reveals stealthed targets"
+END
+
+RANK:PerkSALVAGE_CRATE
+"Leaves a salvage crate when it falls"
+END
+
+RANK:PerkAURA_MEND
+"Aura: heals %d.%02d%% a second"
+END
+
+RANK:PerkAURA_PACE
+"Aura: speed +%d%%"
+END
+
+RANK:PerkAURA_DRILL
+"Aura: trains units up to grade %d"
+END
+
+RANK:PerkAURA_STEADY
+"Aura: paralysis, EMP and subdual %d%% shorter"
+END
+
+RANK:PerkAURA_CAPTURE
+"Aura: captures buildings %d%% faster"
+END
+
+RANK:PerkAURA_SPOILS
+"Aura: kills nearby pay %d%% of the victim's cost"
 END
 
 RANK:America0

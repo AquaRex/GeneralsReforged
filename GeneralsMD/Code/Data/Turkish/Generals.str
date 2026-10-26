@@ -16832,7 +16832,7 @@ RANK:PerkSTILL_GUARD
 END
 
 RANK:PerkMEND
-"Çatışma dışında saniyede %d%% iyileşir"
+"Çatışma dışında saniyede %d.%02d%% iyileşir"
 END
 
 RANK:PerkSPOTTER
@@ -16869,6 +16869,66 @@ END
 
 RANK:PerkAURA_RANGE
 "Aura: topçu menzili +%d%%"
+END
+
+RANK:PerkRATE_OF_FIRE
+"Atış hızı +%d%%"
+END
+
+RANK:PerkRANGE
+"Menzil +%d%%"
+END
+
+RANK:PerkHEALTH
+"Can +%d%%"
+END
+
+RANK:PerkSPEED
+"Hız +%d%%"
+END
+
+RANK:PerkLAST_STAND
+"Canı 35%%'in altındayken atış hızı +%d%%"
+END
+
+RANK:PerkSCAVENGE
+"Öldürdükleri, kurbanın bedelinin %d%%'ini öder"
+END
+
+RANK:PerkDESIGNATE
+"Vurduğunu %d saniye işaretler: herkes ona 50%% daha hızlı ateş eder"
+END
+
+RANK:PerkDESIGNATE_REVEAL
+"İşareti gizli hedefleri açığa çıkarır"
+END
+
+RANK:PerkSALVAGE_CRATE
+"Düştüğünde hurda sandığı bırakır"
+END
+
+RANK:PerkAURA_MEND
+"Aura: saniyede %d.%02d%% iyileştirir"
+END
+
+RANK:PerkAURA_PACE
+"Aura: hız +%d%%"
+END
+
+RANK:PerkAURA_DRILL
+"Aura: birimleri %d. rütbeye kadar eğitir"
+END
+
+RANK:PerkAURA_STEADY
+"Aura: felç, EMP ve bastırma %d%% daha kısa"
+END
+
+RANK:PerkAURA_CAPTURE
+"Aura: binaları %d%% daha hızlı ele geçirir"
+END
+
+RANK:PerkAURA_SPOILS
+"Aura: yakındaki öldürmeler kurbanın bedelinin %d%%'ini öder"
 END
 
 RANK:America0
