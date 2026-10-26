@@ -3075,7 +3075,16 @@ void InGameUI::message( AsciiString stringManagerLabel, ... )
 
 	// construct the final text after formatting
 	va_list args;
+	// C4840 here is va_start naming a class-typed last parameter, which both compilers handle;
+	// it is kept on everywhere else to catch a string object passed through the "...".
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable: 4840)
+#endif
   va_start( args, stringManagerLabel );
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 	WideChar buf[ UnicodeString::MAX_FORMAT_BUF_LEN ];
   // truncate rather than throw: an uncaught engine exception aborts with 0xC0000409 and no log
   // at all, so an over-long chat or script message used to be a silent hard crash.
@@ -3102,7 +3111,14 @@ void InGameUI::message( UnicodeString format, ... )
 
 	// construct the final text after formatting
 	va_list args;
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable: 4840)
+#endif
   va_start( args, format );
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 	WideChar buf[ UnicodeString::MAX_FORMAT_BUF_LEN ];
   // truncate rather than throw: an uncaught engine exception aborts with 0xC0000409 and no log
   // at all, so an over-long chat or script message used to be a silent hard crash.

@@ -201,7 +201,9 @@ if(MSVC)
   # translator only runs in code compiled with asynchronous EH, so under /EHsc the hook
   # is dead (MSVC says so: "warning C4535: _set_se_translator() requires /EHa") and a
   # faulting frame just kills the process with 0xC0000005 and no log at all.
-  add_compile_options(/W3 /permissive /EHa)
+  # /w34840 raises C4840, a class object passed to printf-style varargs, to /W3: clang on
+  # macOS refuses it outright (-Wnon-pod-varargs) and MSVC used to pass it in silence.
+  add_compile_options(/W3 /w34840 /permissive /EHa)
   # There is no debugger on the porting machine, so ReleaseCrashInfo.txt's stack
   # dump is the only stack we get.  StackDump.cpp walks the EBP chain by hand and
   # /O2 implies /Oy (no frame pointer), which leaves that dump empty; /Zi + /DEBUG
