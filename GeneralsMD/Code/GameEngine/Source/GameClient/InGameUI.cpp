@@ -1522,7 +1522,7 @@ Bool InGameUI::isTimeFrozenWithoutTick( void ) const
 static Int ringedAuraKinds( const Object *obj, Int kinds[ RANK_AURA_COUNT ] )
 {
 	const RankLadder *ladder = TheGlobalData->getRankLadder( obj->getTemplate() );
-	if( ladder == NULL )
+	if( ladder == NULL || !obj->leadsRankAuras() )
 		return 0;
 	const Int grade = obj->getRankGrade();
 	Int count = 0;

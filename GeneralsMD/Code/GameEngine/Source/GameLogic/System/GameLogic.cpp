@@ -4106,6 +4106,7 @@ static void updateRankAuras( Object *objList )
 			reach[ aura ] = ladder->auraReach( grade, (RankAura)aura );
 			gives = gives || strength[ aura ] > 0.0f;
 		}
+		gives = gives && leader->leadsRankAuras();
 		const Real detect = ladder->perk( grade, RANK_PERK_DETECT );
 		if( !gives && detect <= 0.0f )
 			continue;

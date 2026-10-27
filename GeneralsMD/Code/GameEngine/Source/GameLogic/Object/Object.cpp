@@ -5647,6 +5647,15 @@ Bool Object::isSpotter() const
 }
 
 //-------------------------------------------------------------------------------------------------
+/** A hacker climbs the ladder on its payouts alone and sits at the back keyboarding, so it leads
+	* nobody: no aura, no ring, whatever its grade. */
+//-------------------------------------------------------------------------------------------------
+Bool Object::leadsRankAuras() const
+{
+	return !( m_ai && m_ai->getHackInternetAIInterface() );
+}
+
+//-------------------------------------------------------------------------------------------------
 void Object::onRankSightChanged( Real oldScalar )
 {
 	if( getRankSightScalar() != oldScalar && !m_partitionLastLook->isInvalid() )

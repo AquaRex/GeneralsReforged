@@ -174,7 +174,7 @@ static void portraitRankTooltip( GameWindow *window, WinInstanceData *instData, 
 	for( Int perk = 0; perk < RANK_PERK_COUNT; ++perk )
 	{
 		Real value = ladder->perk( grade, (RankPerk)perk );
-		if( value <= 0.0f )
+		if( value <= 0.0f || ( ( perk == RANK_PERK_AURA_RADIUS || perk >= RANK_PERK_AURA_RATE_OF_FIRE ) && !obj->leadsRankAuras() ) )
 			continue;
 		if( perk == RANK_PERK_SIGHT || perk == RANK_PERK_AURA_RADIUS )
 			value -= 1.0f;
