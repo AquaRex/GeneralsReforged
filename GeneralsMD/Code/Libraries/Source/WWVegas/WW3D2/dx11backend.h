@@ -112,6 +112,13 @@ public:
 	// frame.  While they are, the engine leaves the dynamic lights out of its own vertex lighting.
 	bool Lights_Per_Pixel() const { return ShadowReceiving && ShadowMapTexture != NULL; }
 
+	// How many blast lights the pixel block the last draw went up with carries.  A pass multiplying
+	// what is under it carries none (Upload_Pixel_Constants).
+	unsigned Pixel_Block_Blast_Lights() const
+	{
+		return static_cast<unsigned>(HeldPixelConstants.BlastLightParameters[0]);
+	}
+
 	// The draws that follow are sorted particle billboards, which fade where they meet the scene's
 	// depth (SOFT_PARTICLE_SAMPLING).  Only the sorting pool sets it, around the billboards' runs.
 	void Set_Soft_Particles(bool soft);
@@ -586,6 +593,7 @@ private:
 	bool Build_Combiner_Description(CombinerDescription & description) const;
 	void Upload_Constants();
 	void Upload_Vertex_Constants();
+	void Upload_World_Constants();
 	void Upload_Pixel_Constants();
 
 	// Both indexed draws land here; only the topology differs.
@@ -606,6 +614,7 @@ private:
 		unsigned Bytes;			///< the whole buffer, a whole number of entries
 		unsigned Next;			///< where the next write goes; Bytes makes it discard
 		unsigned Current;		///< where the last write went, which is what the draws read
+		unsigned Discards;		///< every discard and every new buffer: an entry written since is still there
 	};
 	bool Create_Constant_Ring(ConstantRing & ring, unsigned block_bytes);
 	bool Write_Constants(ConstantRing & ring, const void * block, unsigned bytes);
@@ -865,6 +874,17 @@ private:
 	PixelConstantBlock HeldPixelConstants;
 	float HeldEngineConstants[ENGINE_SHADER_CONSTANTS][4];
 
+	// The last few pixel blocks written, with the entry each went to and the ring's discard count
+	// then.  The sorted flush goes back and forth between a few of them, a billboard run's soft
+	// particle depth and a streak's none, and one still in the buffer is bound where it lies instead
+	// of written again (Rebind_Recent_Pixel_Constants).
+	enum { RECENT_PIXEL_BLOCKS = 4 };
+	PixelConstantBlock RecentPixelConstants[RECENT_PIXEL_BLOCKS];
+	unsigned RecentPixelOffset[RECENT_PIXEL_BLOCKS];
+	unsigned RecentPixelDiscards[RECENT_PIXEL_BLOCKS];
+	unsigned NextRecentPixel;
+	bool Rebind_Recent_Pixel_Constants(const PixelConstantBlock & block);
+
 	// A freshly created dynamic buffer holds nothing in particular, and a Map can fail, so a copy
 	// above only stands for what is in its buffer once a write has actually gone through.  One flag
 	// each rather than one between them: the engine bank is skipped on every draw that takes no
@@ -888,6 +908,19 @@ private:
 	// whose bytes always matched.  ConstantsChanged stands for both.
 	bool VertexConstantsChanged;
 	bool PixelConstantsChanged;
+	// The blend switch or either factor, which the pixel block reads only through Pixel_Blend_Key:
+	// the block is built again only when the key moved from the one it was last built with.  The
+	// sorted flush flips the blend at nearly every run, and each flip rebuilt and compared the
+	// whole block to find the same bytes.
+	bool PixelBlendChanged;
+	unsigned HeldPixelBlendKey;
+	unsigned Pixel_Blend_Key() const;
+	// A blend that multiplies what is under it: it takes no blast light.
+	bool Multiplies_Below() const;
+	// The world transform alone, which is every mesh draw: with nothing else flagged the held block
+	// is the rest of the next one, and only its three world products are made again
+	// (Upload_World_Constants).
+	bool WorldChanged;
 	bool PipelineChanged;
 	bool SamplerChanged[DX11_BACKEND_TEXTURE_STAGES];
 	// A stage's texture changed, or the last draw sampled the current target and so needs a fresh

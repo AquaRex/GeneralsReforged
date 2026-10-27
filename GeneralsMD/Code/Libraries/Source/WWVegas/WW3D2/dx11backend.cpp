@@ -34,6 +34,7 @@
 #if defined(_M_X64) || defined(_M_IX86) || defined(__SSE__)
 #include <xmmintrin.h>
 #endif
+#include <cstddef>
 
 typedef HRESULT (WINAPI *D3DCompileFunction)(LPCVOID source_data, SIZE_T source_size,
 	LPCSTR source_name, const D3D_SHADER_MACRO * defines, ID3DInclude * include,
@@ -290,6 +291,8 @@ DX11BackendClass::DX11BackendClass()
 	Forget_Last_State_Objects();
 	memset(&HeldVertexConstants, 0, sizeof(HeldVertexConstants));
 	memset(&HeldPixelConstants, 0, sizeof(HeldPixelConstants));
+	memset(RecentPixelDiscards, 0, sizeof(RecentPixelDiscards));	// no ring is at nought once made
+	NextRecentPixel = 0;
 	memset(HeldEngineConstants, 0, sizeof(HeldEngineConstants));
 	VertexConstantsHeld = false;
 	PixelConstantsHeld = false;
@@ -297,6 +300,9 @@ DX11BackendClass::DX11BackendClass()
 	ConstantsChanged = true;
 	VertexConstantsChanged = false;
 	PixelConstantsChanged = false;
+	PixelBlendChanged = false;
+	HeldPixelBlendKey = 0;
+	WorldChanged = false;
 	TexturesChanged = true;
 	PipelineChanged = true;
 	StateObjectsChanged = true;
@@ -461,6 +467,7 @@ bool DX11BackendClass::Create_Constant_Ring(ConstantRing & ring, unsigned block_
 	// Full, so the first write discards: the buffer has never been mapped.
 	ring.Next = ring.Bytes;
 	ring.Current = 0;
+	++ring.Discards;
 
 	D3D11_BUFFER_DESC description;
 	memset(&description, 0, sizeof(description));
@@ -491,6 +498,7 @@ bool DX11BackendClass::Write_Constants(ConstantRing & ring, const void * block, 
 	++FrameConstantWrites;
 	if (wraps) {
 		++FrameConstantRenames;
+		++ring.Discards;
 	}
 	return true;
 }
@@ -500,7 +508,9 @@ void DX11BackendClass::Release_Constant_Ring(ConstantRing & ring)
 	if (ring.Buffer != NULL) {
 		ring.Buffer->Release();
 	}
+	const unsigned discards = ring.Discards;
 	memset(&ring, 0, sizeof(ring));
+	ring.Discards = discards + 1;
 }
 
 void DX11BackendClass::Release_Cached()
@@ -2269,20 +2279,28 @@ void DX11BackendClass::Set_Render_State(D3DRENDERSTATETYPE state, DWORD value)
 		// Upload_Pixel_Constants.  The blend switch is there because the caster pass's alpha
 		// reference depends on it.  A blend, depth or cull change used to rebuild and compare both
 		// blocks to find the same bytes.
+		// The first two groups are read by a constant block and by nothing else: no description and
+		// no state object is built from them, so they leave both alone.  Every object sets its own
+		// ambient, and a scaled one turns NORMALIZENORMALS, which nothing here reads, on and off
+		// around its draws; each of those sent the next draw down the whole Resolve.
 		switch (state) {
 		case D3DRS_AMBIENT:
 		case D3DRS_FOGSTART:
 		case D3DRS_FOGEND:
 		case D3DRS_FOGDENSITY:
 			VertexConstantsChanged = true;
-			break;
+			return;
 		case D3DRS_FOGCOLOR:
 		case D3DRS_TEXTUREFACTOR:
 		case D3DRS_ALPHAREF:
+			PixelConstantsChanged = true;
+			return;
+		case D3DRS_NORMALIZENORMALS:
+			return;
 		case D3DRS_ALPHABLENDENABLE:
 		case D3DRS_SRCBLEND:		// a multiply pass takes no blast light (Upload_Pixel_Constants)
 		case D3DRS_DESTBLEND:
-			PixelConstantsChanged = true;
+			PixelBlendChanged = true;
 			break;
 		default:
 			break;
@@ -2466,6 +2484,8 @@ void DX11BackendClass::Set_Transform(D3DTRANSFORMSTATETYPE state, const float ma
 		// are the vertex block's alone.
 		if (held == View || held == Projection) {
 			ConstantsChanged = true;
+		} else if (held == World) {
+			WorldChanged = true;
 		} else {
 			VertexConstantsChanged = true;
 		}
@@ -2522,7 +2542,8 @@ void DX11BackendClass::Set_Light(unsigned index, DWORD type, const float positio
 	memcpy(light.Attenuation, attenuation, sizeof(light.Attenuation));
 	memcpy(light.Spot, spot, sizeof(light.Spot));
 	memcpy(light.Ambient, ambient, sizeof(light.Ambient));
-	ConstantsChanged = true;
+	// The lights are the vertex block's alone; the pixel block's lamps and blasts are its own.
+	VertexConstantsChanged = true;
 	if (pipeline_changed) {
 		PipelineChanged = true;
 	}
@@ -2532,7 +2553,7 @@ void DX11BackendClass::Disable_Light(unsigned index)
 {
 	if (index < MAXIMUM_VERTEX_LIGHTS && Lights[index].Enabled) {
 		Lights[index].Enabled = false;
-		ConstantsChanged = true;
+		VertexConstantsChanged = true;
 		PipelineChanged = true;
 	}
 }
@@ -3505,16 +3526,44 @@ void DX11BackendClass::Upload_Constants()
 	// Each block is built only when something it is built from has been set since its buffer was
 	// last written.
 	const bool vertex_due = ConstantsChanged || VertexConstantsChanged || !VertexConstantsHeld;
-	const bool pixel_due = ConstantsChanged || PixelConstantsChanged || !PixelConstantsHeld;
+	const bool world_due = !vertex_due && WorldChanged;
+	bool pixel_due = ConstantsChanged || PixelConstantsChanged || !PixelConstantsHeld;
+	// A blend change rebuilt the pixel block on every sorted run, and nearly always to the same
+	// bytes: the block reads the blend only through Pixel_Blend_Key.
+	if (!pixel_due && PixelBlendChanged) {
+		pixel_due = Pixel_Blend_Key() != HeldPixelBlendKey;
+	}
 	ConstantsChanged = false;
 	VertexConstantsChanged = false;
 	PixelConstantsChanged = false;
+	PixelBlendChanged = false;
+	WorldChanged = false;
 	if (vertex_due) {
 		Upload_Vertex_Constants();
+	} else if (world_due) {
+		Upload_World_Constants();
 	}
 	if (pixel_due) {
 		Upload_Pixel_Constants();
 	}
+}
+
+// What the pixel block takes from the blend, and from the vertex format and the programs, which raise
+// no flag of their own: the look Draw_Effect picks, the multiply test that keeps the blast lights off
+// a pass multiplying what is under it, whether the program reads the scene's depth, and the alpha
+// reference, which the sun's caster pass answers by the blend switch.  The same key is the same block.
+unsigned DX11BackendClass::Pixel_Blend_Key() const
+{
+	return Draw_Effect() | (Multiplies_Below() ? 0x100u : 0u)
+		| (EngineShader_Reads_Scene_Depth(PixelProgram) ? 0x200u : 0u)
+		| ((RenderStates.Get_Render_State(D3DRS_ALPHAREF) & 0xffu) << 10);
+}
+
+bool DX11BackendClass::Multiplies_Below() const
+{
+	return RenderStates.Get_Render_State(D3DRS_ALPHABLENDENABLE) != FALSE
+		&& (RenderStates.Get_Render_State(D3DRS_SRCBLEND) == D3DBLEND_ZERO
+			|| RenderStates.Get_Render_State(D3DRS_DESTBLEND) == D3DBLEND_SRCCOLOR);
 }
 
 void DX11BackendClass::Upload_Vertex_Constants()
@@ -3583,8 +3632,31 @@ void DX11BackendClass::Upload_Vertex_Constants()
 	}
 }
 
+// Everything but the world came from the same inputs as the held block (only WorldChanged is up),
+// so the held block with its three world products made again is what Upload_Vertex_Constants would
+// build, byte for byte, without its light transforms, colour conversions and kilobyte compare.
+void DX11BackendClass::Upload_World_Constants()
+{
+	float world[3][16];
+	multiply(World, View, world[1]);
+	multiply(world[1], Projection, world[0]);
+	inverse_transpose(world[1], world[2]);
+	// Set back to the matrices it holds, the block would be the one already in the buffer.
+	if (memcmp(HeldVertexConstants.WorldViewProjection, world, sizeof(world)) == 0) {
+		return;
+	}
+	static_assert(offsetof(VertexConstantBlock, WorldView) == sizeof(float) * 16
+		&& offsetof(VertexConstantBlock, NormalTransform) == sizeof(float) * 32,
+		"the three world products lead the block");
+	memcpy(HeldVertexConstants.WorldViewProjection, world, sizeof(world));
+	VertexConstantsHeld = Write_Constants(VertexConstantRing, &HeldVertexConstants,
+		sizeof(HeldVertexConstants));
+}
+
 void DX11BackendClass::Upload_Pixel_Constants()
 {
+	// The held block is this one once the compare or the write below is done, or it is not held.
+	HeldPixelBlendKey = Pixel_Blend_Key();
 	PixelConstantBlock pixel_block;
 	memset(&pixel_block, 0, sizeof(pixel_block));
 	RenderStates.Get_Texture_Factor(pixel_block.TextureFactor);
@@ -3664,10 +3736,7 @@ void DX11BackendClass::Upload_Pixel_Constants()
 		// None for a particle: the smoke takes these lights on the CPU (BLAST_LIGHT_SAMPLING).  None
 		// for a pass that multiplies what is under it (ZERO, SRCCOLOR): the base pass took the light
 		// already, and gained again the surface came out lit twice.
-		const bool multiplies = RenderStates.Get_Render_State(D3DRS_ALPHABLENDENABLE) != FALSE
-			&& (RenderStates.Get_Render_State(D3DRS_SRCBLEND) == D3DBLEND_ZERO
-				|| RenderStates.Get_Render_State(D3DRS_DESTBLEND) == D3DBLEND_SRCCOLOR);
-		const unsigned blasts = (camera_space || multiplies) ? 0 : BlastLightCount;
+		const unsigned blasts = (camera_space || Multiplies_Below()) ? 0 : BlastLightCount;
 		pixel_block.BlastLightParameters[0] = static_cast<float>(blasts);
 		for (unsigned slot = 0; slot < blasts; ++slot) {
 			memcpy(pixel_block.BlastLightPosition[slot], &BlastLights[slot][0], sizeof(float) * 4);
@@ -3688,12 +3757,41 @@ void DX11BackendClass::Upload_Pixel_Constants()
 
 	if (!PixelConstantsHeld
 			|| memcmp(&HeldPixelConstants, &pixel_block, sizeof(pixel_block)) != 0) {
+		if (Rebind_Recent_Pixel_Constants(pixel_block)) {
+			return;
+		}
 		PixelConstantsHeld = false;
 		if (Write_Constants(PixelConstantRing, &pixel_block, sizeof(pixel_block))) {
 			HeldPixelConstants = pixel_block;
 			PixelConstantsHeld = true;
+			RecentPixelConstants[NextRecentPixel] = pixel_block;
+			RecentPixelOffset[NextRecentPixel] = PixelConstantRing.Current;
+			RecentPixelDiscards[NextRecentPixel] = PixelConstantRing.Discards;
+			NextRecentPixel = (NextRecentPixel + 1) % RECENT_PIXEL_BLOCKS;
 		}
 	}
+}
+
+// A block one of the last few writes left in the ring, in the buffer as it is now, bound again where
+// it lies: the draws read the same bytes from an older entry.  The tail first, where a billboard
+// run's block and a streak's differ, so a block that is not there costs a short compare.
+bool DX11BackendClass::Rebind_Recent_Pixel_Constants(const PixelConstantBlock & block)
+{
+	const size_t tail = offsetof(PixelConstantBlock, SoftParticleDepth);
+	const unsigned char * const wanted = reinterpret_cast<const unsigned char *>(&block);
+	for (unsigned index = 0; index < RECENT_PIXEL_BLOCKS; ++index) {
+		const unsigned char * const recent =
+			reinterpret_cast<const unsigned char *>(&RecentPixelConstants[index]);
+		if (RecentPixelDiscards[index] == PixelConstantRing.Discards
+			&& memcmp(recent + tail, wanted + tail, sizeof(block) - tail) == 0
+			&& memcmp(recent, wanted, tail) == 0) {
+			PixelConstantRing.Current = RecentPixelOffset[index];
+			HeldPixelConstants = block;
+			PixelConstantsHeld = true;
+			return true;
+		}
+	}
+	return false;
 }
 
 void DX11BackendClass::Forget_Last_State_Objects()

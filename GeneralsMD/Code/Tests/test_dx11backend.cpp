@@ -603,6 +603,178 @@ TEST(dx11backend_a_wrapped_constant_ring_draws_with_the_latest_block)
 	backend.Shutdown();
 }
 
+// The sorted runs flip between a few pixel blocks, so a block still in the ring is bound again at
+// the entry it was written to rather than written again (Rebind_Recent_Pixel_Constants).  Two texture
+// factors alternate with two fresh ones after each pair, which takes both out of the four the
+// backend remembers every other round, and the rounds go on until the ring has wrapped more than
+// once.  A block bound again from before a wrap, where later writes have gone since, draws another
+// colour.
+TEST(dx11backend_a_pixel_block_bound_again_draws_its_own_colour_across_a_ring_wrap)
+{
+	const unsigned ROUNDS = 1500;
+	const DWORD FACTORS[2] = { 0xff112233, 0xff445566 };
+	const DWORD FRESH_FACTOR = 0xff800000;
+
+	DX11DeviceClass device;
+	CHECK(device.Create_Offscreen());
+	ID3D11Device * d3d = device.Get_Device();
+
+	DX11BackendClass backend;
+	CHECK(backend.Initialise(&device));
+
+	D3D11_TEXTURE2D_DESC target_description;
+	memset(&target_description, 0, sizeof(target_description));
+	target_description.Width = TARGET_SIZE;
+	target_description.Height = TARGET_SIZE;
+	target_description.MipLevels = 1;
+	target_description.ArraySize = 1;
+	target_description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+	target_description.SampleDesc.Count = 1;
+	target_description.Usage = D3D11_USAGE_DEFAULT;
+	target_description.BindFlags = D3D11_BIND_RENDER_TARGET;
+
+	ID3D11Texture2D * target = NULL;
+	CHECK(SUCCEEDED(d3d->CreateTexture2D(&target_description, NULL, &target)));
+
+	D3D11_TEXTURE2D_DESC staging_description = target_description;
+	staging_description.Usage = D3D11_USAGE_STAGING;
+	staging_description.BindFlags = 0;
+	staging_description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+
+	ID3D11Texture2D * staging = NULL;
+	CHECK(SUCCEEDED(d3d->CreateTexture2D(&staging_description, NULL, &staging)));
+
+	ID3D11RenderTargetView * target_view = NULL;
+	CHECK(SUCCEEDED(d3d->CreateRenderTargetView(target, NULL, &target_view)));
+	device.Get_Context()->OMSetRenderTargets(1, &target_view, NULL);
+
+	backend.Set_Viewport(0, 0, TARGET_SIZE, TARGET_SIZE);
+	configure_unlit_pass_through(backend);
+	backend.Set_Texture_Stage_State(0, D3DTSS_COLORARG1, D3DTA_TFACTOR);
+	backend.Set_Texture_Stage_State(0, D3DTSS_ALPHAARG1, D3DTA_TFACTOR);
+
+	ID3D11Buffer * vertices = NULL;
+	CHECK(DX11Resource_Create_Vertex_Buffer(d3d, sizeof(QUAD_VERTICES), D3DPOOL_MANAGED, 0,
+		QUAD_VERTICES, &vertices));
+	ID3D11Buffer * indices = NULL;
+	CHECK(DX11Resource_Create_Index_Buffer(d3d, sizeof(QUAD_INDICES), D3DPOOL_MANAGED, 0,
+		QUAD_INDICES, &indices));
+	backend.Set_Stream_Source(vertices, sizeof(BackendVertex), 0);
+	backend.Set_Indices(indices, DXGI_FORMAT_R16_UINT);
+
+	unsigned wrong = 0;
+	for (unsigned round = 0; round < ROUNDS; ++round) {
+		for (unsigned pick = 0; pick < 2; ++pick) {
+			backend.Set_Render_State(D3DRS_TEXTUREFACTOR, FACTORS[pick]);
+			CHECK(backend.Draw_Indexed_Triangles(6, 0, 0));
+
+			device.Get_Context()->CopyResource(staging, target);
+			D3D11_MAPPED_SUBRESOURCE mapped;
+			CHECK(SUCCEEDED(device.Get_Context()->Map(staging, 0, D3D11_MAP_READ, 0, &mapped)));
+			const unsigned char * centre = static_cast<const unsigned char *>(mapped.pData)
+				+ mapped.RowPitch * (TARGET_SIZE / 2) + (TARGET_SIZE / 2) * 4;
+			const DWORD drawn = (static_cast<DWORD>(centre[3]) << 24) | (centre[2] << 16)
+				| (centre[1] << 8) | centre[0];
+			if (drawn != FACTORS[pick]) {
+				if (wrong == 0) {
+					printf("  round %u factor %08x drew %08x\n", round, FACTORS[pick], drawn);
+				}
+				++wrong;
+			}
+			device.Get_Context()->Unmap(staging, 0);
+		}
+		for (unsigned fresh = 0; fresh < 2; ++fresh) {
+			backend.Set_Render_State(D3DRS_TEXTUREFACTOR, FRESH_FACTOR | (round * 2 + fresh));
+			CHECK(backend.Draw_Indexed_Triangles(6, 0, 0));
+		}
+	}
+	CHECK_EQ(wrong, 0u);
+
+	// Fewer pixel blocks written than drawn, so the two were bound again, and the vertex ring's
+	// first write and the pixel ring's first write and two wraps at least.
+	unsigned writes = 0;
+	unsigned renames = 0;
+	backend.Take_Frame_Constant_Writes(writes, renames);
+	printf("  %u constant writes, %u renames over %u draws\n", writes, renames, ROUNDS * 4);
+	if (backend.Constant_Offsets()) {
+		CHECK(writes < ROUNDS * 4);
+		CHECK(renames >= 4u);
+	}
+
+	indices->Release();
+	vertices->Release();
+	target_view->Release();
+	staging->Release();
+	target->Release();
+	backend.Shutdown();
+}
+
+// A pass multiplying what is under it goes up without the blast lights: the pass under it took
+// them, and the multiply would light the surface twice.  A blend change raises no constant flag of
+// its own, so the pixel block is built again only when Pixel_Blend_Key moves, and the multiply test
+// is part of it.  Read through the block the draw went up with: the multiply passes that read the
+// lights are the terrain's programs, and a generated multiply program samples none.
+TEST(dx11backend_a_multiply_pass_goes_up_without_the_blast_lights)
+{
+	DX11DeviceClass device;
+	CHECK(device.Create_Offscreen());
+	ID3D11Device * d3d = device.Get_Device();
+
+	DX11BackendClass backend;
+	CHECK(backend.Initialise(&device));
+
+	D3D11_TEXTURE2D_DESC target_description;
+	memset(&target_description, 0, sizeof(target_description));
+	target_description.Width = TARGET_SIZE;
+	target_description.Height = TARGET_SIZE;
+	target_description.MipLevels = 1;
+	target_description.ArraySize = 1;
+	target_description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+	target_description.SampleDesc.Count = 1;
+	target_description.Usage = D3D11_USAGE_DEFAULT;
+	target_description.BindFlags = D3D11_BIND_RENDER_TARGET;
+
+	ID3D11Texture2D * target = NULL;
+	CHECK(SUCCEEDED(d3d->CreateTexture2D(&target_description, NULL, &target)));
+	ID3D11RenderTargetView * target_view = NULL;
+	CHECK(SUCCEEDED(d3d->CreateRenderTargetView(target, NULL, &target_view)));
+
+	configure_unlit_pass_through(backend);
+	CHECK(backend.Begin_Shadow_Map(64));
+	backend.End_Shadow_Map();
+	backend.Set_Shadow_Parameters(0.001f, 0.5f, 2.0f, 1.0f, 1.0f, 1.0f, 0.0f);
+	const float blast[BLAST_LIGHT_FLOATS] = {
+		0.0f, 0.0f, 0.5f, 10.0f,  1.0f, 0.5f, 0.25f, 1.0f,  0.1f, 0.1f, 0.1f, 0.0f };
+	backend.Set_Blast_Lights(blast, 1);
+
+	device.Get_Context()->OMSetRenderTargets(1, &target_view, NULL);
+	backend.Set_Viewport(0, 0, TARGET_SIZE, TARGET_SIZE);
+
+	ID3D11Buffer * vertices = NULL;
+	CHECK(DX11Resource_Create_Vertex_Buffer(d3d, sizeof(QUAD_VERTICES), D3DPOOL_MANAGED, 0,
+		QUAD_VERTICES, &vertices));
+	ID3D11Buffer * indices = NULL;
+	CHECK(DX11Resource_Create_Index_Buffer(d3d, sizeof(QUAD_INDICES), D3DPOOL_MANAGED, 0,
+		QUAD_INDICES, &indices));
+	backend.Set_Stream_Source(vertices, sizeof(BackendVertex), 0);
+	backend.Set_Indices(indices, DXGI_FORMAT_R16_UINT);
+
+	backend.Set_Render_State(D3DRS_ALPHABLENDENABLE, TRUE);
+	for (unsigned pass = 0; pass < 3; ++pass) {
+		const bool multiply = pass == 1;
+		backend.Set_Render_State(D3DRS_SRCBLEND, multiply ? D3DBLEND_ZERO : D3DBLEND_SRCALPHA);
+		backend.Set_Render_State(D3DRS_DESTBLEND, multiply ? D3DBLEND_SRCCOLOR : D3DBLEND_INVSRCALPHA);
+		CHECK(backend.Draw_Indexed_Triangles(6, 0, 0));
+		CHECK_EQ(backend.Pixel_Block_Blast_Lights(), multiply ? 0u : 1u);
+	}
+
+	indices->Release();
+	vertices->Release();
+	target_view->Release();
+	target->Release();
+	backend.Shutdown();
+}
+
 // The sorted smoke billboards carry a fire's glow in their normals, and the backend adds it to what
 // the stages made.  The quad's normal is (0, 0, 1), so with the glow on the blue channel goes to full
 // and the other two keep the vertex colour; the glow is its own pipeline and turning it off goes
