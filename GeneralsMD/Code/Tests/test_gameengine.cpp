@@ -1851,6 +1851,24 @@ TEST(physics_forward_speed_is_the_projection_not_a_per_axis_norm)
 	CHECK_NEAR( PhysicsBehavior::calcForwardSpeed( climb, up ), 12.0f, 0.01f );
 }
 
+/* EA's treads and wheels drive on EA's own measure again, which is what let a tank or car cross the
+   map diagonally 1.41 times as fast as along an axis in Zero Hour: exact on the axes, 0.707 of the
+   speed at 45 degrees, and signed by the dot product. */
+TEST(physics_retail_forward_speed_keeps_eas_per_axis_norm)
+{
+	const Real speed = 40.0f;
+	const Real d = 0.70710678f;
+	Coord3D east; east.x = 1.0f; east.y = 0.0f; east.z = 0.0f;
+	Coord3D diag; diag.x = d; diag.y = d; diag.z = 0.0f;
+	Coord3D velEast; velEast.x = speed; velEast.y = 0.0f; velEast.z = 0.0f;
+	Coord3D velDiag; velDiag.x = speed * d; velDiag.y = speed * d; velDiag.z = 0.0f;
+	Coord3D velBack; velBack.x = -speed * d; velBack.y = -speed * d; velBack.z = 0.0f;
+
+	CHECK_NEAR( PhysicsBehavior::calcRetailForwardSpeed( velEast, east ), speed, 0.01f );
+	CHECK_NEAR( PhysicsBehavior::calcRetailForwardSpeed( velDiag, diag ), speed * d, 0.01f );
+	CHECK_NEAR( PhysicsBehavior::calcRetailForwardSpeed( velBack, diag ), -speed * d, 0.01f );
+}
+
 /* CommandXlat.cpp: only the attack key arms force fire. Holding ctrl used to do it too, so a
    ctrl click on the ground shelled the dirt instead of moving. */
 extern Bool CommandXlat_isForceAttackTargeting( Bool forceAttackArmed, Bool attackMoveArmed );
