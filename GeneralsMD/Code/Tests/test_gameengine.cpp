@@ -7684,6 +7684,73 @@ TEST(bitflags_crc_covers_every_word_of_the_flag_set)
 	CHECK_NE( crcOfStatusMask( full ), crcOfStatusMask( fullMinusOne ) );
 }
 
+/* The game's CRC as EA wrote it, byte by byte: each whole word read in network order (htonl of a
+	 little-endian load), the running value shifted left with its top bit added back, a 1-3 byte
+	 tail added as a little-endian number (htonl twice), and the result handed out through htonl.
+	 XferCRC folds with an inline byte swap now; every CRC a replay or a joiner checks has to stay
+	 exactly this. */
+static void eaCRCAdd( UnsignedInt &crc, UnsignedInt val )
+{
+	UnsignedInt hibit = (crc & 0x80000000) ? 1 : 0;
+	crc <<= 1;
+	crc += val;
+	crc += hibit;
+}
+
+static UnsignedInt eaCRCOfBuffers( const std::vector< std::vector<UnsignedByte> > &buffers )
+{
+	UnsignedInt crc = 0;
+	for( size_t b = 0; b < buffers.size(); ++b )
+	{
+		const std::vector<UnsignedByte> &p = buffers[b];
+		Int n = (Int)p.size();
+		Int i = 0;
+		for( ; i + 4 <= n; i += 4 )
+			eaCRCAdd( crc, ((UnsignedInt)p[i] << 24) | ((UnsignedInt)p[i+1] << 16) | ((UnsignedInt)p[i+2] << 8) | p[i+3] );
+		if( i < n )
+		{
+			UnsignedInt val = 0;
+			for( Int k = 0; i + k < n; ++k )
+				val += (UnsignedInt)p[i+k] << (k*8);
+			eaCRCAdd( crc, val );
+		}
+	}
+	return (crc >> 24) | ((crc >> 8) & 0xFF00) | ((crc << 8) & 0xFF0000) | (crc << 24);
+}
+
+TEST(xfer_crc_inline_byte_swap_gives_eas_htonl_numbers)
+{
+	// pinned by hand: word 01 02 03 04 gives 0x01020304, the tail 05 makes it 0x0204060D, swapped out
+	UnsignedByte five[5] = { 1, 2, 3, 4, 5 };
+	XferCRC pinned;
+	pinned.open( "test" );
+	pinned.xferUser( five, 5 );
+	pinned.close();
+	CHECK_EQ( pinned.getCRC(), 0x0D060402u );
+
+	// random buffers of every length from 1 to 66, several to a session so the running value carries
+	UnsignedInt seed = 0x2545F491u;
+	for( Int round = 0; round < 300; ++round )
+	{
+		std::vector< std::vector<UnsignedByte> > buffers;
+		XferCRC xfer;
+		xfer.open( "test" );
+		for( Int call = 0; call < 1 + round % 5; ++call )
+		{
+			std::vector<UnsignedByte> p( 1 + (round * 5 + call * 3) % 66 );
+			for( size_t k = 0; k < p.size(); ++k )
+			{
+				seed = seed * 1664525u + 1013904223u;
+				p[k] = (UnsignedByte)(seed >> 24);
+			}
+			xfer.xferUser( &p[0], (Int)p.size() );
+			buffers.push_back( p );
+		}
+		xfer.close();
+		CHECK_EQ( xfer.getCRC(), eaCRCOfBuffers( buffers ) );
+	}
+}
+
 // A lobby or replay string carrying C=0 used to reach GameLogic's m_frame % interval and crash.
 extern Int NET_CRC_INTERVAL;
 TEST(crc_interval_is_held_between_1_and_100)

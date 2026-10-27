@@ -472,6 +472,7 @@ found and fixed, EA's own, not port damage.**
 - The main menu surf rolls at its proper pace, not ten times too fast.
 - And it is there at all again. The waves breaking on the main menu's beach had been worked out every frame and then drawn nowhere since v1.0.0, so the shore behind the menu was flat water.
 - Less work per picture in a big battle. Infantry and other bending models are shaped on every core at once instead of one, the shadow blobs and markers on the ground go to the graphics card in one batch instead of two uploads each, and a material or light identical to the one already set is no longer sent again. What is drawn does not change.
+- A network match costs less to work out. Every step, each machine adds up a checksum of the whole game to compare with the others, and late in a four-player match that took 1.26ms; it takes 0.87ms now and comes out with the same number. With 410 units fighting in a two-player network match, the step went from 4.09ms to 3.99ms on average and from 7.9ms to 7.5ms at the slowest one in a hundred. Units in a big battle also spend about a fifth less time marking the ground they are about to cross. Recorded matches play back to the same checksum, and both machines of a network match end on the same one.
 
 ## The computer opponent builds a base now
 

@@ -1764,8 +1764,9 @@ ObjectShroudStatus PartitionData::getShroudedStatus(Int playerIndex)
 
 	// answered before the cache, so no snapshot is taken and the site is not marked as seen: the
 	// building that goes up there later is news to this player like any other. Only a plan nobody
-	// has started can be hidden, so the relationship lookup waits until the Object is one.
-	if (m_object && Object_isAwaitingBuilder(m_object->testStatus(OBJECT_STATUS_UNDER_CONSTRUCTION),
+	// has started can be hidden, so the relationship lookup waits until the Object is one. The
+	// status bit goes first: Object_isAwaitingBuilder is false without it, and lives in another file.
+	if (m_object && m_object->testStatus(OBJECT_STATUS_UNDER_CONSTRUCTION) && Object_isAwaitingBuilder(m_object->testStatus(OBJECT_STATUS_UNDER_CONSTRUCTION),
 																					 m_object->getConstructionPercent()) &&
 			Object_isPlanHiddenFrom(m_object->testStatus(OBJECT_STATUS_UNDER_CONSTRUCTION),
 															m_object->getConstructionPercent(),
@@ -1790,9 +1791,10 @@ ObjectShroudStatus PartitionData::getShroudedStatus(Int playerIndex)
 		{
 			if( inTheAir && coi->getCell()->isAirSeenByPlayer(playerIndex) )
 				continue;
-			if( coi->getCell()->getShroudStatusForPlayer(playerIndex) == CELLSHROUD_SHROUDED )
+			const CellShroudStatus cellStatus = coi->getCell()->getShroudStatusForPlayer(playerIndex);
+			if( cellStatus == CELLSHROUD_SHROUDED )
 				++shroudedCells;
-			else if( coi->getCell()->getShroudStatusForPlayer(playerIndex) == CELLSHROUD_FOGGED )
+			else if( cellStatus == CELLSHROUD_FOGGED )
 				++foggedCells;
 		}
 
@@ -2129,6 +2131,11 @@ void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
 
 	//DEBUG_LOG(("adding possible collision for %s\n",getObject()->getTemplate()->getName().str()));
 
+	// collidesWith turns down any pair with a NO_COLLIDE side before it looks at anything else, so
+	// such a pair is never listed: the rest keep their found order and their first orientation.
+	if (m_noCollide)
+		return;
+
 	CellAndObjectIntersection *myCoi = m_coiArray;
 	for (Int i = m_coiInUseCount; i > 0; --i, ++myCoi)
 	{
@@ -2139,7 +2146,7 @@ void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
 		for (CellAndObjectIntersection *coi = cell->getFirstCoiInCell(); coi; coi = coi->getNextCoi())
 		{
 			PartitionData *that = coi->getModule();
-			if (this != that)
+			if (this != that && !that->m_noCollide)
 			{
 				ctList->addToContactList(this, that);
 			}
@@ -2692,7 +2699,7 @@ void PartitionContactList::processContactList()
 		if (cd->m_obj == NULL || cd->m_other == NULL)
 			continue;
 
-		// we know that their partitions overlap; determine if they REALLY collide 
+		// we know that their partitions overlap; determine if they REALLY collide
 		// before proceeding...
 		CollideLocAndNormal cinfo;
 		if (!cd->m_obj->friend_collidesWith(cd->m_other, &cinfo))
@@ -2700,7 +2707,7 @@ void PartitionContactList::processContactList()
 
 		Object* obj = cd->m_obj->getObject();
 		Object* other = cd->m_other->getObject();
-		
+
 		if( obj->getStatusBits().test( OBJECT_STATUS_NO_COLLISIONS ) ||
 				other->getStatusBits().test( OBJECT_STATUS_NO_COLLISIONS ) )
 			continue;
@@ -2936,7 +2943,7 @@ void PartitionManager::update()
 #ifdef INTENSE_DEBUG
 		Int cc = 0;
 #endif
-		if (!m_updatedSinceLastReset) 
+		if (!m_updatedSinceLastReset)
 		{
 			m_updatedSinceLastReset = true;
 		}
