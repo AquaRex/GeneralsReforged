@@ -391,10 +391,14 @@ const ThingTemplate *ThingFactory::findSideReskin( const ThingTemplate *tmplate,
 	if (it != m_sideReskins.end())
 		return it->second;
 
+	// A template with build variations is only a build button: isEquivalentTo counts each variation
+	// as its equal, and EA's Toxin and Stealth Technicals roll the plain GLA chassis, so without the
+	// skip a Toxin player's chassis was swapped for Chem_GLAVehicleTechnical itself, a unit with no
+	// weapon or locomotor: the Arms Dealer charged for a Technical and nothing drove out.
 	const ThingTemplate *found = NULL;
 	for (const ThingTemplate *t = m_firstTemplate; t != NULL && found == NULL; t = t->friend_getNextTemplate())
 	{
-		if (t->getDefaultOwningSide() == side && t->isEquivalentTo( tmplate ))
+		if (t->getDefaultOwningSide() == side && t->getBuildVariations().empty() && t->isEquivalentTo( tmplate ))
 			found = (const ThingTemplate *)t->getFinalOverride();
 	}
 	m_sideReskins[ key ] = found;
