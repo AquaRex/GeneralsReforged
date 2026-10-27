@@ -1340,7 +1340,7 @@ UpdateSleepTime AIUpdateInterface::update( void )
 		Object *tunnel = me->getContainedBy();
 		if (tunnel != NULL && tunnel->getContain()->isTunnelContain())
 		{
-			Object *exit = me->getControllingPlayer()->getTunnelSystem()->findQuietTunnelNear( &m_tunnelTripGoal, me );
+			Object *exit = me->getControllingPlayer()->getTunnelSystem()->findTunnelNear( &m_tunnelTripGoal, me );
 			privateExit( exit != NULL ? exit : tunnel, CMD_FROM_AI );
 		}
 		else

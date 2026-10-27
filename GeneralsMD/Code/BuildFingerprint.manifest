@@ -124,6 +124,7 @@ Data/Cinema/minefx_scene.txt
 Data/Cinema/minefx_scene_enemy.txt
 Data/Cinema/missileapex_film.txt
 Data/Cinema/mobwatch.txt
+Data/Cinema/msaa_river.txt
 Data/Cinema/ngguard.txt
 Data/Cinema/nohud.txt
 Data/Cinema/nukedome.txt
@@ -359,6 +360,7 @@ Data/Scenarios/mobclose.txt
 Data/Scenarios/mobopen.txt
 Data/Scenarios/mobstress.txt
 Data/Scenarios/mobwin.txt
+Data/Scenarios/msaa_river.txt
 Data/Scenarios/netrepeat.txt
 Data/Scenarios/netstance.txt
 Data/Scenarios/nukefade.txt
@@ -450,6 +452,7 @@ Data/Scenarios/tunnelgap.txt
 Data/Scenarios/tunnelqueue.txt
 Data/Scenarios/tunnelshortcut.txt
 Data/Scenarios/tunnelsplit.txt
+Data/Scenarios/tunnelunderfire.txt
 Data/Scenarios/tunnelwalk.txt
 Data/Scenarios/v240_heli.txt
 Data/Scenarios/v240_hook.txt
