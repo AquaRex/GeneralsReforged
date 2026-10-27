@@ -1038,6 +1038,8 @@ GlobalData::GlobalData()
 	m_shadowsForParticles = TRUE;	//on by default: the shipped INI has no entry for it
 	m_volumetricSmokeShadows = TRUE;
 	m_smokeFireLighting = TRUE;
+	m_smoothMotion = TRUE;
+	m_smoothMotionAnyDisplay = FALSE;
 	m_waterStyle = 0;				// classic by default; modern water is an explicit option
 	m_cloudStyle = 0;				// Classic by default; volumetric hazard clouds are opt-in
 	m_explosionDebrisTrails = TRUE;

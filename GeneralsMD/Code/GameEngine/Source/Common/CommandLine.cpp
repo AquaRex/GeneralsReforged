@@ -1078,6 +1078,29 @@ Int parseNoVolumetricSmoke(char *args[], int)
 	return 1;
 }
 
+/* -nosmoothmotion: every model drawn where the last logic tick left it, a tick's state held until the
+	 next, as on a 60 Hz screen.  -recordfps still blends its in-between pictures. */
+Int parseNoSmoothMotion(char *args[], int)
+{
+	if (TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_smoothMotion = FALSE;
+	}
+	return 1;
+}
+
+/* -smoothmotion: models drawn between their last two logic states whatever the display's refresh rate,
+	 for a 60 Hz screen rendering uncapped or a picture of the blend on any machine. */
+Int parseSmoothMotion(char *args[], int)
+{
+	if (TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_smoothMotion = TRUE;
+		TheWritableGlobalData->m_smoothMotionAnyDisplay = TRUE;
+	}
+	return 1;
+}
+
 /* -nosmokefirelight: smoke left unlit by the fire beside it, for one run. */
 Int parseNoSmokeFireLight(char *args[], int)
 {
@@ -2874,6 +2897,8 @@ static CommandLineParam params[] =
 	{ "-shadowmapboth", parseShadowMapBoth },
 	{ "-noparticleshadows", parseNoParticleShadows },
 	{ "-novolumetricsmoke", parseNoVolumetricSmoke },
+	{ "-nosmoothmotion", parseNoSmoothMotion },
+	{ "-smoothmotion", parseSmoothMotion },
 	{ "-nosmokefirelight", parseNoSmokeFireLight },
 	{ "-lighting", parseLightingStyle },
 	{ "-quickstart", parseQuickStart },

@@ -1694,6 +1694,59 @@ TEST(catchup_stops_paying_debt_when_the_logic_tick_is_what_is_slow)
 	CHECK_NEAR( 6.0f, elapsed, 0.01f );
 }
 
+/* R1, smooth motion: how far the picture is between the last two logic states, counted from when the
+	 last tick was due.  Pure arithmetic on the fine clock; a million ticks a second here. */
+extern Real GameEngine_tickFraction( Int64 now, Int64 due, Real msPerTick, Int64 ticksPerSecond );
+
+TEST(smooth_motion_tick_fraction_runs_from_the_due_time)
+{
+	const Real tick = 1000.0f / 60.0f;
+	const Int64 freq = 1000000;
+	const Int64 due = 5000000;
+
+	CHECK_NEAR( 0.0f, GameEngine_tickFraction( due, due, tick, freq ), 0.0001f );
+	CHECK_NEAR( 0.5f, GameEngine_tickFraction( due + 8333, due, tick, freq ), 0.001f );		// mid-tick
+	CHECK_NEAR( 0.9f, GameEngine_tickFraction( due + 15000, due, tick, freq ), 0.001f );
+
+	// clamped both ways: a draw a hair before the stamp shows the state before, and a paused game,
+	// which stamps no tick, is a whole tick on within one and holds the last state from then on
+	CHECK_NEAR( 0.0f, GameEngine_tickFraction( due - 100, due, tick, freq ), 0.0001f );
+	CHECK_NEAR( 1.0f, GameEngine_tickFraction( due + 16667, due, tick, freq ), 0.0001f );
+	CHECK_NEAR( 1.0f, GameEngine_tickFraction( due + 30 * freq, due, tick, freq ), 0.0001f );
+
+	// no tick length (fast mode, -turbo, TiVO, -headless) or no clock: no blend, the state as it is
+	CHECK_NEAR( 1.0f, GameEngine_tickFraction( due + 8333, due, 0.0f, freq ), 0.0001f );
+	CHECK_NEAR( 1.0f, GameEngine_tickFraction( due + 8333, due, tick, 0 ), 0.0001f );
+
+	/* The stamp GameEngine::update hands it is the pacer's plan time less the debt left once the pass's
+		 ticks are paid: that tick's due time.  Passes 6 and 7 ms apart (a 164 Hz screen) plan at uneven
+		 moments against the 16.7 ms tick, and the stamps still land exactly a tick apart, where the moment
+		 a tick finished moved with its own cost. */
+	Real accum = 0.0f;
+	Real planTime = 0.0f;
+	Real lastDue = -1.0f;
+	Int stamps = 0;
+	for( Int pass = 0; pass < 500; ++pass )
+	{
+		Real elapsed = ( pass % 3 == 0 ) ? 7.0f : 6.0f;
+		planTime += elapsed;
+		Bool ticked = FALSE;
+		while( GameEngine_isLogicFrameDue( accum, elapsed, 60 ) )
+		{
+			ticked = TRUE;
+			elapsed = 0.0f;
+		}
+		if( !ticked )
+			continue;
+		const Real stamp = planTime - accum;
+		if( lastDue >= 0.0f )
+			CHECK_NEAR( tick, stamp - lastDue, 0.01f );
+		lastDue = stamp;
+		++stamps;
+	}
+	CHECK( stamps >= 190 && stamps <= 192 );		// 3167 ms of passes, a tick every 16.7
+}
+
 /* AnimateWindowManager.cpp: the same argument one layer up. The menu animations
    count fixed steps and were authored against a capped frame rate, so with the
    renderer uncapped they have to be paced off the wall clock too or a whole
