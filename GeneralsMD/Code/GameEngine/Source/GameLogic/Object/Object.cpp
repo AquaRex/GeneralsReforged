@@ -3544,11 +3544,12 @@ void Object::onRankChanged( VeterancyLevel oldLevel, VeterancyLevel newLevel, In
 			&& Drawable::getRankInsignia( this ) != NULL )
 		floatRankGain( ladder->insigniaIndex( newGrade, isKindOf( KINDOF_HERO ) ) );
 
-	// the portrait shows the grade, so a selected unit's bar redraws; the selection is the client's,
-	// so the client asks after the tick
+	// the portrait shows the grade, so a selected unit's bar redraws, and the aura rings look for a new
+	// leader; the selection and the rings are the client's, so the client asks after the tick
 	const ObjectID objID = getID();
 	LogicThread::callAfterTick( [objID]()
 	{
+		TheInGameUI->noteRankChanged( objID );
 		Drawable *draw = TheInGameUI->getFirstSelectedDrawable();
 		if( draw && draw->getObject() && draw->getObject()->getID() == objID )
 			TheControlBar->markUIDirty();

@@ -982,6 +982,9 @@ private:
 	};
 	UnsignedByte m_iconModules = 0;		///< IconModule bits, found the first time the icon pass asks
 	Bool hasIconModule( IconModule module );
+public:
+	Bool hasProductionModule( void ) { return hasIconModule( ICON_MODULE_PRODUCTION ); }	///< the object's; it has one
+private:
 
 	static Bool							s_staticImagesInited;
 	static const Image*			s_veterancyImage[LEVEL_COUNT];

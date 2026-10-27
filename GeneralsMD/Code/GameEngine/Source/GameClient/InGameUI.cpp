@@ -672,7 +672,8 @@ void InGameUI::xfer( Xfer *xfer )
 // ------------------------------------------------------------------------------------------------
 void InGameUI::loadPostProcess( void )
 {
-
+	// a loaded unit takes its grade from its experience, with no promotion to tell noteRankChanged
+	m_auraLeadersFound = FALSE;
 }  // end loadPostProcess
 
 // ------------------------------------------------------------------------------------------------
@@ -1515,6 +1516,39 @@ Bool InGameUI::isTimeFrozenWithoutTick( void ) const
 }
 
 //-------------------------------------------------------------------------------------------------
+/** The aura kinds an object gives at its grade that have a ring to show, into kinds; 0 for one that
+	* leads nobody. */
+//-------------------------------------------------------------------------------------------------
+static Int ringedAuraKinds( const Object *obj, Int kinds[ RANK_AURA_COUNT ] )
+{
+	const RankLadder *ladder = TheGlobalData->getRankLadder( obj->getTemplate() );
+	if( ladder == NULL )
+		return 0;
+	const Int grade = obj->getRankGrade();
+	Int count = 0;
+	for( Int kind = 0; kind < RANK_AURA_COUNT; ++kind )
+		if( ladder->aura( grade, (RankAura)kind ) > 0.0f && TheGlobalData->m_rankAuraRing[ kind ].valid() )
+			kinds[ count++ ] = kind;
+	return count;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A promotion or a demotion, after its tick.  One that now leads joins the leaders updateAuraRings
+	* looks at; one that no longer does leaves there. */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::noteRankChanged( ObjectID id )
+{
+	// before the first walk, or with no rings drawn at all, the walk finds it
+	if( !m_auraLeadersFound )
+		return;
+	const Object *obj = TheGameLogic->findObjectByID( id );
+	Int kinds[ RANK_AURA_COUNT ];
+	if( obj != NULL && ringedAuraKinds( obj, kinds ) > 0
+			&& std::find( m_auraLeaders.begin(), m_auraLeaders.end(), id ) == m_auraLeaders.end() )
+		m_auraLeaders.push_back( id );
+}
+
+//-------------------------------------------------------------------------------------------------
 /** A leader's auras on the ground: one ring for each kind it gives, under every leader on the map,
 	* selected or not, friend or enemy, while the player at this machine can see it: out of the fog and
 	* shroud, and not a stealthed unit it has not detected (the test the drawable's own shadow obeys).
@@ -1548,23 +1582,17 @@ void InGameUI::updateAuraRings()
 	Wanted wanted[ AURA_RING_MAX ];
 	Int wantedCount = 0;
 
-	for( Drawable *draw = TheGameClient->firstDrawable(); draw != NULL && local != NULL; draw = draw->getNextDrawable() )
+	// the rings a leader puts down, unless the local player cannot see it
+	auto want = [&]( Drawable *draw, const Object *obj )
 	{
-		const Object *obj = draw->getObject();
-		const RankLadder *ladder = obj ? TheGlobalData->getRankLadder( obj->getTemplate() ) : NULL;
-		if( ladder == NULL )
-			continue;
-		// the grade first: few units lead, and the fog asks the partition
-		const Int grade = obj->getRankGrade();
 		Int kinds[ RANK_AURA_COUNT ];
-		Int kindCount = 0;
-		for( Int kind = 0; kind < RANK_AURA_COUNT; ++kind )
-			if( ladder->aura( grade, (RankAura)kind ) > 0.0f && TheGlobalData->m_rankAuraRing[ kind ].valid() )
-				kinds[ kindCount++ ] = kind;
+		const Int kindCount = ringedAuraKinds( obj, kinds );
 		if( kindCount == 0 || obj->isEffectivelyDead() || obj->getContainedBy()
 				|| draw->isDrawableEffectivelyHidden() || draw->getFullyObscuredByShroud()
 				|| obj->getShroudedStatus( local->getPlayerIndex() ) != OBJECTSHROUD_CLEAR )
-			continue;
+			return;
+		const RankLadder *ladder = TheGlobalData->getRankLadder( obj->getTemplate() );
+		const Int grade = obj->getRankGrade();
 		for( Int k = 0; k < kindCount && wantedCount < AURA_RING_MAX; ++k )
 		{
 			const Int kind = kinds[ k ];
@@ -1574,6 +1602,48 @@ void InGameUI::updateAuraRings()
 			wanted[ wantedCount ].pos = *draw->getPosition();
 			++wantedCount;
 		}
+	};
+
+	// Who leads changes only with a grade, and a grade only with a promotion, which noteRankChanged
+	// hears of after its tick; one walk over every drawable finds those already leading.  The walk on
+	// every logic frame cost a third of a millisecond late in a match, nearly all of it on units nowhere
+	// near a leader's grade.
+	if( local != NULL )
+	{
+		if( !m_auraLeadersFound )
+		{
+			m_auraLeaders.clear();
+			for( Drawable *draw = TheGameClient->firstDrawable(); draw != NULL; draw = draw->getNextDrawable() )
+			{
+				Int kinds[ RANK_AURA_COUNT ];
+				if( draw->getObject() && ringedAuraKinds( draw->getObject(), kinds ) > 0 )
+					m_auraLeaders.push_back( draw->getObject()->getID() );
+			}
+			m_auraLeadersFound = TRUE;
+		}
+
+		// a leader gone from the game or back below a leader's grade leaves the list
+		static std::vector<Drawable *> leaders;
+		leaders.clear();
+		for( size_t i = 0; i < m_auraLeaders.size(); )
+		{
+			const Object *obj = TheGameLogic->findObjectByID( m_auraLeaders[ i ] );
+			Int kinds[ RANK_AURA_COUNT ];
+			if( obj == NULL || ringedAuraKinds( obj, kinds ) == 0 )
+			{
+				m_auraLeaders[ i ] = m_auraLeaders.back();
+				m_auraLeaders.pop_back();
+				continue;
+			}
+			if( obj->getDrawable() )
+				leaders.push_back( obj->getDrawable() );
+			++i;
+		}
+		// in the drawable list's order, newest first, as the walk met them, so the slots and the decals
+		// are made in the order they always were
+		std::sort( leaders.begin(), leaders.end(), []( const Drawable *a, const Drawable *b ) { return a->getID() > b->getID(); } );
+		for( size_t i = 0; i < leaders.size(); ++i )
+			want( leaders[ i ], leaders[ i ]->getObject() );
 	}
 
 	// a ring nobody wants goes; one whose radius changed goes too and comes back at the new size
@@ -2841,6 +2911,8 @@ void InGameUI::reset( void )
 	}
 	m_auraRingsFrame = ~0u;
 	m_auraRingsPlayer = NULL;
+	m_auraLeaders.clear();
+	m_auraLeadersFound = FALSE;
 
 	m_isQuitMenuVisible = FALSE;
 	TheObserverCamera.reset();
@@ -9809,7 +9881,11 @@ static struct
 static void gatherProductionList( Object *obj, void *userData )
 {
 	ProductionListGather *g = (ProductionListGather *)userData;
-	appendProducerQueue( obj, g->slot, g->count, g->total );
+	// the drawable knows whether its object has a production module, where asking the object walked
+	// every module of everything the player owns
+	Drawable *draw = obj->getDrawable();
+	if( draw == NULL || draw->hasProductionModule() )
+		appendProducerQueue( obj, g->slot, g->count, g->total );
 	appendStructureUnderConstruction( obj, g->slot, g->count, g->total );
 }
 

@@ -1003,6 +1003,7 @@ public:  // ********************************************************************
 	virtual Bool getInputEnabled( void ) { LOGIC_CENSUS( CENSUS_CLIENT_READ ); return m_inputEnabled; }	///< Get the current input status
 
 	virtual void disregardDrawable( Drawable *draw );				///< Drawable is being destroyed, clean up any UI elements associated with it
+	void noteRankChanged( ObjectID id );										///< after the tick that moved its grade: it may lead now (updateAuraRings)
 
 	virtual void preDraw( void );														///< Logic which needs to occur before the UI renders
 	virtual void draw( void ) = 0;													///< Render the in-game user interface
@@ -1568,6 +1569,8 @@ protected:
 	UnsignedInt									m_auraRingsFrame = ~0u;		///< the logic frame the rings were last laid for
 	const Player							 *m_auraRingsPlayer = NULL;	///< and the local player they were laid for
 	Int													m_auraRingsShroudIndex = -1;	///< and the player whose fog the screen showed
+	std::vector<ObjectID>				m_auraLeaders;						///< everything that gave an aura at its grade when last looked at
+	Bool												m_auraLeadersFound = FALSE;	///< m_auraLeaders came from a walk over every drawable
 
 	//Floating Text Data
 	FloatingTextList						m_floatingTextList;				///< Our list of floating text
