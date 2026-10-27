@@ -345,6 +345,19 @@ public:
 	// Where the scene is going now: its own target, or a screen filter's texture drawn over the
 	// scene's depth; NULL for a mirror or the sun's map.
 	ID3D11RenderTargetView * Scene_Target() const;
+	// The depth that goes with Scene_Target: the scene's own, multisampled with the scene, or the
+	// single-sample one a screen filter's texture is drawn over.
+	ID3D11DepthStencilView * Scene_Depth_Target() const;
+
+	// With a multisampled scene, its depth resolved into the device's single-sample depth buffer,
+	// which is what Get_Depth_Texture reads and what every pass reading the scene's depth samples:
+	// a full screen pass taking sample 0 of each pixel, since a depth buffer cannot be resolved the
+	// way a colour target is.  Only while the draws go into the scene, and only when a clear or a
+	// draw wrote its depth since the last one; anything that reads the depth calls it first.
+	void Resolve_Scene_Depth();
+	// Makes that pass now; false when the device refuses it, and a multisampled scene without it
+	// would leave every reader of the depth an unwritten buffer (Direct3D11_Create drops to one sample).
+	bool Make_Depth_Resolve();
 
 	// The scene's target, its depth and the draws' viewport bound again after a pass that bound
 	// its own on the context mid-scene (the post chain's occlusion).
@@ -604,7 +617,7 @@ private:
 	void Bind_State_Objects();
 	void Release_Cached();
 
-	ID3D11BlendState * Blend_State(bool glow);
+	ID3D11BlendState * Blend_State(bool glow, bool coverage);
 	ID3D11DepthStencilState * Depth_Stencil_State();
 	ID3D11RasterizerState * Rasterizer_State();
 	ID3D11SamplerState * Sampler_State(unsigned sampler);
@@ -721,6 +734,11 @@ private:
 	float AdditiveGain;
 	bool GlowDraw;
 	bool Additive_Glow() const;
+	// An alpha tested draw without blending into the multisampled scene covers the samples its
+	// alpha says, which smooths a leaf's or a fence's cut edge the way the samples smooth a
+	// triangle's.  Never into a single-sample target, where it would only dither, never for a test
+	// that keeps the low alphas, and never under Classic, whose fences are -d3d9's hard ones.
+	bool Alpha_To_Coverage() const;
 	ID3D11ShaderResourceView * SceneStandIn;
 	// A stage samples the target the draw is going into: the heat haze, which bends a picture that
 	// already took its shadows, and would take them a second time.
@@ -780,6 +798,15 @@ private:
 	bool SceneDepthRefused;		///< the device would not make the copy; no draw fades again
 	unsigned FrameDepthCopies;
 	void Release_Scene_Depth();
+	// Resolve_Scene_Depth's pass (Make_Depth_Resolve); refused for good if the device cannot.
+	// Stale while a clear or a draw into the scene wrote the multisampled depth since the last one.
+	ID3D11VertexShader * DepthResolveVertexShader;
+	ID3D11PixelShader * DepthResolvePixelShader;
+	ID3D11DepthStencilState * DepthResolveState;
+	ID3D11RasterizerState * DepthResolveRasterizer;
+	bool DepthResolveStale;
+	bool DepthResolveRefused;
+	void Release_Depth_Resolve();
 	bool Make_Smoke_Map();
 	void Release_Smoke_Map();
 
@@ -1036,6 +1063,7 @@ private:
 	D3D11_BLEND_DESC LastBlendDescription;
 	ID3D11BlendState * LastBlendState;
 	bool LastBlendGlow;
+	bool LastBlendCoverage;
 	D3D11_DEPTH_STENCIL_DESC LastDepthStencilDescription;
 	ID3D11DepthStencilState * LastDepthStencilState;
 	D3D11_RASTERIZER_DESC LastRasterizerDescription;

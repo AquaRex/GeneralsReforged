@@ -854,9 +854,7 @@ static void sizeWindowToClient( Int mode, Int width, Int height )
 
 //=============================================================================
 // GlobalData carries the whole chain by default and -dx11post replaces it, "off" included.  FXAA is
-// always in the default: the Direct3D 11 swap chain takes one sample, and a multisampled scene
-// target would break the screen filters, which redirect the scene into a texture of the same size
-// and share the back buffer's depth with it.
+// always in the default, and the chain leaves it out by itself while the scene is multisampled.
 static void pushDirect3D11PostChain( void )
 {
 	// Classic graphics is the game's own picture, which is what -d3d9 draws: hard edged sprites.
@@ -1150,10 +1148,11 @@ void W3DDisplay::init( void )
 	// Multisampling has to be known before the device exists, and WW3D2 cannot read GlobalData, so
 	// the sample count is handed to it here.  msaaSamplesForLevel turns the stored index into 0, 2,
 	// 4, 8 or 16; the device degrades an unsupported one on its own.  While Direct3D 11 presents,
-	// the Direct3D 9 frame is never shown, so its samples would be memory spent on nothing; the
-	// Direct3D 11 frame is smoothed by the FXAA in its default chain instead.
+	// the Direct3D 9 frame is never shown, so its samples would be memory spent on nothing: the
+	// count goes to the Direct3D 11 scene instead, which drops its FXAA while it has samples.
 	DX8Wrapper::Set_Requested_MultiSample_Level( TheGlobalData->m_direct3D11
 		? 0 : msaaSamplesForLevel( TheGlobalData->m_msaaLevel ) );
+	Direct3D11_Set_Sample_Count( msaaSamplesForLevel( TheGlobalData->m_msaaLevel ) );
 	DX8Wrapper::Set_Requested_VSync( TheGlobalData->m_vsync != FALSE );
 	Direct3D11_Set_VSync( TheGlobalData->m_vsync != FALSE );
 	DX8Wrapper::Set_Requested_Monitor( chosenMonitor().device );
@@ -1248,8 +1247,9 @@ void W3DDisplay::init( void )
 	}
 #endif
 	// multisampling is opt-in with "-msaa" / "-msaa N" and silently degrades to whatever the
-	// device supports, so log what was actually granted
-	DEBUG_LOG(("W3DDisplay::init - multisampling: %ux\n", DX8Wrapper::Get_MultiSample_Level()));
+	// device supports, so log what was actually granted, by whichever device presents
+	DEBUG_LOG(("W3DDisplay::init - multisampling: %ux\n", Direct3D11_Present_Is_Enabled()
+		? Direct3D11_Sample_Count() : DX8Wrapper::Get_MultiSample_Level()));
 #if defined(_WIN32)
 	DEBUG_LOG(("W3DDisplay::init - vsync: %s\n", DX8Wrapper::Get_Requested_VSync() ? "on" : "off"));
 #else

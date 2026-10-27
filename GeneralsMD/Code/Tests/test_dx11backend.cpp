@@ -28,6 +28,7 @@
 #include "test_harness.h"
 
 #include "dx11backend.h"
+#include "dx11post.h"
 #include "dx11resource.h"
 #include "dx11water.h"
 #include "Platform/HazardCloudCore.h"
@@ -39,6 +40,7 @@
 #include <chrono>
 #include <thread>
 #include <vector>
+#include <windows.h>
 
 static const unsigned TARGET_SIZE = 64;
 static const DWORD BACKEND_FVF = D3DFVF_XYZ|D3DFVF_NORMAL|D3DFVF_TEX2|D3DFVF_DIFFUSE;
@@ -1757,4 +1759,261 @@ TEST(dx11backend_the_modern_water_constants_are_built_from_the_registers)
 	CHECK(block.HullParameters[0] == 0.0f);
 	WaterConstants::FillVisual(block, registers, visual);
 	CHECK(visual.VisualHullMeta[0][3] == 0.0f);
+}
+
+// A multisampled scene the way the game draws one: four samples asked of the device, the post
+// chain's target and the scene's depth made at four, the backend drawing into them, the chain
+// resolving the colour onto the swap chain and Resolve_Scene_Depth the depth into the buffer every
+// depth reader samples.  The left half is an opaque quad at depth 0.5 and has to come back as the
+// vertex colour and as 0.5.  The right half is an alpha tested white quad whose alpha climbs across
+// it and a little up it (0.75 of the width, 0.25 of the height), tested GREATER than a half, so the
+// cut is a slanted line.  A plain clip cuts it with no grey at all; the alpha itself taken as
+// coverage greys every pixel past the cut, which is what thinned the willows; the sharpened alpha
+// greys the pixel or two each row's cut passes through and covers the rest.
+TEST(dx11backend_a_multisampled_scene_resolves_its_colour_and_depth_and_covers_by_alpha)
+{
+	HWND window = CreateWindowExA(0, "STATIC", "dx11msaa", WS_OVERLAPPED, 0, 0, TARGET_SIZE,
+		TARGET_SIZE, NULL, NULL, GetModuleHandle(NULL), NULL);
+	CHECK(window != NULL);
+	DX11DeviceClass device;
+	device.Request_Debug_Layer();
+	device.Request_Sample_Count(4);
+	CHECK(device.Create(window, TARGET_SIZE, TARGET_SIZE));
+	CHECK_EQ(device.Get_Sample_Count(), 4u);
+	ID3D11Device * d3d = device.Get_Device();
+	ID3D11DeviceContext * context = device.Get_Context();
+
+	// No chain at all: a multisampled scene still goes into the post target and out through a copy.
+	DX11PostProcessClass post;
+	CHECK(post.Initialise(&device));
+	post.Begin_Frame();
+	device.Set_Scene_View(post.Scene_View());
+	CHECK(device.Scene_Is_Multisampled());
+
+	DX11BackendClass backend;
+	CHECK(backend.Initialise(&device));
+	backend.Begin_Scene();
+	const float black[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+	backend.Clear(true, true, black);
+
+	// White at alpha 0, 0.25, 1 and 0.75: bottom left, top left, top right, bottom right, one plane.
+	const BackendVertex halves[8] = {
+		{ { -1.0f, -1.0f, 0.5f }, { 0.0f, 0.0f, 1.0f }, VERTEX_COLOUR, { 0.0f, 0.0f }, { 0.0f, 0.0f } },
+		{ { -1.0f,  1.0f, 0.5f }, { 0.0f, 0.0f, 1.0f }, VERTEX_COLOUR, { 0.0f, 0.0f }, { 0.0f, 0.0f } },
+		{ {  0.0f,  1.0f, 0.5f }, { 0.0f, 0.0f, 1.0f }, VERTEX_COLOUR, { 0.0f, 0.0f }, { 0.0f, 0.0f } },
+		{ {  0.0f, -1.0f, 0.5f }, { 0.0f, 0.0f, 1.0f }, VERTEX_COLOUR, { 0.0f, 0.0f }, { 0.0f, 0.0f } },
+		{ {  0.0f, -1.0f, 0.5f }, { 0.0f, 0.0f, 1.0f }, 0x00ffffff, { 0.0f, 0.0f }, { 0.0f, 0.0f } },
+		{ {  0.0f,  1.0f, 0.5f }, { 0.0f, 0.0f, 1.0f }, 0x40ffffff, { 0.0f, 0.0f }, { 0.0f, 0.0f } },
+		{ {  1.0f,  1.0f, 0.5f }, { 0.0f, 0.0f, 1.0f }, 0xffffffff, { 0.0f, 0.0f }, { 0.0f, 0.0f } },
+		{ {  1.0f, -1.0f, 0.5f }, { 0.0f, 0.0f, 1.0f }, 0xbfffffff, { 0.0f, 0.0f }, { 0.0f, 0.0f } },
+	};
+	ID3D11Buffer * vertices = NULL;
+	CHECK(DX11Resource_Create_Vertex_Buffer(d3d, sizeof(halves), D3DPOOL_MANAGED, 0, halves, &vertices));
+	ID3D11Buffer * indices = NULL;
+	CHECK(DX11Resource_Create_Index_Buffer(d3d, sizeof(QUAD_INDICES), D3DPOOL_MANAGED, 0,
+		QUAD_INDICES, &indices));
+
+	configure_unlit_pass_through(backend);
+	backend.Set_Render_State(D3DRS_ZENABLE, D3DZB_TRUE);
+	backend.Set_Render_State(D3DRS_ZWRITEENABLE, TRUE);
+	backend.Set_Render_State(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
+	backend.Set_Stream_Source(vertices, sizeof(BackendVertex), 0);
+	backend.Set_Indices(indices, DXGI_FORMAT_R16_UINT);
+	CHECK(backend.Draw_Indexed_Triangles(6, 0, 0));
+	backend.Set_Render_State(D3DRS_ALPHATESTENABLE, TRUE);
+	backend.Set_Render_State(D3DRS_ALPHAREF, 0x80);
+	backend.Set_Render_State(D3DRS_ALPHAFUNC, D3DCMP_GREATER);
+	CHECK(backend.Draw_Indexed_Triangles(6, 0, 4));
+
+	backend.Resolve_Scene_Depth();
+	CHECK(post.Run_Chain());
+
+	// The colour, off the swap chain.
+	ID3D11Resource * back_buffer = NULL;
+	device.Get_Back_Buffer_View()->GetResource(&back_buffer);
+	D3D11_TEXTURE2D_DESC staging_description;
+	static_cast<ID3D11Texture2D *>(back_buffer)->GetDesc(&staging_description);
+	staging_description.Usage = D3D11_USAGE_STAGING;
+	staging_description.BindFlags = 0;
+	staging_description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+	staging_description.MiscFlags = 0;
+	ID3D11Texture2D * staging = NULL;
+	CHECK(SUCCEEDED(d3d->CreateTexture2D(&staging_description, NULL, &staging)));
+	context->CopyResource(staging, back_buffer);
+	D3D11_MAPPED_SUBRESOURCE mapped;
+	CHECK(SUCCEEDED(context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped)));
+	const unsigned char * pixels = static_cast<const unsigned char *>(mapped.pData);
+	const unsigned char * opaque = pixels + mapped.RowPitch * (TARGET_SIZE / 2) + (TARGET_SIZE / 4) * 4;
+	CHECK_EQ(opaque[0], EXPECTED_BLUE);
+	CHECK_EQ(opaque[1], EXPECTED_GREEN);
+	CHECK_EQ(opaque[2], EXPECTED_RED);
+	// Row by row across the right half: black before the cut, white past it, grey only where it
+	// passes.  Under a tenth of the way across every row is short of the reference, and past nine
+	// tenths every row is well over it.
+	unsigned grey = 0;
+	unsigned widest = 0;
+	unsigned lit_early = 0;
+	unsigned dark_late = 0;
+	for (unsigned y = TARGET_SIZE / 8; y < TARGET_SIZE * 7 / 8; ++y) {
+		unsigned row_grey = 0;
+		for (unsigned x = TARGET_SIZE / 2; x < TARGET_SIZE; ++x) {
+			const unsigned value = pixels[mapped.RowPitch * y + x * 4];
+			row_grey += (value > 8 && value < 247) ? 1u : 0u;
+		}
+		grey += row_grey;
+		widest = (row_grey > widest) ? row_grey : widest;
+		lit_early += (pixels[mapped.RowPitch * y + (TARGET_SIZE * 21 / 40) * 4] > 8) ? 1u : 0u;
+		dark_late += (pixels[mapped.RowPitch * y + (TARGET_SIZE * 39 / 40) * 4] < 247) ? 1u : 0u;
+	}
+	if (grey < 8 || widest > 2 || lit_early != 0 || dark_late != 0) {
+		printf("  alpha tested half: %u grey pixels, at most %u a row, %u lit early, %u dark late\n",
+			grey, widest, lit_early, dark_late);
+	}
+	CHECK(grey >= 8);
+	CHECK(widest <= 2);
+	CHECK_EQ(lit_early, 0u);
+	CHECK_EQ(dark_late, 0u);
+	context->Unmap(staging, 0);
+
+	// The depth, off the single-sample buffer the resolve wrote.  D24: the low 24 bits.
+	ID3D11Resource * depth = NULL;
+	device.Get_Depth_Texture()->GetResource(&depth);
+	D3D11_TEXTURE2D_DESC depth_description;
+	static_cast<ID3D11Texture2D *>(depth)->GetDesc(&depth_description);
+	depth_description.Usage = D3D11_USAGE_STAGING;
+	depth_description.BindFlags = 0;
+	depth_description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+	depth_description.MiscFlags = 0;
+	ID3D11Texture2D * depth_staging = NULL;
+	CHECK(SUCCEEDED(d3d->CreateTexture2D(&depth_description, NULL, &depth_staging)));
+	context->CopyResource(depth_staging, depth);
+	CHECK(SUCCEEDED(context->Map(depth_staging, 0, D3D11_MAP_READ, 0, &mapped)));
+	const unsigned texel = *reinterpret_cast<const unsigned *>(static_cast<const unsigned char *>(mapped.pData)
+		+ mapped.RowPitch * (TARGET_SIZE / 2) + (TARGET_SIZE / 4) * 4);
+	const float resolved = static_cast<float>(texel & 0xffffff) / 16777215.0f;
+	if (fabsf(resolved - 0.5f) > 0.001f) {
+		printf("  resolved depth %f, wanted 0.5\n", resolved);
+	}
+	CHECK(fabsf(resolved - 0.5f) <= 0.001f);
+	context->Unmap(depth_staging, 0);
+
+	depth_staging->Release();
+	depth->Release();
+	staging->Release();
+	back_buffer->Release();
+	indices->Release();
+	vertices->Release();
+	backend.Shutdown();
+	post.Shutdown();
+	device.Release();
+	DestroyWindow(window);
+}
+
+// The black and white view, the motion blur and the cross fade bind a texture the size of the screen
+// right after the frame's clear and draw the scene into it over the single-sample depth (Depth_For).
+// With multisampling the scene's clear lands on the multisampled depth, so the frame's clear has to
+// take the single-sample one too: here it holds the last frame's resolve at 0.2, and a quad at 0.5
+// drawn into the filter's texture fails the depth test and leaves the texture black without it.
+TEST(dx11backend_a_screen_filter_after_a_multisampled_clear_draws_over_a_cleared_depth)
+{
+	HWND window = CreateWindowExA(0, "STATIC", "dx11msaafilter", WS_OVERLAPPED, 0, 0, TARGET_SIZE,
+		TARGET_SIZE, NULL, NULL, GetModuleHandle(NULL), NULL);
+	CHECK(window != NULL);
+	DX11DeviceClass device;
+	device.Request_Debug_Layer();
+	device.Request_Sample_Count(4);
+	CHECK(device.Create(window, TARGET_SIZE, TARGET_SIZE));
+	CHECK_EQ(device.Get_Sample_Count(), 4u);
+	ID3D11Device * d3d = device.Get_Device();
+	ID3D11DeviceContext * context = device.Get_Context();
+
+	DX11PostProcessClass post;
+	CHECK(post.Initialise(&device));
+	post.Begin_Frame();
+	device.Set_Scene_View(post.Scene_View());
+	CHECK(device.Scene_Is_Multisampled());
+
+	DX11BackendClass backend;
+	CHECK(backend.Initialise(&device));
+	backend.Begin_Scene();
+
+	const BackendVertex near_then_middle[8] = {
+		{ { -1.0f, -1.0f, 0.2f }, { 0.0f, 0.0f, 1.0f }, VERTEX_COLOUR, { 0.0f, 0.0f }, { 0.0f, 0.0f } },
+		{ { -1.0f,  1.0f, 0.2f }, { 0.0f, 0.0f, 1.0f }, VERTEX_COLOUR, { 0.0f, 0.0f }, { 0.0f, 0.0f } },
+		{ {  1.0f,  1.0f, 0.2f }, { 0.0f, 0.0f, 1.0f }, VERTEX_COLOUR, { 0.0f, 0.0f }, { 0.0f, 0.0f } },
+		{ {  1.0f, -1.0f, 0.2f }, { 0.0f, 0.0f, 1.0f }, VERTEX_COLOUR, { 0.0f, 0.0f }, { 0.0f, 0.0f } },
+		{ { -1.0f, -1.0f, 0.5f }, { 0.0f, 0.0f, 1.0f }, VERTEX_COLOUR, { 0.0f, 0.0f }, { 0.0f, 0.0f } },
+		{ { -1.0f,  1.0f, 0.5f }, { 0.0f, 0.0f, 1.0f }, VERTEX_COLOUR, { 0.0f, 0.0f }, { 0.0f, 0.0f } },
+		{ {  1.0f,  1.0f, 0.5f }, { 0.0f, 0.0f, 1.0f }, VERTEX_COLOUR, { 0.0f, 0.0f }, { 0.0f, 0.0f } },
+		{ {  1.0f, -1.0f, 0.5f }, { 0.0f, 0.0f, 1.0f }, VERTEX_COLOUR, { 0.0f, 0.0f }, { 0.0f, 0.0f } },
+	};
+	ID3D11Buffer * vertices = NULL;
+	CHECK(DX11Resource_Create_Vertex_Buffer(d3d, sizeof(near_then_middle), D3DPOOL_MANAGED, 0,
+		near_then_middle, &vertices));
+	ID3D11Buffer * indices = NULL;
+	CHECK(DX11Resource_Create_Index_Buffer(d3d, sizeof(QUAD_INDICES), D3DPOOL_MANAGED, 0,
+		QUAD_INDICES, &indices));
+	configure_unlit_pass_through(backend);
+	backend.Set_Render_State(D3DRS_ZENABLE, D3DZB_TRUE);
+	backend.Set_Render_State(D3DRS_ZWRITEENABLE, TRUE);
+	backend.Set_Render_State(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
+	backend.Set_Stream_Source(vertices, sizeof(BackendVertex), 0);
+	backend.Set_Indices(indices, DXGI_FORMAT_R16_UINT);
+
+	// Last frame: the near quad, resolved into the single-sample depth.
+	const float black[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+	backend.Clear(true, true, black);
+	CHECK(backend.Draw_Indexed_Triangles(6, 0, 0));
+	backend.Resolve_Scene_Depth();
+
+	// This frame: the clear, then the filter's texture and the quad behind last frame's depth.
+	backend.Clear(true, true, black);
+	D3D11_TEXTURE2D_DESC target_description;
+	memset(&target_description, 0, sizeof(target_description));
+	target_description.Width = TARGET_SIZE;
+	target_description.Height = TARGET_SIZE;
+	target_description.MipLevels = 1;
+	target_description.ArraySize = 1;
+	target_description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+	target_description.SampleDesc.Count = 1;
+	target_description.Usage = D3D11_USAGE_DEFAULT;
+	target_description.BindFlags = D3D11_BIND_RENDER_TARGET;
+	ID3D11Texture2D * target = NULL;
+	CHECK(SUCCEEDED(d3d->CreateTexture2D(&target_description, NULL, &target)));
+	ID3D11RenderTargetView * target_view = NULL;
+	CHECK(SUCCEEDED(d3d->CreateRenderTargetView(target, NULL, &target_view)));
+	backend.Set_Render_Target(target_view);
+	backend.Clear(true, false, black);
+	CHECK(backend.Draw_Indexed_Triangles(6, 0, 4));
+	backend.Set_Render_Target(NULL);
+
+	D3D11_TEXTURE2D_DESC staging_description = target_description;
+	staging_description.Usage = D3D11_USAGE_STAGING;
+	staging_description.BindFlags = 0;
+	staging_description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+	ID3D11Texture2D * staging = NULL;
+	CHECK(SUCCEEDED(d3d->CreateTexture2D(&staging_description, NULL, &staging)));
+	context->CopyResource(staging, target);
+	D3D11_MAPPED_SUBRESOURCE mapped;
+	CHECK(SUCCEEDED(context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped)));
+	const unsigned char * centre = static_cast<const unsigned char *>(mapped.pData)
+		+ mapped.RowPitch * (TARGET_SIZE / 2) + (TARGET_SIZE / 2) * 4;
+	if (centre[0] != EXPECTED_BLUE) {
+		printf("  filter texture centre bgra %02x %02x %02x %02x\n", centre[0], centre[1], centre[2],
+			centre[3]);
+	}
+	CHECK_EQ(centre[0], EXPECTED_BLUE);
+	CHECK_EQ(centre[1], EXPECTED_GREEN);
+	CHECK_EQ(centre[2], EXPECTED_RED);
+	context->Unmap(staging, 0);
+
+	staging->Release();
+	target_view->Release();
+	target->Release();
+	indices->Release();
+	vertices->Release();
+	backend.Shutdown();
+	post.Shutdown();
+	device.Release();
+	DestroyWindow(window);
 }

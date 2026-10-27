@@ -360,6 +360,12 @@ DX11BackendClass::DX11BackendClass()
 	SceneDepthStale = true;
 	SceneDepthRefused = false;
 	FrameDepthCopies = 0;
+	DepthResolveVertexShader = NULL;
+	DepthResolvePixelShader = NULL;
+	DepthResolveState = NULL;
+	DepthResolveRasterizer = NULL;
+	DepthResolveStale = true;
+	DepthResolveRefused = false;
 	DrawEffect = DRAW_EFFECT_NONE;
 	memset(DrawEffectNumbers, 0, sizeof(DrawEffectNumbers));
 	SceneColourCopy = NULL;
@@ -603,6 +609,7 @@ void DX11BackendClass::Shutdown()
 	Release_Smoke_Map();
 	Release_Shadow_Casters();
 	Release_Scene_Depth();
+	Release_Depth_Resolve();
 	Release_Scene_Colour();
 	RenderStates.Set_Shadow_Caster_Pass(false);
 	Note_Shadow_State_Changed();
@@ -1698,6 +1705,11 @@ ID3D11RenderTargetView * DX11BackendClass::Scene_Target() const
 	return CurrentDepth == Device->Get_Depth_Stencil_View() ? CurrentTarget : NULL;
 }
 
+ID3D11DepthStencilView * DX11BackendClass::Scene_Depth_Target() const
+{
+	return (CurrentTarget != NULL) ? CurrentDepth : Device->Get_Scene_Depth_View();
+}
+
 /** The black and white view, the motion blur and the cross fade draw the whole scene into a target
 		of their own, and Draw_Effect refuses every look there; asked first, the scene keeps the heat
 		vision and the disabled tint for those frames instead of drawing the object plain. */
@@ -1764,10 +1776,10 @@ void DX11BackendClass::Release_Scene_Colour()
 }
 
 /** The texture the cloak's copy of the scene goes into, made at the scene target's own size and
-		format and made again when a resize changes either.  A multisampled target cannot be copied
-		into a texture that is read by pixel, so that refuses the cloak.  Asked by the scene for each
-		cloaked object before it decides on the look (Takes_Draw_Effect), so a refusal is known
-		before the first such object goes without its heat vision. */
+		format and made again when a resize changes either.  One sample: a multisampled scene is
+		resolved into it.  Asked by the scene for each cloaked object before it decides on the look
+		(Takes_Draw_Effect), so a refusal is known before the first such object goes without its heat
+		vision. */
 bool DX11BackendClass::Make_Scene_Colour()
 {
 	if (SceneColourRefused) {
@@ -1790,6 +1802,8 @@ bool DX11BackendClass::Make_Scene_Colour()
 		description.MiscFlags = 0;
 		description.Usage = D3D11_USAGE_DEFAULT;
 		description.CPUAccessFlags = 0;
+		description.SampleDesc.Count = 1;
+		description.SampleDesc.Quality = 0;
 		// Read the copy the way the scene is written, which also covers a typeless surface.
 		D3D11_RENDER_TARGET_VIEW_DESC written;
 		Device->Get_Scene_View()->GetDesc(&written);
@@ -1798,8 +1812,7 @@ bool DX11BackendClass::Make_Scene_Colour()
 		view.Format = written.Format;
 		view.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
 		view.Texture2D.MipLevels = 1;
-		if (description.SampleDesc.Count > 1
-			|| FAILED(Device->Get_Device()->CreateTexture2D(&description, NULL, &SceneColourCopy))
+		if (FAILED(Device->Get_Device()->CreateTexture2D(&description, NULL, &SceneColourCopy))
 			|| FAILED(Device->Get_Device()->CreateShaderResourceView(SceneColourCopy, &view,
 				&SceneColourCopyView))) {
 			Note_Refusal("the device refused a copy of the scene's colour for the cloak");
@@ -1824,7 +1837,7 @@ bool DX11BackendClass::Take_Scene_Colour()
 	}
 	ID3D11Resource * source = NULL;
 	Device->Get_Scene_View()->GetResource(&source);
-	Device->Get_Context()->CopyResource(SceneColourCopy, source);
+	DX11Resource_Copy_Readable(Device->Get_Context(), SceneColourCopy, source);
 	SceneColourStale = false;
 	++FrameDepthCopies;		// counted with the depth copies, so DX11 FRAME COST sees it
 	source->Release();
@@ -1899,6 +1912,7 @@ void DX11BackendClass::Take_Scene_Depth()
 	if (SceneDepthRefused || !SoftParticlesAllowed || Device == NULL) {
 		return;
 	}
+	Resolve_Scene_Depth();
 	ID3D11ShaderResourceView * const source_view = Device->Get_Depth_Texture();
 	if (source_view == NULL) {
 		return;
@@ -1952,6 +1966,127 @@ unsigned DX11BackendClass::Take_Frame_Depth_Copies()
 	const unsigned copies = FrameDepthCopies;
 	FrameDepthCopies = 0;
 	return copies;
+}
+
+// A triangle over the whole target out of the vertex number, and each pixel's first sample written
+// as its depth.  The test is ALWAYS, so the triangle's own depth never decides anything.
+static const char DEPTH_RESOLVE_VERTEX_PROGRAM[] =
+	"float4 main(uint vertex : SV_VertexID) : SV_Position\n"
+	"{\n"
+	"    float2 corner = float2((vertex << 1) & 2, vertex & 2);\n"
+	"    return float4(corner * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);\n"
+	"}\n";
+
+static const char DEPTH_RESOLVE_PIXEL_PROGRAM[] =
+	"Texture2DMS<float> SceneDepth : register(t0);\n"
+	"float main(float4 position : SV_Position) : SV_Depth\n"
+	"{\n"
+	"    return SceneDepth.Load(int2(position.xy), 0);\n"
+	"}\n";
+
+bool DX11BackendClass::Make_Depth_Resolve()
+{
+	if (DepthResolvePixelShader != NULL) {
+		return true;
+	}
+	if (DepthResolveRefused) {
+		return false;
+	}
+	ID3D11Device * device = Device->Get_Device();
+
+	D3D11_DEPTH_STENCIL_DESC depth;
+	memset(&depth, 0, sizeof(depth));
+	depth.DepthEnable = TRUE;
+	depth.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+	depth.DepthFunc = D3D11_COMPARISON_ALWAYS;
+
+	D3D11_RASTERIZER_DESC rasterizer;
+	memset(&rasterizer, 0, sizeof(rasterizer));
+	rasterizer.FillMode = D3D11_FILL_SOLID;
+	rasterizer.CullMode = D3D11_CULL_NONE;
+	rasterizer.DepthClipEnable = TRUE;
+
+	// Shader model 5: 4.0 wants the sample count in the texture's type.
+	std::vector<unsigned char> vertex_code;
+	std::vector<unsigned char> pixel_code;
+	const bool made = SUCCEEDED(device->CreateDepthStencilState(&depth, &DepthResolveState))
+		&& SUCCEEDED(device->CreateRasterizerState(&rasterizer, &DepthResolveRasterizer))
+		&& Compile_Program(DEPTH_RESOLVE_VERTEX_PROGRAM, "depthresolve", VERTEX_PROFILE, vertex_code)
+		&& Compile_Program(DEPTH_RESOLVE_PIXEL_PROGRAM, "depthresolve", "ps_5_0", pixel_code)
+		&& SUCCEEDED(device->CreateVertexShader(&vertex_code[0], vertex_code.size(), NULL,
+			&DepthResolveVertexShader))
+		&& SUCCEEDED(device->CreatePixelShader(&pixel_code[0], pixel_code.size(), NULL,
+			&DepthResolvePixelShader));
+	if (!made) {
+		Note_Refusal("the device would not make the pass that resolves the multisampled scene's depth");
+		Release_Depth_Resolve();
+		DepthResolveRefused = true;
+		return false;
+	}
+	return true;
+}
+
+void DX11BackendClass::Release_Depth_Resolve()
+{
+	IUnknown ** const held[] = {
+		(IUnknown **)&DepthResolveVertexShader, (IUnknown **)&DepthResolvePixelShader,
+		(IUnknown **)&DepthResolveState, (IUnknown **)&DepthResolveRasterizer,
+	};
+	for (unsigned index = 0; index < sizeof(held) / sizeof(held[0]); ++index) {
+		if (*held[index] != NULL) {
+			(*held[index])->Release();
+			*held[index] = NULL;
+		}
+	}
+	DepthResolveRefused = false;
+	DepthResolveStale = true;
+}
+
+void DX11BackendClass::Resolve_Scene_Depth()
+{
+	if (!DepthResolveStale || !Draws_Into_Scene() || !Device->Scene_Is_Multisampled()
+			|| !Make_Depth_Resolve()) {
+		return;
+	}
+	DepthResolveStale = false;
+
+	ID3D11DeviceContext * context = Device->Get_Context();
+	// The draws' viewport carries Direct3D 9's half pixel (Set_Viewport); this pass wants each
+	// pixel's own sample, so it sets a plain one and puts the draws' back afterwards.
+	D3D11_VIEWPORT saved;
+	UINT saved_count = 1;
+	context->RSGetViewports(&saved_count, &saved);
+	D3D11_VIEWPORT viewport;
+	viewport.TopLeftX = 0.0f;
+	viewport.TopLeftY = 0.0f;
+	viewport.Width = static_cast<float>(Device->Get_Width());
+	viewport.Height = static_cast<float>(Device->Get_Height());
+	viewport.MinDepth = 0.0f;
+	viewport.MaxDepth = 1.0f;
+
+	context->OMSetRenderTargets(0, NULL, Device->Get_Depth_Stencil_View());
+	context->RSSetViewports(1, &viewport);
+	context->RSSetState(DepthResolveRasterizer);
+	context->OMSetDepthStencilState(DepthResolveState, 0);
+	context->OMSetBlendState(NULL, NULL, 0xffffffff);
+	context->IASetInputLayout(NULL);
+	context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	context->VSSetShader(DepthResolveVertexShader, NULL, 0);
+	context->PSSetShader(DepthResolvePixelShader, NULL, 0);
+	ID3D11ShaderResourceView * samples = Device->Get_Multisampled_Depth_Texture();
+	context->PSSetShaderResources(0, 1, &samples);
+	context->Draw(3, 0);
+	// Unbound before the same surface goes back on as the scene's depth.
+	samples = NULL;
+	context->PSSetShaderResources(0, 1, &samples);
+
+	ID3D11RenderTargetView * target = Device->Get_Scene_View();
+	context->OMSetRenderTargets(1, &target, Device->Get_Scene_Depth_View());
+	if (saved_count == 1) {
+		context->RSSetViewports(1, &saved);
+	}
+	Forget_Bindings();
+	++FrameDepthCopies;
 }
 
 void DX11BackendClass::Set_Blast_Lights(const float * lights, unsigned count)
@@ -2750,7 +2885,7 @@ void DX11BackendClass::Begin_Scene()
 		return;
 	}
 
-	Device->Get_Context()->OMSetRenderTargets(1, &target, Device->Get_Depth_Stencil_View());
+	Device->Get_Context()->OMSetRenderTargets(1, &target, Device->Get_Scene_Depth_View());
 	Forget_Bindings();
 	Set_Viewport(0, 0, Device->Get_Width(), Device->Get_Height());
 }
@@ -2828,7 +2963,7 @@ void DX11BackendClass::Set_Render_Target(ID3D11RenderTargetView * target)
 		ID3D11RenderTargetView * back_buffer = Device->Get_Scene_View();
 		if (back_buffer != NULL) {
 			Device->Get_Context()->OMSetRenderTargets(1, &back_buffer,
-				Device->Get_Depth_Stencil_View());
+				Device->Get_Scene_Depth_View());
 			Forget_Bindings();
 			Set_Viewport(0, 0, Device->Get_Width(), Device->Get_Height());
 		}
@@ -2902,8 +3037,7 @@ void DX11BackendClass::Clear(bool colour, bool depth, const float colour_value[4
 	// target and then draws into it would otherwise clear the picture instead.
 	ID3D11RenderTargetView * target = (CurrentTarget != NULL)
 		? CurrentTarget : Device->Get_Scene_View();
-	ID3D11DepthStencilView * depth_view = (CurrentTarget != NULL)
-		? CurrentDepth : Device->Get_Depth_Stencil_View();
+	ID3D11DepthStencilView * depth_view = Scene_Depth_Target();
 
 	if (colour && target != NULL) {
 		Device->Get_Context()->ClearRenderTargetView(target, colour_value);
@@ -2917,7 +3051,14 @@ void DX11BackendClass::Clear(bool colour, bool depth, const float colour_value[4
 	if (depth && depth_view != NULL) {
 		Device->Get_Context()->ClearDepthStencilView(depth_view,
 			D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+		if (depth_view != Device->Get_Depth_Stencil_View() && CurrentTarget == NULL) {
+			// The single-sample depth too: a screen filter binds it for its own texture after this
+			// clear (Depth_For), and it still holds the last frame's resolve and stencil.
+			Device->Get_Context()->ClearDepthStencilView(Device->Get_Depth_Stencil_View(),
+				D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+		}
 		SceneDepthStale = true;
+		DepthResolveStale = DepthResolveStale || CurrentTarget == NULL;
 	}
 }
 
@@ -2931,6 +3072,7 @@ bool DX11BackendClass::Build_Combiner_Description(CombinerDescription & descript
 		RenderStates.Get_Render_State(D3DRS_ALPHATESTENABLE) != FALSE;
 	description.PixelPipeline.AlphaFunction = RenderStates.Get_Render_State(D3DRS_ALPHAFUNC);
 	description.PixelPipeline.FogEnabled = RenderStates.Get_Render_State(D3DRS_FOGENABLE) != FALSE;
+	description.PixelPipeline.AlphaToCoverage = Alpha_To_Coverage();
 	description.SpecularAdd = RenderStates.Get_Render_State(D3DRS_SPECULARENABLE) != FALSE;
 
 	description.StageCount = 0;
@@ -3053,8 +3195,10 @@ bool DX11BackendClass::Build_Vertex_Description(VertexPipelineDescription & desc
 
 bool DX11BackendClass::Resolve(Pipeline & pipeline)
 {
-	// Nothing either description is built from has been set since the last draw resolved.
-	if (!PipelineChanged && LastResolveHeld) {
+	// Nothing either description is built from has been set since the last draw resolved.  Alpha to
+	// coverage is read off the target as well as the states, and a target change sets nothing.
+	if (!PipelineChanged && LastResolveHeld
+		&& Memos[LastMemo].Combiner.PixelPipeline.AlphaToCoverage == Alpha_To_Coverage()) {
 		ResolveMemo & memo = Memos[LastMemo];
 		pipeline = memo.Resolved;
 		++memo.Use->Draws;
@@ -3560,6 +3704,7 @@ void DX11BackendClass::Forget_Last_State_Objects()
 	memset(LastSamplerDescriptions, 0, sizeof(LastSamplerDescriptions));
 	LastBlendState = NULL;
 	LastBlendGlow = false;
+	LastBlendCoverage = false;
 	LastDepthStencilState = NULL;
 	LastRasterizerState = NULL;
 	memset(LastSamplerStates, 0, sizeof(LastSamplerStates));
@@ -3567,10 +3712,20 @@ void DX11BackendClass::Forget_Last_State_Objects()
 	Forget_Bindings();
 }
 
-ID3D11BlendState * DX11BackendClass::Blend_State(bool glow)
+bool DX11BackendClass::Alpha_To_Coverage() const
+{
+	const unsigned function = RenderStates.Get_Render_State(D3DRS_ALPHAFUNC);
+	return Device->Scene_Is_Multisampled() && Draws_Into_Scene() && SoftParticlesAllowed
+		&& RenderStates.Get_Render_State(D3DRS_ALPHATESTENABLE) != FALSE
+		&& RenderStates.Get_Render_State(D3DRS_ALPHABLENDENABLE) == FALSE
+		&& (function == D3DCMP_GREATER || function == D3DCMP_GREATEREQUAL);
+}
+
+ID3D11BlendState * DX11BackendClass::Blend_State(bool glow, bool coverage)
 {
 	D3D11_BLEND_DESC description;
 	RenderStates.Build_Blend_Description(description);
+	description.AlphaToCoverageEnable = coverage ? TRUE : FALSE;
 	if (glow) {
 		// The source term becomes the blend factor, which Bind_State_Objects passes as the gain.
 		// A float target takes a factor past one unclamped; that is the whole of the boost.
@@ -3720,10 +3875,12 @@ void DX11BackendClass::Bind_State_Objects()
 	// Whether the glow applies hangs on the target and the vertex format as well as the render
 	// states, and neither of those raises StateObjectsChanged, so it is asked every draw.
 	const bool glow = Additive_Glow();
-	if (StateObjectsChanged || glow != LastBlendGlow || blend == NULL || depth_stencil == NULL
-			|| rasterizer == NULL) {
-		blend = Blend_State(glow);
+	const bool coverage = Alpha_To_Coverage();
+	if (StateObjectsChanged || glow != LastBlendGlow || coverage != LastBlendCoverage || blend == NULL
+			|| depth_stencil == NULL || rasterizer == NULL) {
+		blend = Blend_State(glow, coverage);
 		LastBlendGlow = glow;
+		LastBlendCoverage = coverage;
 		depth_stencil = Depth_Stencil_State();
 		rasterizer = Rasterizer_State();
 		StateObjectsChanged = blend == NULL || depth_stencil == NULL || rasterizer == NULL;
@@ -3933,6 +4090,9 @@ ID3D11ShaderResourceView * DX11BackendClass::Readable_Texture(unsigned stage,
 	if (TargetCopy == NULL) {
 		description.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 		description.MiscFlags = 0;
+		// The multisampled scene is resolved into it.
+		description.SampleDesc.Count = 1;
+		description.SampleDesc.Quality = 0;
 		if (FAILED(Device->Get_Device()->CreateTexture2D(&description, NULL, &TargetCopy))) {
 			Note_Refusal("the device refused a copy of the render target a draw samples");
 			TargetCopy = NULL;
@@ -3946,7 +4106,7 @@ ID3D11ShaderResourceView * DX11BackendClass::Readable_Texture(unsigned stage,
 		}
 	}
 
-	Device->Get_Context()->CopyResource(TargetCopy, resource);
+	DX11Resource_Copy_Readable(Device->Get_Context(), TargetCopy, resource);
 	return TargetCopyView;
 }
 
@@ -4014,6 +4174,7 @@ bool DX11BackendClass::Draw_Indexed(unsigned index_count, unsigned start_index,
 	if (RenderStates.Get_Render_State(D3DRS_ZWRITEENABLE) != FALSE
 		&& (CurrentTarget == NULL || CurrentDepth == Device->Get_Depth_Stencil_View())) {
 		SceneDepthStale = true;
+		DepthResolveStale = DepthResolveStale || CurrentTarget == NULL;
 	}
 	if (CurrentTarget != NULL) {
 		++DrawsIntoTargets;
@@ -4071,6 +4232,7 @@ bool DX11BackendClass::Draw_Triangles(unsigned vertex_count, unsigned start_vert
 	if (RenderStates.Get_Render_State(D3DRS_ZWRITEENABLE) != FALSE
 		&& (CurrentTarget == NULL || CurrentDepth == Device->Get_Depth_Stencil_View())) {
 		SceneDepthStale = true;
+		DepthResolveStale = DepthResolveStale || CurrentTarget == NULL;
 	}
 	if (CurrentTarget != NULL) {
 		++DrawsIntoTargets;
@@ -4239,6 +4401,7 @@ bool DX11BackendClass::Draw_User_Strip(const void * vertices, unsigned primitive
 	if (RenderStates.Get_Render_State(D3DRS_ZWRITEENABLE) != FALSE
 		&& (CurrentTarget == NULL || CurrentDepth == Device->Get_Depth_Stencil_View())) {
 		SceneDepthStale = true;
+		DepthResolveStale = DepthResolveStale || CurrentTarget == NULL;
 	}
 	if (CurrentTarget != NULL) {
 		++DrawsIntoTargets;

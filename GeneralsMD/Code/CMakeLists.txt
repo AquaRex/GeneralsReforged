@@ -2305,7 +2305,7 @@ add_lib_test(test_ffshadercompile ffshader)
 add_lib_test(test_dx11pipeline dx11device dx11state dx11layout ffshader ffvertex)
 add_lib_test(test_dx11resource dx11resource dx11device)
 add_lib_test(test_engineshader engineshader)
-add_lib_test(test_dx11backend dx11backend)
+add_lib_test(test_dx11backend dx11backend dx11post)
 # The hazard clouds' text, which the backend compiles for DX11HazardCloud.cpp.
 target_sources(test_dx11backend PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudShader.cpp)
