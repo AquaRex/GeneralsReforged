@@ -1266,6 +1266,8 @@ protected:
 	void handleBuildPlacements( void );													///< handle updating of placement icons based on mouse pos
 	void handleRadiusCursor();																	///< handle updating of "radius cursors" that follow the mouse pos
 	void updateAuraRings();																			///< the ground ring of each aura every visible leader gives
+	/// frozen time runs the scripts with no new logic frame, so an overlay laid once a frame is laid every pass
+	Bool isTimeFrozenWithoutTick( void ) const;
 
 	void incrementSelectCount( void ) { ++m_selectCount; }			///< Increase by one the running total of "selected" drawables
 	void decrementSelectCount( void ) { --m_selectCount; }			///< Decrease by one the running total of "selected" drawables
@@ -1563,6 +1565,9 @@ protected:
 		RadiusDecal	decal;
 	};
 	AuraRing										m_auraRings[AURA_RING_MAX];
+	UnsignedInt									m_auraRingsFrame = ~0u;		///< the logic frame the rings were last laid for
+	const Player							 *m_auraRingsPlayer = NULL;	///< and the local player they were laid for
+	Int													m_auraRingsShroudIndex = -1;	///< and the player whose fog the screen showed
 
 	//Floating Text Data
 	FloatingTextList						m_floatingTextList;				///< Our list of floating text

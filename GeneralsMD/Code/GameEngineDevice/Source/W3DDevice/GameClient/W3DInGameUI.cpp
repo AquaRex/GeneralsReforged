@@ -78,7 +78,7 @@
 #include "WW3D2/vertmaterial.h"
 #include "WW3D2/shader.h"
 
-#include "Common/UnitTimings.h" //Contains the DO_UNIT_TIMINGS define jba.		 
+#include "Common/UnitTimings.h" //Contains the DO_UNIT_TIMINGS define jba.
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -412,6 +412,8 @@ void W3DInGameUI::reset( void )
 	m_dragBoxDraw.clear();
 	m_postDrawCalls.clear();
 	m_hudOverlayDraw.clear();
+	m_guardMarkersFrame = ~0u;
+	m_guardMarkerTops.clear();
 
 }  // end reset
 
@@ -1340,20 +1342,37 @@ void W3DInGameUI::drawGuardMarkers( void )
 	const Int lift = height / 2;		// clear of the health bar's line over the model's top
 	const Real rim = max( 1.0f, height / 10.0f );
 
-	// ponytail: walks every object each frame; share one walk with another per-object overlay if it shows
-	for( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
+	// Who stands guard, and where, moves only with a tick, so the walk over every object runs once a
+	// logic frame; it ran on every pass and was most of what this method cost.  Only the camera is
+	// this pass's, except under frozen time, whose scripts move units with no new frame.
+	// ponytail: walks every object once a logic frame; share one walk with another per-object overlay if it shows
+	const UnsignedInt frame = TheGameLogic->getFrame();
+	const Player *local = ThePlayerList->getLocalPlayer();
+	if( frame != m_guardMarkersFrame || local != m_guardMarkersPlayer || isTimeFrozenWithoutTick() )
 	{
-		if( !obj->isLocallyControlled() || obj->isEffectivelyDead() || obj->getContainedBy() )
-			continue;
-		const AIUpdateInterface *ai = obj->getAI();
-		if( ai == NULL || ai->getCurrentStateID() != AI_GUARD )
-			continue;
-		const Drawable *draw = obj->getDrawable();
-		if( draw == NULL || draw->isDrawableEffectivelyHidden() )
-			continue;
+		m_guardMarkersFrame = frame;
+		m_guardMarkersPlayer = local;
+		m_guardMarkerTops.clear();
+		for( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
+		{
+			if( !obj->isLocallyControlled() || obj->isEffectivelyDead() || obj->getContainedBy() )
+				continue;
+			const AIUpdateInterface *ai = obj->getAI();
+			if( ai == NULL || ai->getCurrentStateID() != AI_GUARD )
+				continue;
+			const Drawable *draw = obj->getDrawable();
+			if( draw == NULL || draw->isDrawableEffectivelyHidden() )
+				continue;
 
-		Coord3D top = *obj->getPosition();
-		top.z += obj->getGeometryInfo().getMaxHeightAbovePosition();
+			Coord3D top = *obj->getPosition();
+			top.z += obj->getGeometryInfo().getMaxHeightAbovePosition();
+			m_guardMarkerTops.push_back( top );
+		}
+	}
+
+	for( size_t i = 0; i < m_guardMarkerTops.size(); ++i )
+	{
+		Coord3D top = m_guardMarkerTops[ i ];
 		ICoord2D spot;
 		if( !TheTacticalView->worldToScreen( &top, &spot ) )
 			continue;

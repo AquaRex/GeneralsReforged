@@ -134,7 +134,7 @@
 #include "GameLogic/Module/MobMemberSlavedUpdate.h"//ML
 #include "GameLogic/Module/SpawnBehavior.h"
 
-#include "Common/UnitTimings.h" //Contains the DO_UNIT_TIMINGS define jba.		 
+#include "Common/UnitTimings.h" //Contains the DO_UNIT_TIMINGS define jba.
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -1504,6 +1504,17 @@ void InGameUI::setRadiusCursor(RadiusCursorType cursorType, const SpecialPowerTe
 }
 
 //-------------------------------------------------------------------------------------------------
+/** GameLogic::update's freeze, where the scripts run and the frame stays: a camera move freezes
+	* nothing in a multiplayer session. */
+//-------------------------------------------------------------------------------------------------
+Bool InGameUI::isTimeFrozenWithoutTick( void ) const
+{
+	return ( !TheGameEngine->isMultiplayerSession() && TheTacticalView->isTimeFrozen()
+					 && !TheTacticalView->isCameraMovementFinished() )
+				 || TheScriptEngine->isTimeFrozenDebug() || TheScriptEngine->isTimeFrozenScript();
+}
+
+//-------------------------------------------------------------------------------------------------
 /** A leader's auras on the ground: one ring for each kind it gives, under every leader on the map,
 	* selected or not, friend or enemy, while the player at this machine can see it: out of the fog and
 	* shroud, and not a stealthed unit it has not detected (the test the drawable's own shadow obeys).
@@ -1513,24 +1524,50 @@ void InGameUI::setRadiusCursor(RadiusCursorType cursorType, const SpecialPowerTe
 //-------------------------------------------------------------------------------------------------
 void InGameUI::updateAuraRings()
 {
+	// Who leads, where and through which fog moves with a tick, so the walk over every drawable runs
+	// once a logic frame and again when the fog on the screen changes hands; on every pass it was 1.8%
+	// of the main thread late in a match.  Frozen time runs scripts with no new frame, and one may move
+	// or hide a leader, so then it walks every pass.  A ring's opacity follows the icon switch and
+	// -cinema, which change between ticks, so every live ring is updated every pass.
+	Player *local = ThePlayerList->getLocalPlayer();
+	const UnsignedInt frame = TheGameLogic->getFrame();
+	const Int shroudIndex = local != NULL ? TheObserverCamera.getShroudPlayerIndex() : -1;
+	if( frame == m_auraRingsFrame && local == m_auraRingsPlayer && shroudIndex == m_auraRingsShroudIndex
+			&& !isTimeFrozenWithoutTick() )
+	{
+		for( Int slot = 0; slot < AURA_RING_MAX; ++slot )
+			if( m_auraRings[ slot ].id != INVALID_ID )
+				m_auraRings[ slot ].decal.update();
+		return;
+	}
+	m_auraRingsFrame = frame;
+	m_auraRingsPlayer = local;
+	m_auraRingsShroudIndex = shroudIndex;
+
 	struct Wanted { ObjectID id; Int kind; Real radius; Coord3D pos; };
 	Wanted wanted[ AURA_RING_MAX ];
 	Int wantedCount = 0;
 
-	Player *local = ThePlayerList->getLocalPlayer();
 	for( Drawable *draw = TheGameClient->firstDrawable(); draw != NULL && local != NULL; draw = draw->getNextDrawable() )
 	{
 		const Object *obj = draw->getObject();
 		const RankLadder *ladder = obj ? TheGlobalData->getRankLadder( obj->getTemplate() ) : NULL;
-		if( ladder == NULL || obj->isEffectivelyDead() || obj->getContainedBy()
+		if( ladder == NULL )
+			continue;
+		// the grade first: few units lead, and the fog asks the partition
+		const Int grade = obj->getRankGrade();
+		Int kinds[ RANK_AURA_COUNT ];
+		Int kindCount = 0;
+		for( Int kind = 0; kind < RANK_AURA_COUNT; ++kind )
+			if( ladder->aura( grade, (RankAura)kind ) > 0.0f && TheGlobalData->m_rankAuraRing[ kind ].valid() )
+				kinds[ kindCount++ ] = kind;
+		if( kindCount == 0 || obj->isEffectivelyDead() || obj->getContainedBy()
 				|| draw->isDrawableEffectivelyHidden() || draw->getFullyObscuredByShroud()
 				|| obj->getShroudedStatus( local->getPlayerIndex() ) != OBJECTSHROUD_CLEAR )
 			continue;
-		const Int grade = obj->getRankGrade();
-		for( Int kind = 0; kind < RANK_AURA_COUNT && wantedCount < AURA_RING_MAX; ++kind )
+		for( Int k = 0; k < kindCount && wantedCount < AURA_RING_MAX; ++k )
 		{
-			if( ladder->aura( grade, (RankAura)kind ) <= 0.0f || !TheGlobalData->m_rankAuraRing[ kind ].valid() )
-				continue;
+			const Int kind = kinds[ k ];
 			wanted[ wantedCount ].id = obj->getID();
 			wanted[ wantedCount ].kind = kind;
 			wanted[ wantedCount ].radius = ladder->auraRadius( grade, (RankAura)kind );
@@ -2802,6 +2839,8 @@ void InGameUI::reset( void )
 		m_auraRings[ i ].id = INVALID_ID;
 		m_auraRings[ i ].decal.clear();
 	}
+	m_auraRingsFrame = ~0u;
+	m_auraRingsPlayer = NULL;
 
 	m_isQuitMenuVisible = FALSE;
 	TheObserverCamera.reset();

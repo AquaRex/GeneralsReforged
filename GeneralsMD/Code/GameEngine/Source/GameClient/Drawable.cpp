@@ -3457,6 +3457,39 @@ static Bool showsOwnerDetail( const Object *obj )
 
 }  // end showsOwnerDetail
 
+//-------------------------------------------------------------------------------------------------
+static NameKeyType stickyBombUpdateKey( void )
+{
+	static const NameKeyType key = NAMEKEY( "StickyBombUpdate" );
+	return key;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Whether the object carries a module the icon pass asks for.  Each ask walked every module of
+	* every drawable in view on every pass, and the supply cash, the sticky bomb, the production bar
+	* and the charge bar asked for one each: most of what the post draw cost late in a match.  The
+	* object's modules are made with it, so one walk answers for its whole life. */
+//-------------------------------------------------------------------------------------------------
+Bool Drawable::hasIconModule( IconModule module )
+{
+	if( m_iconModules == 0 )
+	{
+		m_iconModules = ICON_MODULES_KNOWN;
+		for( BehaviorModule **m = getObject()->getBehaviorModules(); *m; ++m )
+		{
+			if( (*m)->getDockUpdateInterface() )
+				m_iconModules |= ICON_MODULE_DOCK;
+			if( (*m)->getModuleNameKey() == stickyBombUpdateKey() )
+				m_iconModules |= ICON_MODULE_STICKY_BOMB;
+			if( (*m)->getProductionUpdateInterface() )
+				m_iconModules |= ICON_MODULE_PRODUCTION;
+			if( (*m)->getSpecialPower() )
+				m_iconModules |= ICON_MODULE_SPECIAL_POWER;
+		}
+	}
+	return ( m_iconModules & module ) != 0;
+}
+
 
 // ------------------------------------------------------------------------------------------------
 
@@ -4303,8 +4336,8 @@ void Drawable::drawBombed(const IRegion2D* healthBarRegion)
 	//
 	// Bombed?
 	//
-	static NameKeyType key_StickyBombUpdate = NAMEKEY( "StickyBombUpdate" );
-	StickyBombUpdate *update = (StickyBombUpdate*)obj->findUpdateModule( key_StickyBombUpdate );
+	StickyBombUpdate *update = hasIconModule( ICON_MODULE_STICKY_BOMB )
+		? (StickyBombUpdate*)obj->findUpdateModule( stickyBombUpdateKey() ) : NULL;
 	if( update )
 	{
 		//This case is tricky. The object that is bombed doesn't know it... but the bomb itself does.
@@ -4562,7 +4595,7 @@ void Drawable::drawConstructPercent( const IRegion2D *healthBarRegion )
 void Drawable::drawSupplyCash( const IRegion2D *healthBarRegion )
 {
 	Object *obj = getObject();
-	DockUpdateInterface *dock = obj ? obj->getDockUpdateInterface() : NULL;
+	DockUpdateInterface *dock = obj && hasIconModule( ICON_MODULE_DOCK ) ? obj->getDockUpdateInterface() : NULL;
 	Int cash = dock ? dock->getSupplyCashValue() : -1;
 
 	if( cash <= 0 )
@@ -4686,7 +4719,6 @@ void Drawable::drawVeterancy( const IRegion2D *healthBarRegion )
 	// a unit on a rank ladder wears its grade's insignia, a grade with no insignia nothing; anyone else
 	// EA's chevron for the level
 	const RankLadder *ladder = TheGlobalData->getRankLadder( obj->getTemplate() );
-	const Int insignia = ladder ? ladder->insigniaIndex( obj->getRankGrade(), obj->isKindOf( KINDOF_HERO ) ) : 0;
 	VeterancyLevel level = obj->getVeterancyLevel();
 	const Image* image = ladder ? getRankInsignia( obj ) : s_veterancyImage[level];
 	if (!image)
@@ -4731,9 +4763,11 @@ void Drawable::drawVeterancy( const IRegion2D *healthBarRegion )
 			left = healthBarRegion->hi.x + 2;
 			middle = ( healthBarRegion->lo.y + healthBarRegion->hi.y ) / 2;
 		}
+		// image is the grade's insignia already (getRankInsignia), so it is drawn as drawRankInsignia would
 		Int width, height;
 		rankInsigniaSize( image, 1.0f, &width, &height );
-		drawRankInsignia( obj->getTemplate(), insignia, left, middle - height / 2, FALSE, 1.0f, GameMakeColor( 255, 255, 255, 255 ) );
+		const Int top = middle - height / 2;
+		TheDisplay->drawImage( image, left, top, left + width, top + height, GameMakeColor( 255, 255, 255, 255 ) );
 		return;
 	}
 
@@ -5167,7 +5201,8 @@ void Drawable::drawHealthBar(const IRegion2D* healthBarRegion)
 		Int stackY = healthBarRegion->lo.y - 3;
 
 		// own producers show a white production-progress bar above the health bar, with seconds left at its top-left
-		ProductionUpdateInterface *pu = showsOwnerDetail( obj ) ? obj->getProductionUpdateInterface() : NULL;
+		ProductionUpdateInterface *pu = hasIconModule( ICON_MODULE_PRODUCTION ) && showsOwnerDetail( obj )
+			? obj->getProductionUpdateInterface() : NULL;
 		const ProductionEntry *pe = pu ? pu->firstProduction() : NULL;
 		if( pe )
 		{
@@ -5235,7 +5270,7 @@ void Drawable::drawHealthBar(const IRegion2D* healthBarRegion)
 		// not own is skipped, and so is one that has finished charging: a full bar that never
 		// empties is the same clutter in a different colour.
 		//
-		if( showsOwnerDetail( obj ) &&
+		if( hasIconModule( ICON_MODULE_SPECIAL_POWER ) && showsOwnerDetail( obj ) &&
 				!obj->getStatusBits().test( OBJECT_STATUS_UNDER_CONSTRUCTION ) &&
 				!obj->getStatusBits().test( OBJECT_STATUS_SOLD ) )
 		{
@@ -5761,8 +5796,8 @@ DrawableID Drawable::getID( void ) const
 
 //-------------------------------------------------------------------------------------------------
 void Drawable::friend_bindToObject( Object *obj ) ///< bind this drawable to an object ID
-{ 
-	m_object = obj; 
+{
+	m_object = obj;
 	if (getObject())
 	{
 		if (TheGlobalData->m_timeOfDay == TIME_OF_DAY_NIGHT)

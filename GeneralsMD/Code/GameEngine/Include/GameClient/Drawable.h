@@ -970,7 +970,19 @@ private:
 	void drawBattlePlans( const IRegion2D* healthBarRegion );				///< Icons rendering for active battle plan statii
 
 	Bool drawsAnyUIText( void );
-	
+
+	/// the modules the icon pass looks for on the object; its modules are made with it and never change
+	enum IconModule
+	{
+		ICON_MODULE_DOCK					= 1 << 0,
+		ICON_MODULE_STICKY_BOMB		= 1 << 1,
+		ICON_MODULE_PRODUCTION		= 1 << 2,
+		ICON_MODULE_SPECIAL_POWER	= 1 << 3,
+		ICON_MODULES_KNOWN				= 1 << 7
+	};
+	UnsignedByte m_iconModules = 0;		///< IconModule bits, found the first time the icon pass asks
+	Bool hasIconModule( IconModule module );
+
 	static Bool							s_staticImagesInited;
 	static const Image*			s_veterancyImage[LEVEL_COUNT];
 	static const Image*			s_fullAmmo;
