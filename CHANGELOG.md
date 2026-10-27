@@ -816,6 +816,7 @@ found and fixed, EA's own, not port damage.**
 - A shell's flight path is worked out the same way on every machine. The game borrowed that sum from a DirectX library that, going by its code, picks how to do it by processor: one way on Intel chips, another on everyone else's. The two answers differ in the last digits, and when both were run over half a million calculations shaped like the game's own shell paths, nearly half came out slightly different. That is enough for two machines to disagree about where a shell is. Nobody has reported it in a match, but every machine now uses the same sum whatever its processor. A replay recorded on an Intel machine with an earlier version may not play back exactly.
 - A unit that was waiting for its route when you saved moves again after the load. The queue of route requests is not in the save, so it came back waiting for an answer nobody was going to give and stood there for the rest of the match.
 - Every player's bank and the map script's counters, timers and flags are part of the check machines compare each step, so a match that starts to disagree is caught the moment it does, before the difference reaches a unit.
+- A room or a replay that asks for that check every 0 steps no longer crashes everyone who joins or watches it, and a host started with `-NetCRCInterval 0` no longer crashes itself. The interval is held between 1 and 100 now, so a host given a number outside that checks at the same rate as the players who join.
 
 ## Sharper textures, for free
 

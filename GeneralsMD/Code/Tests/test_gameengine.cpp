@@ -7684,6 +7684,36 @@ TEST(bitflags_crc_covers_every_word_of_the_flag_set)
 	CHECK_NE( crcOfStatusMask( full ), crcOfStatusMask( fullMinusOne ) );
 }
 
+// A lobby or replay string carrying C=0 used to reach GameLogic's m_frame % interval and crash.
+extern Int NET_CRC_INTERVAL;
+TEST(crc_interval_is_held_between_1_and_100)
+{
+	GlobalData *saved = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;		// GameInfo::reset reads the default starting cash
+
+	SkirmishGameInfo game;
+	game.setCRCInterval( 0 );
+	CHECK_EQ( game.getCRCInterval(), 1 );
+	game.setCRCInterval( -7 );
+	CHECK_EQ( game.getCRCInterval(), 1 );
+	game.setCRCInterval( 1 );
+	CHECK_EQ( game.getCRCInterval(), 1 );
+	game.setCRCInterval( 37 );
+	CHECK_EQ( game.getCRCInterval(), 37 );
+	game.setCRCInterval( 5000 );
+	CHECK_EQ( game.getCRCInterval(), 100 );
+
+	// -NetCRCInterval writes NET_CRC_INTERVAL raw, and a host takes it through reset(), not the lobby string
+	Int savedInterval = NET_CRC_INTERVAL;
+	NET_CRC_INTERVAL = 0;
+	game.reset();
+	CHECK_EQ( game.getCRCInterval(), 1 );
+	NET_CRC_INTERVAL = savedInterval;
+
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = saved;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Network command ids are sixteen bits and wrap.  NetCommandList insert-sorts by them, so the
 // comparison has to survive the wrap or a player's own orders come out of order - and, because a
