@@ -327,6 +327,7 @@ found and fixed, EA's own, not port damage.**
 - A vehicle a mod gives two passenger holds no longer crashes the game. The second hold took riders in where nothing else looked, so a passenger who died stayed aboard, and the next time the vehicle seated its riders it reached for him.
 - A network game or a replay on a map this machine cannot read goes back to the menu. It used to deal out the start positions as if the map had eight, while the machines that had it dealt over the map's own, and the game split from the first second.
 - A mod whose unit is switched on, held back or stripped by an upgrade the mod never defines no longer crashes the game as the map loads. The missing name is skipped and written to the log once, and the rest of the unit's upgrades work.
+- A mod or an install folder carrying an older skirmish room screen, one without the match record panel, no longer crashes the game on the way into Skirmish. The room opens without the record and plays as before.
 
 ## One interface
 
