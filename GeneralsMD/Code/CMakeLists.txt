@@ -1768,6 +1768,7 @@ target_link_libraries(gameenginedevice PUBLIC gameengine ww3d2 milesaudio binkvi
 
 # ---- generals.exe ---------------------------------------------------------
 add_executable(generals WIN32 ${CMAKE_CURRENT_SOURCE_DIR}/Main/WinMain.cpp
+                             ${CMAKE_CURRENT_SOURCE_DIR}/Main/ModApi.cpp
                              ${CMAKE_CURRENT_SOURCE_DIR}/Main/RTS.RC)
 target_include_directories(generals PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Main ${GENERATED})
 # A .map turns the "fault offset" in the Windows Application Error event into a
