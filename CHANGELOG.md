@@ -1428,6 +1428,7 @@ A third pass went through the generals' powers, promotions and unit abilities.
 - The water stops moving while the game is paused.
 - A stealth unit that fires in plain sight no longer vanishes for a few frames before it shows up again.
 - Revealing the fog at a waypoint in a mission reveals it for the right players.
+- An Overlord whose Battle Bunker is destroyed on its own, by a script or with the team or player it belongs to, no longer crashes the game the next time the Overlord moves or the match ends. The Overlord kept the dead bunker on its back.
 - Replays recorded before this version that have burning infantry, missiles, captured vehicles, cancelled production, guard mode, tunnels or power plants in them play back differently.
 
 ## The buildings nobody repairs, repair themselves
