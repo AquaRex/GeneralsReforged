@@ -325,7 +325,7 @@ ThingTemplate *ThingFactory::findTemplateInternal( const AsciiString& name, Bool
 }  // end getTemplate
 
 //=============================================================================
-Object *ThingFactory::newObject( const ThingTemplate *tmplate, Team *team, ObjectStatusMaskType statusBits )
+Object *ThingFactory::newObject( const ThingTemplate *tmplate, Team *team, ObjectStatusMaskType statusBits, const Object *producer )
 {
 	if (tmplate == NULL)
 		throw ERROR_BAD_ARG;
@@ -339,11 +339,15 @@ Object *ThingFactory::newObject( const ThingTemplate *tmplate, Team *team, Objec
 			tmplate = tmp;
 	}
 
-	// a side's own reskin in place of another side's template: Turkiye is built on the American data
+	// a side's own reskin in place of another side's template: Turkiye is built on the American data.
+	// The side is the producer's when there is one.  Taken from the owner, a Turkiye player's captured
+	// China dozer put up the Kargu superweapon for an Airfield's 1000, because TurkiyeKarguBase is a
+	// reskin of ChinaAirfield, and a captured GLA Command Center trained Turkiye engineers for Workers.
 	const Player *owner = team ? team->getControllingPlayer() : NULL;
 	if (owner != NULL)
 	{
-		const ThingTemplate *own = findSideReskin( tmplate, owner->getSide() );
+		const AsciiString &side = producer ? producer->getTemplate()->getDefaultOwningSide() : owner->getSide();
+		const ThingTemplate *own = findSideReskin( tmplate, side );
 		if (own != NULL)
 			tmplate = own;
 	}

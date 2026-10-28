@@ -265,6 +265,7 @@ Data/Scenarios/blastcheck.txt
 Data/Scenarios/bridgecross.txt
 Data/Scenarios/bridgelong.txt
 Data/Scenarios/broadcastend.txt
+Data/Scenarios/capturedbuild.txt
 Data/Scenarios/cargocrash.txt
 Data/Scenarios/chokeprobe.txt
 Data/Scenarios/comanchehill.txt
