@@ -1768,6 +1768,7 @@ target_link_libraries(gameenginedevice PUBLIC gameengine ww3d2 milesaudio binkvi
 
 # ---- generals.exe ---------------------------------------------------------
 add_executable(generals WIN32 ${CMAKE_CURRENT_SOURCE_DIR}/Main/WinMain.cpp
+                             ${CMAKE_CURRENT_SOURCE_DIR}/Main/ModApi.cpp
                              ${CMAKE_CURRENT_SOURCE_DIR}/Main/RTS.RC)
 target_include_directories(generals PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Main ${GENERATED})
 # A .map turns the "fault offset" in the Windows Application Error event into a
@@ -1837,11 +1838,6 @@ add_custom_command(TARGET generals POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_directory
           ${CMAKE_CURRENT_SOURCE_DIR}/Data/Art/Textures
           ${CMAKE_CURRENT_SOURCE_DIR}/../Run/Art/Textures
-  # The fork's own models (Mehmetcik's TRMEHM_SKN).  A model's name and bytes are in the
-  # multiplayer INI checksum, so the launcher payload ships this folder from the same masters.
-  COMMAND ${CMAKE_COMMAND} -E copy_directory
-          ${CMAKE_CURRENT_SOURCE_DIR}/Data/Art/W3D
-          ${CMAKE_CURRENT_SOURCE_DIR}/../Run/Art/W3D
   # The fork's window layouts, generated from the shipped ones by Tools/*.py and
   # tracked here.  They live outside Data/ in the archive (Window/Menus/...), and
   # a loose file wins over WindowZH.big.  Layouts are not in the multiplayer INI

@@ -33,7 +33,6 @@
 #include "Common/INI.h"
 #include "Common/Player.h"
 #include "Common/Science.h"
-#include "Common/StackDump.h"	// g_LastErrorDump
 
 #include <algorithm>
 
@@ -397,9 +396,7 @@ ScienceType ScienceStore::friend_lookupScience(const char* scienceName) const
 	ScienceType st = (ScienceType)nkt;
 	if (!isValidScience(st))
 	{
-		// as retail, a stop; the crash report names the science, which the INI error line does not
-		g_LastErrorDump.format("Science '%s' is named but no Science block defines it\n", scienceName);
-		DEBUG_LOG(("%s", g_LastErrorDump.str()));
+		DEBUG_CRASH(("Science name %s not known! (Did you define it in Science.ini?)",scienceName));
 		throw INI_INVALID_DATA;
 	}
 	return st;

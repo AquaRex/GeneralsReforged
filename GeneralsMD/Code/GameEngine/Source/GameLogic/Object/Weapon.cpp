@@ -1741,6 +1741,29 @@ WeaponTemplate *WeaponStore::newWeaponTemplate(AsciiString name)
 } 
 
 //-------------------------------------------------------------------------------------------------
+/* A map.ini block for a weapon that already exists. EA parsed it into a copy that nothing ever
+	 pointed at - not the store, not the object templates, which hold the original by pointer - so a
+	 map could add weapons but every change to an existing one was lost. The block now edits the
+	 original, and the original's first state is kept aside for reset() to put back after the match. */
+WeaponTemplate *WeaponStore::newOverride(WeaponTemplate *weaponTemplate)
+{
+	if (!weaponTemplate->isOverride())
+	{
+		WeaponTemplate *pristine = newInstance(WeaponTemplate);
+		(*pristine) = (*weaponTemplate);
+		weaponTemplate->friend_setNextTemplate(pristine);
+		// the copy shares the extra-bonus set, and a WeaponBonus line edits that set in place
+		if (pristine->m_extraBonus)
+		{
+			weaponTemplate->m_extraBonus = newInstance(WeaponBonusSet);
+			(*weaponTemplate->m_extraBonus) = (*pristine->m_extraBonus);
+		}
+	}
+
+	return weaponTemplate;
+}
+
+//-------------------------------------------------------------------------------------------------
 void WeaponStore::update()
 {
 	// end of the logic frame: nothing is firing any more
@@ -1792,6 +1815,21 @@ void WeaponStore::resetWeaponTemplates( void )
 //-------------------------------------------------------------------------------------------------
 void WeaponStore::reset()
 {
+	// put back every weapon a map.ini edited (see newOverride)
+	for (Int i = 0; i < m_weaponTemplateVector.size(); ++i)
+	{
+		WeaponTemplate *wt = m_weaponTemplateVector[i];
+		if (wt->isOverride())
+		{
+			WeaponTemplate *pristine = wt->friend_clearNextTemplate();
+			if (wt->m_extraBonus)
+				wt->m_extraBonus->deleteInstance();
+			(*wt) = (*pristine);
+			pristine->m_extraBonus = NULL;	// wt owns it again
+			pristine->deleteInstance();
+		}
+	}
+
 	/* A weapon the map made from nothing goes too.  Left in the store, the next map that defined the
 		 same name edited this one, from the old map's values instead of a new weapon's defaults, and
 		 a machine that had not played the old map built a different weapon.  The templates that held
@@ -1967,7 +2005,9 @@ void WeaponStore::postProcessLoad()
 	WeaponTemplate *weapon = TheWeaponStore->findWeaponTemplatePrivate( TheNameKeyGenerator->nameToKey( name ) );
 	if (weapon)
 	{
-		if (ini->getLoadType() == INI_LOAD_MULTIFILE)
+		if (ini->getLoadType() == INI_LOAD_CREATE_OVERRIDES)
+			weapon = TheWeaponStore->newOverride(weapon);
+		else if (ini->getLoadType() == INI_LOAD_MULTIFILE)
 		{
 			// BalanceReforged.ini: edit the weapon in place, the fields it does not name stay as they were
 		}
@@ -1976,10 +2016,7 @@ void WeaponStore::postProcessLoad()
 			/* The first definition stands and the block is read and dropped.  WeaponReforged.ini keeps
 				 copies of EA weapons FixesReforged.ini hands out, for a mod whose Weapon.ini leaves them out
 				 (Contra has no Demo_DestroyedWeapon); where the loaded data has the weapon, its own wins.
-				 This used to return mid-block, and the next field line stopped the load as an unknown block.
-				 A map.ini block lands here too, as it did in retail: EA parsed it into a copy nothing pointed
-				 at, and the campaign was tuned with those edits lost.  Applying them gave Generals USA04's
-				 cutscene CarpetBombWeapon its 1000 radius, and the bombers wiped every unit on the map. */
+				 This used to return mid-block, and the next field line stopped the load as an unknown block. */
 			DEBUG_LOG(("[LINE: %d in '%s'] Weapon '%s' is already defined; the block is skipped.\n", ini->getLineNum(), ini->getFilename().str(), c));
 			WeaponTemplate *scratch = newInstance(WeaponTemplate);
 			ini->initFromINI(scratch, scratch->getFieldParse());

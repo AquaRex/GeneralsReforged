@@ -42,30 +42,6 @@ Data/Art/Textures/ReforgedRanksUSA.tga
 Data/Art/Textures/ReforgedSignalAttack.tga
 Data/Art/Textures/ReforgedSignalDefend.tga
 Data/Art/Textures/ReforgedSignalLook.tga
-Data/Art/Textures/ZHCA_TRMehmet.tga
-Data/Art/W3D/TRMEHM_AA2AC.W3D
-Data/Art/W3D/TRMEHM_AA2SA.W3D
-Data/Art/W3D/TRMEHM_ATA.W3D
-Data/Art/W3D/TRMEHM_ATC.W3D
-Data/Art/W3D/TRMEHM_ATCED.W3D
-Data/Art/W3D/TRMEHM_ATCST.W3D
-Data/Art/W3D/TRMEHM_CHA.W3D
-Data/Art/W3D/TRMEHM_DTA.W3D
-Data/Art/W3D/TRMEHM_DTB.W3D
-Data/Art/W3D/TRMEHM_DTE1.W3D
-Data/Art/W3D/TRMEHM_DTE2.W3D
-Data/Art/W3D/TRMEHM_DTE3.W3D
-Data/Art/W3D/TRMEHM_IDA.W3D
-Data/Art/W3D/TRMEHM_IDB.W3D
-Data/Art/W3D/TRMEHM_IDC.W3D
-Data/Art/W3D/TRMEHM_RNA.W3D
-Data/Art/W3D/TRMEHM_RNB.W3D
-Data/Art/W3D/TRMEHM_S2SB.W3D
-Data/Art/W3D/TRMEHM_SA2AA.W3D
-Data/Art/W3D/TRMEHM_SKN.W3D
-Data/Art/W3D/TRMEHM_STA.W3D
-Data/Art/W3D/TRMEHM_STB.W3D
-Data/Art/W3D/TRMEHM_WKA.W3D
 Data/Cinema/aurorablast.txt
 Data/Cinema/aurorafog.txt
 Data/Cinema/blastcheck.txt
@@ -124,7 +100,6 @@ Data/Cinema/minefx_scene.txt
 Data/Cinema/minefx_scene_enemy.txt
 Data/Cinema/missileapex_film.txt
 Data/Cinema/mobwatch.txt
-Data/Cinema/msaa_river.txt
 Data/Cinema/ngguard.txt
 Data/Cinema/nohud.txt
 Data/Cinema/nukedome.txt
@@ -135,7 +110,6 @@ Data/Cinema/rankauramaresal.txt
 Data/Cinema/rankauranight.txt
 Data/Cinema/rankaurasnow.txt
 Data/Cinema/rankladder.txt
-Data/Cinema/rankringsall.txt
 Data/Cinema/rankzero.txt
 Data/Cinema/readme_water.txt
 Data/Cinema/rf_ai.txt
@@ -265,7 +239,6 @@ Data/Scenarios/blastcheck.txt
 Data/Scenarios/bridgecross.txt
 Data/Scenarios/bridgelong.txt
 Data/Scenarios/broadcastend.txt
-Data/Scenarios/capturedbuild.txt
 Data/Scenarios/cargocrash.txt
 Data/Scenarios/chokeprobe.txt
 Data/Scenarios/comanchehill.txt
@@ -341,7 +314,6 @@ Data/Scenarios/mappers.txt
 Data/Scenarios/mass420x2.txt
 Data/Scenarios/mass840.txt
 Data/Scenarios/massmove.txt
-Data/Scenarios/mehmetcik.txt
 Data/Scenarios/minefx.txt
 Data/Scenarios/minefx_blast.txt
 Data/Scenarios/minefx_desert.txt
@@ -361,7 +333,6 @@ Data/Scenarios/mobclose.txt
 Data/Scenarios/mobopen.txt
 Data/Scenarios/mobstress.txt
 Data/Scenarios/mobwin.txt
-Data/Scenarios/msaa_river.txt
 Data/Scenarios/netrepeat.txt
 Data/Scenarios/netstance.txt
 Data/Scenarios/nukefade.txt
@@ -381,7 +352,6 @@ Data/Scenarios/rankaurareplay.txt
 Data/Scenarios/rankaurasnow.txt
 Data/Scenarios/rankaurawiki.txt
 Data/Scenarios/rankladder.txt
-Data/Scenarios/rankringsall.txt
 Data/Scenarios/rankzero.txt
 Data/Scenarios/reachshot.txt
 Data/Scenarios/readme_hud.txt
@@ -453,7 +423,6 @@ Data/Scenarios/tunnelgap.txt
 Data/Scenarios/tunnelqueue.txt
 Data/Scenarios/tunnelshortcut.txt
 Data/Scenarios/tunnelsplit.txt
-Data/Scenarios/tunnelunderfire.txt
 Data/Scenarios/tunnelwalk.txt
 Data/Scenarios/v240_heli.txt
 Data/Scenarios/v240_hook.txt

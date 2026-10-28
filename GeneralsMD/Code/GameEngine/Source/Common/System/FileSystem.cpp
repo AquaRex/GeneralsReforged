@@ -563,9 +563,6 @@ Bool FileSystem::isForkOwnedPath(const AsciiString& filename)
 		|| starts("data\\turkish\\") || starts("data\\german\\")
 		|| starts("data\\ukrainian\\") || starts("data\\russian\\") || starts("data\\french\\")
 		|| starts("art\\textures\\reforged")
-		// Mehmetcik's own model and animations; the texture keeps EA's ZHCA_ prefix, which is what takes
-		// the house colour
-		|| starts("art\\w3d\\trmehm_") || p == "art\\textures\\zhca_trmehmet.tga"
 		|| starts("window\\")
 		|| p == "install_final.bmp";
 }

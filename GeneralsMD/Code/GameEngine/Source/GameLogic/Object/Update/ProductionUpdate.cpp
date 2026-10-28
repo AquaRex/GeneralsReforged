@@ -954,8 +954,7 @@ UpdateSleepTime ProductionUpdate::update( void )
 						if( d->m_numDoorAnimations == 0 || door == NULL || door->m_doorWaitOpenFrame != 0 )
 						{
 							Object *newObj = TheThingFactory->newObject( production->m_objectToProduce, 
-																	creationBuilding->getControllingPlayer()->getDefaultTeam(),
-																	OBJECT_STATUS_MASK_NONE, creationBuilding );
+																	creationBuilding->getControllingPlayer()->getDefaultTeam() );
 							
 							newObj->setProducer(creationBuilding);
 
