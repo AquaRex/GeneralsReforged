@@ -47,6 +47,7 @@
 #include "Common/TunnelTracker.h"
 #include "Common/Upgrade.h"
 #include "Common/PerfTimer.h"
+#include "Common/StackDump.h"	// g_LastErrorDump
 #include "Common/UnitTimings.h"
 #include "Common/Xfer.h"
 #include "Common/XferCRC.h"
@@ -239,7 +240,9 @@ static void AIUpdate_traceMove( const Object *obj, const Coord3D& framePos, Bool
 	AIUpdateModuleData *self = tt->friend_getAIModuleInfo();
 	if (!self) 
 	{
-		DEBUG_CRASH( ("Attempted to specify a locomotor for object %s without an AIUpdate block.", tt->getName().str() ) );
+		g_LastErrorDump.format("[LINE: %d in '%s'] %s names a locomotor before any AI module\n",
+			ini->getLineNum(), ini->getFilename().str(), tt->getName().str());
+		DEBUG_LOG(("%s", g_LastErrorDump.str()));
 		throw INI_INVALID_DATA;
 	}
 
@@ -248,7 +251,9 @@ static void AIUpdate_traceMove( const Object *obj, const Coord3D& framePos, Bool
 	{
 		if (ini->getLoadType() != INI_LOAD_CREATE_OVERRIDES)
 		{
-			DEBUG_CRASH(("re-specifying a LocomotorSet is no longer allowed\n"));
+			g_LastErrorDump.format("[LINE: %d in '%s'] %s states locomotor set %s twice\n",
+				ini->getLineNum(), ini->getFilename().str(), tt->getName().str(), TheLocomotorSetNames[set]);
+			DEBUG_LOG(("%s", g_LastErrorDump.str()));
 			throw INI_INVALID_DATA;
 		}
 	}
@@ -269,7 +274,10 @@ static void AIUpdate_traceMove( const Object *obj, const Coord3D& framePos, Bool
 		}
 		if (!lt)
 		{
-			DEBUG_CRASH(("Locomotor %s not found!\n",locoName));
+			// as retail, a stop; the crash report names the locomotor, which the INI error line does not
+			g_LastErrorDump.format("[LINE: %d in '%s'] %s names locomotor '%s', which no Locomotor block defines\n",
+				ini->getLineNum(), ini->getFilename().str(), tt->getName().str(), locoName);
+			DEBUG_LOG(("%s", g_LastErrorDump.str()));
 			throw INI_INVALID_DATA;
 		}
 		self->m_locomotorTemplates[set].push_back(lt);
